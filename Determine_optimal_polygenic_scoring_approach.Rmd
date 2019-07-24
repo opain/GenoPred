@@ -1,0 +1,488 @@
+---
+title: "Determining Optimal Polygenic Scoring Method"
+---
+
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+  encoding=encoding,
+  output_file=file.path(dirname(input_file), out_dir, 'index.html'))
+})
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+p.caption {
+  font-size: 1.5em;
+}
+</style>
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+# Introduction
+There are two main approaches for calculating polygenic scores (PRSs):
+
+* *p*-value thresholding and clumping.
+* Shrinkage of GWAS summary statistics.
+
+We often don't know what the optimal parameters are when deriving a polygenic score, i.e. best p-value threshold or best shrinkage parameters. Methods to identify the best parameter are: 
+
+* Cross-validation (e.g. 10-fold cross validation).
+  + Will find optimal parameters, however is time consuming.
+* Pseudo-validation - optimal parameters are predicted based on distribution of GWAS summary statistics.
+  + Fast but may not find optimal threshold.
+
+Rather than using a single PRS, it may also be advantageous to predict outcome using multiple PRSs based on different parameters. A limitation to this approach is that modelling many predictors is computationally intensive and may increase the risk of overfitting.
+
+***
+
+# Aims
+1. Compare PRS derived from p-value and clumping method, and shrinkage methods (including lassosum and PRScs), using 10-fold cross validation to identify the optimal parameters.
+2. Compare the predictive utility of the best PRS identified using 10-fold cross-validated PRS with the PRS selected using pseudo-validation.
+3. Compare predictive utility of models including multiple PRSs based on difference parameters, to those using a single PRS selected using 10-fold cross-validation or pseudo-validation.
+
+***
+
+# Methods
+
+## Sample 
+- UK Biobank
+
+## Outcomes
+- Depression (binary)
+- Intelligence (continuous)
+- Body mass index (BMI - continuous)
+- Height (continuous)
+
+## Genotypic data
+HapMap3 variants were extracted from the HRC imputed genetic data, and converted to hard-call PLINK format with no hard-call threshold to maximise overlap with the HapMap3 SNP list. Individuals were excluded if they had extensive missing data, had non-European ancestry, or were closely-related to other individuals in the sample. This was done prior to this project.
+
+## Polygenic scoring
+Polygenic scores were derived using three methods: 
+1. p-value thresholding and clumping (pT + clump). No pseudo-validation approach for selecting the optimal pT is available).
+2. lassosum - Lasso-based shrinkage method.
+3. PRScs - Bayesian shrinkage method.
+
+Polygenic scores were derived using a reference standardised pipeline, previously described in detail [here](https://github.com/opain/Rosalind-scripts). In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on European individuals within the 1000 Genomes reference. Any HapMap3 missing in the target sample are imputed using the allele frequency measured in the European subset of the 1000 Genomes reference.
+
+## Estimating predictive ability
+All models were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process.
+
+## Code
+<details><summary>pT + clump PRSs</summary>
+```{bash, echo=T, eval=F}
+##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+
+# Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs
+done
+```
+
+```{bash, echo=T, eval=F}
+######
+# Split the different PRS p-value thresholds into separate files
+######
+module add general/R/3.5.0
+R
+library(data.table)
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03')
+for(gwas_i in gwas){
+  PRS<-data.frame(fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/',gwas_i,'/UKBB.w_hm3.',gwas_i,'.EUR.profiles')))
+  for(i in 3:dim(PRS)[2]){
+    tmp<-gsub(paste0(gwas_i,'_'),'pT_',names(PRS)[i])
+    fwrite(PRS[,c(1,2,i)], paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/',gwas_i,'/UKBB.w_hm3.',gwas_i,'.EUR.',tmp,'.profile'), sep=' ')
+  }
+}
+q()
+n
+```
+
+```{bash, echo=T, eval=F}
+######
+# Create a file to group the predictors
+######
+module add general/R/3.5.0
+R
+library(data.table)
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03')
+pheno<-c('Depression','Intelligence','BMI','Height')
+
+for(i in 1:4){
+  predictors_list<-list.files(path=paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/',gwas[i]) ,pattern='.pT',full.names=T)
+  groups<-data.frame( predictor=predictors_list,
+                      group=gsub('.*UKBB.w_hm3.', '', predictors_list))
+
+  write.table(groups, paste0('/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.predictor_groups'), col.names=T, row.names=F, quote=F)
+}
+q()
+n
+```
+
+```{bash, echo=T, eval=F}
+######
+# Derive and evaluate models
+######
+
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 1 4);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+  qsub -l h_vmem=3G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
+    --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+    --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+    --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs \
+    --n_core 5 \
+    --assoc T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups
+done
+```
+</details>
+
+<details><summary>lassosum PRSs</summary>
+```{bash, echo=T, eval=F}
+################################
+# Evaluate use of lassosum PRSs when using multiple shrinkage parameters individually and in combination
+################################
+
+######
+# Split lassosum PRSs into individual files
+######
+module add general/R/3.5.0
+R
+library(data.table)
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03')
+for(gwas_i in gwas){
+  PRS<-data.frame(fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_lassosum/EUR/',gwas_i,'/UKBB.w_hm3.',gwas_i,'.EUR.lassosum_profiles')))
+  for(i in 3:dim(PRS)[2]){
+    if(sum(is.na(PRS[,i])) < length(PRS[,i])){
+      tmp<-gsub(paste0(gwas_i,'_'),'param_',names(PRS)[i])
+      fwrite(PRS[,c(1,2,i)], paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_lassosum/EUR/',gwas_i,'/UKBB.w_hm3.',gwas_i,'.EUR.',tmp,'.lassosum_profiles'), sep=' ')
+    }
+    print(i)
+  }
+}
+q()
+n
+```
+
+```{bash, echo=T, eval=F}
+######
+# Create predictor groups files
+######
+module add general/R/3.5.0
+R
+library(data.table)
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03')
+pheno<-c('Depression','Intelligence','BMI','Height')
+
+for(i in 1:4){
+  predictors_list<-list.files(path=paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_lassosum/EUR/',gwas[i]) ,pattern='.param',full.names=T)
+  groups<-data.frame( predictor=predictors_list,
+                      group=gsub('.*UKBB.w_hm3.', '', predictors_list))
+
+  write.table(groups, paste0('/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs_lassosum.predictor_groups'), col.names=T, row.names=F, quote=F)
+}
+q()
+n
+```
+
+```{bash, echo=T, eval=F}
+######
+# Derive and evaluate
+######
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 1 4);do
+    pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+    pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+    gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+    prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+    qsub -l h_vmem=10G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
+        --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+        --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+        --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum \
+        --n_core 5 \
+        --assoc T \
+        --outcome_pop_prev ${prev_i} \
+        --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups
+done
+```
+</details>
+
+<details><summary>PRScs PRSs</summary>
+```{bash, eval=F, echo=T}
+################################
+# Evaluate use of multiple PRSs based on different shrinkage parameters, and use of pseudo-validated PRS (PRScs)
+################################
+
+#####
+# Split PRScs PRSs into individual files
+#####
+module add general/R/3.5.0
+R
+library(data.table)
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03')
+for(gwas_i in gwas){
+  PRS<-data.frame(fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_PRScs/EUR/',gwas_i,'/UKBB.w_hm3.',gwas_i,'.EUR.PRScs_profiles')))
+  for(i in 3:dim(PRS)[2]){
+    if(sum(is.na(PRS[,i])) < length(PRS[,i])){
+      tmp<-gsub(paste0(gwas_i,'_'),'param_',names(PRS)[i])
+      fwrite(PRS[,c(1,2,i)], paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_PRScs/EUR/',gwas_i,'/UKBB.w_hm3.',gwas_i,'.EUR.',tmp,'.PRScs_profiles'), sep=' ')
+    }
+    print(i)
+  }
+}
+q()
+n
+```
+
+```{bash, echo=T, eval=F}
+#####
+# Create predictor groups files
+#####
+module add general/R/3.5.0
+R
+library(data.table)
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03')
+pheno<-c('Depression','Intelligence','BMI','Height')
+
+for(i in 1:4){
+  predictors_list<-list.files(path=paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_PRScs/EUR/',gwas[i]) ,pattern='.param',full.names=T)
+  groups<-data.frame( predictor=predictors_list,
+                      group=gsub('.*UKBB.w_hm3.', '', predictors_list))
+
+  write.table(groups, paste0('/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs_PRScs.predictor_groups'), col.names=T, row.names=F, quote=F)
+}
+q()
+n
+```
+
+```{bash, echo=T, eval=F}
+#####
+# Derive and evaluate
+#####
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+qsub -l h_vmem=10G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+--keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+--out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs \
+--n_core 5 \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs.predictor_groups
+done
+```
+\details
+
+***
+# Results
+The pattern of results are consistent between 10-fold cross-validation and test set validation.
+
+Modelling multiple PRSs based on a range of parameters consistenly provides a small improvement over the best single PRS idenitfied by cross-validation.
+
+As previous studies have shown, performing a grid search of shrinkage parameters with both lassosum- and PRScs-based PRSs consistently out performs PRS derived using the traditional pT + clump method. 
+
+The pseudovalidation approach within lassosum performs worse than any other approach tested here. In contrast the PRScs pseduovalidated PRS performs well, providing nearly the best prediction for all outcomes.
+
+***
+
+<details><summary>Code for plotting results</summary>
+```{bash, echo=T, eval=F}
+#####
+# Compare results from each approach
+#####
+module add general/R/3.5.0
+R
+
+pheno<-c('Depression','Intelligence','BMI','Height')
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03')
+
+# Read in the results, labelling which parameters where pseudovalidated and validated using 10-fold cross validation
+All_res<-NULL
+for(i in 1:4){
+  pT_clump<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.pred_eval.txt'), header=T, stringsAsFactors=F)
+  pT_clump$Method<-'pT + clump'
+  Param_tmp<-sort(as.numeric(gsub('e.','e-',gsub('.profile_group','',gsub(paste0(gwas[i],'.EUR.pT_'),'',pT_clump$Model)))))
+  pT_clump$Param<-as.character(as.numeric(gsub('e.','e-',gsub('.profile_group','',gsub(paste0(gwas[i],'.EUR.pT_'),'',pT_clump$Model)))))
+  pT_clump$Param[dim(pT_clump)[1]]<-'Multi-PRS'
+  pT_clump<-pT_clump[match(c(Param_tmp,'Multi-PRS'), pT_clump$Param),]
+  pT_clump$Model<-NULL
+  pT_clump$Group<-NA
+  pT_clump$Group[pT_clump$CrossVal_R == max(abs(pT_clump$CrossVal_R[pT_clump$Param != 'Multi-PRS']))]<-'10FCVal'
+  pT_clump$Group[pT_clump$Param == 'Multi-PRS']<-'Multi-PRS'
+  pT_clump<-pT_clump[!is.na(pT_clump$Group),]
+  
+  lassosum_res<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs_lassosum.pred_eval.txt'), header=T, stringsAsFactors=F)
+  lassosum_res$Method<-'lassosum'
+  lassosum_res$Param<-gsub('.lassosum.*','',gsub('.*param_','',lassosum_res$Model))
+  lassosum_res$Param[dim(lassosum_res)[1]]<-'Multi-PRS'
+  lassosum_res$Model<-NULL
+  lassosum_val<-read.table(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_lassosum/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.log'), sep='&')
+  lassosum_val_s<-as.numeric(gsub('s = ','',lassosum_val$V1[grepl('s = ',lassosum_val$V1)]))
+  lassosum_val_lambda<-as.numeric(gsub('lambda =','',lassosum_val$V1[grepl('lambda =',lassosum_val$V1)]))
+  lassosum_val_param<-paste0('s',lassosum_val_s,'_lambda',lassosum_val_lambda)
+  lassosum_val_param<-substr(lassosum_val_param, 1, nchar(lassosum_val_param)-1) 
+  lassosum_res$Group<-NA
+  lassosum_res$Group[which(lassosum_res$CrossVal_R == max(abs(lassosum_res$CrossVal_R[lassosum_res$Param != 'Multi-PRS'])))[1]]<-'10FCVal'
+  lassosum_res$Group[grepl(lassosum_val_param,lassosum_res$Param)]<-'PseudoVal'
+  lassosum_res$Group[lassosum_res$Param == 'Multi-PRS']<-'Multi-PRS'
+  lassosum_res<-lassosum_res[!is.na(lassosum_res$Group),]
+  
+  PRScs_res<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs_PRScs.pred_eval.txt'), header=T, stringsAsFactors=F)
+  PRScs_res$Method<-'PRScs'
+  PRScs_res$Param<-gsub('.PRScs.*','',gsub('.*param_','',PRScs_res$Model))
+  PRScs_res$Param[dim(PRScs_res)[1]]<-'Multi-PRS'
+  PRScs_res$Model<-NULL
+  PRScs_res$Group<-NA
+  PRScs_res$Group[which(PRScs_res$CrossVal_R == max(abs(PRScs_res$CrossVal_R[PRScs_res$Param != 'Multi-PRS' & PRScs_res$Param != 'phiauto'])))[1]]<-'10FCVal'
+  PRScs_res$Group[PRScs_res$Param == 'phiauto']<-'PseudoVal'
+  PRScs_res$Group[PRScs_res$Param == 'Multi-PRS']<-'Multi-PRS'
+  PRScs_res<-PRScs_res[!is.na(PRScs_res$Group),]
+
+  res<-do.call(rbind, list(pT_clump, lassosum_res, PRScs_res))
+  res$Phenotype<-pheno[i]
+  res$Cross_LiabR2<-NULL
+  res$Indep_LiabR2<-NULL
+  res$CrossVal_pval<-NULL
+  res$IndepVal_pval<-NULL
+
+  All_res<-rbind(All_res, res)
+}
+
+# Reformat to be a table
+All_res<-All_res[c('Phenotype','Method','Group','CrossVal_R','CrossVal_R_SE','IndepVal_R','IndepVal_R_SE')]
+
+write.csv(All_res, '/mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp.csv', row.names=F)
+
+###
+# Plot comparison between validated PRS vs multi-PRS when using pT + clump method
+###
+
+library(ggplot2)
+library(cowplot)
+
+All_res$Method<-factor(All_res$Method, levels=unique(All_res$Method))
+
+plots<-list()
+for(i in 1:4){
+plots[[pheno[i]]] <- ggplot( All_res[All_res$Phenotype==pheno[i],], aes(x=Method, y=CrossVal_R, fill=Group)) +
+                      geom_bar(stat="identity", position=position_dodge(preserve = "single"), colour='black') +
+                      geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.9, preserve = "single")) +
+                      labs(y="Correlation (SE)", x='', title=pheno[i]) +
+                      coord_cartesian(ylim=c(min(All_res$CrossVal_R[All_res$Phenotype==pheno[i]])-0.02, max(All_res$CrossVal_R[All_res$Phenotype==pheno[i]])+0.025), clip="on") +
+            				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+png('/mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_CrossVal.png', units='px', res=300, width=3000, height=2500)
+plot_grid(plotlist=plots)
+dev.off()
+
+plots<-list()
+for(i in 1:4){
+plots[[pheno[i]]] <- ggplot( All_res[All_res$Phenotype==pheno[i],], aes(x=Method, y=IndepVal_R, fill=Group)) +
+                      geom_bar(stat="identity", position=position_dodge(preserve = "single"), colour='black') +
+                      geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.9, preserve = "single")) +
+                      labs(y="Correlation (SE)", x='', title=pheno[i]) +
+                      coord_cartesian(ylim=c(min(All_res$IndepVal_R[All_res$Phenotype==pheno[i]])-0.02, max(All_res$IndepVal_R[All_res$Phenotype==pheno[i]])+0.025), clip="on") +
+            				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+png('/mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_IndepVal.png', units='px', res=300, width=3000, height=2500)
+plot_grid(plotlist=plots)
+dev.off()
+
+q()
+n
+```
+</details>
+
+<center>
+![<b>Figure 1: Predictive utility estimated using 10-fold cross-validation \b>](/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_CrossVal.png)
+
+***
+
+![<b>Figure 2: Predictive utility estimated using test set validation \b>](/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_IndepVal.png)
+
+
+\center
+
+***
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp.csv")
+
+res[,-1:-3]<-round(res[,-1:-3], 3)
+res$CrossVal_R<-paste0(res$CrossVal_R, " (", res$CrossVal_R_SE, ")")
+res$IndepVal_R<-paste0(res$IndepVal_R, " (", res$IndepVal_R_SE, ")")
+res<-res[c('Phenotype','Method','Group','CrossVal_R','IndepVal_R')]
+
+names(res)<-c('Phenotype','Method','Group',"CrossVal R (SE)","IndepVal R (SE)")
+
+library(DT)
+datatable(res, rownames = FALSE, filter="top", options = list(pageLength = 10, scrollX=T),caption='Table 1: Correlation between PRS model predictions and observed values')
+```
+
+***
+
+# Discussion
+
+***
+
+# Conclusion
+
+***
+
+To do:
+
+- [ ] Make results table nicer
+
+- [ ] Write discussion
+
+- [ ] Integrate other analyses
+
+<details><summary>Session info</summary>
+
+Date knitted: `r format(Sys.time(), '%d %B, %Y')`
+```{R, eval=T, echo=F}
+sessionInfo()
+```
+
+</details>
+
+
