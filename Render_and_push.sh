@@ -7,6 +7,7 @@ module add general/pandoc/2.5
 
 Rscript -e "rmarkdown::render_site()"
 git add .
+git add -u
 git status
 git commit -m 'Update'
 git push
