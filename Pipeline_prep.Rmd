@@ -78,17 +78,25 @@ install.packages(c('data.table','doMC','optparse','foreach','caret','ggplot2','c
 
 <br/>
 
-# Download and preprare required reference genetic data
-## Download the IMPUTE2 1000 Genomes Phase 3 data 
+# Download and preprare reference genetic data
+```{bash, eval=F, echo=F}
+# Set variables
+Impute2_1KG_dir=$(sed -n '/Impute2_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+HapMap3_snplist_dir=$(sed -n '/HapMap3_snplist_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+
+```
+
+## IMPUTE2 1000 Genomes Phase 3 
 Download available [here](https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.html)
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 # Create directory for the data
-mkdir -p /mnt/lustre/users/k1806347/Data/1KG/Impute2/1000GP_Phase3
+mkdir -p ${Impute2_1KG_dir}
 
 # Download data using wget
-cd /mnt/lustre/users/k1806347/Data/1KG/Impute2/1000GP_Phase3
+cd ${Impute2_1KG_dir}
 wget https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz
 wget https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz
 
@@ -104,11 +112,11 @@ tar -zxvf 1000GP_Phase3_chrX.tgz
 
 <br/>
 
-## Download the LD-score regression list of HapMap3 SNPs
+## HapMap3 SNP-list
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 # Dowload snplist using wget and decompress
-cd /users/k1806347/brc_scratch/Data/ldsc
+cd ${HapMap3_snplist_dir}
 wget https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2
 bunzip2 w_hm3.snplist.bz2
 ```
@@ -120,45 +128,50 @@ bunzip2 w_hm3.snplist.bz2
 
 <br/>
 
-## Create a keep file listing each population in the reference and file listing unique populations
+## 1000 Genomes populations
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 # Download the populations file
-cd /users/k1806347/brc_scratch/Data/1KG/Phase3
+cd ${Geno_1KG_dir}
 wget ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/integrated_call_samples_v3.20130502.ALL.panel
 
 # Create a version of population file that only contains sample ID, pop and super_pop
-cut -f 1-3 /users/k1806347/brc_scratch/Data/1KG/Phase3/integrated_call_samples_v3.20130502.ALL.panel > /users/k1806347/brc_scratch/Data/1KG/Phase3/integrated_call_samples_v3.20130502.ALL.panel_small
+cut -f 1-3 ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel > ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small
 
 # Create a keep file listing each population super population from the reference.
-mkdir -p /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files
+mkdir -p ${Geno_1KG_dir}/keep_files
 
 module add general/R/3.5.0
 R
-pop_data<-read.table('/users/k1806347/brc_scratch/Data/1KG/Phase3/integrated_call_samples_v3.20130502.ALL.panel', header=T, stringsAsFactors=F)
+
+Pipeline_prep.var<-read.table('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var')
+
+Geno_1KG_dir<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'Geno_1KG_dir']
+
+pop_data<-read.table(paste0(Geno_1KG_dir, '/integrated_call_samples_v3.20130502.ALL.panel'), header=T, stringsAsFactors=F)
 
 for(i in unique(pop_data$pop)){
-  write.table(cbind(pop_data$sample[pop_data$pop == i],pop_data$sample[pop_data$pop == i]), paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/',i,'_samples.keep'), col.names=F, row.names=F, quote=F)
+  write.table(cbind(pop_data$sample[pop_data$pop == i],pop_data$sample[pop_data$pop == i]), paste0(Geno_1KG_dir,'/keep_files/',i,'_samples.keep'), col.names=F, row.names=F, quote=F)
 }
 
 for(i in unique(pop_data$super_pop)){
-  write.table(cbind(pop_data$sample[pop_data$super_pop == i],pop_data$sample[pop_data$super_pop == i]), paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/',i,'_samples.keep'), col.names=F, row.names=F, quote=F)
+  write.table(cbind(pop_data$sample[pop_data$super_pop == i],pop_data$sample[pop_data$super_pop == i]), paste0(Geno_1KG_dir,'/keep_files/',i,'_samples.keep'), col.names=F, row.names=F, quote=F)
 }
 
 # Create a file listing all ancestry groups
-write.table(unique(pop_data$super_pop), '/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop.list', col.names=F, row.names=F, quote=F)
-write.table(unique(pop_data$pop), '/users/k1806347/brc_scratch/Data/1KG/Phase3/pop.list', col.names=F, row.names=F, quote=F)
+write.table(unique(pop_data$super_pop), paste0(Geno_1KG_dir,'/super_pop.list'), col.names=F, row.names=F, quote=F)
+write.table(unique(pop_data$pop), paste0(Geno_1KG_dir,'/pop.list'), col.names=F, row.names=F, quote=F)
 
 # Create a file listing the code of each population and the location of the keep file
 pop_keep_loc<-data.frame(pop=unique(pop_data$pop))
-pop_keep_loc$keep<-paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/',pop_keep_loc$pop,'_samples.keep')
+pop_keep_loc$keep<-paste0(Geno_1KG_dir,'/keep_files/',pop_keep_loc$pop,'_samples.keep')
 
 super_pop_keep_loc<-data.frame(pop=unique(pop_data$super_pop))
-super_pop_keep_loc$keep<-paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/',super_pop_keep_loc$pop,'_samples.keep')
+super_pop_keep_loc$keep<-paste0(Geno_1KG_dir, '/keep_files/',super_pop_keep_loc$pop,'_samples.keep')
 
-write.table(super_pop_keep_loc, '/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list', col.names=F, row.names=F, quote=F)
-write.table(pop_keep_loc, '/users/k1806347/brc_scratch/Data/1KG/Phase3/pop_keep.list', col.names=F, row.names=F, quote=F)
-write.table(rbind(super_pop_keep_loc,pop_keep_loc), '/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_and_pop_keep.list', col.names=F, row.names=F, quote=F)
+write.table(super_pop_keep_loc, paste0(Geno_1KG_dir,'/super_pop_keep.list'), col.names=F, row.names=F, quote=F)
+write.table(pop_keep_loc, paste0(Geno_1KG_dir,'/pop_keep.list'), col.names=F, row.names=F, quote=F)
+write.table(rbind(super_pop_keep_loc,pop_keep_loc), paste0(Geno_1KG_dir,'/super_pop_and_pop_keep.list'), col.names=F, row.names=F, quote=F)
 q()
 n
 ```
@@ -258,7 +271,7 @@ ls /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr*.bed | sed -e
 
 <br/>
 
-## Calculate allele frequency files for each population in the reference and across individuals
+## 1000 Genomes allele frequency files
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 # The following script uses .sumstats.gz files produced by the LDSC munge_sumstats.py
@@ -298,8 +311,6 @@ rm /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/*/1KGPhase3.w_hm3.*.ch
 rm /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/*/1KGPhase3.w_hm3.*.chr*.nosex
 ```
 </details>
-
-***
 
 <br/>
 
