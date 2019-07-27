@@ -58,6 +58,8 @@ The following software is required for the prediction pipeline:
 
 * PLINK v1.9 (https://www.cog-genomics.org/plink2/)
 
+* PLINK v2 (https://www.cog-genomics.org/plink/2.0/)
+
 * SHAPEIT (https://mathgen.stats.ox.ac.uk/genetics_softwae*hapeit/shapeit.html#download)
 
 * IMPUTE2 (https://mathgen.stats.ox.ac.uk/impute/impute_v.*ml#download)
@@ -72,6 +74,9 @@ The following software is required for the prediction pipeline:
 install.packages(c('data.table','doMC','optparse','foreach','caret','ggplot2','cowplot'))
 ```
 
+NOTE: Setting environmental variables
+Throughout this script I use environmental variables to indicate where files are to be stored. These enable other people to use the code more easily. I set the environmental variables using a file called 'Pipeline_prep.var'. You will need to create your own version of this file. These variables need to be set on the command line and in R.
+
 <br/>
 
 ***
@@ -81,7 +86,7 @@ install.packages(c('data.table','doMC','optparse','foreach','caret','ggplot2','c
 # Download and preprare reference genetic data
 In this section we will download the required reference genetic data, and format it for use.
 
-<details><summary>Set required variables</summary>
+<details><summary>Set required variables for command line</summary>
 ```{bash, eval=F, echo=T}
 # Set variables
 Impute2_1KG_dir=$(sed -n '/Impute2_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
@@ -141,7 +146,7 @@ bunzip2 w_hm3.snplist.bz2
 <br/>
 
 ## 1000 Genomes populations
-Here we download information on which population each individual in the 1000 Genomes reference is from. Individuals are grouped into 'populations' which are typically country specific, and 'super populations' which include a collection of ancetrally similar countries. Individuals are grouped into these populations if the last few generations of their family are all from one region. We need this population data so we can select individuals in the 1000 Genomes data to match those in our target samples. This important for providing accurate information on LD structure and minor allele frequencies.
+Here we download information on which population each individual in the 1000 Genomes reference is from. Individuals are grouped into 'populations' which are typically country specific, and 'super populations' which include a collection of ancetrally similar countries. Individuals are grouped into these populations if the last few generations of their family are all from one region. We need this population data so we can select individuals in the 1000 Genomes data to match those in our target samples. This is important for providing accurate information on LD structure and minor allele frequencies.
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
@@ -198,9 +203,11 @@ n
 <br/>
 
 ## Prepare 1000 Genomes PLINK files
+Here we download the 1000 Genomes Phase 3 data in vcf format, convert into PLINK binary format, and extract variants in the HapMap3 SNP-list. This data is used to estimate LD-structure and minor allele frequencies. We also estimate genotype-based scores within the reference data to determine the mean and standard deviation of the genotype-based scores within specific ancestral groups. This can then be used to standardise genotype-based scores in the target sample which enables improved interpretation of the scores and ensure scores from diverse sources are on the same scale when performing prediction modelling.
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
-cd /users/k1806347/brc_scratch/Data/1KG/Phase3
+cd ${Geno_1KG_dir}
 
 # Download the vcf files, convert to plink, extract hapmap3 snps, and delete vcfs
 for chr in $(seq 1 22); do
@@ -209,19 +216,25 @@ done
 
 for chr in $(seq 1 22); do
 qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
-  --vcf /users/k1806347/brc_scratch/Data/1KG/Phase3/ALL.chr${chr}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz \
+  --vcf ${Geno_1KG_dir}/ALL.chr${chr}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz \
   --make-bed \
-  --out /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.chr${chr}
+  --out ${Geno_1KG_dir}/1KGPhase3.chr${chr}
 done  
 
-rm /users/k1806347/brc_scratch/Data/1KG/Phase3/ALL.chr*.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz
+# Delete the vcf files after conversion to plink format is complete
+rm ${Geno_1KG_dir}/ALL.chr*.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz
 
 # Use R to identify a list of SNPs that matches with the hapmap3 snplist
 qrsh
 module add general/R/3.5.0
 R
+
+Pipeline_prep.var<-read.table('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var')
+Geno_1KG_dir<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'Geno_1KG_dir']
+HapMap3_snplist_dir<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'HapMap3_snplist_dir']
+
 library(data.table)
-hapmap3_snps<-fread('/users/k1806347/brc_scratch/Data/ldsc/w_hm3.snplist')
+hapmap3_snps<-fread(paste0(HapMap3_snplist_dir,'/w_hm3.snplist'))
 
 # Generate IUPAC codes
 hapmap3_snps$IUPAC[hapmap3_snps$A1 == 'A' & hapmap3_snps$A2 =='T' | hapmap3_snps$A1 == 'T' & hapmap3_snps$A2 =='A']<-'W'
@@ -235,7 +248,7 @@ hapmap3_snps$SNP_IUPAC<-paste(hapmap3_snps$SNP,hapmap3_snps$IUPAC,sep=':')
 
 # For each chr
 for(chr in 1:22){
-	bim<-fread(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.chr',chr,'.bim'))
+	bim<-fread(paste0(Geno_1KG_dir,'/1KGPhase3.chr',chr,'.bim'))
 
 	bim$IUPAC[bim$V5 == 'A' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='A']<-'W'
 	bim$IUPAC[bim$V5 == 'C' & bim$V6 =='G' | bim$V5 == 'G' & bim$V6 =='C']<-'S'
@@ -252,8 +265,8 @@ for(chr in 1:22){
 	bim$V2[!(bim$SNP_IUPAC %in% bim_hapmap3_snps$SNP_IUPAC)] <- paste0(bim$V2[!(bim$SNP_IUPAC %in% bim_hapmap3_snps$SNP_IUPAC)],'_excl')
 	bim[!(bim$SNP_IUPAC %in% bim_hapmap3_snps$SNP_IUPAC),]
 	
-	fwrite(bim[,1:6], paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.chr',chr,'.bim'), sep='\t', col.names=F)
-	fwrite(as.list(bim_hapmap3_snps$V2), paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.chr',chr,'.extract'), sep='\n', col.names=F)	
+	fwrite(bim[,1:6], paste0(Geno_1KG_dir,'/1KGPhase3.chr',chr,'.bim'), sep='\t', col.names=F)
+	fwrite(as.list(bim_hapmap3_snps$V2), paste0(Geno_1KG_dir,'/1KGPhase3.chr',chr,'.extract'), sep='\n', col.names=F)	
 }
 
 q()
@@ -261,21 +274,21 @@ n
 
 for chr in $(seq 1 22); do
 qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
-  --bfile /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.chr${chr} \
+  --bfile ${Geno_1KG_dir}/1KGPhase3.chr${chr} \
   --make-bed \
-  --extract /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.chr$chr.extract \
-  --out /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr${chr}
+  --extract ${Geno_1KG_dir}/1KGPhase3.chr$chr.extract \
+  --out ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr${chr}
 done
 
-rm /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.chr*
+rm ${Geno_1KG_dir}/1KGPhase3.chr*
 
 # Create version that is all chromosomes merged
-ls /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr*.bed | sed -e 's/\.bed//g' > /users/k1806347/brc_scratch/Data/1KG/Phase3/merge_list.txt
+ls ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr*.bed | sed -e 's/\.bed//g' > ${Geno_1KG_dir}/merge_list.txt
 
 /users/k1806347/brc_scratch/Software/plink1.9.sh \
-  --merge-list /users/k1806347/brc_scratch/Data/1KG/Phase3/merge_list.txt \
+  --merge-list ${Geno_1KG_dir}/merge_list.txt \
   --make-bed \
-  --out /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW
+  --out ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW
 ```
 </details>
 
@@ -286,43 +299,45 @@ ls /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr*.bed | sed -e
 <br/>
 
 ## 1000 Genomes allele frequency files
+Here we create files containing ancestry specific minor allele frequency estimates for the HapMap3 SNPs based on the 1000 Genomes Phase 3 data. This information is mainly used for mean-imputation of missing SNPs during genotype-based scoring. This avoids target sample specific minor allele frequencies being used for mean imputation which may not be available, and will vary between target samples.
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 # The following script uses .sumstats.gz files produced by the LDSC munge_sumstats.py
-for pop in $(cat /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop.list); do
-mkdir -p /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/${pop}
+for pop in $(cat ${Geno_1KG_dir}/super_pop.list); do
+mkdir -p ${Geno_1KG_dir}/freq_files/${pop}
 for chr in $(seq 1 22); do
 qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
-	--bfile /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr${chr} \
+	--bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr${chr} \
 	--freq \
-	--keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/${pop}_samples.keep \
-	--out /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr${chr}
+	--keep ${Geno_1KG_dir}/keep_files/${pop}_samples.keep \
+	--out ${Geno_1KG_dir}/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr${chr}
 done
 done
 
-for pop in $(cat /users/k1806347/brc_scratch/Data/1KG/Phase3/pop.list); do
-mkdir -p /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/${pop}
+for pop in $(cat ${Geno_1KG_dir}/pop.list); do
+mkdir -p ${Geno_1KG_dir}/freq_files/${pop}
 for chr in $(seq 1 22); do
 qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
-	--bfile /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr${chr} \
+	--bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr${chr} \
 	--freq \
-	--keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/${pop}_samples.keep \
-	--out /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr${chr}
+	--keep ${Geno_1KG_dir}/keep_files/${pop}_samples.keep \
+	--out ${Geno_1KG_dir}/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr${chr}
 done
 done
 
 # Calculate MAF across all populations
-mkdir /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/AllAncestry
+mkdir ${Geno_1KG_dir}/freq_files/AllAncestry
 for chr in $(seq 1 22); do
 qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
-	--bfile /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr${chr} \
+	--bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr${chr} \
 	--freq \
-	--out /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/AllAncestry/1KGPhase3.w_hm3.AllAncestry.chr${chr}
+	--out ${Geno_1KG_dir}/freq_files/AllAncestry/1KGPhase3.w_hm3.AllAncestry.chr${chr}
 done
 
 # Delete the log and nosex files
-rm /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/*/1KGPhase3.w_hm3.*.chr*.log
-rm /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/*/1KGPhase3.w_hm3.*.chr*.nosex
+rm ${Geno_1KG_dir}/freq_files/*/1KGPhase3.w_hm3.*.chr*.log
+rm ${Geno_1KG_dir}/freq_files/*/1KGPhase3.w_hm3.*.chr*.nosex
 ```
 </details>
 
@@ -333,15 +348,14 @@ rm /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/*/1KGPhase3.w_hm3.*.ch
 <br/>
 
 # Prepare reference files for ancestry scoring
-In this section we will download the required reference genetic data, and format it for use.
+In this section we perform principal components analysis of genotypic data in the 1000 Genomes reference to identify the main axes of population structure, which typically correspond to ancestral differences. We calculate these principal components (PCs) of ancestry across the full reference, and within super populations to detect broad and ancestry-specific axes of variance. After PCA, we idenitfy which variants are associated with the PCs (SNP-weights) to calculate ancestry scores on the same axes of variance in future target samples. This can be used to infer the ancestry of an individual which is an important factor to consider when performing genotype-baed prediction.
 
 <details><summary>Set required variables</summary>
 ```{bash, eval=F, echo=T}
 # Set variables
-Impute2_1KG_dir=$(sed -n '/Impute2_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
-HapMap3_snplist_dir=$(sed -n '/HapMap3_snplist_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
 Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
-
+plink1_9=$(sed -n '/plink1_9/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+plink2=$(sed -n '/plink2/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
 ```
 </details>
 
@@ -352,25 +366,27 @@ Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyG
 <br/>
 
 ## Prepare score files and scaling files for genome-wide principal components
+This section uses an R script called 'ancestry_score_file_creator.R'. Further information the usage of this script can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/ancestry_score_file_creator).
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 # Create score files for European specific PCs, and scaling files for Europeans
-qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/ancestry_score_file_creator.R \
-	--ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
-	--ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
-	--plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
-	--plink2 /users/k1806347/brc_scratch/Software/plink2 \
+qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R \
+	--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+	--plink ${plink1_9} \
+	--plink2 ${plink2} \
 	--n_pcs 100 \
-	--output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR
+	--output ${Geno_1KG_dir}/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR
 
 # Create score files for all ancestry PCs, and scaling files for each super population
-qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/ancestry_score_file_creator.R \
-	--ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
-	--plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
-	--plink2 /users/k1806347/brc_scratch/Software/plink2 \
+qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Pipeline_prep/ancestry_score_file_creator.R \
+	--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+	--plink ${plink1_9} \
+	--plink2 ${plink2} \
 	--n_pcs 100 \
-	--ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list \
-	--output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry
+	--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
+	--output ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry
 ```
 </details>
 
@@ -485,46 +501,46 @@ The score files should be based on the LD structure of the ancestry matching the
 # Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt
 ###
 # Create file listing GWAS that haven't been processed.
-> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/todo.txt
+> ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt
 for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
-if [ ! -f /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas >> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/todo.txt
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt
 fi
 done
 
 n=0
-for gwas in $(cat /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/todo.txt);do
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt);do
 qsub -N $(echo job$(($n+20))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/polygenic_score_file_creator.R \
---ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
---ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
+--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
 --sumstats /mnt/lustre/groups/ukbiobank/sumstats/munged/${gwas}.sumstats.gz \
 --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
 --memory 3000 \
---output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list
+--output ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
 n=$(($n+1))
 done
 
 ###
 # Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt
 ###
-> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/todo.txt
+> ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt
 for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt);do
-if [ ! -f /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas >> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/todo.txt
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt
 fi
 done
 
 n=0
-for gwas in $(cat /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/todo.txt);do
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt);do
 qsub -N $(echo job$(($n+5))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/polygenic_score_file_creator.R \
-	--ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
-	--ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
+	--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
 	--sumstats /mnt/lustre/groups/ukbiobank/sumstats/munged/${gwas}.sumstats.gz \
 	--plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
   --memory 3000 \
-	--output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
-	--ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list
+	--output ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
+	--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
 n=$(($n+1))
 done
 ```
@@ -536,23 +552,23 @@ done
 ###
 # Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt
 ###
-mkdir /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_lassosum
-> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_lassosum/todo.txt
+mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum
+> ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt
 # for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
 for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03);do
-if [ ! -f /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas >> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_lassosum/todo.txt
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt
 fi
 done
 
 n=0
-for gwas in $(cat /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_lassosum/todo.txt);do
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt);do
 qsub -N $(echo job$(($n+5))) -hold_jid $(echo job$(($n+0))) -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/polygenic_score_file_creator_lassosum.R \
-	--ref_plink_gw /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW \
-	--ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
+	--ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
 	--sumstats /mnt/lustre/groups/ukbiobank/sumstats/munged/${gwas}.sumstats.gz \
-	--output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas} \
-	--ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list
+	--output ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas} \
+	--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
 n=$(($n+1))
 done
 
@@ -570,26 +586,26 @@ git clone ssh://git@github.com/getian107/PRScs.git
 wget https://www.dropbox.com/s/p9aqanhxvxaqv8k/ldblk_1kg_eur.tar.gz?dl=0
 tar xvzf ldblk_1kg_eur.tar.gz?dl=0
 
-mkdir /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_PRScs
+mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs
 
-> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_PRScs/todo.txt
+> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
 #for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
 for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03);do
-if [ ! -f /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas >> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_PRScs/todo.txt
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
 fi
 done
 
 n=0
-for gwas in $(cat /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_PRScs/todo.txt);do
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt);do
 qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 6 -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/polygenic_score_file_creator_PRScs.R \
---ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
---ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
+--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
 --sumstats /mnt/lustre/groups/ukbiobank/sumstats/munged/${gwas}.sumstats.gz \
 --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
 --memory 5000 \
---output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list \
+--output ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
 --PRScs_path /users/k1806347/brc_scratch/Software/PRScs/PRScs.py \
 --PRScs_ref_path /users/k1806347/brc_scratch/Software/PRScs/ldblk_1kg_eur \
 --n_cores 6 \
@@ -727,24 +743,24 @@ qsub -pe smp 15 -l h_vmem=2G /users/k1806347/brc_scratch/Software/Rscript.sh /us
 ```{bash, eval=F, echo=T}
 # Calculate features based on each SNP-weight set. To not swamp the cluster, submit only three weights at a time.
 # Create file listing weights that haven't been predicted in the reference.
-> /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/todo.txt
+> ${Geno_1KG_dir}/Predicted_expression/FUSION/todo.txt
 for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
-if [ ! -f /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz ]; then
-echo $weights >> /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/todo.txt
+if [ ! -f ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz ]; then
+echo $weights >> ${Geno_1KG_dir}/Predicted_expression/FUSION/todo.txt
 fi
 done
 
 n=0
-for weights in $(cat /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/todo.txt);do
+for weights in $(cat ${Geno_1KG_dir}/Predicted_expression/FUSION/todo.txt);do
 qsub -N $(echo job$(($n+2))) -hold_jid $(echo job$(($n+0))) -pe smp 5 -l h_vmem=8G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/FUSION_ref_scorer.R \
-  --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
   --weights /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/SNP-weights/${weights}/${weights}.pos \
-  --output /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights} \
+  --output ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights} \
   --plink ~/brc_scratch/Software/plink1.9.sh \
   --n_cores 5 \
   --pigz /users/k1806347/brc_scratch/Software/pigz.sh \
   --score_files ~/brc_scratch/Data/FUSION/SCORE_FILES \
-  --ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
 n=$(($n+1))
 done
 ```
@@ -756,25 +772,25 @@ done
 ######
 # Calculate for /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt
 ######
-> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt
+> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
 for gwas in $(cat /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
 for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
-if [ ! -f /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
-echo $gwas $weights >> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
+echo $gwas $weights >> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
 fi
 done
 done
 
-for i in $(seq 1 $(wc -l /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt | cut -d ' ' -f 1));do
-gwas=$(awk -v var="$i" 'NR == var {print $1}' /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt)
-weights=$(awk -v var="$i" 'NR == var {print $2}' /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt)
+for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt | cut -d ' ' -f 1));do
+gwas=$(awk -v var="$i" 'NR == var {print $1}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt)
+weights=$(awk -v var="$i" 'NR == var {print $2}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt)
 
 qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/ref_funtionally_informed_risk_scorer.R \
   --twas_results /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/${gwas}/${gwas}_res_GW.txt \
-  --ref_feature_pred /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
-  --output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights} \
-  --ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
-  --ref_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
+  --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
+  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights} \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
   --panel ${weights}
 
 sleep 1
@@ -791,25 +807,25 @@ done
 ###
 # Calculate GeRSs weighting genes by R2 and TWAS.Z
 ###
-> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt
+> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt
 for gwas in $(cat /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
 for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
-if [ ! -f /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.R2weighted.scale ]; then
-echo $gwas $weights >> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.R2weighted.scale ]; then
+echo $gwas $weights >> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt
 fi
 done
 done
 
-for i in $(seq 1 $(wc -l /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt | cut -d ' ' -f 1));do
-gwas=$(awk -v var="$i" 'NR == var {print $1}' /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt)
-weights=$(awk -v var="$i" 'NR == var {print $2}' /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt)
+for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt | cut -d ' ' -f 1));do
+gwas=$(awk -v var="$i" 'NR == var {print $1}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt)
+weights=$(awk -v var="$i" 'NR == var {print $2}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt)
 
 qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/ref_funtionally_informed_risk_scorer.R \
   --twas_results /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/${gwas}/${gwas}_res_GW.txt \
-  --ref_feature_pred /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
-  --output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.R2weighted \
-  --ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
-  --ref_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
+  --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
+  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.R2weighted \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
   --panel ${weights} \
   --r2_weighted T
 
@@ -824,8 +840,8 @@ done
 ######
 
 # Create a file containing a list of gene expression files, and a list of scale files
-ls /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/*/1KGPhase3.w_hm3.FUSION.*.predictions.gz > /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/1KGPhase3.w_hm3.FUSION.predictions_list
-ls /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/*/1KGPhase3.w_hm3.FUSION.*.EUR.scale > /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/1KGPhase3.w_hm3.FUSION.EUR.scales_list
+ls ${Geno_1KG_dir}/Predicted_expression/FUSION/*/1KGPhase3.w_hm3.FUSION.*.predictions.gz > ${Geno_1KG_dir}/Predicted_expression/FUSION/1KGPhase3.w_hm3.FUSION.predictions_list
+ls ${Geno_1KG_dir}/Predicted_expression/FUSION/*/1KGPhase3.w_hm3.FUSION.*.EUR.scale > ${Geno_1KG_dir}/Predicted_expression/FUSION/1KGPhase3.w_hm3.FUSION.EUR.scales_list
 
 qrsh -l h_vmem=25G
 module add general/R/3.5.0
@@ -835,35 +851,35 @@ R
 
 qsub -l h_vmem=30G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/ref_funtionally_informed_risk_scorer.R \
   --twas_results /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/DEPR07/DEPR07_res_GW.txt \
-  --ref_feature_pred /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/1KGPhase3.w_hm3.FUSION.predictions_list \
-  --output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/DEPR07/1KGPhase3.w_hm3.EUR.FUSION.DEPR07.AllTissue \
-  --ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
-  --ref_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/1KGPhase3.w_hm3.FUSION.EUR.scales_list
+  --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/1KGPhase3.w_hm3.FUSION.predictions_list \
+  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/DEPR07/1KGPhase3.w_hm3.EUR.FUSION.DEPR07.AllTissue \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/1KGPhase3.w_hm3.FUSION.EUR.scales_list
 
 ######
 # Calculate for /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutTEDS_75comp.txt
 ######
 
-> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt
+> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
 # for gwas in $(cat /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutTEDS_75comp.txt);do
 for gwas in $(echo ADHD02 BODY11 HEIG03 INTE03);do
 for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
-if [ ! -f /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
-echo $gwas $weights >> /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
+echo $gwas $weights >> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
 fi
 done
 done
 
-for i in $(seq 1 $(wc -l /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt | cut -d ' ' -f 1));do
-gwas=$(awk -v var="$i" 'NR == var {print $1}' /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt)
-weights=$(awk -v var="$i" 'NR == var {print $2}' /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/todo.txt)
+for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt | cut -d ' ' -f 1));do
+gwas=$(awk -v var="$i" 'NR == var {print $1}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt)
+weights=$(awk -v var="$i" 'NR == var {print $2}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt)
 
 qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/ref_funtionally_informed_risk_scorer.R \
   --twas_results /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/${gwas}/${gwas}_res_GW.txt \
-  --ref_feature_pred /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
-  --output /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights} \
-  --ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep \
-  --ref_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
+  --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
+  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights} \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
   --panel ${weights}
 
 sleep 1
