@@ -11,7 +11,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, error=T)
 ```
 
 <style>
@@ -31,8 +31,6 @@ pre code, pre, code {
 
 ***
 
-<br/>
-
 Genotype-based scores are typically based on several target sample specific features of the data including:
 
 * Linkage disequilibrium (LD) structure
@@ -50,8 +48,6 @@ This page provides instructions for preparing the reference data required for re
 <br/>
 
 ***
-
-<br/>
 
 # Pre-requisites
 The following software is required for the prediction pipeline:
@@ -81,8 +77,6 @@ Throughout this script I use environmental variables to indicate where files are
 
 ***
 
-<br/>
-
 # Genotypic data
 In this section we will download the required reference genotype data, and format it for use.
 
@@ -99,8 +93,6 @@ Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyG
 <br/>
 
 ***
-
-<br/>
 
 ## IMPUTE2 1000 Genomes Phase 3 
 This dataset is the 1000 Genomes Phase 3 reference data in the format requird for imputation via the IMPUTE2 software. This is only required if you want to calculate genetic scores within target samples that have not undergone genotype imputation. Imputation is important as it will ensure a sufficient overlap with the HapMap3 SNP-list which all genotype-based scores are restricted to in subsequent stages of the genotype-based prediction pipeline.
@@ -125,8 +117,6 @@ tar -zxvf 1000GP_Phase3_chrX.tgz
 
 ***
 
-<br/>
-
 ## HapMap3 SNP-list
 Here we download a list of SNPs within the HapMap3 reference created for use in LD-score regression. We use the HapMap3 SNP-list as this is a collection of genetic variants as they are well captured by standard genotype imputation reference panels (incl. 1000 Genomes), meaning that these SNPs are typically available and accurately imputed in most GWAS and target samples. Using this common set of SNPs means that scores for individuals from different sources will be directly comparable, assuming a high proportion of these variants are available in the target sample. This relatively sparse subset of the genome provides decent coverage of genome-wide common genetic variation, however scores may explain less variation than those based on dense coverge of the genome or sequence data. Having said this, in my analyses HapMap3 restricted genotype-based scores perform similarly to those based on dense imputation.
 
@@ -142,8 +132,6 @@ bunzip2 w_hm3.snplist.bz2
 <br/>
 
 ***
-
-<br/>
 
 ## 1000 Genomes populations
 Here we download information on which population each individual in the 1000 Genomes reference is from. Individuals are grouped into 'populations' which are typically country specific, and 'super populations' which include a collection of ancetrally similar countries. Individuals are grouped into these populations if the last few generations of their family are all from one region. We need this population data so we can select individuals in the 1000 Genomes data to match those in our target samples. This is important for providing accurate information on LD structure and minor allele frequencies.
@@ -200,8 +188,6 @@ n
 
 ***
 
-<br/>
-
 ## 1000 Genomes PLINK files
 Here we download the 1000 Genomes Phase 3 data in vcf format, convert into PLINK binary format, and extract variants in the HapMap3 SNP-list. This data is used to estimate LD-structure and minor allele frequencies. We also estimate genotype-based scores within the reference data to determine the mean and standard deviation of the genotype-based scores within specific ancestral groups. This can then be used to standardise genotype-based scores in the target sample which enables improved interpretation of the scores and ensure scores from diverse sources are on the same scale when performing prediction modelling.
 
@@ -215,7 +201,7 @@ wget http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr${chr}.ph
 done
 
 for chr in $(seq 1 22); do
-qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
+qsub ${plink1_9} \
   --vcf ${Geno_1KG_dir}/ALL.chr${chr}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz \
   --make-bed \
   --out ${Geno_1KG_dir}/1KGPhase3.chr${chr}
@@ -273,7 +259,7 @@ q()
 n
 
 for chr in $(seq 1 22); do
-qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
+qsub ${plink1_9} \
   --bfile ${Geno_1KG_dir}/1KGPhase3.chr${chr} \
   --make-bed \
   --extract ${Geno_1KG_dir}/1KGPhase3.chr$chr.extract \
@@ -285,7 +271,7 @@ rm ${Geno_1KG_dir}/1KGPhase3.chr*
 # Create version that is all chromosomes merged
 ls ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr*.bed | sed -e 's/\.bed//g' > ${Geno_1KG_dir}/merge_list.txt
 
-/users/k1806347/brc_scratch/Software/plink1.9.sh \
+${plink1_9} \
   --merge-list ${Geno_1KG_dir}/merge_list.txt \
   --make-bed \
   --out ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW
@@ -296,8 +282,6 @@ ls ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr*.bed | sed -e 's/\.bed//g' > ${Geno_1KG_d
 
 ***
 
-<br/>
-
 ## 1000 Genomes allele frequency files
 Here we create files containing ancestry specific minor allele frequency estimates for the HapMap3 SNPs based on the 1000 Genomes Phase 3 data. This information is mainly used for mean-imputation of missing SNPs during genotype-based scoring. This avoids target sample specific minor allele frequencies being used for mean imputation which may not be available, and will vary between target samples.
 
@@ -307,7 +291,7 @@ Here we create files containing ancestry specific minor allele frequency estimat
 for pop in $(cat ${Geno_1KG_dir}/super_pop.list); do
 mkdir -p ${Geno_1KG_dir}/freq_files/${pop}
 for chr in $(seq 1 22); do
-qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
+qsub ${plink1_9} \
 	--bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr${chr} \
 	--freq \
 	--keep ${Geno_1KG_dir}/keep_files/${pop}_samples.keep \
@@ -318,7 +302,7 @@ done
 for pop in $(cat ${Geno_1KG_dir}/pop.list); do
 mkdir -p ${Geno_1KG_dir}/freq_files/${pop}
 for chr in $(seq 1 22); do
-qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
+qsub ${plink1_9} \
 	--bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr${chr} \
 	--freq \
 	--keep ${Geno_1KG_dir}/keep_files/${pop}_samples.keep \
@@ -329,7 +313,7 @@ done
 # Calculate MAF across all populations
 mkdir ${Geno_1KG_dir}/freq_files/AllAncestry
 for chr in $(seq 1 22); do
-qsub /users/k1806347/brc_scratch/Software/plink1.9.sh \
+qsub ${plink1_9} \
 	--bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr${chr} \
 	--freq \
 	--out ${Geno_1KG_dir}/freq_files/AllAncestry/1KGPhase3.w_hm3.AllAncestry.chr${chr}
@@ -345,14 +329,10 @@ rm ${Geno_1KG_dir}/freq_files/*/1KGPhase3.w_hm3.*.chr*.nosex
 
 ***
 
-<br/>
-
 # Ancestry scoring
 In this section we perform principal components analysis of genotypic data in the 1000 Genomes reference to identify the main axes of population structure, which typically correspond to ancestral differences. We calculate these principal components (PCs) of ancestry across the full reference, and within super populations to detect broad and ancestry-specific axes of variance. After PCA, we idenitfy which variants are associated with the PCs (SNP-weights) to calculate ancestry scores on the same axes of variance in future target samples. This can be used to infer the ancestry of an individual which is an important factor to consider when performing genotype-baed prediction.
 
 This section uses an R script called 'ancestry_score_file_creator.R'. Further information the usage of this script can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/ancestry_score_file_creator).
-
-</details>
 
 <details><summary>Set required variables</summary>
 ```{bash, eval=F, echo=T}
@@ -361,6 +341,7 @@ Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyG
 plink1_9=$(sed -n '/plink1_9/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
 plink2=$(sed -n '/plink2/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
 ```
+</details>
 
 <details><summary>Show code for ancestry scoring</summary>
 ```{bash, eval=F, echo=T}
@@ -388,18 +369,39 @@ qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch
 
 ***
 
+# Polygenic scoring
+In this section we will create files that can be used for polygenic scoring (score files), estimate the mean and SD of polygenic scores within different ancestries for scaling target samples. This will be performed using MAF and LD in the 1000 Genomes European subset as we will include only GWAS that were performed within European individuals, and our target samples (UK Biobank and TEDS) are both of European ancestry.
+
+Polygenic scores are derived using multiple methods to allow comparison. After the best method has been idenitified, it will ony be necessary to calculate scores using the one method.
+
+<details><summary>Set required variables</summary>
+```{bash, eval=F, echo=T}
+# Set variables
+Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+plink1_9=$(sed -n '/plink1_9/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+gwas_rep=$(sed -n '/gwas_rep/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+PRScs_dir=$(sed -n '/PRScs_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+```
+</details>
+
 <br/>
 
-# Polygenic scoring
-## Create repository of LDSC format GWAS summary statistics
+***
+
+## Create repository of LDSC formated GWAS summary statistics
+I will be using the GWAS reporsitory on the Rosalind server at KCL, created by Helena Gaspar. Here I idenitfy GWAS that I would like to calculate polygenic scores from, selecting GWAS that do not overlap with my target samples, the largest sample size for each phenotype, and a sample size over 15K. I also remove groups of GWAS that I think are unnecessary to speed up the pipeline. I create a list of GWAS files in the LDSC munged format (.sumstats.gz) for subsequent polygenic scoring scripts to use. 
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
-# This has already been prepared by Helena Gaspar
 ###
 # Select which GWAS we want to include which don't include UKBB
 ###
 module add general/R/3.5.0
 R
+
+Pipeline_prep.var<-read.table('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var')
+gwas_rep<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'gwas_rep']
+
 pheno<-read.csv('/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_031218.csv', stringsAsFactors=F)
 pheno_brief<-pheno[c('Code','phenotype_category','trait','sample_size_discovery','Ncases','Ncontrols','sex','consortium','year','UK.Biobank','h2.observed','ancestry','PRS.created')]
 
@@ -432,7 +434,7 @@ pheno_brief_bigest_big<-pheno_brief_bigest[pheno_brief_bigest$sample_size_discov
 # Remove GWAS from MAGNETIC as we are not looking at cardiometabolic traits and is excessive.
 pheno_brief_bigest_big_nomag<-pheno_brief_bigest_big[pheno_brief_bigest_big$consortium !='MAGNETIC',]
 
-pheno_brief_bigest_big_nomag$gwas_list<-paste0('/mnt/lustre/groups/ukbiobank/sumstats/munged/',pheno_brief_bigest_big_nomag$Code,'.sumstats.gz')
+pheno_brief_bigest_big_nomag$gwas_list<-paste0(gwas_rep,'/',pheno_brief_bigest_big_nomag$Code,'.sumstats.gz')
 
 write.table(pheno_brief_bigest_big_nomag[c('Code','gwas_list')], '~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt', col.names=F, row.names=F, quote=F)
 
@@ -446,6 +448,10 @@ n
 ###
 module add general/R/3.5.0
 R
+
+Pipeline_prep.var<-read.table('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var')
+gwas_rep<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'gwas_rep']
+
 pheno<-read.csv('/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_031218.csv', stringsAsFactors=F)
 pheno_brief<-pheno[c('Code','phenotype_category','trait','sample_size_discovery','Ncases','Ncontrols','sex','consortium','year','UK.Biobank','h2.observed','ancestry','PRS.created')]
 
@@ -480,7 +486,7 @@ pheno_brief_bigest_big<-pheno_brief_bigest[pheno_brief_bigest$sample_size_discov
 # Remove GWAS from MAGNETIC as we are not looking at cardiometabolic traits and is excessive.
 pheno_brief_bigest_big_nomag<-pheno_brief_bigest_big[pheno_brief_bigest_big$consortium !='MAGNETIC',]
 
-pheno_brief_bigest_big_nomag$gwas_list<-paste0('/mnt/lustre/groups/ukbiobank/sumstats/munged/',pheno_brief_bigest_big_nomag$Code,'.sumstats.gz')
+pheno_brief_bigest_big_nomag$gwas_list<-paste0(gwas_rep,'/',pheno_brief_bigest_big_nomag$Code,'.sumstats.gz')
 
 write.table(pheno_brief_bigest_big_nomag[c('Code','gwas_list')], '~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt', col.names=F, row.names=F, quote=F)
 
@@ -493,11 +499,11 @@ n
 
 ***
 
-<br/>
+## Prepare score files and scaling files for polygenic scoring (pT + clump)
 
-## Prepare score files and scaling files for polygenic scoring
+Here I prepare reference files for typical polygenic scores derived using the p-value thresholding and LD-based clumping procedure. 
 
-The score files should be based on the LD structure of the ancestry matching the GWAS (typically European). The following script uses .sumstats.gz files produced by the LDSC munge_sumstats.py.
+This section uses an R script called 'polygenic_score_file_creator.R'. Further information the usage of this script can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator).
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
@@ -514,14 +520,14 @@ done
 
 n=0
 for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt);do
-qsub -N $(echo job$(($n+20))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/polygenic_score_file_creator.R \
---ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
---ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats /mnt/lustre/groups/ukbiobank/sumstats/munged/${gwas}.sumstats.gz \
---plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
---memory 3000 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+qsub -N $(echo job$(($n+20))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+  --plink ${plink1_9} \
+  --memory 3000 \
+  --output ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
 n=$(($n+1))
 done
 
@@ -537,11 +543,11 @@ done
 
 n=0
 for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt);do
-qsub -N $(echo job$(($n+5))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/polygenic_score_file_creator.R \
+qsub -N $(echo job$(($n+5))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
 	--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
 	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-	--sumstats /mnt/lustre/groups/ukbiobank/sumstats/munged/${gwas}.sumstats.gz \
-	--plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
+  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+	--plink ${plink1_9} \
   --memory 3000 \
 	--output ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
 	--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
@@ -554,14 +560,19 @@ done
 
 ***
 
-<br/>
-
 ## Prepare score files and scaling files for polygenic scoring using lassosum
+
+Here we create reference files for polygenic scores calculated by lassosum, a method for performing lasso-based shrinkage to GWAS sumstats to account for LD and winners curse. More information on lassosum can be found [here](https://github.com/tshmak/lassosum). You will need to install the lassosum R package in advance.
+
+This section uses an R script called 'polygenic_score_file_creator_lassosum.R'. Further information the usage of this script can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_lassosum).
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 ###
 # Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt
 ###
+# I have commented out the line to run on all GWAS and replaced it to run only four GWAS. I am using these four GWAS to evaluate the method.
+
 mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum
 > ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt
 # for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
@@ -573,16 +584,14 @@ done
 
 n=0
 for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt);do
-qsub -N $(echo job$(($n+5))) -hold_jid $(echo job$(($n+0))) -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/polygenic_score_file_creator_lassosum.R \
+qsub -N $(echo job$(($n+5))) -hold_jid $(echo job$(($n+0))) -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
 	--ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
 	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-	--sumstats /mnt/lustre/groups/ukbiobank/sumstats/munged/${gwas}.sumstats.gz \
+	--sumstats ${gwas_rep}/${gwas}.sumstats.gz \
 	--output ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas} \
 	--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
 n=$(($n+1))
 done
-
-# Lassosum pseudovalidation does not seem to perform well.
 ```
 </details>
 
@@ -590,20 +599,18 @@ done
 
 ***
 
-<br/>
-
 ## Prepare score and scale files for polygenic scoring using PRScs
+
+Here we create reference files for polygenic scores calculated by PRScs, a method for performing Bayesian continuous shrinkage to GWAS sumstats to account for LD and winners curse. More information on PRScs can be found [here](https://github.com/getian107/PRScs). You will need to download the PRScs software and reference data in advance.
+
+This section uses an R script called 'polygenic_score_file_creator_PRScs.R'. Further information the usage of this script can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_PRScs).
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
-cd /users/k1806347/brc_scratch/Software
-# Download software
-git clone ssh://git@github.com/getian107/PRScs.git
-# Download required reference data
-wget https://www.dropbox.com/s/p9aqanhxvxaqv8k/ldblk_1kg_eur.tar.gz?dl=0
-tar xvzf ldblk_1kg_eur.tar.gz?dl=0
-
+# Create directory for the output
 mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs
 
+# Create list of gwas that PRScs scores should calculated for
 > ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
 #for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
 for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03);do
@@ -612,18 +619,19 @@ echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
 fi
 done
 
+# Run script for selected GWAS
 n=0
 for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt);do
-qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 6 -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/polygenic_score_file_creator_PRScs.R \
+qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 6 -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
 --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats /mnt/lustre/groups/ukbiobank/sumstats/munged/${gwas}.sumstats.gz \
---plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
+--sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--plink ${plink1_9} \
 --memory 5000 \
 --output ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
---PRScs_path /users/k1806347/brc_scratch/Software/PRScs/PRScs.py \
---PRScs_ref_path /users/k1806347/brc_scratch/Software/PRScs/ldblk_1kg_eur \
+--PRScs_path ${PRScs_dir}/PRScs.py \
+--PRScs_ref_path ${PRScs_dir}/ldblk_1kg_eur \
 --n_cores 6 \
 --phi_param 1e-6,1e-4,1e-2,1,auto
 n=$(($n+1))
@@ -635,35 +643,58 @@ done
 
 ***
 
-<br/>
-
 # Functionally-informed polygenic scoring
+
+In this section we will create polygenic scores based on transcriptome-wide association study (TWAS) results, and predicted expression. In brief TWAS and predicted expression is performed by integrating information on how SNPs affect gene expression with GWAS sumstats or genotypic data. More information about TWAS can be found [here](http://gusevlab.org/projects/fusion/). It is also possible to integrate information other gene expression, and so these scores can be more generally referred to as functionally-informed polygenic scores.
+
+Unlike polygenic scores, functionally informed polygenic scores can be tissue- and developmental stage-specific, providing an oppurtunity to stratify individuals into different components of risk. Functional inference is carried out using SNP-weights, jointly estimated SNP-effects on a functional change to a gene. The joint estimation of SNP-effects on a gene in a functionally aware manner may explain variance not captured by a standard polygenic score. However, functionally informed polygenic scores typically only considers variation proximal to genes and will therefore typically explain less than a genome-wide polygenic score. 
+
+<details><summary>Set required variables</summary>
+```{bash, eval=F, echo=T}
+# Set variables
+Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+plink1_9=$(sed -n '/plink1_9/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+gwas_rep=$(sed -n '/gwas_rep/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+FUSION_dir=$(sed -n '/FUSION_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+TWAS_rep=$(sed -n '/TWAS_rep/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+```
+</details>
+
 ## Perform TWAS using all tissue data and GWAS
+
+Here we perform a TWAS using FUSION software, FUSION SNP-weights for multiple tissues, and all GWAS previously selected. You will need to download the FUSION software and SNP-weights in advance. Here I use a FUSION repository that I created on the Rosalind server and King's College London
+
+This section uses a shell script called 'Run_TWAS.sh' to run an R script called 'Run_TWAS.R' for multiple GWAS as an array. Further information these scripts can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/Run_TWAS).
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
-mkdir -p ~/brc_scratch/Data/TWAS_sumstats/FUSION
+mkdir -p ${TWAS_rep}
 
 module add general/R/3.5.0
 R
 
+Pipeline_prep.var<-read.table('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var')
+FUSION_dir<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'FUSION_dir']
+TWAS_rep<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'TWAS_rep']
+
 library(data.table)
 
 # Read in full list of SNP-weights
-weights<-list.files(path='/mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/SNP-weights/.', recursive=F)
+weights<-list.files(path=paste0(FUSION_dir,'/SNP-weights/.'), recursive=F)
 
 # Write a file listing all SNP-weight sets.
-write.table(weights, '~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt', col.names=F, row.names=F, quote=F)
+write.table(weights, paste0(TWAS_rep, '/snp_weight_list.txt', col.names=F, row.names=F, quote=F)
 
 # Create a .pos file containing SNP-weights for all tissues.
 pos<-NULL
 for(i in weights){
-  pos_tmp<-data.frame(fread(paste0('/mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/SNP-weights/',i,'/',i,'.pos')))
+  pos_tmp<-data.frame(fread(paste0('${FUSION_dir}/SNP-weights/',i,'/',i,'.pos')))
   pos_tmp$PANEL<-i
   pos_tmp$WGT<-paste0(i,'/',pos_tmp$WGT)
   pos<-rbind(pos,pos_tmp[c('PANEL','WGT','ID','CHR','P0','P1')])
 }
 
-write.table(pos, '~/brc_scratch/Data/TWAS_sumstats/FUSION/All_tissues.pos', col.names=T, row.names=F, quote=F)
+write.table(pos, paste0(TWAS_rep,'/All_tissues.pos', col.names=T, row.names=F, quote=F)
 
 q()
 n
@@ -673,28 +704,31 @@ n
 ###
 # Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt
 ###
-> ~/brc_scratch/Data/TWAS_sumstats/FUSION/todo.txt
+> ${TWAS_rep}/todo.txt
 for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
-if [ ! -f ~/brc_scratch/Data/TWAS_sumstats/FUSION/${gwas}/${gwas}_res_GW.txt ]; then
-grep $gwas ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt >> ~/brc_scratch/Data/TWAS_sumstats/FUSION/todo.txt
+if [ ! -f ${TWAS_rep}/${gwas}/${gwas}_res_GW.txt ]; then
+grep $gwas ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt >> ${TWAS_rep}/todo.txt
 fi
 done
 
-qsub -l h_vmem=6G -pe smp 8 -tc 3 -t 1-$(wc -l ~/brc_scratch/Data/TWAS_sumstats/FUSION/todo.txt | cut -d' ' -f1) /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/Run_TWAS_new.sh \
-  --gwas_list ~/brc_scratch/Data/TWAS_sumstats/FUSION/todo.txt \
-  --pos ~/brc_scratch/Data/TWAS_sumstats/FUSION/All_tissues.pos \
-  --outdir ~/brc_scratch/Data/TWAS_sumstats/FUSION \
+qsub -l h_vmem=6G -pe smp 8 -tc 3 -t 1-$(wc -l ${TWAS_rep}/todo.txt | cut -d' ' -f1) /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Run_TWAS/Run_TWAS.sh \
+  --gwas_list ${TWAS_rep}/todo.txt \
+  --pos ${TWAS_rep}/All_tissues.pos \
+  --outdir ${TWAS_rep} \
   --ncores 8
   
 # Create a list of TWAS that have less than 25% missing TWAS.Z
 module add general/R/3.5.0
 R
+Pipeline_prep.var<-read.table('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var')
+TWAS_rep<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'TWAS_rep']
+
 library(data.table)
 gwas<-fread('~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt', header=F)$V1
 twas_comp<-NULL
 twas_incomp<-NULL
 for(gwas_name in gwas){
-	twas<-fread(paste0('/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/',gwas_name,'/',gwas_name,'_res_GW.txt'))
+	twas<-fread(paste0(TWAS_rep,'/',gwas_name,'/',gwas_name,'_res_GW.txt'))
 	if((sum(is.na(twas$TWAS.Z)) / dim(twas)[1]) < 0.25){
 		twas_comp<-c(twas_comp,gwas_name)
 	} else {
@@ -702,35 +736,39 @@ for(gwas_name in gwas){
 	}
 }
 
-write.table(twas_comp, '/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt', col.names=F, row.names=F, quote=F)
+write.table(twas_comp, paste0(TWAS_rep,'/Largest_TWAS_over15K_withoutUKBB_75comp.txt'), col.names=F, row.names=F, quote=F)
 q()
 n
 
 ###
 # Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt
 ###
-> ~/brc_scratch/Data/TWAS_sumstats/FUSION/todo.txt
+> ${TWAS_rep}/todo.txt
 for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt);do
-if [ ! -f ~/brc_scratch/Data/TWAS_sumstats/FUSION/${gwas}/${gwas}_res_GW.txt ]; then
-grep $gwas ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt >> ~/brc_scratch/Data/TWAS_sumstats/FUSION/todo.txt
+if [ ! -f ${TWAS_rep}/${gwas}/${gwas}_res_GW.txt ]; then
+grep $gwas ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt >> ${TWAS_rep}/todo.txt
 fi
 done
 
-qsub -l h_vmem=6G -pe smp 8 -tc 3 -t 1-$(wc -l ~/brc_scratch/Data/TWAS_sumstats/FUSION/todo.txt | cut -d' ' -f1) /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/Run_TWAS_new.sh \
-  --gwas_list ~/brc_scratch/Data/TWAS_sumstats/FUSION/todo.txt \
-  --pos ~/brc_scratch/Data/TWAS_sumstats/FUSION/All_tissues.pos \
-  --outdir ~/brc_scratch/Data/TWAS_sumstats/FUSION \
+qsub -l h_vmem=6G -pe smp 8 -tc 3 -t 1-$(wc -l ${TWAS_rep}/todo.txt | cut -d' ' -f1) /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/Run_TWAS_new.sh \
+  --gwas_list ${TWAS_rep}/todo.txt \
+  --pos ${TWAS_rep}/All_tissues.pos \
+  --outdir ${TWAS_rep} \
   --ncores 8
   
 # Create a list of TWAS that have less than 25% missing TWAS.Z
 module add general/R/3.5.0
 R
+
+Pipeline_prep.var<-read.table('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var')
+TWAS_rep<-Pipeline_prep.var$V2[Pipeline_prep.var$V1 == 'TWAS_rep']
+
 library(data.table)
 gwas<-fread('~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt', header=F)$V1
 twas_comp<-NULL
 twas_incomp<-NULL
 for(gwas_name in gwas){
-	twas<-fread(paste0('/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/',gwas_name,'/',gwas_name,'_res_GW.txt'))
+	twas<-fread(paste0(TWAS_rep,'/',gwas_name,'/',gwas_name,'_res_GW.txt'))
 	if((sum(is.na(twas$TWAS.Z)) / dim(twas)[1]) < 0.25){
 		twas_comp<-c(twas_comp,gwas_name)
 	} else {
@@ -738,7 +776,7 @@ for(gwas_name in gwas){
 	}
 }
 
-write.table(twas_comp, '/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutTEDS_75comp.txt', col.names=F, row.names=F, quote=F)
+write.table(twas_comp, paste0(TWAS_rep,'/Largest_TWAS_over15K_withoutTEDS_75comp.txt'), col.names=F, row.names=F, quote=F)
 q()
 n
 ```
@@ -748,24 +786,30 @@ n
 
 ***
 
-<br/>
-
 ## Predict functional genomic features
+In order to calculate functionally informed polygenic scores, we need the Z scores for each feature (i.e. gene expression), and we need predictions of each feature in the target sample. The functionally informed polygenic scores are then sum(Z*Pred).
+
+Here we calculate predictions for each genomic feature in the reference sample, to estimate the mean and SD of each feature in the different ancestries for scaling predictions in the target samples, and for calculating the correlation between features for clumping and oher analyses that take the correlation between features into account (e.g. [TWAS-GSEA](https://github.com/opain/TWAS-GSEA)).
+
+First FUSION SNP-weights must be converted into SCORE files for use in PLINK. This is done using the script called 'FUSION_score_file_creator.R' (info [here](https://github.com/opain/https://github.com/opain/GenoPred/tree/master/Scripts/FUSION_score_file_creator))
+
+Then the score files are used to predict features in the 1000 Genomes reference and report the mean and SD. This is done using the script called 'FUSION_ref_scorer.R' (info [here](https://github.com/opain/https://github.com/opain/GenoPred/tree/master/Scripts/FUSION_ref_scorer))
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 mkdir -p ~/brc_scratch/Data/FUSION/SCORE_FILES
 
 # Create SCORE files and expression reference.
-qsub -pe smp 15 -l h_vmem=2G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/FUSION_score_file_creator.R \
-  --weights ~/brc_scratch/Data/TWAS_sumstats/FUSION/All_tissues.pos \
-  --weights_dir /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/SNP-weights \
+qsub -pe smp 15 -l h_vmem=2G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/FUSION_score_file_creator/FUSION_score_file_creator.R \
+  --weights ${TWAS_rep}/All_tissues.pos \
+  --weights_dir ${FUSION_dir}/SNP-weights \
   --output ~/brc_scratch/Data/FUSION/SCORE_FILES \
   --n_cores 15
 
 # Calculate features based on each SNP-weight set. To not swamp the cluster, submit only three weights at a time.
 # Create file listing weights that haven't been predicted in the reference.
 > ${Geno_1KG_dir}/Predicted_expression/FUSION/todo.txt
-for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
 if [ ! -f ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz ]; then
 echo $weights >> ${Geno_1KG_dir}/Predicted_expression/FUSION/todo.txt
 fi
@@ -773,11 +817,11 @@ done
 
 n=0
 for weights in $(cat ${Geno_1KG_dir}/Predicted_expression/FUSION/todo.txt);do
-qsub -N $(echo job$(($n+2))) -hold_jid $(echo job$(($n+0))) -pe smp 5 -l h_vmem=8G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/FUSION_ref_scorer.R \
+qsub -N $(echo job$(($n+2))) -hold_jid $(echo job$(($n+0))) -pe smp 5 -l h_vmem=8G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/FUSION_ref_scorer/FUSION_ref_scorer.R \
   --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
-  --weights /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/SNP-weights/${weights}/${weights}.pos \
+  --weights ${FUSION_dir}/SNP-weights/${weights}/${weights}.pos \
   --output ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights} \
-  --plink ~/brc_scratch/Software/plink1.9.sh \
+  --plink ${plink1_9} \
   --n_cores 5 \
   --pigz /users/k1806347/brc_scratch/Software/pigz.sh \
   --score_files ~/brc_scratch/Data/FUSION/SCORE_FILES \
@@ -791,17 +835,19 @@ done
 
 ***
 
-<br/>
-
 ## Prepare score files and scaling files for functionally informed polygenic scores
+Now we will create reference files for functionally informed polygenic scores, including score files after clumping, and the mean and SD of scores across ancestries for scaling the target sample.
+
+This section uses an R script called 'Run_TWAS.R' for multiple GWAS as an array. Further information these scripts can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/Run_TWAS).
+
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 ######
 # Calculate for /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt
 ######
 > ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
-for gwas in $(cat /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
-for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+for gwas in $(cat ${TWAS_rep}/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
+for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
 echo $gwas $weights >> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
 fi
@@ -813,7 +859,7 @@ gwas=$(awk -v var="$i" 'NR == var {print $1}' ${Geno_1KG_dir}/Score_files_for_fu
 weights=$(awk -v var="$i" 'NR == var {print $2}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt)
 
 qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/ref_funtionally_informed_risk_scorer.R \
-  --twas_results /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/${gwas}/${gwas}_res_GW.txt \
+  --twas_results ${TWAS_rep}/${gwas}/${gwas}_res_GW.txt \
   --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
   --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights} \
   --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
@@ -830,17 +876,29 @@ done
 
 ***
 
-<br/>
+To do:
 
+* Update all file paths to be variables
+* Provide example variable file
+* Create READMEs to explain Scripts called here
+
+```{bash, eval=F, echo=F}
+#####################################################
+#####################################################
+#####################################################
+#####################################################
 # Redundant code for research 
-<details><summary>Show code</summary>
-```{bash, eval=F, echo=T}
+#####################################################
+#####################################################
+#####################################################
+#####################################################
+
 ###
 # Calculate GeRSs weighting genes by R2 and TWAS.Z
 ###
 > ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt
 for gwas in $(cat /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
-for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.R2weighted.scale ]; then
 echo $gwas $weights >> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_R2weighted.txt
 fi
@@ -894,7 +952,7 @@ qsub -l h_vmem=30G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k18063
 > ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
 # for gwas in $(cat /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutTEDS_75comp.txt);do
 for gwas in $(echo ADHD02 BODY11 HEIG03 INTE03);do
-for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
 echo $gwas $weights >> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
 fi
@@ -917,20 +975,3 @@ sleep 1
 done
 
 ```
-</details>
-
-
-<br/>
-
-***
-
-<br/>
-
-<details><summary>Session info</summary>
-
-Date knitted: `r format(Sys.time(), '%d %B, %Y')`
-```{R, eval=T, echo=F}
-sessionInfo()
-```
-
-</details>
