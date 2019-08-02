@@ -7,6 +7,7 @@ The following software is required for the prediction pipeline:
 
 * PLINK v1.9 (https://www.cog-genomics.org/plink2/)
 * Per chromosome files for the desired reference genotype data (e.g. 1000 Genomes)
+* lassosum (https://github.com/tshmak/lassosum)
 * R packages:
 ```R
 install.packages(c('data.table'))
@@ -18,7 +19,7 @@ install.packages(c('data.table'))
 | --ref_plink_gw | Path to genome-wide reference PLINK files [required] | NA |
 | --ref_keep | Keep file to subset individuals in reference [optional] | NA |
 | --sumstats | GWAS summary statistics in LDSC format [required] | 10 |
-| --output | Path for output files [optional] | './PC_projector_output/Output' |
+| --output | Path for output files [optional] | './Output' |
 | --ref_pop_scale | List of keep files for grouping individuals [optional] | NA |
 
 ## Output files

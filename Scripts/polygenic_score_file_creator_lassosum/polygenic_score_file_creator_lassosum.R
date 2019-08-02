@@ -10,7 +10,7 @@ option_list = list(
 			help="Keep file to subset individuals in reference for clumping [required]"),
 	make_option("--ref_pop_scale", action="store", default=NA, type='character',
 			help="File containing the population code and location of the keep file [required]"),
-	make_option("--output", action="store", default='./PC_projector_output/Output', type='character',
+	make_option("--output", action="store", default='./Output', type='character',
 			help="Path for output files [required]"),
 	make_option("--sumstats", action="store", default=NA, type='character',
 			help="GWAS summary statistics in LDSC format [optional]")

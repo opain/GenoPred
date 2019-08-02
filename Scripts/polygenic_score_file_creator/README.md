@@ -20,7 +20,7 @@ install.packages(c('data.table'))
 | --sumstats | GWAS summary statistics in LDSC format [required] | 10 |
 | --pTs | List of p-value thresholds for scoring [optional] | '1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1' |
 | --plink | Path PLINK software binary [required] | NA |
-| --output | Path for output files [optional] | './PC_projector_output/Output' |
+| --output | Path for output files [optional] | './Output' |
 | --ref_pop_scale | List of keep files for grouping individuals [optional] | NA |
 | --memory | Memory limit in Mb [optional] | 5000 |
 | --prune_hla | Retain only top associated variant in HLA region [optional] | TRUE |
