@@ -19,15 +19,15 @@ make_option("--memory", action="store", default=5000, type='numeric',
 make_option("--sumstats", action="store", default=NA, type='character',
 		help="GWAS summary statistics in LDSC format [optional]"),
 make_option("--PRScs_path", action="store", default=NA, type='character',
-		help="Path to PRScs executable [optional]"),
+		help="Path to PRScs executable [required]"),
 make_option("--n_cores", action="store", default=1, type='numeric',
-		help="Path to PRScs reference [optional]"),
+		help="Number of cores for parallel computing [optional]"),
 make_option("--PRScs_ref_path", action="store", default=T, type='character',
-		help="Path to PRScs reference [optional]"),
+		help="Path to PRScs reference [required]"),
 make_option("--phi_param", action="store", default='auto', type='character',
 		help="Path to PRScs reference [optional]"),
-make_option("--python_path", action="store", default=T, type='character',
-		help="Path to python 2.X [optional]")
+make_option("--python_path", action="store", default=NA, type='character',
+		help="Path to python 2.X [required]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
