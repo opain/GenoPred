@@ -10,8 +10,10 @@ make_option("--pos", action="store", default=NA, type='character',
 		help="File listing SNP-weights in .pos format [required]"),
 make_option("--out", action="store", default=NA, type='character',
 			help="Name of output files [required]"),
+make_option("--fusion_dir", action="store", default=NA, type='character',
+			help="Directory containing fusion software and reference data [required]"),
 make_option("--ncores", action="store", default=5, type='numeric',
-			help="Number of cores for parallel analysis [required]")
+			help="Number of cores for parallel analysis [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -53,11 +55,11 @@ opt$gwas_new<-paste0(opt$out,'_noNA.sumstats.gz')
 sink(file = paste0(opt$out,'.log'), append = T)
 cat('
 FUSION command:
-	Rscript /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/fusion_twas-master/FUSION.assoc_test.R \\
+	Rscript ',opt$fusion_dir,'/fusion_twas-master/FUSION.assoc_test.R \\
 		--sumstats ',opt$gwas_new,' \\
 		--weights ',opt$pos,' \\
-		--weights_dir /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/SNP-weights \\
-		--ref_ld_chr /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/LDREF/1000G.EUR. \\
+		--weights_dir ',opt$fusion_dir,'/SNP-weights \\
+		--ref_ld_chr ',opt$fusion_dir,'/LDREF/1000G.EUR. \\
 		--out ',opt$out,'_res_chr$i.txt \\
 		--chr $i
 
@@ -79,11 +81,11 @@ print(CHROMS)
 
 TWAS_log<-foreach(i=CHROMS) %dopar% {
   log<-system(paste0(
-    'Rscript /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/fusion_twas-master/FUSION.assoc_test.R ',
+    'Rscript ',opt$fusion_dir,'/fusion_twas-master/FUSION.assoc_test.R ',
     '--sumstats ',opt$gwas_new,' ',
     '--weights ',opt$pos,' ',
-    '--weights_dir /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/SNP-weights ',
-    '--ref_ld_chr /mnt/lustre/groups/biomarkers-brc-mh/TWAS_resource/FUSION/LDREF/1000G.EUR. ',
+    '--weights_dir ',opt$fusion_dir,'/SNP-weights ',
+    '--ref_ld_chr ',opt$fusion_dir,'/LDREF/1000G.EUR. ',
     '--out ',opt$out,'_res_chr',i,'.txt ',
     '--chr ',i
   ),intern = TRUE)
