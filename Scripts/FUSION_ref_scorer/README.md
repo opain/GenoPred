@@ -15,26 +15,6 @@ The following software is required for the prediction pipeline:
 install.packages(c('data.table','foreach','doMC'))
 ```
 
-make_option("--ref_plink_chr", action="store", default=NA, type='character',
-		help="Path to per chromosome reference PLINK binaries [required]"),
-make_option("--weights", action="store", default=NA, type='character',
-		help="Path for .pos file describing features [required]"),
-make_option("--n_cores", action="store", default=1, type='numeric',
-		help="Specify the number of cores available [optional]"),
-make_option("--score_files", action="store", default=NA, type='character',
-		help="Path to SCORE files corresponding to weights [required]"),
-make_option("--memory", action="store", default=5000, type='numeric',
-		help="RAM available in MB [required]"),
-make_option("--plink", action="store", default='NA', type='character',
-		help="Path to PLINK software [required]"),
-make_option("--output", action="store", default=NA, type='character',
-		help="Name of output directory [required]"),
-make_option("--ref_pop_scale", action="store", default=NA, type='character',
-		help="File containing the population code and location of the keep file [required]"),
-make_option("--pigz", action="store", default=NA, type='character',
-		help="Path to pigz binary [required]")
-)
-
 ## Parameters
 | Flag     | Description                                                  | Default |
 | :------------- | ------------------------------------------------------ | :----------: |
