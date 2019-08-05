@@ -9,7 +9,7 @@ make_option("--weights", action="store", default=NA, type='character',
 make_option("--weights_dir", action="store", default=NA, type='character',
 		help="Directory containing the weights corresponding to the features in the .pos file [required]"),
 make_option("--n_cores", action="store", default=1, type='numeric',
-		help="Specify the number of cores available [required]"),
+		help="Specify the number of cores available [optional]"),
 make_option("--output", action="store", default=NA, type='character',
 		help="Name of output directory [required]")
 )
