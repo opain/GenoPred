@@ -1,44 +1,46 @@
 # polygenic_score_file_creator.R
 
-This is script is used to create reference files for polygenic scoring, including .SCORE files for plink after LD-based clumping, and files containing the mean and standard deviation (SD) for scores for each p-value threshold, across groups within the reference (e.g. ancestries). The script uses PLINK1.9 to perform LD-clumping and scoring in the reference sample. This script was developed for preparing reference data in a genotype-based prediction pipeline. More information [here](https://opain.github.io/GenoPred/Pipeline_prep.html)
+This is script is used to create reference files for functionally informed polygenic scoring based on predicted features (e.g. gene expression) and inferred feature association summary statistics (e.g. TWAS). This script was developed for preparing reference data in a genotype-based prediction pipeline. More information [here](https://opain.github.io/GenoPred/Pipeline_prep.html)
 
 ## Pre-requisites
 The following software is required for the prediction pipeline:
 
-* PLINK v1.9 (https://www.cog-genomics.org/plink2/)
-* Per chromosome files for the desired reference genotype data (e.g. 1000 Genomes)
+* Feature predictions in a reference sample (See [here](https://github.com/opain/GenoPred/tree/master/Scripts/FUSION_ref_scorer))
+* Feature associations (e.g. TWAS) results from FUSION (http://gusevlab.org/projects/fusion/)
 * R packages:
 ```R
-install.packages(c('data.table'))
+install.packages(c('optparse','data.table'))
 ```
-
 ## Parameters
 | Flag     | Description                                                  | Default |
 | :------- | ------------------------------------------------------------ | :-----: |
-| --ref_plink_chr | Path to per chromosome reference PLINK files [required] | NA |
-| --ref_keep | Keep file to subset individuals in reference for clumping [optional] | NA |
-| --sumstats | GWAS summary statistics in LDSC format [required] | 10 |
-| --pTs | List of p-value thresholds for scoring [optional] | '1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1' |
-| --plink | Path PLINK software binary [required] | NA |
-| --output | Path for output files [optional] | './Output' |
-| --ref_pop_scale | List of keep files for grouping individuals [optional] | NA |
-| --memory | Memory limit in Mb [optional] | 5000 |
-| --prune_hla | Retain only top associated variant in HLA region [optional] | TRUE |
+| --twas_results | File containing TWAS results [required] | NA |
+| --ref_feature_pred | File containing feature predictions for the reference sample [required] | NA |
+| --output | Name of output files [required] | NA |
+| --clump_thresh | r2 threshold for clumping [optional] | 0.9 |
+| --cor_window | Window for clumping [optional] | 5e6 |
+| --pTs | Window for clumping [optional] | '1,5e-1,1e-1,5e-2,1e-2,1e-3,1e-4,1e-5,1e-6' |
+| --clump_mhc | Retain only the most significant gene within the MHC region [optional] | TRUE |
+| --ref_keep | Keep file for reference individuals [optional] | NA |
+| --panel | Panel from TWAS [optional] | NA |
+| --r2_weighted | Set to T if gene expression should be weighted by R2 of predicted expression [optional] | F |
+| --ref_scale | Path to file for scaling feature predictions [required] | NA |
 
 ## Output files
 
-The script will create per chromosome .score and .range_values files in PLINK format. These files tell PLINK what the effect of each SNP is and the p-value of each SNP to enable selection of SNPs based on p-value thresholds. The script will also create a .NSNP_per_pT files, indicating the number of SNPs surpassing p-value thresholds before and after clumping. A .log file will also be created.
-
-If --ref_pop_scale is specified, the script will also creates files stating the mean and standard deviation of the polygenic scores for each group. 
+The script will create:
+* .score file containing effect size and p value for each feature after LD-based clumping
+* .scale file containing the mean and SD of scores within the reference sample
+* .NFeat file showing the number of features included at different p-value thresholds
+* .log file
 
 ## Examples
 ```sh
-Rscript polygenic_score_file_creator.R \
-  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
-  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
-  --plink ${plink1_9} \
-  --memory 3000 \
-  --output 1KGPhase3.w_hm3.${gwas} \
-  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+Rscript ref_funtionally_informed_risk_scorer.R \
+  --twas_results DEPR06_res_GW.txt \
+  --ref_feature_pred 1KGPhase3.w_hm3.FUSION.Blood.predictions.gz \
+  --output DEPR06/1KGPhase3.w_hm3.EUR.FUSION.DEPR06.Blood \
+  --ref_keep EUR_samples.keep \
+  --ref_scale Predicted_expression/FUSION/Blood/1KGPhase3.w_hm3.FUSION.Blood.EUR.scale \
+  --panel Blood
 ```

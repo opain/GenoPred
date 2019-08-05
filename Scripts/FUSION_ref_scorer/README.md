@@ -7,7 +7,7 @@ The following software is required for the prediction pipeline:
 
 * PLINK v1.9 (https://www.cog-genomics.org/plink2/)
 * Per chromosome files for the desired reference genotype data (e.g. 1000 Genomes)
-* FUSION SNP-weights in .score format (See [here](https://github.com/opain/https://github.com/opain/GenoPred/tree/master/Scripts/FUSION_score_file_creator))
+* FUSION SNP-weights in .score format (See [here](https://github.com/opain/GenoPred/tree/master/Scripts/FUSION_score_file_creator))
 * GWAS summary statistics in LDSC munged format
 * pigz: software for parallel gz compression (https://zlib.net/pigz/)
 * R packages:
