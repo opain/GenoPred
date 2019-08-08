@@ -11,7 +11,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, error=F)
 ```
 
 <style>
@@ -33,15 +33,14 @@ pre code, pre, code {
 
 This page describes calculating reference-standardised genotype-based scores in a target sample. This process requires a number of reference files, which can be made using instructions found [here](https://opain.github.io/GenoPred/Pipeline_prep.html). Here, we will calculate ancestry scores, polygenic scores, and functionally informed polygenic scores. Each of these scores can be used for a number of tasks, such as inferrence of ancestry, estimation of risk, test for genetic covariance between two outcomes, and stratification. 
 
+# Harmonisation with the reference
 Before these scores can be calculated, the target samples genetic data must be harmonised with the reference. This process varies depending on the source of the data. Here, I show how the UK biobank and Twins Early Development Study (TEDS) genetic data were harmonised with the reference. Note, both of these samples had been imputed prior to receiving the data.
 
-# Harmonisation with the reference
+In all scenarios, I extract SNPs in the HapMap3 SNP-list, convert the data to hard-call PLINK binaries (.bed/.bim/.fam), check whether any SNPs need to be strand flipped, and insert HapMap3 SNPs that are not present into the target data as missing.
 
-## UK-Biobank
-Here I take each chromosome of the UK-Biobank imputed data (.bgen), extract SNPs in the HapMap3 SNP-list, convert the data to hard-call PLINK binaries (.bed/.bim/.fam), check whether any SNPs need to be strand flipped, and insert HapMap3 SNPs that are not present into the UK-Biobank data as missing. 
+I use HapMap3 SNPs only as these are typically available after imputation, enabling comparison of scores from diverse sources. I convert SNPs to hard call with a hard-call threshold of 0, meaning it will take the most likely genotype regardless of the certainty, which speeds subsequent stages of the genotype-based scoring and is unlikely to introduce many errors as these SNPs are typically reliable. I insert HapMap3 SNPs as missing to enable allele frequency imputation while scoring, which ensures scores are comparable between samples with different SNPs available.
 
-I used HapMap3 SNPs only as these are typically available after imputation, enabling comparison of scores from diverse sources. I convert SNPs to hard call with a hard-call threshold of 0, meaning it will take the most likely genotype regardless of the certainty, which speeds subsequent stages of the genotype-based scoring and is unlikely to introduce many errors as these SNPs are typically reliable. I insert HapMap3 SNPs as missing to enable allele frequency imputation while scoring, which ensures scores are comparable between samples with different SNPs available.
-
+## UK Biobank
 The code below applies a script called 'Harmonisation_of_UKBB.R' to each chromosome of the UK-Biobank data. See [here](https://github.com/opain/GenoPred/tree/master/Scripts/Harmonisation_of_UKBB) for more information on this script.
 
 <details><summary>See code</summary>
@@ -49,7 +48,7 @@ The code below applies a script called 'Harmonisation_of_UKBB.R' to each chromos
 # Set required variables
 UKBB_original=$(sed -n '/UKBB_original/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
 UKBB_fam=$(sed -n '/UKBB_fam/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
-UKBB_harmonised=$(sed -n '/UKBB_harmonised/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
+UKBB_output=$(sed -n '/UKBB_output/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
 Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
 qctool2=$(sed -n '/qctool2/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
 plink1_9=$(sed -n '/plink1_9/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
@@ -60,7 +59,7 @@ qsub -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k18063
   --chr $chr \
   --input_dir ${UKBB_original} \
   --target_fam ${UKBB_fam} \
-  --output_dir ${UKBB_harmonised} \
+  --output_dir ${UKBB_output}/Genotype/Harmonised \
   --reference_dir ${Geno_1KG_dir} \
   --qctool2 ${qctool2} \
   --plink ${plink1_9}
@@ -68,22 +67,68 @@ done
 ```
 </details>
 
-## TEDS
-The code below applies a script called 'Harmonisation_of_TEDS.R' to each chromosome of the UK-Biobank data. See [here](https://github.com/opain/GenoPred/tree/master/Scripts/Harmonisation_of_TEDS) for more information on this script.
+<br/>
 
+***
+
+# Ancestry scoring
+In genetic analyses it is important to consider an individual's ancestry as the frequency of alleles vary between populations making comparison across ancestries often invalid. Differences in ancestry can lead to population stratification in genome-wide assocaition studies because the frequency of an outcome may vary between individuals of different ancestries, which will then lead to an association between the outcome and all genetic variants that differ in frequency between ancestral groups. Furthermore, differences in LD between ancestries lead to difference patterns of association which influences the predictive utility of polygenic scores across diverse populations.
+
+In this genotype-based scoring pipeline, we estimate which super population individuals are most closely related to based on 1000 Genomes reference. This allows subsquent genotype-based scores to be scaled based on the mean and SD of scores within their ancestral group, improving their interpretability. We also use their inferred ancestry to stratify individuals when building predictive models, to provide population specific models of risk. Furthermore, given that the frequency of outcomes do often vary between ancestral groups, we also derive these estimates of ancestry to be used as predictors of risk. This is discussed more elsewhere (see here).
+
+This section uses a script called 'scaled_ancestry_scorer.R'. See more information on the utility of this script [here](https://github.com/opain/GenoPred/tree/master/Scripts/Harmonisation_of_UKBB) for more information on this script.
+
+## UK Biobank
 <details><summary>See code</summary>
 ```{bash, echo=T, eval=F}
-# Process each chromosome of the UK-Biobank data using the Harmonisation_of_UKBB.R script
-for chr in $(seq 1 22); do
-  qsub -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Harmonisation_of_UKBB/Harmonisation_of_TEDS.R --chr $chr
-done
+# Set required variables
+UKBB_output=$(sed -n '/UKBB_output/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
+Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
+plink2=$(sed -n '/plink2/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+
+#################
+# Calculate all ancestry PCs of population structure and predict ancestry
+#################
+
+qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R \
+	--target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+	--ref_freq_chr ${Geno_1KG_dir}/freq_files/AllAncestry/1KGPhase3.w_hm3.AllAncestry.chr \
+	--ref_score ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.eigenvec.var \
+	--ref_eigenvec ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.eigenvec \
+	--plink2 ${plink2} \
+	--output ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry \
+	--pop_data ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small \
+	--pop_model ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.pop_enet_model.rds \
+	--pop_model_scale ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.scale \
+	--pop_scale_for_keep ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.scalefiles.txt
+
+#################
+# Calculate European ancestry PCs of population structure
+#################
+
+# Use the EUR.keep file from the AllAncestry run above to select people of EUR ancestry.
+qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R \
+	--target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+	--target_keep ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep \
+	--ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+	--ref_score ${Geno_1KG_dir}/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR.eigenvec.var \
+	--ref_eigenvec ${Geno_1KG_dir}/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR.eigenvec \
+	--ref_scale ${Geno_1KG_dir}/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR.scale \
+	--plink2 ${plink2} \
+	--output ${UKBB_output}/Projected_PCs/EUR/UKBB.w_hm3 \
+	--pop_data ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small
+
 ```
 </details>
 
+<br/>
 
+***
 
+To do:
 
-
+* Add README for scaled_ancestry_scorer.R
+* Add scripts and readme's for other pipeline modules
 
 
 
