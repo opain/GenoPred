@@ -7,50 +7,41 @@ The following software is required for the prediction pipeline:
 
 * PLINK v1.9 (https://www.cog-genomics.org/plink2/)
 
-* PLINK v2 (https://www.cog-genomics.org/plink/2.0/)
+* QCTOOL V2 (https://www.well.ox.ac.uk/~gav/qctool_v2)
 
-* Per chromosome files for the desired reference genotype data (e.g. 1000 Genomes)
+* Per chromosome imputed UK-biobank genetic data in .bgen format (as received from UK-biobank)
 
 * R packages:
 ```R
-install.packages(c('data.table','caret','pROC','verification'))
+install.packages(c('data.table','optparse'))
 ```
 
 ## Parameters
 | Flag     | Description                                                  | Default |
 | :------- | ------------------------------------------------------------ | :-----: |
-| --ref_plink_chr | Path to per chromosome reference PLINK files [required] | NA |
-| --ref_keep | Keep file to subset individuals in reference for clumping [optional] | NA |
-| --n_pcs | Number of PCs [optional] | 10 |
-| --plink | Path PLINK software binary [required] | NA |
-| --plink2 | Path PLINK2 software binary [required] | NA |
-| --output | Path for output files [optional] | './PC_projector_output/Output' |
-| --ref_pop_scale | List of keep files for grouping individuals [optional] | NA |
-| --memory | Memory limit in Mb [optional] | 5000 |
+| --chr | Chromosome number [required] | NA |
+| --input_dir | Directory containing imputed UKBB data [required] | NA |
+| --target_fam | Path to fam file for target sample [required] | NA |
+| --reference_dir | Directory containing reference data [required] | NA |
+| --plink | Path to PLINK V1.9 software binary [required] | NA |
+| --qctool2 | Path to QCTOOL V2 binary [required] | NA |
+| --output_dir | Output folder name [required] | NA |
+| --debug | Set to T to create object for debugging [optional] | F |
 
 ## Output files
 
-The script will always create .eigenvec and .eigenvec.var files. These contain the PCs score for individuals in the reference dataset, and the SNP-weights for the PCs respectively. 
-
-If --ref_pop_scale is specified, the script will also creates files stating the mean and standard deviation of the PCs for each group. Furthermore, it will derive an elastic net model predicting each group, and report the accuracy of the derived models.
+The script will create a set of PLINK .bed/.bim/.fam files in the output_dir for each chromosome, containing only SNPs within the HapMap3 SNP list, flipped to match the strand in the reference, and with missing SNPs inserted as NA.
 
 ## Examples
 ```sh
-# Create score files for European specific PCs, and scaling files for Europeans
-qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R \
-	--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
-	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-	--plink ${plink1_9} \
-	--plink2 ${plink2} \
-	--n_pcs 100 \
-	--output ${Geno_1KG_dir}/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR
-
-# Create score files for all ancestry PCs, and scaling files for each super population
-qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Pipeline_prep/ancestry_score_file_creator.R \
-	--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
-	--plink ${plink1_9} \
-	--plink2 ${plink2} \
-	--n_pcs 100 \
-	--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
-	--output ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry
+for chr in $(seq 1 22); do
+qsub -l h_vmem=10G Rscript Harmonisation_of_UKBB.R \
+  --chr $chr \
+  --input_dir UKBB/Imputed \
+  --target_fam UKBB/Imputed/UKBB.sample \
+  --output_dir UKBB/Harmonised \
+  --reference_dir 1KG/Phase3 \
+  --qctool2 qctool2 \
+  --plink plink
+done
 ```
