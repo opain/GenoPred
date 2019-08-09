@@ -5,8 +5,8 @@ This script is for calculating reference standardised polygenic scores in a targ
 ## Pre-requisites
 The following software is required for the prediction pipeline:
 
-* Per chromosome PLINK files for the target sample that have been previously harmonised with the reference data (more information [here](https://opain.github.io/GenoPred/Genotype-based_scoring_in_target_samples.html#1_harmonisation_with_the_reference))
-* Reference data for polygenic scoring (pT + clump method) (see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#42_prepare_score_files_and_scaling_files_for_polygenic_scoring_(pt_+_clump)))
+* Feature predictions files for the target sample. (more information [here](https://opain.github.io/GenoPred/Genotype-based_scoring_in_target_samples.html#41_predicting_functional_genomic_features)
+* Reference data for functionally informed polygenic scoring (see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#5_functionally-informed_polygenic_scoring))
 
 * R packages:
 ```R
@@ -28,18 +28,17 @@ install.packages(c('data.table','optparse','foreach','doMC'))
 ## Output files
 This script will create: 
 
-* A .profiles file containing reference standardised polygenic scores
+* A .fiprofile file containing reference-standardised functionally-informed polygenic scores
 * A .log file 
 
 ## Examples
 ```sh
-qsub Rscript Scaled_polygenic_scorer.R \
-  --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
-  --target_keep ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep \
-  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/DEPR06/1KGPhase3.w_hm3.DEPR06 \
-  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/DEPR06/1KGPhase3.w_hm3.DEPR06.EUR.scale \
-  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
-  --plink plink \
+qsub -pe smp 5 Rscript scaled_functionally_informed_risk_scorer.R \
+  --targ_feature_pred ${UKBB_output}/Predicted_expression/FUSION/EUR/Blood/UKBB.w_hm3.QCd.AllSNP.FUSION.Blood.predictions.gz \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/DEPR06/1KGPhase3.w_hm3.EUR.FUSION.DEPR06.Blood.score \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/DEPR06/1KGPhase3.w_hm3.EUR.FUSION.DEPR06.Blood.scale \
   --pheno_name DEPR06 \
-  --output ${UKBB_output}/PolygenicScores/EUR/DEPR06/UKBB.w_hm3.DEPR06.EUR
+  --n_cores 5 \
+  --pigz pigz \
+  --output ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/Blood/UKBB.w_hm3.EUR.Blood.DEPR06
 ```
