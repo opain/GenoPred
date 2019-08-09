@@ -33,6 +33,10 @@ pre code, pre, code {
 
 This page describes calculating reference-standardised genotype-based scores in a target sample. This process requires a number of reference files, which can be made using instructions found [here](https://opain.github.io/GenoPred/Pipeline_prep.html). Here, we will calculate ancestry scores, polygenic scores, and functionally informed polygenic scores. Each of these scores can be used for a number of tasks, such as inferrence of ancestry, estimation of risk, test for genetic covariance between two outcomes, and stratification. 
 
+<br/>
+
+***
+
 # Harmonisation with the reference
 Before these scores can be calculated, the target samples genetic data must be harmonised with the reference. This process varies depending on the source of the data. Here, I show how the UK biobank and Twins Early Development Study (TEDS) genetic data were harmonised with the reference. Note, both of these samples had been imputed prior to receiving the data.
 
@@ -46,12 +50,7 @@ The code below applies a script called 'Harmonisation_of_UKBB.R' to each chromos
 <details><summary>See code</summary>
 ```{bash, echo=T, eval=F}
 # Set required variables
-UKBB_original=$(sed -n '/UKBB_original/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
-UKBB_fam=$(sed -n '/UKBB_fam/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
-UKBB_output=$(sed -n '/UKBB_output/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
-Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
-qctool2=$(sed -n '/qctool2/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
-plink1_9=$(sed -n '/plink1_9/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
 # Process each chromosome of the UK-Biobank data using the Harmonisation_of_UKBB.R script
 for chr in $(seq 1 22); do
@@ -74,17 +73,15 @@ done
 # Ancestry scoring
 In genetic analyses it is important to consider an individual's ancestry as the frequency of alleles vary between populations making comparison across ancestries often invalid. Differences in ancestry can lead to population stratification in genome-wide assocaition studies because the frequency of an outcome may vary between individuals of different ancestries, which will then lead to an association between the outcome and all genetic variants that differ in frequency between ancestral groups. Furthermore, differences in LD between ancestries lead to difference patterns of association which influences the predictive utility of polygenic scores across diverse populations.
 
-In this genotype-based scoring pipeline, we estimate which super population individuals are most closely related to based on 1000 Genomes reference. This allows subsquent genotype-based scores to be scaled based on the mean and SD of scores within their ancestral group, improving their interpretability. We also use their inferred ancestry to stratify individuals when building predictive models, to provide population specific models of risk. Furthermore, given that the frequency of outcomes do often vary between ancestral groups, we also derive these estimates of ancestry to be used as predictors of risk. This is discussed more elsewhere (see here).
+In this genotype-based scoring pipeline, we estimate factor scores for each individual on the first 100 European specific and 100 all-ancestry principal components (PCs) of populations structure by projecting previously identified PCs in the 1000 Genomes reference (see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#3_ancestry_scoring)). Using the 100 all-ancestry PCs, we estimate which super population individuals belong to. This allows subsquent genotype-based scores to be scaled based on the mean and SD of scores within their ancestral group, improving their interpretability. We also use their inferred ancestry to stratify individuals when building predictive models, to provide population specific models of risk. Furthermore, given that the frequency of outcomes do often vary between ancestral groups, we also derive these estimates of ancestry to be used as predictors of risk. This is discussed more elsewhere (see here).
 
-This section uses a script called 'scaled_ancestry_scorer.R'. See more information on the utility of this script [here](https://github.com/opain/GenoPred/tree/master/Scripts/Harmonisation_of_UKBB) for more information on this script.
+This section uses a script called 'scaled_ancestry_scorer.R'. See more information on the utility of this script [here](https://github.com/opain/GenoPred/tree/master/Scripts/scaled_ancestry_scorer) for more information on this script.
 
 ## UK Biobank
 <details><summary>See code</summary>
 ```{bash, echo=T, eval=F}
 # Set required variables
-UKBB_output=$(sed -n '/UKBB_output/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
-Geno_1KG_dir=$(sed -n '/Geno_1KG_dir/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Target_scoring.var | cut -d ' ' -f 2)
-plink2=$(sed -n '/plink2/p' /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Variables_used/Pipeline_prep.var | cut -d ' ' -f 2)
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
 #################
 # Calculate all ancestry PCs of population structure and predict ancestry
@@ -125,9 +122,122 @@ qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k18063
 
 ***
 
-To do:
+# Polygenic scoring
+Here we calculate poylgenic scores for a range of outcomes in the target samples based on previously prepared reference scoring files, and scale the polygenic scores based on scores in a reference sample with matched ancestry. For more information on preparing reference files for polygenic scoring, see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring).
 
-* Add README for scaled_ancestry_scorer.R
+One aim of the GenoPred project is to compare methods for calculating genotype-based scores. Here we compare three approaches for polygenic scoring:
+
+* p-value thresholding and LD-based clumping (pT + clump)
+* lassosum
+* PRScs
+
+## p-value thresholding and LD-based clumping
+This section uses a script called 'Scaled_polygenic_scorer.R'. See more information on the utility of this script [here](https://github.com/opain/GenoPred/tree/master/Scripts/Scaled_polygenic_scorer) for more information on this script.
+
+### UK Biobank
+<details><summary>See code</summary>
+```{bash, echo=T, eval=F}
+# Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create a list of gwas that haven't got corresponding PRS files in UKBB
+> ${UKBB_output}/PolygenicScores/EUR/todo.txt
+for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
+if [ ! -f ${UKBB_output}/PolygenicScores/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR.profiles ]; then
+echo $gwas >> ${UKBB_output}/PolygenicScores/EUR/todo.txt
+fi
+done
+
+# Calculate polygenic scores for for Europeans only for now.
+n=0
+for gwas in $(cat ${UKBB_output}/PolygenicScores/EUR/todo.txt);do
+qsub -N $(echo PRS_job$(($n+10))) -hold_jid $(echo PRS_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+  --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --target_keep ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${UKBB_output}/PolygenicScores/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done
+```
+</details>
+
+<br/>
+
+***
+
+## lassosum
+This section uses a script called 'Scaled_polygenic_scorer_lassosum.R'. See more information on the utility of this script [here](https://github.com/opain/GenoPred/tree/master/Scripts/Scaled_polygenic_scorer_lassosum) for more information on this script.
+
+### UK Biobank
+<details><summary>See code</summary>
+```{bash, echo=T, eval=F}
+# Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Here we only calculate scores relevent to the phenotyps that we will use for comparing methods
+n=0
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03);do
+qsub -N $(echo PRS_job$(($n+10))) -hold_jid $(echo PRS_job$(($n+0))) -pe smp 6 -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_lassosum/Scaled_polygenic_scorer_lassosum.R \
+  --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --target_keep ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep \
+  --ref_model ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.unvalidated.model.RDS \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --pheno_name ${gwas} \
+  --n_cores 6 \
+  --output ${UKBB_output}/PolygenicScores_lassosum/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done
+```
+</details>
+
+<br/>
+
+***
+
+## PRScs
+This section uses a script called 'Scaled_polygenic_scorer_PRScs.R'. See more information on the utility of this script [here](https://github.com/opain/GenoPred/tree/master/Scripts/Scaled_polygenic_scorer_PRScs) for more information on this script.
+
+### UK Biobank
+<details><summary>See code</summary>
+```{bash, echo=T, eval=F}
+> ${UKBB_output}/PolygenicScores/EUR/todo_PRScs.txt
+# Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create a list of gwas that haven't got corresponding PRS files in UKBB
+#for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03);do
+if [ ! -f ${UKBB_output}/PolygenicScores_PRScs/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR.PRScs_profile ]; then
+echo $gwas >> ${UKBB_output}/PolygenicScores/EUR/todo_PRScs.txt
+fi
+done
+
+n=0
+for gwas in $(cat ${UKBB_output}/PolygenicScores/EUR/todo_PRScs.txt);do
+qsub -N $(echo PRScs_job$(($n+25))) -hold_jid $(echo PRScs_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_PRScs/Scaled_polygenic_scorer_PRScs.R \
+  --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --target_keep ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${UKBB_output}/PolygenicScores_PRScs/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done
+```
+</details>
+
+<br/>
+
+***
+
+To do:
+* Add README's for polygenic scoring scripts
 * Add scripts and readme's for other pipeline modules
 
 
