@@ -589,11 +589,11 @@ done</code></pre>
 <h3><span class="header-section-number">3.3.1</span> UK Biobank</h3>
 <details>
 <p><summary>See code</summary></p>
-<pre class="bash"><code>&gt; ${UKBB_output}/PolygenicScores/EUR/todo_PRScs.txt
-# Set required variables
+<pre class="bash"><code># Set required variables
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
 # Create a list of gwas that haven&#39;t got corresponding PRS files in UKBB
+&gt; ${UKBB_output}/PolygenicScores/EUR/todo_PRScs.txt
 #for gwas in $(cut -f 1 -d &#39; &#39; ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
 for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03);do
 if [ ! -f ${UKBB_output}/PolygenicScores_PRScs/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR.PRScs_profile ]; then
@@ -617,7 +617,91 @@ done</code></pre>
 </details>
 <p><br/></p>
 <hr />
-<p>To do: * Add README’s for polygenic scoring scripts * Add scripts and readme’s for other pipeline modules</p>
+</div>
+</div>
+</div>
+<div id="functionally-informed-polygenic-scoring" class="section level1">
+<h1><span class="header-section-number">4</span> Functionally-informed polygenic scoring</h1>
+<p>Here we calculate functionally-informed poylgenic scores for a range of outcomes in the target samples based on previously prepared reference scoring files, and scale the polygenic scores based on scores in a reference sample with matched ancestry. For more information on preparing reference files for polygenic scoring, see <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#5_functionally-informed_polygenic_scoring">here</a>.</p>
+<p>First we need to predict the functional genomic features in the target sample, then we calculate the functionally-informed polygenic scores by combining this information with previously prepared score files.</p>
+<div id="predicting-functional-genomic-features" class="section level2">
+<h2><span class="header-section-number">4.1</span> Predicting functional genomic features</h2>
+<p>Here we predict functional genomic features into the target samples. Currently the pipeline only includes features representing gene expression levels. The multiple SNP-predictors of gene expression have been downloaded from the FUSION website, and converted into the correct format for predicting functional features in a target samples. For more information see <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#5_functionally-informed_polygenic_scoring">here</a>.</p>
+<p>This section uses a script called ‘Scaled_polygenic_scorer.R’. See more information on the utility of this script <a href="https://github.com/opain/GenoPred/tree/master/Scripts/FUSION_targ_scorer">here</a> for more information on this script.</p>
+<div id="uk-biobank-5" class="section level3">
+<h3><span class="header-section-number">4.1.1</span> UK Biobank</h3>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Create file listing weights that haven&#39;t been predicted in the reference.
+&gt; ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt
+for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+if [ ! -f ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz ]; then
+echo $weights &gt;&gt; ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt
+fi
+done
+
+n=0
+for weights in $(cat ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt);do
+qsub -N $(echo Predjob_$(($n+1))) -hold_jid $(echo Predjob_$(($n+0))) -pe smp 5 -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/FUSION_targ_scorer/FUSION_targ_scorer.R \
+  --targ_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --targ_keep ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep \
+  --weights ${FUSION_dir}/SNP-weights/${weights}/${weights}.pos \
+  --plink ${plink1_9} \
+  --n_cores 5 \
+  --memory 40000 \
+  --score_files /users/k1806347/brc_scratch/Data/FUSION/SCORE_FILES \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
+  --pigz ${pigz_binary} \
+  --output ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights} \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr
+n=$(($n+1))
+done</code></pre>
+</details>
+<p><br/></p>
+<hr />
+</div>
+</div>
+<div id="calculating-functionally-informed-polygenic-scores" class="section level2">
+<h2><span class="header-section-number">4.2</span> Calculating functionally-informed polygenic scores</h2>
+<p>Here we use the predicted functional genomic features and previously prepared reference score files to calculate functionally informed polygenic scores in the target samples. For more information see <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#5_functionally-informed_polygenic_scoring">here</a>.</p>
+<p>This section uses a script called ‘Scaled_polygenic_scorer.R’. See more information on the utility of this script <a href="https://github.com/opain/GenoPred/tree/master/Scripts/scaled_functionally_informed_risk_scorer">here</a> for more information on this script.</p>
+<div id="uk-biobank-6" class="section level3">
+<h3><span class="header-section-number">4.2.1</span> UK Biobank</h3>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Create a list of gwas-tissue combinations that haven&#39;t been calculated.
+&gt; ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt
+for gwas in $(cat ${TWAS_rep}/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
+for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+if [ ! -f ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/${weights}/UKBB.w_hm3.EUR.${weights}.${gwas}.fiprofile ]; then
+echo $gwas $weights &gt;&gt; ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt
+fi
+done
+done
+
+n=0
+for i in $(seq 1 $(wc -l ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt | cut -d &#39; &#39; -f 1));do
+gwas=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $1}&#39; ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt)
+weights=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $2}&#39; ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt)
+
+qsub -N $(echo GeRS_job$(($n+10))) -hold_jid $(echo GeRS_job$(($n+0))) -l h_vmem=4G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_functionally_informed_risk_scorer/scaled_functionally_informed_risk_scorer.R \
+  --targ_feature_pred ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.score \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale \
+  --pheno_name ${gwas} \
+  --n_cores 5 \
+  --pigz ${pigz_binary} \
+  --output ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/${weights}/UKBB.w_hm3.EUR.${weights}.${gwas}
+
+n=$(($n+1))
+done</code></pre>
+</details>
+<p><br/></p>
+<hr />
+<p>To do:</p>
+<ul>
+<li>Add scripts and readme’s for other pipeline modules</li>
+</ul>
 </div>
 </div>
 </div>
