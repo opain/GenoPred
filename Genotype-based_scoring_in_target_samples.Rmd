@@ -11,7 +11,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, error=F)
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
 <style>
@@ -204,11 +204,11 @@ This section uses a script called 'Scaled_polygenic_scorer_PRScs.R'. See more in
 ### UK Biobank
 <details><summary>See code</summary>
 ```{bash, echo=T, eval=F}
-> ${UKBB_output}/PolygenicScores/EUR/todo_PRScs.txt
 # Set required variables
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
 # Create a list of gwas that haven't got corresponding PRS files in UKBB
+> ${UKBB_output}/PolygenicScores/EUR/todo_PRScs.txt
 #for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
 for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03);do
 if [ ! -f ${UKBB_output}/PolygenicScores_PRScs/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR.PRScs_profile ]; then
@@ -236,8 +236,130 @@ done
 
 ***
 
+# Functionally-informed polygenic scoring
+Here we calculate functionally-informed poylgenic scores for a range of outcomes in the target samples based on previously prepared reference scoring files, and scale the polygenic scores based on scores in a reference sample with matched ancestry. For more information on preparing reference files for polygenic scoring, see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#5_functionally-informed_polygenic_scoring).
+
+First we need to predict the functional genomic features in the target sample, then we calculate the functionally-informed polygenic scores by combining this information with previously prepared score files.
+
+## Predicting functional genomic features
+Here we predict functional genomic features into the target samples. Currently the pipeline only includes features representing gene expression levels. The multiple SNP-predictors of gene expression have been downloaded from the FUSION website, and converted into the correct format for predicting functional features in a target samples. For more information see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#5_functionally-informed_polygenic_scoring).
+
+This section uses a script called 'Scaled_polygenic_scorer.R'. See more information on the utility of this script [here](https://github.com/opain/GenoPred/tree/master/Scripts/FUSION_targ_scorer) for more information on this script.
+
+### UK Biobank
+<details><summary>See code</summary>
+```{bash, echo=T, eval=F}
+# Create file listing weights that haven't been predicted in the reference.
+> ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt
+for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+if [ ! -f ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz ]; then
+echo $weights >> ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt
+fi
+done
+
+n=0
+for weights in $(cat ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt);do
+qsub -N $(echo Predjob_$(($n+1))) -hold_jid $(echo Predjob_$(($n+0))) -pe smp 5 -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/FUSION_targ_scorer/FUSION_targ_scorer.R \
+  --targ_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --targ_keep ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep \
+  --weights ${FUSION_dir}/SNP-weights/${weights}/${weights}.pos \
+  --plink ${plink1_9} \
+  --n_cores 5 \
+  --memory 40000 \
+  --score_files /users/k1806347/brc_scratch/Data/FUSION/SCORE_FILES \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
+  --pigz ${pigz_binary} \
+  --output ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights} \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr
+n=$(($n+1))
+done
+```
+</details>
+
+<br/>
+
+***
+
+## Calculating functionally-informed polygenic scores
+Here we use the predicted functional genomic features and previously prepared reference score files to calculate functionally informed polygenic scores in the target samples. For more information see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#5_functionally-informed_polygenic_scoring).
+
+This section uses a script called 'Scaled_polygenic_scorer.R'. See more information on the utility of this script [here](https://github.com/opain/GenoPred/tree/master/Scripts/scaled_functionally_informed_risk_scorer) for more information on this script.
+
+### UK Biobank
+<details><summary>See code</summary>
+```{bash, echo=T, eval=F}
+# Create a list of gwas-tissue combinations that haven't been calculated.
+> ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt
+for gwas in $(cat ${TWAS_rep}/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
+for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+if [ ! -f ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/${weights}/UKBB.w_hm3.EUR.${weights}.${gwas}.fiprofile ]; then
+echo $gwas $weights >> ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt
+fi
+done
+done
+
+n=0
+for i in $(seq 1 $(wc -l ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt | cut -d ' ' -f 1));do
+gwas=$(awk -v var="$i" 'NR == var {print $1}' ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt)
+weights=$(awk -v var="$i" 'NR == var {print $2}' ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo.txt)
+
+qsub -N $(echo GeRS_job$(($n+10))) -hold_jid $(echo GeRS_job$(($n+0))) -l h_vmem=4G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_functionally_informed_risk_scorer/scaled_functionally_informed_risk_scorer.R \
+  --targ_feature_pred ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.score \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale \
+  --pheno_name ${gwas} \
+  --n_cores 5 \
+  --pigz ${pigz_binary} \
+  --output ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/${weights}/UKBB.w_hm3.EUR.${weights}.${gwas}
+
+n=$(($n+1))
+done
+```
+</details>
+
+```{bash, echo=F, eval=F}
+###
+# Compute R2 weighted risk scores
+###
+# This is an experiment to see whether weighting features by how much variance in the feature could be explained by the SNP-weights.
+# Create a list of gwas-tissue combinations that haven't been calculated.
+> ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo_R2weighted.txt
+for gwas in $(echo DEPR07 COLL01 HEIG03 BODY03);do
+for weights in $(echo Thyroid);do
+if [ ! -f ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/${weights}/UKBB.w_hm3.EUR.${weights}.${gwas}.R2weighted.fiprofile ]; then
+echo $gwas $weights >> ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo_R2weighted.txt
+fi
+done
+done
+
+pigz -dk ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz
+n=0
+for i in $(seq 1 $(wc -l ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo_R2weighted.txt | cut -d ' ' -f 1));do
+gwas=$(awk -v var="$i" 'NR == var {print $1}' ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo_R2weighted.txt)
+weights=$(awk -v var="$i" 'NR == var {print $2}' ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/todo_R2weighted.txt)
+
+qsub -N $(echo GeRS_job$(($n+10))) -hold_jid $(echo GeRS_job$(($n+0))) -l h_vmem=4G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/scaled_functionally_informed_risk_scorer.R \
+  --targ_feature_pred ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.R2weighted.score \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.R2weighted.scale \
+  --pheno_name ${gwas} \
+  --n_cores 5 \
+  --pigz ${pigz_binary} \
+  --output ${UKBB_output}/FunctionallyInformedPolygenicScores/EUR/${weights}/UKBB.w_hm3.EUR.${weights}.${gwas}.R2weighted
+
+n=$(($n+1))
+done
+
+# Experiment finished. R2 weighted GeRSs are less predictive than GeRSs.
+rm ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/*/1KGPhase3.w_hm3.EUR.FUSION.*.*.R2weighted.*
+```
+
+<br/>
+
+***
+
 To do:
-* Add README's for polygenic scoring scripts
+
 * Add scripts and readme's for other pipeline modules
 
 
