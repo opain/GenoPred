@@ -50,6 +50,10 @@ The allele frequency differences between ancestries are not only captured by PCs
 3. Compare the predictive utility of ancestry-specific PCs and across-ancestry PCs.
 4. Determine the optimal number of PCs for prediction.
 
+<br/>
+
+***
+
 # Methods
 ## Sample 
 - UK Biobank
@@ -72,8 +76,136 @@ Polygenic scores were derived using PRScs, a Bayesian shrinkage method. Polygeni
 Polygenic scores were calculated in UK Biobank using a reference-standardised approach (see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring)). In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on European individuals within the 1000 Genomes reference. Any HapMap3 missing in the target sample are imputed using the allele frequency measured in the European subset of the 1000 Genomes reference. Score were centreed and scaled based on the mean and standard deviation of scores in an ancestry matched samples.
 
 ## Estimating predictive ability
-All models were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process. Permutation testing was used to determine whether the difference in variance explained was significantly greater than 0. Model building and evaluation was performed using an Rscript called Model_builder.R (more information [here]())
+All models were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process. Permutation testing was used to determine whether the difference in variance explained was significantly greater than 0. 
 
+Model building and evaluation was performed using an Rscript called Model_builder.R (more information [here](https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder)).
+
+## Code
+<details><summary>Evaluate PCs alone</summary>
+```{bash, echo=T, eval=F}
+# Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPCs
+done
+
+######
+# Create a file to group the predictors
+######
+
+module add general/R/3.5.0
+R
+library(data.table)
+
+groups<-data.frame( predictor=c('/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/EUR/UKBB.w_hm3.EUR.eigenvec','/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.eigenvec'),
+                    group=c('EUR_PCs','AllAncestry_PCs'))
+                    
+write.table(groups, '/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/UKBB-projected-PCs.predictor_groups', col.names=T, row.names=F, quote=F)
+q()
+n
+
+######
+# Derive and evaluate models
+######
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR07 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+qsub -l h_vmem=6G -pe smp 3 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+--keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+--out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPCs/UKBB-projected-PCs \
+--n_core 3 \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/UKBB-projected-PCs.predictor_groups
+done
+```
+</details>
+
+<details><summary>Evaluate PCs in combination with polygenic scores</summary>
+```{bash, echo=T, eval=F}
+# Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs_and_PCs
+done
+
+######
+# Create a file to group the predictors
+######
+
+module add general/R/3.5.0
+R
+library(data.table)
+
+gwas<-c('DEPR07','COLL01','BODY03','HEIG03')
+pheno<-c('Depression','Intelligence','BMI','Height')
+
+for(i in 1:4){
+	groups<-data.frame( predictor=paste0('/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/',gwas[i],'/UKBB.w_hm3.',gwas[i],'.EUR.profiles'),
+							  group=paste0(gwas[i],'_PRSs'))
+
+	groups<-rbind(data.frame( predictor=c('/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/EUR/UKBB.w_hm3.EUR.eigenvec','/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.eigenvec'),
+			  group='PCs'),
+	groups)
+
+	write.table(groups, paste0('/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs_and_PCs/UKBB_',gwas[i],'_PRSs-ProjPCs.predictor_groups'), col.names=T, row.names=F, quote=F)
+}
+q()
+n
+
+#######
+# Derive and evaluate models
+#######
+
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR07 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 2 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+qsub -l h_vmem=20G -pe smp 3 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+--keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+--out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs_and_PCs/UKBB_${gwas_i}_PRSs-ProjPCs \
+--n_core 3 \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs_and_PCs/UKBB_${gwas_i}_PRSs-ProjPCs.predictor_groups
+done
+```
+</details>
+
+<br/>
+
+***
+
+# Results
+
+<br/>
+
+***
+
+# Discussion
+
+<br/>
+
+***
+
+# Conclusion
+
+***
 
 
 

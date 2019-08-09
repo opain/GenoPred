@@ -444,6 +444,8 @@ pre code, pre, code {
 <li>Compare the predictive utility of ancestry-specific PCs and across-ancestry PCs.</li>
 <li>Determine the optimal number of PCs for prediction.</li>
 </ol>
+<p><br/></p>
+<hr />
 </div>
 <div id="methods" class="section level1">
 <h1><span class="header-section-number">3</span> Methods</h1>
@@ -477,8 +479,130 @@ pre code, pre, code {
 </div>
 <div id="estimating-predictive-ability" class="section level2">
 <h2><span class="header-section-number">3.6</span> Estimating predictive ability</h2>
-<p>All models were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process. Permutation testing was used to determine whether the difference in variance explained was significantly greater than 0. Model building and evaluation was performed using an Rscript called Model_builder.R (more information <a href="">here</a>)</p>
+<p>All models were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process. Permutation testing was used to determine whether the difference in variance explained was significantly greater than 0.</p>
+<p>Model building and evaluation was performed using an Rscript called Model_builder.R (more information <a href="https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder">here</a>).</p>
 </div>
+<div id="code" class="section level2">
+<h2><span class="header-section-number">3.7</span> Code</h2>
+<details>
+<p><summary>Evaluate PCs alone</summary></p>
+<pre class="bash"><code># Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPCs
+done
+
+######
+# Create a file to group the predictors
+######
+
+module add general/R/3.5.0
+R
+library(data.table)
+
+groups&lt;-data.frame( predictor=c(&#39;/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/EUR/UKBB.w_hm3.EUR.eigenvec&#39;,&#39;/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.eigenvec&#39;),
+                    group=c(&#39;EUR_PCs&#39;,&#39;AllAncestry_PCs&#39;))
+                    
+write.table(groups, &#39;/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/UKBB-projected-PCs.predictor_groups&#39;, col.names=T, row.names=F, quote=F)
+q()
+n
+
+######
+# Derive and evaluate models
+######
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR07 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
+
+qsub -l h_vmem=6G -pe smp 3 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+--keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+--out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPCs/UKBB-projected-PCs \
+--n_core 3 \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/UKBB-projected-PCs.predictor_groups
+done</code></pre>
+</details>
+<details>
+<p><summary>Evaluate PCs in combination with polygenic scores</summary></p>
+<pre class="bash"><code># Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs_and_PCs
+done
+
+######
+# Create a file to group the predictors
+######
+
+module add general/R/3.5.0
+R
+library(data.table)
+
+gwas&lt;-c(&#39;DEPR07&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;)
+pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;)
+
+for(i in 1:4){
+    groups&lt;-data.frame( predictor=paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/&#39;,gwas[i],&#39;/UKBB.w_hm3.&#39;,gwas[i],&#39;.EUR.profiles&#39;),
+                              group=paste0(gwas[i],&#39;_PRSs&#39;))
+
+    groups&lt;-rbind(data.frame( predictor=c(&#39;/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/EUR/UKBB.w_hm3.EUR.eigenvec&#39;,&#39;/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.eigenvec&#39;),
+              group=&#39;PCs&#39;),
+    groups)
+
+    write.table(groups, paste0(&#39;/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs_and_PCs/UKBB_&#39;,gwas[i],&#39;_PRSs-ProjPCs.predictor_groups&#39;), col.names=T, row.names=F, quote=F)
+}
+q()
+n
+
+#######
+# Derive and evaluate models
+#######
+
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR07 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 2 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
+
+qsub -l h_vmem=20G -pe smp 3 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+--keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+--out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs_and_PCs/UKBB_${gwas_i}_PRSs-ProjPCs \
+--n_core 3 \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs_and_PCs/UKBB_${gwas_i}_PRSs-ProjPCs.predictor_groups
+done</code></pre>
+</details>
+<p><br/></p>
+<hr />
+</div>
+</div>
+<div id="results" class="section level1">
+<h1><span class="header-section-number">4</span> Results</h1>
+<p><br/></p>
+<hr />
+</div>
+<div id="discussion" class="section level1">
+<h1><span class="header-section-number">5</span> Discussion</h1>
+<p><br/></p>
+<hr />
+</div>
+<div id="conclusion" class="section level1">
+<h1><span class="header-section-number">6</span> Conclusion</h1>
+<hr />
 </div>
 
 
