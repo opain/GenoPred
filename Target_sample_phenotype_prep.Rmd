@@ -1,0 +1,163 @@
+---
+title: "Training Sample Phenotype Preparation"
+output: 
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+    number_sections: true
+    toc_float: true
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error=TRUE)
+```
+
+<style>
+p.caption {
+  font-size: 1.5em;
+}
+</style>
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: auto !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+To evaluate genotype-based prediction approaches, I am using a range of phenotypes measured in the UK Biobank sample:
+
+* Depression
+* Intelligence
+* BMI
+* Height
+
+Below I provide a description of how each phenotype was derived and some descriptive statistics.
+
+<details><summary>Set required variables for command line</summary>
+```{bash, eval=F, echo=T}
+# Set variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config
+```
+</details>
+
+```{R, echo=F, eval=F}
+######
+# Update file listing IDs after QC to match genetic data
+######
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
+library(data.table)
+keep<-fread(qc_indiv_list)
+fam<-fread(paste0(UKBB_output,'/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr22.fam'))
+
+keep_fam<-merge(keep, fam, by=c('V2'))
+keep_new<-keep_fam[,c('V1.y','V2'), with=F]
+
+fwrite(keep_new, paste0(Results_dir,'/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam'), sep=' ', na='NA', col.names=F)
+```
+
+# Depression
+The depression phenotype was shared with my Kylie Glanville.
+
+<details><summary>Preparation of Depression phenotype</summary>
+```{r, echo=T, eval=F}
+# Modify depression phenotype file so IDs match genotypic data
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
+library(data.table)
+pheno<-fread(paste0(UKBB_output, '/Phenotype/Depression/ever_depressed_pheno_final.txt'))
+fam<-fread(paste0(UKBB_output,'/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr22.fam')
+names(fam)[1:2]<-c('FID','IID')
+
+pheno_fam<-merge(pheno, fam, by=c('IID'))
+pheno_new<-pheno_fam[,c('FID.y','IID','Depressed.Ever.Clean'), with=F]
+names(pheno_new)[1]<-'FID'
+
+fwrite(pheno_new, paste0(UKBB_output,'/Phenotype/Depression/ever_depressed_pheno_final.UpdateIDs.txt'), sep=' ', na='NA')
+```
+</details>
+
+# Intelligence
+The Intelligence phenotype is derived from the Fluid.intelligence.score.0.0 (f.20191.0.0) variable.
+
+<details><summary>Preparation of Intelligence phenotype</summary>
+```{r, echo=T, eval=F}
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
+
+# Read in the field finder to find he code for the phenotype of interest.
+field_finder<-read.table(paste0(ukbb_pheno_file,'/ukb18177_glanville_field_finder.txt'), stringsAsFactors=F)
+field_finder[grepl('Fluid.intelligence', field_finder$V3),]
+# The Fluid intelligence variable has a code of f.20191.0.0 and is called Fluid.intelligence.score.0.0
+
+# Identify which column in the phenotype file contains the relevant code
+library(data.table)
+pheno_header<-names(data.frame(fread(cmd=paste0('head -n 1 ',ukbb_pheno_file,'/ukb18177_glanville_phenotypes.txt'))))
+rel_cols<-c(1,which(grepl('f.20191.0.0',pheno_header)))
+
+# Read in the IID and fluid intelligence columns
+pheno<-data.frame(fread(cmd=paste0('cut -f ',paste(rel_cols,collapse=','),' ',ukbb_pheno_file,'/ukb18177_glanville_phenotypes.txt')))
+names(pheno)<-c('IID','Fluid.intelligence.score')
+
+# Remove individuals with missing phenotype data
+pheno<-pheno[complete.cases(pheno),]
+
+# Calculate descriptive statistics for the phenotype
+library(e1071)
+descriptives<-data.frame(Phenotype='Fluid.intelligence.score',
+                        Code='f.20127.0.0',
+                        Mean=mean(pheno$Fluid.intelligence.score),
+                        SD=sd(pheno$Fluid.intelligence.score),
+                        Min=min(pheno$Fluid.intelligence.score),
+                        Max=max(pheno$Fluid.intelligence.score),
+                        Skewness=skewness(pheno$Fluid.intelligence.score),
+                        N=dim(pheno)[1])
+
+write.table(descriptives,paste0(UKBB_output,'/Phenotype/Intelligence/Descriptives.txt'), row.names=F, quote=F)
+
+# Plot the distribution
+png(paste0(UKBB_output,'/Phenotype/Intelligence/Histogram.png'))
+hist(pheno$Fluid.intelligence.score)
+dev.off()
+
+# Write out the phenotype in PLINK format.
+pheno_plink<-data.frame(FID=pheno$IID,
+                        IID=pheno$IID,
+                        Fluid.intelligence.score=pheno$Fluid.intelligence.score)
+                        
+fwrite(pheno_plink, paste0(UKBB_output,'/Phenotype/Intelligence/UKBB_Fluid.intelligence.score.pheno'), sep='\t')
+```
+</details>
+
+```{bash, echo=F, eval=T}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Target_sample_phenotype_prep
+
+cp ${UKBB_output}/Phenotype/Intelligence/Histogram.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Target_sample_phenotype_prep/
+```
+
+<center>
+
+![Figure 1: Predictive utility estimated using 10-fold cross-validation](/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Target_sample_phenotype_prep/Histogram.png)
+
+\center
+
+<br/>
+
+***
+
+```{r, echo=F, eval=T, results='asis'}
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
+desc<-read.table(paste0(UKBB_output,'/Phenotype/Intelligence/Descriptives.txt'), header=T)
+desc$Mean<-round(desc$Mean,3)
+desc$SD<-round(desc$SD,3)
+desc$Min<-round(desc$Min,3)
+desc$Max<-round(desc$Max,3)
+desc$Skewness<-round(desc$Skewness,3)
+desc$N<-round(desc$N,3)
+
+library(DT)
+datatable(desc, rownames = FALSE, filter="top", options = list(pageLength = 10, scrollX=T),caption='Table 1: Descriptives of Intelligence in UK Biobank')
+```
