@@ -43,8 +43,6 @@ tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
 
-opt$pTs<-as.numeric(unlist(strsplit(opt$pTs,',')))
-
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
