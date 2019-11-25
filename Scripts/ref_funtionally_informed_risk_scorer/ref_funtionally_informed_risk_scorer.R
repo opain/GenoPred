@@ -25,7 +25,9 @@ make_option("--panel", action="store", default=NA, type='character',
 make_option("--r2_weighted", action="store", default=F, type='logical',
 		help="Set to T if gene expression should be weighted by R2 of predicted expression [optional]"),
 make_option("--ref_scale", action="store", default=NA, type='character',
-		help="Path to file for scaling feature predictions [required]")
+		help="Path to file for scaling feature predictions [required]"),
+make_option("--gene_weights", action="store", default=NA, type='character',
+		help="Path to file containing gene-weights [required]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -79,6 +81,24 @@ if(opt$r2_weighted == T){
 TWAS$TWAS.Z<-TWAS$TWAS.Z*TWAS$MODELCV.R2
 # Recalculate TWAS.P
 TWAS$TWAS.P<-2*pnorm(-abs(TWAS$TWAS.Z))
+
+}
+
+if(is.na(opt$gene_weights) == F){
+###
+# Read in and merge gene weights with TWAS results
+###
+
+cat('Merging TWAS with gene_weights file.\n')
+
+gene_weights_file<-fread(opt$gene_weights)
+
+names(gene_weights_file)<-c('ID','gene_weights')
+gene_weights_file<-gene_weights_file[!duplicated(gene_weights_file$ID),]
+
+TWAS<-merge(TWAS, gene_weights_file, by='ID')
+
+cat('After merging', dim(TWAS)[1],'genes remain.\n')
 
 }
 
@@ -335,10 +355,15 @@ RefGene_noID<-t(t(RefGene_noID) / ref_scale$SD)
 RefGene_noID<-round(RefGene_noID,3)
 RefGene<-cbind(RefGene_ID,RefGene_noID)
 
-# Weight the gene expression in each individuals by TWAS.Z
+# Weight the gene expression in each individuals by TWAS.Z, with option of weighting also by gene weights
 RefGene_ID<-RefGene[,1:2]
 TWAS_clumped<-TWAS_clumped[match(names(RefGene)[-1:-2], TWAS_clumped$FILE),]
-RefGene_noID<-t(t(RefGene[,-1:-2]) * TWAS_clumped$TWAS.Z)
+if(is.na(opt$gene_weights) == T){
+	RefGene_noID<-t(t(RefGene[,-1:-2]) * TWAS_clumped$TWAS.Z)
+} else {
+	RefGene_noID<-t(t(RefGene[,-1:-2]) * TWAS_clumped$TWAS.Z * TWAS_clumped$gene_weights)
+}
+
 RefGene<-cbind(RefGene_ID,RefGene_noID)
 
 # For each pT calculate GeRS in reference sample using pruned gene list

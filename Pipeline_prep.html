@@ -734,7 +734,7 @@ module add general/R/3.5.0
 R
 
 # Read in environmental variables
-source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Pipeline_prep.config&#39;)
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config&#39;)
 
 pheno&lt;-read.csv(&#39;/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_031218.csv&#39;, stringsAsFactors=F)
 pheno_brief&lt;-pheno[c(&#39;Code&#39;,&#39;phenotype_category&#39;,&#39;trait&#39;,&#39;sample_size_discovery&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sex&#39;,&#39;consortium&#39;,&#39;year&#39;,&#39;UK.Biobank&#39;,&#39;h2.observed&#39;,&#39;ancestry&#39;,&#39;PRS.created&#39;)]
@@ -753,6 +753,12 @@ pheno_brief&lt;-pheno_brief[!(grepl(&#39;BLOO&#39;,pheno_brief$Code)),]
 
 # INTE02, INTE03, all EDUC, GWAS are mislabelled as not containing UKBB. Remove them.
 pheno_brief&lt;-pheno_brief[!(grepl(&#39;BLOO|INTE02|INTE03|EDUC&#39;,pheno_brief$Code)),]
+
+# COAD02 is based on a recessive model and should be excluded.
+pheno_brief&lt;-pheno_brief[!(grepl(&#39;COAD02&#39;,pheno_brief$Code)),]
+
+# Edit DIAB06 trait info so it is different from DIAB05, and therefore retained.
+pheno_brief$trait[grepl(&#39;DIAB06&#39;, pheno_brief$Code)]&lt;-&#39;diabetes_type_2_bmi_adj&#39;
 
 # Extract the largest GWAS for each phenotype
 pheno_brief_bigest&lt;-NULL
@@ -784,7 +790,7 @@ module add general/R/3.5.0
 R
 
 # Read in environmental variables
-source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Pipeline_prep.config&#39;)
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config&#39;)
 
 pheno&lt;-read.csv(&#39;/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_031218.csv&#39;, stringsAsFactors=F)
 pheno_brief&lt;-pheno[c(&#39;Code&#39;,&#39;phenotype_category&#39;,&#39;trait&#39;,&#39;sample_size_discovery&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sex&#39;,&#39;consortium&#39;,&#39;year&#39;,&#39;UK.Biobank&#39;,&#39;h2.observed&#39;,&#39;ancestry&#39;,&#39;PRS.created&#39;)]
@@ -805,6 +811,9 @@ pheno_brief&lt;-pheno_brief[!grepl(&#39;BLOP|CROH03|DIAB01&#39;, pheno_brief$Cod
  
 # Remove entries with missing sample size information
 pheno_brief&lt;-pheno_brief[!is.na(pheno_brief$sample_size_discovery),]
+
+# Edit DIAB06 trait info so it is different from DIAB05, and therefore retained.
+pheno_brief$trait[grepl(&#39;DIAB06&#39;, pheno_brief$Code)]&lt;-&#39;diabetes_type_2_bmi_adj&#39;
 
 # Extract the most recent and largest GWAS for each phenotype
 pheno_brief_bigest&lt;-NULL
@@ -833,6 +842,9 @@ n</code></pre>
 <div id="prepare-score-files-and-scaling-files-for-polygenic-scoring-pt-clump" class="section level2">
 <h2><span class="header-section-number">4.2</span> Prepare score files and scaling files for polygenic scoring (pT + clump)</h2>
 <p>Here I prepare reference files for typical polygenic scores derived using the p-value thresholding and LD-based clumping procedure.</p>
+<div id="sparse-thresholding" class="section level3">
+<h3><span class="header-section-number">4.2.1</span> Sparse thresholding</h3>
+<p>Here we will only use 8 p-value thresholds.</p>
 <p>This section uses an R script called ‘polygenic_score_file_creator.R’. Further information the usage of this script can be found <a href="https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator">here</a>.</p>
 <details>
 <p><summary>Show code</summary></p>
@@ -884,7 +896,65 @@ n=$(($n+1))
 done</code></pre>
 </details>
 <p><br/></p>
+</div>
+<div id="dense-thresholding" class="section level3">
+<h3><span class="header-section-number">4.2.2</span> Dense thresholding</h3>
+<p>Here we will only use dense p-value thresholds, mimicking the PRSice approach.</p>
+<p>This section uses an R script called ‘polygenic_score_file_creator.R’. Further information the usage of this script can be found <a href="https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_PRSice">here</a>.</p>
+<details>
+<p><summary>Show code</summary></p>
+<pre class="bash"><code>###
+# Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt
+###
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt
+# for gwas in $(cut -f 1 -d &#39; &#39; ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt
+fi
+done
+
+n=0
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt);do
+qsub -N $(echo job$(($n+20))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+  --plink ${plink1_9} \
+  --memory 3000 \
+  --dense T \
+  --output ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+n=$(($n+1))
+done
+
+###
+# Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt
+###
+&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt
+for gwas in $(cut -f 1 -d &#39; &#39; ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt
+fi
+done
+
+n=0
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt);do
+qsub -N $(echo job$(($n+5))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
+    --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+    --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+    --plink ${plink1_9} \
+  --memory 3000 \
+    --output ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas} \
+    --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+n=$(($n+1))
+done</code></pre>
+</details>
+<p><br/></p>
 <hr />
+</div>
 </div>
 <div id="prepare-score-files-and-scaling-files-for-polygenic-scoring-using-lassosum" class="section level2">
 <h2><span class="header-section-number">4.3</span> Prepare score files and scaling files for polygenic scoring using lassosum</h2>
@@ -1208,6 +1278,59 @@ qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch
 
 sleep 1
 done
+
+
+#####
+# Calculate GeRSs weighting genes by tissue specificity and TWAS.Z
+#####
+
+# Create files containing tissue specific weights for each gene
+module add general/R/3.5.0
+R
+library(data.table)
+
+Tissue_Z&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/GTeX/GTEx_v7_gene_median_tpm.tmp1.windsorised50.pseudo1.log2.Z.tsv&#39;)
+
+Tissue_Z$gene_id&lt;-NULL
+names(Tissue_Z)[1]&lt;-&#39;ID&#39;
+
+# Scale the Z scores to be between 0 and 1 for each tissue
+Tissue_Z_tmp&lt;-Tissue_Z[,-1]
+Tissue_Z_tmp&lt;-pnorm(as.matrix(Tissue_Z_tmp)
+Tissue_Z_01&lt;-data.frame(Tissue_Z[,1:2], Tissue_Z_tmp)
+
+# Write file out seperately for each tissue
+for(i in names(Tissue_Z)[-1]){
+  write.table(Tissue_Z[,c(&#39;ID&#39;,i),with=F], paste0(&#39;/users/k1806347/brc_scratch/Data/GTeX/GTex_v7_TissueSpecificity_Weight.&#39;,i,&#39;.txt&#39;), col.names=T, row.names=F, quote=F)
+}
+
+# Extract genes in top 95% confidence interval
+
+# Create score files
+&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt
+for gwas in $(cat /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
+for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.TissueWeighted.scale ]; then
+echo $gwas $weights &gt;&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt
+fi
+done
+done
+
+for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt | cut -d &#39; &#39; -f 1));do
+gwas=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $1}&#39; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt)
+weights=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $2}&#39; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt)
+
+qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/ref_funtionally_informed_risk_scorer.R \
+  --twas_results /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/${gwas}/${gwas}_res_GW.txt \
+  --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
+  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.TissueWeighted \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
+  --panel ${weights} \
+  --r2_weighted T
+
+sleep 5
+done
 </code></pre>
 </details>
 <p><br/></p>
@@ -1215,6 +1338,9 @@ done
 <p>Session info:</p>
 <details>
 <p><summary>R session</summary></p>
+<pre><code>## Error: package or namespace load failed for &#39;caret&#39; in dyn.load(file, DLLpath = DLLpath, ...):
+##  unable to load shared object &#39;/users/k1806347/R/x86_64-pc-linux-gnu-library/3.5/lubridate/libs/lubridate.so&#39;:
+##   /usr/lib64/libstdc++.so.6: version `CXXABI_1.3.5&#39; not found (required by /users/k1806347/R/x86_64-pc-linux-gnu-library/3.5/lubridate/libs/lubridate.so)</code></pre>
 <pre><code>## R version 3.5.0 (2018-04-23)
 ## Platform: x86_64-pc-linux-gnu (64-bit)
 ## Running under: Scientific Linux release 6.6 (Carbon)
@@ -1236,34 +1362,31 @@ done
 ## [8] base     
 ## 
 ## other attached packages:
-##  [1] cowplot_0.9.3     caret_6.0-81      ggplot2_3.1.1    
-##  [4] lattice_0.20-35   optparse_1.4.4    doMC_1.3.5       
-##  [7] iterators_1.0.9   foreach_1.4.4     data.table_1.12.2
-## [10] DT_0.7           
+## [1] cowplot_0.9.3     ggplot2_3.1.1     lattice_0.20-35   optparse_1.4.4   
+## [5] doMC_1.3.5        iterators_1.0.9   foreach_1.4.4     data.table_1.12.2
+## [9] DT_0.7           
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] Rcpp_1.0.1         lubridate_1.7.4    class_7.3-14      
-##  [4] assertthat_0.2.1   digest_0.6.18      ipred_0.9-6       
-##  [7] mime_0.5           R6_2.4.0           plyr_1.8.4        
-## [10] stats4_3.5.0       evaluate_0.13      pillar_1.4.0      
-## [13] rlang_0.3.4        lazyeval_0.2.2     rpart_4.1-13      
-## [16] Matrix_1.2-17      rmarkdown_1.13     splines_3.5.0     
-## [19] gower_0.1.2        stringr_1.3.1      htmlwidgets_1.3   
-## [22] munsell_0.5.0      shiny_1.0.5        compiler_3.5.0    
-## [25] httpuv_1.4.3       xfun_0.6.1         pkgconfig_2.0.2   
-## [28] htmltools_0.3.6    tidyselect_0.2.5   nnet_7.3-12       
-## [31] tibble_2.1.1       prodlim_2018.04.18 codetools_0.2-15  
-## [34] crayon_1.3.4       dplyr_0.7.4        withr_2.1.2       
-## [37] later_0.7.2        MASS_7.3-50        recipes_0.1.4     
-## [40] ModelMetrics_1.1.0 grid_3.5.0         nlme_3.1-137      
-## [43] jsonlite_1.5       xtable_1.8-2       gtable_0.3.0      
-## [46] magrittr_1.5       scales_1.0.0       stringi_1.2.4     
-## [49] reshape2_1.4.3     promises_1.0.1     bindrcpp_0.2.2    
-## [52] getopt_1.20.2      timeDate_3043.102  generics_0.0.2    
-## [55] lava_1.6.1         tools_3.5.0        glue_1.3.1        
-## [58] purrr_0.2.4        crosstalk_1.0.0    survival_2.42-3   
-## [61] yaml_2.1.19        colorspace_1.4-1   knitr_1.22        
-## [64] bindr_0.1.1</code></pre>
+##  [1] Rcpp_1.0.1         class_7.3-14       assertthat_0.2.1  
+##  [4] digest_0.6.18      ipred_0.9-6        mime_0.5          
+##  [7] R6_2.4.0           plyr_1.8.4         evaluate_0.13     
+## [10] pillar_1.4.0       rlang_0.3.4        lazyeval_0.2.2    
+## [13] rpart_4.1-13       Matrix_1.2-17      rmarkdown_1.13    
+## [16] splines_3.5.0      gower_0.1.2        stringr_1.3.1     
+## [19] htmlwidgets_1.3    munsell_0.5.0      shiny_1.0.5       
+## [22] compiler_3.5.0     httpuv_1.4.3       xfun_0.6.1        
+## [25] pkgconfig_2.0.2    htmltools_0.3.6    nnet_7.3-12       
+## [28] tibble_2.1.1       prodlim_2018.04.18 codetools_0.2-15  
+## [31] crayon_1.3.4       dplyr_0.7.4        withr_2.1.2       
+## [34] later_0.7.2        MASS_7.3-50        ModelMetrics_1.1.0
+## [37] grid_3.5.0         nlme_3.1-137       jsonlite_1.5      
+## [40] xtable_1.8-2       gtable_0.3.0       magrittr_1.5      
+## [43] scales_1.0.0       stringi_1.2.4      reshape2_1.4.3    
+## [46] promises_1.0.1     bindrcpp_0.2.2     getopt_1.20.2     
+## [49] timeDate_3043.102  generics_0.0.2     lava_1.6.1        
+## [52] tools_3.5.0        glue_1.3.1         crosstalk_1.0.0   
+## [55] survival_2.42-3    yaml_2.1.19        colorspace_1.4-1  
+## [58] knitr_1.22         bindr_0.1.1</code></pre>
 </details>
 <details>
 <p><summary>Software versions</summary></p>

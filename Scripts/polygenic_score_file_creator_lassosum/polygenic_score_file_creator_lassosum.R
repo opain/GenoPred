@@ -162,10 +162,10 @@ dev.off()
 system(paste0('rm ',opt$output,'.temp.png'))
 
 scores<-v2$results.table[,c('FID','IID')]
-for(i in v2$s){
+for(i in 1:length(v2$s)){
 	for(k in 1:length(v2$lambda)){
 		scores_tmp<-data.frame(v2$pgs[[i]][,k])
-		names(scores_tmp)<-paste0('s',i,'_lambda',v2$lambda[k])
+		names(scores_tmp)<-paste0('s',v2$s[i],'_lambda',v2$lambda[k])
 		scores<-cbind(scores,scores_tmp)
 	}
 }
