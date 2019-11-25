@@ -489,7 +489,7 @@ pre code, pre, code {
 </div>
 <div id="polygenic-scoring" class="section level2">
 <h2><span class="header-section-number">3.4</span> Polygenic scoring</h2>
-<p>Polygenic scores were derived using three methods: 1. p-value thresholding and clumping (pT + clump). No pseudo-validation approach for selecting the optimal pT is available). 2. lassosum - Lasso-based shrinkage method. 3. PRScs - Bayesian shrinkage method.</p>
+<p>Polygenic scores were derived using three methods: 1. p-value thresholding and clumping (pT + clump). No pseudo-validation approach for selecting the optimal pT is available). Both sparse (8 pTs) and dense (500 pTs) will be tested. 2. lassosum - Lasso-based shrinkage method. 3. PRScs - Bayesian shrinkage method.</p>
 <p>Polygenic scores were derived using a reference standardised pipeline, previously described in detail <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring">here</a>. In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on European individuals within the 1000 Genomes reference. Any HapMap3 missing in the target sample are imputed using the allele frequency measured in the European subset of the 1000 Genomes reference.</p>
 </div>
 <div id="estimating-predictive-ability" class="section level2">
@@ -500,7 +500,7 @@ pre code, pre, code {
 <div id="code" class="section level2">
 <h2><span class="header-section-number">3.6</span> Code</h2>
 <details>
-<p><summary>pT + clump PRSs</summary></p>
+<p><summary>pT + clump PRSs: Sparse</summary></p>
 <pre class="bash"><code>##############################
 # Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
 ##############################
@@ -508,45 +508,24 @@ pre code, pre, code {
 # Make required directories
 for pheno_i in $(echo Depression Intelligence BMI Height);do
 mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs
-done</code></pre>
-<pre class="bash"><code>######
-# Split the different PRS p-value thresholds into separate files
-######
-module add general/R/3.5.0
-R
-library(data.table)
-gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;)
-for(gwas_i in gwas){
-  PRS&lt;-data.frame(fread(paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/&#39;,gwas_i,&#39;/UKBB.w_hm3.&#39;,gwas_i,&#39;.EUR.profiles&#39;)))
-  for(i in 3:dim(PRS)[2]){
-    tmp&lt;-gsub(paste0(gwas_i,&#39;_&#39;),&#39;pT_&#39;,names(PRS)[i])
-    fwrite(PRS[,c(1,2,i)], paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/&#39;,gwas_i,&#39;/UKBB.w_hm3.&#39;,gwas_i,&#39;.EUR.&#39;,tmp,&#39;.profile&#39;), sep=&#39; &#39;)
-  }
-}
-q()
-n</code></pre>
-<pre class="bash"><code>######
-# Create a file to group the predictors
-######
-module add general/R/3.5.0
-R
-library(data.table)
-gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;)
-pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;)
+done
 
-for(i in 1:4){
-  predictors_list&lt;-list.files(path=paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/&#39;,gwas[i]) ,pattern=&#39;.pT&#39;,full.names=T)
-  groups&lt;-data.frame( predictor=predictors_list,
-                      group=gsub(&#39;.*UKBB.w_hm3.&#39;, &#39;&#39;, predictors_list))
+# Create a file listing the predictors files
+pheno=$(echo Depression Intelligence BMI Height)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
 
-  write.table(groups, paste0(&#39;/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/UKBB.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs.predictor_groups&#39;), col.names=T, row.names=F, quote=F)
-}
-q()
-n</code></pre>
-<pre class="bash"><code>######
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups &lt;&lt;EOF
+predictors 
+/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.profiles
+EOF
+
+done
+
 # Derive and evaluate models
-######
-
 pheno=$(echo Depression Intelligence BMI Height)
 pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
 gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
@@ -563,10 +542,57 @@ for i in $(seq 1 4);do
     --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
     --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs \
     --n_core 5 \
+    --compare_predictors T \
     --assoc T \
     --outcome_pop_prev ${prev_i} \
     --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups
-done</code></pre>
+done
+</code></pre>
+</details>
+<details>
+<p><summary>pT + clump PRSs: Dense</summary></p>
+<pre class="bash"><code>##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+
+# Create a file listing the predictors files
+pheno=$(echo Depression Intelligence BMI Height)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs-dense.predictor_groups &lt;&lt;EOF
+predictors 
+/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_dense/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.profiles
+EOF
+
+done
+
+# Derive and evaluate models
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 1 4);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+  prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
+
+  qsub -l h_vmem=50G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+    --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+    --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+    --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs-dense \
+    --n_core 2 \
+    --assoc T \
+    --compare_predictors T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs-dense.predictor_groups
+done
+</code></pre>
 </details>
 <details>
 <p><summary>lassosum PRSs</summary></p>
@@ -574,113 +600,22 @@ done</code></pre>
 # Evaluate use of lassosum PRSs when using multiple shrinkage parameters individually and in combination
 ################################
 
-######
-# Split lassosum PRSs into individual files
-######
-module add general/R/3.5.0
-R
-library(data.table)
-gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;)
-for(gwas_i in gwas){
-  PRS&lt;-data.frame(fread(paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_lassosum/EUR/&#39;,gwas_i,&#39;/UKBB.w_hm3.&#39;,gwas_i,&#39;.EUR.lassosum_profiles&#39;)))
-  for(i in 3:dim(PRS)[2]){
-    if(sum(is.na(PRS[,i])) &lt; length(PRS[,i])){
-      tmp&lt;-gsub(paste0(gwas_i,&#39;_&#39;),&#39;param_&#39;,names(PRS)[i])
-      fwrite(PRS[,c(1,2,i)], paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_lassosum/EUR/&#39;,gwas_i,&#39;/UKBB.w_hm3.&#39;,gwas_i,&#39;.EUR.&#39;,tmp,&#39;.lassosum_profiles&#39;), sep=&#39; &#39;)
-    }
-    print(i)
-  }
-}
-q()
-n</code></pre>
-<pre class="bash"><code>######
-# Create predictor groups files
-######
-module add general/R/3.5.0
-R
-library(data.table)
-gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;)
-pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;)
-
-for(i in 1:4){
-  predictors_list&lt;-list.files(path=paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_lassosum/EUR/&#39;,gwas[i]) ,pattern=&#39;.param&#39;,full.names=T)
-  groups&lt;-data.frame( predictor=predictors_list,
-                      group=gsub(&#39;.*UKBB.w_hm3.&#39;, &#39;&#39;, predictors_list))
-
-  write.table(groups, paste0(&#39;/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/UKBB.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs_lassosum.predictor_groups&#39;), col.names=T, row.names=F, quote=F)
-}
-q()
-n</code></pre>
-<pre class="bash"><code>######
-# Derive and evaluate
-######
+# Create a file listing the predictors files
 pheno=$(echo Depression Intelligence BMI Height)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
 gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
-prev=$(echo 0.15 NA NA NA)
 
 for i in $(seq 1 4);do
-    pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
-    pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
-    gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
-    prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 
-    qsub -l h_vmem=10G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
-        --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
-        --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
-        --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum \
-        --n_core 5 \
-        --assoc T \
-        --outcome_pop_prev ${prev_i} \
-        --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups
-done</code></pre>
-</details>
-<details>
-<p><summary>PRScs PRSs</summary></p>
-<pre class="bash"><code>################################
-# Evaluate use of multiple PRSs based on different shrinkage parameters, and use of pseudo-validated PRS (PRScs)
-################################
+cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups &lt;&lt;EOF
+predictors 
+/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_lassosum/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.lassosum_profiles
+EOF
 
-#####
-# Split PRScs PRSs into individual files
-#####
-module add general/R/3.5.0
-R
-library(data.table)
-gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;)
-for(gwas_i in gwas){
-  PRS&lt;-data.frame(fread(paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_PRScs/EUR/&#39;,gwas_i,&#39;/UKBB.w_hm3.&#39;,gwas_i,&#39;.EUR.PRScs_profiles&#39;)))
-  for(i in 3:dim(PRS)[2]){
-    if(sum(is.na(PRS[,i])) &lt; length(PRS[,i])){
-      tmp&lt;-gsub(paste0(gwas_i,&#39;_&#39;),&#39;param_&#39;,names(PRS)[i])
-      fwrite(PRS[,c(1,2,i)], paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_PRScs/EUR/&#39;,gwas_i,&#39;/UKBB.w_hm3.&#39;,gwas_i,&#39;.EUR.&#39;,tmp,&#39;.PRScs_profiles&#39;), sep=&#39; &#39;)
-    }
-    print(i)
-  }
-}
-q()
-n</code></pre>
-<pre class="bash"><code>#####
-# Create predictor groups files
-#####
-module add general/R/3.5.0
-R
-library(data.table)
-gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;)
-pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;)
+done
 
-for(i in 1:4){
-  predictors_list&lt;-list.files(path=paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_PRScs/EUR/&#39;,gwas[i]) ,pattern=&#39;.param&#39;,full.names=T)
-  groups&lt;-data.frame( predictor=predictors_list,
-                      group=gsub(&#39;.*UKBB.w_hm3.&#39;, &#39;&#39;, predictors_list))
-
-  write.table(groups, paste0(&#39;/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/UKBB.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs_PRScs.predictor_groups&#39;), col.names=T, row.names=F, quote=F)
-}
-q()
-n</code></pre>
-<pre class="bash"><code>#####
 # Derive and evaluate
-#####
 pheno=$(echo Depression Intelligence BMI Height)
 pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
 gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
@@ -695,12 +630,60 @@ prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 qsub -l h_vmem=10G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
 --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
 --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
---out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs \
+--out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum \
 --n_core 5 \
+--compare_predictors T \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups
+done
+
+# Note. Lassosum scores are identical across S values, indicating an error.</code></pre>
+</details>
+<details>
+<p><summary>PRScs PRSs</summary></p>
+<pre class="bash"><code>################################
+# Evaluate use of multiple PRSs based on different shrinkage parameters, and use of pseudo-validated PRS (PRScs)
+################################
+
+# Create a file listing the predictors files
+pheno=$(echo Depression Intelligence BMI Height)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs.predictor_groups &lt;&lt;EOF
+predictors 
+/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_PRScs/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.PRScs_profiles
+EOF
+
+done
+
+# Derive and evaluate
+pheno=$(echo Depression Intelligence BMI Height)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03)
+prev=$(echo 0.15 NA NA NA)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
+
+qsub -l h_vmem=10G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+--keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+--out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs \
+--n_core 2 \
+--compare_predictors T \
 --assoc T \
 --outcome_pop_prev ${prev_i} \
 --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs.predictor_groups
-done</code></pre>
+done
+</code></pre>
 
 <p><br/></p>
 <hr />
@@ -835,8 +818,8 @@ n</code></pre>
 
 <p><br/></p>
 <hr />
-<div id="htmlwidget-26fa4576d9b5730ff2fd" style="width:100%;height:auto;" class="datatables html-widget"></div>
-<script type="application/json" data-for="htmlwidget-26fa4576d9b5730ff2fd">{"x":{"filter":"top","filterHTML":"<tr>\n  <td data-type=\"factor\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n    <div style=\"width: 100%; display: none;\">\n      <select multiple=\"multiple\" style=\"width: 100%;\" data-options=\"[&quot;BMI&quot;,&quot;Depression&quot;,&quot;Height&quot;,&quot;Intelligence&quot;]\"><\/select>\n    <\/div>\n  <\/td>\n  <td data-type=\"factor\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n    <div style=\"width: 100%; display: none;\">\n      <select multiple=\"multiple\" style=\"width: 100%;\" data-options=\"[&quot;lassosum&quot;,&quot;PRScs&quot;,&quot;pT + clump&quot;]\"><\/select>\n    <\/div>\n  <\/td>\n  <td data-type=\"factor\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n    <div style=\"width: 100%; display: none;\">\n      <select multiple=\"multiple\" style=\"width: 100%;\" data-options=\"[&quot;10FCVal&quot;,&quot;Multi-PRS&quot;,&quot;PseudoVal&quot;]\"><\/select>\n    <\/div>\n  <\/td>\n  <td data-type=\"character\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n  <\/td>\n  <td data-type=\"character\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n  <\/td>\n<\/tr>","caption":"<caption>Table 1: Correlation between PRS model predictions and observed values<\/caption>","data":[["Depression","Depression","Depression","Depression","Depression","Depression","Depression","Depression","Intelligence","Intelligence","Intelligence","Intelligence","Intelligence","Intelligence","Intelligence","Intelligence","BMI","BMI","BMI","BMI","BMI","BMI","BMI","BMI","Height","Height","Height","Height","Height","Height","Height","Height"],["pT + clump","pT + clump","lassosum","lassosum","lassosum","PRScs","PRScs","PRScs","pT + clump","pT + clump","lassosum","lassosum","lassosum","PRScs","PRScs","PRScs","pT + clump","pT + clump","lassosum","lassosum","lassosum","PRScs","PRScs","PRScs","pT + clump","pT + clump","lassosum","lassosum","lassosum","PRScs","PRScs","PRScs"],["10FCVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS"],["0.119 (0.004)","0.126 (0.004)","0.123 (0.004)","0.077 (0.004)","0.127 (0.004)","0.137 (0.004)","0.138 (0.004)","0.14 (0.004)","0.09 (0.004)","0.094 (0.004)","0.093 (0.004)","0.065 (0.004)","0.094 (0.004)","0.102 (0.004)","0.1 (0.004)","0.104 (0.004)","0.255 (0.002)","0.271 (0.002)","0.276 (0.002)","0.215 (0.002)","0.28 (0.002)","0.281 (0.002)","0.272 (0.002)","0.29 (0.002)","0.299 (0.002)","0.315 (0.002)","0.342 (0.002)","0.289 (0.002)","0.345 (0.002)","0.342 (0.002)","0.342 (0.002)","0.344 (0.002)"],["0.108 (0.007)","0.12 (0.007)","0.118 (0.007)","0.081 (0.007)","0.12 (0.007)","0.122 (0.007)","0.124 (0.007)","0.125 (0.007)","0.085 (0.007)","0.094 (0.007)","0.086 (0.007)","0.067 (0.007)","0.089 (0.007)","0.096 (0.007)","0.099 (0.007)","0.1 (0.007)","0.261 (0.004)","0.276 (0.004)","0.282 (0.004)","0.216 (0.004)","0.286 (0.004)","0.287 (0.004)","0.275 (0.004)","0.295 (0.003)","0.303 (0.003)","0.318 (0.003)","0.346 (0.003)","0.295 (0.003)","0.349 (0.003)","0.346 (0.003)","0.345 (0.003)","0.347 (0.003)"]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Phenotype<\/th>\n      <th>Method<\/th>\n      <th>Group<\/th>\n      <th>CrossVal R (SE)<\/th>\n      <th>IndepVal R (SE)<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":10,"scrollX":true,"order":[],"autoWidth":false,"orderClasses":false,"orderCellsTop":true}},"evals":[],"jsHooks":[]}</script>
+<div id="htmlwidget-842dbee8e5aa00250e8c" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-842dbee8e5aa00250e8c">{"x":{"filter":"top","filterHTML":"<tr>\n  <td data-type=\"factor\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n    <div style=\"width: 100%; display: none;\">\n      <select multiple=\"multiple\" style=\"width: 100%;\" data-options=\"[&quot;BMI&quot;,&quot;Depression&quot;,&quot;Height&quot;,&quot;Intelligence&quot;]\"><\/select>\n    <\/div>\n  <\/td>\n  <td data-type=\"factor\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n    <div style=\"width: 100%; display: none;\">\n      <select multiple=\"multiple\" style=\"width: 100%;\" data-options=\"[&quot;lassosum&quot;,&quot;PRScs&quot;,&quot;pT + clump&quot;]\"><\/select>\n    <\/div>\n  <\/td>\n  <td data-type=\"factor\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n    <div style=\"width: 100%; display: none;\">\n      <select multiple=\"multiple\" style=\"width: 100%;\" data-options=\"[&quot;10FCVal&quot;,&quot;Multi-PRS&quot;,&quot;PseudoVal&quot;]\"><\/select>\n    <\/div>\n  <\/td>\n  <td data-type=\"character\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n  <\/td>\n  <td data-type=\"character\" style=\"vertical-align: top;\">\n    <div class=\"form-group has-feedback\" style=\"margin-bottom: auto;\">\n      <input type=\"search\" placeholder=\"All\" class=\"form-control\" style=\"width: 100%;\"/>\n      <span class=\"glyphicon glyphicon-remove-circle form-control-feedback\"><\/span>\n    <\/div>\n  <\/td>\n<\/tr>","caption":"<caption>Table 1: Correlation between PRS model predictions and observed values<\/caption>","data":[["Depression","Depression","Depression","Depression","Depression","Depression","Depression","Depression","Intelligence","Intelligence","Intelligence","Intelligence","Intelligence","Intelligence","Intelligence","Intelligence","BMI","BMI","BMI","BMI","BMI","BMI","BMI","BMI","Height","Height","Height","Height","Height","Height","Height","Height"],["pT + clump","pT + clump","lassosum","lassosum","lassosum","PRScs","PRScs","PRScs","pT + clump","pT + clump","lassosum","lassosum","lassosum","PRScs","PRScs","PRScs","pT + clump","pT + clump","lassosum","lassosum","lassosum","PRScs","PRScs","PRScs","pT + clump","pT + clump","lassosum","lassosum","lassosum","PRScs","PRScs","PRScs"],["10FCVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS","10FCVal","PseudoVal","Multi-PRS"],["0.119 (0.004)","0.126 (0.004)","0.123 (0.004)","0.077 (0.004)","0.127 (0.004)","0.137 (0.004)","0.138 (0.004)","0.14 (0.004)","0.09 (0.004)","0.094 (0.004)","0.093 (0.004)","0.065 (0.004)","0.094 (0.004)","0.102 (0.004)","0.1 (0.004)","0.104 (0.004)","0.255 (0.002)","0.271 (0.002)","0.276 (0.002)","0.215 (0.002)","0.28 (0.002)","0.281 (0.002)","0.272 (0.002)","0.29 (0.002)","0.299 (0.002)","0.315 (0.002)","0.342 (0.002)","0.289 (0.002)","0.345 (0.002)","0.342 (0.002)","0.342 (0.002)","0.344 (0.002)"],["0.108 (0.007)","0.12 (0.007)","0.118 (0.007)","0.081 (0.007)","0.12 (0.007)","0.122 (0.007)","0.124 (0.007)","0.125 (0.007)","0.085 (0.007)","0.094 (0.007)","0.086 (0.007)","0.067 (0.007)","0.089 (0.007)","0.096 (0.007)","0.099 (0.007)","0.1 (0.007)","0.261 (0.004)","0.276 (0.004)","0.282 (0.004)","0.216 (0.004)","0.286 (0.004)","0.287 (0.004)","0.275 (0.004)","0.295 (0.003)","0.303 (0.003)","0.318 (0.003)","0.346 (0.003)","0.295 (0.003)","0.349 (0.003)","0.346 (0.003)","0.345 (0.003)","0.347 (0.003)"]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Phenotype<\/th>\n      <th>Method<\/th>\n      <th>Group<\/th>\n      <th>CrossVal R (SE)<\/th>\n      <th>IndepVal R (SE)<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":10,"scrollX":true,"order":[],"autoWidth":false,"orderClasses":false,"orderCellsTop":true}},"evals":[],"jsHooks":[]}</script>
 <p><br/></p>
 <hr />
 </div>

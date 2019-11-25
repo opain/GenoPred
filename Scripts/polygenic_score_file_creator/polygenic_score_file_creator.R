@@ -20,6 +20,8 @@ make_option("--sumstats", action="store", default=NA, type='character',
 		help="GWAS summary statistics in LDSC format [required]"),
 make_option("--pTs", action="store", default='1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1', type='character',
 		help="List of p-value thresholds for scoring [optional]"),
+make_option("--dense", action="store", default=F, type='logical',
+		help="Specify as T for dense thresholding. pTs then interpretted as seq() command wih default 5e-8,1,5e-4 [optional]"),
 make_option("--prune_hla", action="store", default=T, type='logical',
 		help="Retain only top assocaited variant in HLA region [optional]")
 )
@@ -31,8 +33,6 @@ library(data.table)
 tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
-
-opt$pTs<-as.numeric(unlist(strsplit(opt$pTs,',')))
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
@@ -47,6 +47,25 @@ cat('Options are:\n')
 print(opt)
 cat('Analysis started at',as.character(start.time),'\n')
 sink()
+
+#####
+# Format pT option
+#####
+
+opt$pTs<-as.numeric(unlist(strsplit(opt$pTs,',')))
+
+if(opt$dense == T){
+	if(opt$pTs == c(1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1)){
+		opt$pTs<-c(1e-8,1,2e-3)
+	}
+	
+	opt$pTs<-seq(opt$pTs[1],opt$pTs[2],opt$pTs[3])
+
+	sink(file = paste(opt$output,'.log',sep=''), append = T)
+	cat('Dense thresholding selected.\n')
+	cat(length(opt$pTs),'thresholds will be used.\n')
+	sink()
+}
 
 #####
 # Read in sumstats and insert p-values
@@ -230,7 +249,6 @@ names(scores)<-c('FID','IID')
 
 for(k in 1:dim(range_list)[1]){
 SCORE_temp<-0
-CNT_temp<-0
 	for(i in 1:22){
 		if(file.exists(paste0(opt$output,'.profiles.chr',i,'.',range_list$Name[k],'.profile'))){			
 			profile<-fread(paste0(opt$output,'.profiles.chr',i,'.',range_list$Name[k],'.profile'))

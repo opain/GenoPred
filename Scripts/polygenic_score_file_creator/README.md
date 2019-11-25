@@ -24,6 +24,7 @@ install.packages(c('data.table'))
 | --ref_pop_scale | List of keep files for grouping individuals [optional] | NA |
 | --memory | Memory limit in Mb [optional] | 5000 |
 | --prune_hla | Retain only top associated variant in HLA region [optional] | TRUE |
+| --dense | Specify as T for dense thresholding. pTs then interpretted as seq() command wih default 5e-8,1,5e-4 [optional] | TRUE |
 
 ## Output files
 

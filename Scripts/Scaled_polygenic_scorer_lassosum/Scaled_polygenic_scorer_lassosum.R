@@ -74,10 +74,10 @@ scores_all<-foreach(i=1:22) %dopar% {
 	v2 <- validate(mod, test.bfile=paste0(opt$target_plink_chr,i), keep=opt$target_keep, pheno=pheno, plot=F)
 	
 	scores<-v2$results.table[!is.na(v2$results.table$order),c('FID','IID')]
-	for(j in v2$s){
+	for(j in 1:length(v2$s)){
 		for(k in 1:length(v2$lambda)){
 			scores_tmp<-data.frame(v2$pgs[[j]][,k])
-			names(scores_tmp)<-paste0('s',j,'_lambda',v2$lambda[k])
+			names(scores_tmp)<-paste0('s',v2$s[j],'_lambda',v2$lambda[k])
 			scores<-cbind(scores,scores_tmp)
 		}
 	}

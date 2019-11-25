@@ -17,15 +17,19 @@ make_option("--keep", action="store", default=NA, type='character',
 make_option("--internal_validation_prop", action="store", default=0.2, type='numeric',
 		help="Proportion of data that should be used for internal validation [optional]"),
 make_option("--outcome_pop_prev", action="store", default=NA, type='numeric',
-		help="Prevelance of outcome in the general population [optional]"),
+		help="Prevalence of outcome in the general population [optional]"),
 make_option("--out", action="store", default=NA, type='character',
 		help="Prefix for output files [required]"),
-make_option("--save_model", action="store", default=T, type='logical',
-		help="Save final model for extranl validation [optional]"),
+make_option("--save_group_model", action="store", default=F, type='logical',
+		help="Save group models for external validation [optional]"),
+make_option("--save_final_model", action="store", default=T, type='logical',
+		help="Save final model for external validation [optional]"),
 make_option("--assoc", action="store", default=T, type='logical',
-		help="Perform assocaition analysis between each predictor and outcome [optional]"),
+		help="Perform association analysis between each predictor and outcome [optional]"),
 make_option("--n_perm", action="store", default=1000, type='numeric',
 		help="Number of permutations for model comparison [optional]"),
+make_option("--compare_predictors", action="store", default=F, type='logical',
+		help="Option to assign each predictor to own group [optional]"),
 make_option("--pred_miss", action="store", default=0.1, type='numeric',
 		help="Proportion of missing values allowed in predictor [optional]")		
 )
@@ -75,13 +79,20 @@ predictors_list<-data.frame(fread(opt$predictors))
 names(predictors_list)[1]<-'predictor'
 
 # Determine if there is a group column, and if there is more than 1 group.
-if(!is.null(predictors_list$group)){
-	if(length(unique(predictors_list$group)) != 1){
-		opt$model_comp<-T
-		predictors_list$group<-gsub('-','.',predictors_list$group)
-		sink(file = paste(opt$out,'.log',sep=''), append = T)
-		cat('Predictors file contains group information so model comparisons will be performed.\n')
-		sink()
+if(opt$compare_predictors == F){
+	if(!is.null(predictors_list$group)){
+		if(length(unique(predictors_list$group)) != 1){
+			opt$model_comp<-T
+			predictors_list$group<-gsub("[[:punct:]]", ".",predictors_list$group)
+			sink(file = paste(opt$out,'.log',sep=''), append = T)
+			cat('Predictors file contains group information so model comparisons will be performed.\n')
+			sink()
+		} else {
+			opt$model_comp<-F
+			sink(file = paste(opt$out,'.log',sep=''), append = T)
+			cat('Predictors file does not contain group information so model comparisons will not be performed.\n')
+			sink()
+		}
 	} else {
 		opt$model_comp<-F
 		sink(file = paste(opt$out,'.log',sep=''), append = T)
@@ -89,10 +100,10 @@ if(!is.null(predictors_list$group)){
 		sink()
 	}
 } else {
-	opt$model_comp<-F
-	sink(file = paste(opt$out,'.log',sep=''), append = T)
-	cat('Predictors file does not contain group information so model comparisons will not be performed.\n')
-	sink()
+		opt$model_comp<-T
+		sink(file = paste(opt$out,'.log',sep=''), append = T)
+		cat('Each predictor will be assigned a group and model comparisons will be performed.\n')
+		sink()
 }
 
 ###########
@@ -189,10 +200,10 @@ if(dim(predictors_list)[1]>1){
 			Predictors_temp	
 		})
 
-sink(file = paste(opt$out,'.log',sep=''), append = T)
-cat('After merging the',length(predictors_list),'Predictors files,', dim(Predictors)[2]-1,'predictors remain.\n')
-cat('After merging the',length(predictors_list),'Predictors files,', dim(Predictors)[1],'individuals remain.\n')
-sink()
+	sink(file = paste(opt$out,'.log',sep=''), append = T)
+	cat('After merging the',length(predictors_list),'Predictors files,', dim(Predictors)[2]-1,'predictors remain.\n')
+	cat('After merging the',length(predictors_list),'Predictors files,', dim(Predictors)[1],'individuals remain.\n')
+	sink()
 
 } else {
 		
@@ -207,12 +218,21 @@ sink()
 		Predictors$IID<-paste0(Predictors$IID,':',Predictors$IID)
 	}
 
+	
 	# Remove variables with > opt$pred_miss missing values 
 	Predictors <- Predictors[,colSums(is.na(Predictors))/nrow(Predictors) < opt$pred_miss, with=F]
 
 	# Remove individuals with any missing data
 	Predictors<-Predictors[complete.cases(Predictors),]
 
+	if(opt$compare_predictors == T){
+		# Create the object predictors_list
+		predictors_list<-data.frame(predictor=names(Predictors)[-1], group=names(Predictors)[-1])
+		predictors_list$group<-gsub("[[:punct:]]", ".",predictors_list$group)
+		# Add group name to each predictor
+		names(Predictors)[-1]<-paste0('Group_',names(Predictors)[-1],'.',names(Predictors)[-1])
+	}
+	
 	sink(file = paste(opt$out,'.log',sep=''), append = T)
 	cat('Predictors file contains',dim(Predictors)[2]-1,'predictors with sufficient data.\n')
 	cat('Predictors file contains',dim(Predictors)[1],'individuals with complete data for remaining predictors.\n')
@@ -362,14 +382,15 @@ if(opt$model_comp == T){
 	# Build glmnet using each group of predictors at a time
 	for(group in unique(predictors_list$group)){
 		# Subset predictor in the group
+		print(group)
 		Outcome_Predictors_train_x_group<-Outcome_Predictors_train_x[grepl(paste0('Group_',group),names(Outcome_Predictors_train_x))]
 		Outcome_Predictors_test_x_group<-Outcome_Predictors_test_x[grepl(paste0('Group_',group),names(Outcome_Predictors_test_x))]
 		
 		# If there is only one predictor, add empty variable so it runs
 		if(dim(Outcome_Predictors_train_x_group)[2] > 1){
-			model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, classProbs=T, savePredictions = 'final'), method="glmnet", family=opt$family)
+				model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, classProbs=T, savePredictions = 'final'), method="glmnet", family=opt$family)
 		} else {
-			model<- train(y=Outcome_Predictors_train_y, x=cbind(0,Outcome_Predictors_train_x_group), trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, classProbs=T, savePredictions = 'final'), method="glmnet", family=opt$family)
+				model<- train(y=Outcome_Predictors_train_y, x=cbind(0,Outcome_Predictors_train_x_group), trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, classProbs=T, savePredictions = 'final'), method="glm", family=opt$family)
 		}
 		
 		if(opt$family=='binomial'){
@@ -379,7 +400,10 @@ if(opt$model_comp == T){
 			if(dim(Outcome_Predictors_train_x_group)[2] > 1){
 				Indep_Pred<-predict(object = model$finalModel, newx = data.matrix(Outcome_Predictors_test_x_group), type = "response", s = model$finalModel$lambdaOpt)
 			} else {
-				Indep_Pred<-predict(object = model$finalModel, newx = data.matrix(cbind(0,Outcome_Predictors_test_x_group)), type = "response", s = model$finalModel$lambdaOpt)
+					tmp<-data.frame(cbind(0,Outcome_Predictors_test_x_group))
+					names(tmp)[1]<-'0'
+					Indep_Pred<-predict(object = model$finalModel, newdata = tmp, type = "response")
+					rm(tmp)
 			}
 			Indep_mod<-summary(lm(scale(as.numeric(Outcome_Predictors_test_y)) ~ scale(as.numeric(Indep_Pred))))
 			Indep_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Indep_mod)[2,1]^2, sum(Outcome_Predictors_test_y == 'CASE')/length(Outcome_Predictors_test_y))
@@ -421,7 +445,7 @@ if(opt$model_comp == T){
 		
 		Prediction_summary_all<-rbind(Prediction_summary_all,Prediction_summary)
 	
-		if(opt$save_model == T){
+		if(opt$save_group_model == T){
 			################
 			# Save the model for use in external samples
 			################                                
@@ -495,7 +519,7 @@ sink(file = paste(opt$out,'.log',sep=''), append = T)
 cat('Model evaluation results saved as ',opt$out,'.pred_eval.txt.\n',sep='')
 sink()
 
-if(opt$save_model == T){
+if(opt$save_final_model == T){
 	################
 	# Save the model for use in external samples
 	################                                
