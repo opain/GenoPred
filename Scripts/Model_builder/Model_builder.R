@@ -383,8 +383,8 @@ if(opt$model_comp == T){
 	for(group in unique(predictors_list$group)){
 		# Subset predictor in the group
 		print(group)
-		Outcome_Predictors_train_x_group<-Outcome_Predictors_train_x[grepl(paste0('Group_',group),names(Outcome_Predictors_train_x))]
-		Outcome_Predictors_test_x_group<-Outcome_Predictors_test_x[grepl(paste0('Group_',group),names(Outcome_Predictors_test_x))]
+		Outcome_Predictors_train_x_group<-Outcome_Predictors_train_x[grepl(paste0('Group_',group,'\\.'), names(Outcome_Predictors_train_x))]
+		Outcome_Predictors_test_x_group<-Outcome_Predictors_test_x[grepl(paste0('Group_',group,'\\.'), names(Outcome_Predictors_test_x))]
 		
 		# If there is only one predictor, add empty variable so it runs
 		if(dim(Outcome_Predictors_train_x_group)[2] > 1){
@@ -426,7 +426,10 @@ if(opt$model_comp == T){
 			if(dim(Outcome_Predictors_train_x_group)[2] > 1){
 				Indep_Pred<-predict(object = model$finalModel, newx = data.matrix(Outcome_Predictors_test_x_group), type = "response", s = model$finalModel$lambdaOpt)
 			} else {
-				Indep_Pred<-predict(object = model$finalModel, newx = data.matrix(cbind(0,Outcome_Predictors_test_x_group)), type = "response", s = model$finalModel$lambdaOpt)
+					tmp<-data.frame(cbind(0,Outcome_Predictors_test_x_group))
+					names(tmp)[1]<-'0'
+					Indep_Pred<-predict(object = model$finalModel, newdata = tmp, type = "response")
+					rm(tmp)
 			}
 			Indep_mod<-summary(lm(scale(Outcome_Predictors_test_y) ~ scale(Indep_Pred)))
 
