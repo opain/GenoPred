@@ -131,6 +131,10 @@ GWAS_clean_frq_switch$MAF<-1-GWAS_clean_frq_switch$MAF
 GWAS_clean<-rbind(GWAS_clean_frq_match, GWAS_clean_frq_switch)
 GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','Z','P','N','MAF')]
 
+# Remove invariant SNPs
+GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 0,]
+GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 1,]
+
 # Transform Z score to beta and se using formula from https://www.ncbi.nlm.nih.gov/pubmed/27019110
 # Note, we could use full sumstats rather than munged which would contain more accurate beta and se.
 GWAS_clean$beta<-GWAS_clean$Z/sqrt((2*GWAS_clean$MAF)*(1-GWAS_clean$MAF)*(GWAS_clean$N+sqrt(abs(GWAS_clean$Z))))
@@ -139,7 +143,7 @@ GWAS_clean$se<-abs(GWAS_clean$beta)/abs(GWAS_clean$Z)
 GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','MAF','beta','se','P','N'),with=F]
 names(GWAS_clean)<-c('SNP','A1','A2','freq','b','se','p','N')
 
-fwrite(GWAS_clean, paste0(opt$output_dir,'GWAS_sumstats_COJO.txt'), sep=' ')
+fwrite(GWAS_clean, paste0(opt$output_dir,'GWAS_sumstats_COJO.txt'), sep=' ', na = "NA", quote=F)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('After harmonisation with the reference,',dim(GWAS_clean)[1],'variants remain.\n')
@@ -174,7 +178,7 @@ for(k in 1:dim(pop_keep_files)[1]){
 	scores_keep<-scores[(scores$FID %in% keep$V1),]
 
 	ref_scale<-data.frame(	Mean=round(mean(scores_keep$SCORESUM),3),
-													SD=round(sd(scores_keep$SCORESUM),3))
+							SD=round(sd(scores_keep$SCORESUM),3))
 
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
