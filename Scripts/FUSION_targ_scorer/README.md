@@ -1,4 +1,4 @@
-# Scaled_polygenic_scorer.R
+# FUSION_targ_scorer.R
 
 This script is for predicting functional genomic features in a target sample. Instructions for preparing the required reference files for this analysis can be found [here](https://opain.github.io/GenoPred/Pipeline_prep.html#5_functionally-informed_polygenic_scoring). This script is a part of a pipeline for estimating reference standardised genotype-based scores in a target sample, which is further described [here](https://opain.github.io/GenoPred/Genotype-based_scoring_in_target_samples.html).
 

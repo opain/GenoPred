@@ -1,0 +1,311 @@
+---
+title: "Risk visualiser"
+output: html_document
+runtime: shiny
+---
+
+This page is designed to help interprete predictions.
+
+# Absolute risk calculator
+This is a tool for converting a relative risk estimate into an absolute risk, taking into account the prevelance of the outcome and the variance explained by the predictor.
+
+```{r, echo=FALSE}
+library(cowplot)
+library(pROC)
+library(SimMultiCorrData)
+
+shinyApp(
+  ui = fluidPage(
+    fluidRow(
+      column(12,
+        tableOutput('table')
+      )
+    )
+  ),
+  server = function(input, output) {
+    PRS_abs_risk<-function(n=10000, PRS_auc=0.6, prev=0.3, n_quantile=20, seed=1){
+      # Create function to convert AUC to R2 on observed scale
+      h2_obs_AUC <-  function(k,auc) {
+        T0 <- qnorm(1 - k)
+        z  <- dnorm(T0)
+        i  <- z / k
+        v  <- -i * (k / (1-k))
+        q <- qnorm(auc)
+        h2l <- 2 * q^2 / ((v - i)^2 + q^2 * i * (i - T0) + v * (v - T0)) # eq 4
+        
+        p<-k
+        x= qnorm(1-k)
+        z= dnorm(x)
+        i=z/k
+        C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+        h2_obs = h2l/C
+      }
+      
+      # Calculate r2 on observed scale corresonding to desired AUC
+      r2<-h2_obs_AUC(k=prev, auc=PRS_auc)
+      
+      # Simulate binary and continuous variable with desired correlation and prevelance
+      library(SimMultiCorrData)
+      sim<-rcorrvar(n = n, k_cat = 1, k_cont = 1, method = "Polynomial",
+               means = 0, vars = 1, skews = 0, skurts = 0, fifths = 0, sixths = 0,
+               marginal = list(1-prev), support = list(0:2),
+               rho = matrix(c(1, sqrt(r2), sqrt(r2), 1), 2, 2), errorloop=T, seed=seed)
+      
+      sim_dat<-data.frame(Ord=sim$ordinal_variables, Cont=sim$continuous_variables)
+      names(sim_dat)<-c('y','x')
+      
+      # Calculate simulated AUC
+      mod <- glm(y ~ x, data=sim_dat, family = "binomial")
+      prob=predict(mod,type=c("response"))
+      library(pROC)
+      prs_roc<-roc(sim_dat$y ~ prob)
+      
+      # Split data into quantiles
+      by_quant<-1/n_quantile
+      perc<-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
+      sim_dat<-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5)))
+      
+      # Calculate proportion of cases in each quantile
+      Risk_per_bin<-NULL
+      for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
+        PRS_bin_temp<-sim_dat$y[as.numeric(sim_dat$quantile) == i]
+        temp<-data.frame(Quantile=i, 
+                         PRS_range=levels(sim_dat$quantile)[i], 
+                         perc_con=paste0(round(sum(PRS_bin_temp == 0, na.rm=T)/length(PRS_bin_temp)*100, 2),'%'), 
+                         perc_case=paste0(round(sum(PRS_bin_temp == 1, na.rm=T)/length(PRS_bin_temp)*100, 2),'%')) 
+                         
+        Risk_per_bin<-rbind(Risk_per_bin,temp)
+      }
+      
+      print(Risk_per_bin)
+      print(prs_roc$auc)
+      
+      output<-list()
+      output[['Risk']]<-Risk_per_bin
+      output[['AUC']]<-as.numeric(prs_roc$auc)
+      output[['Prevelance']]<-mean(Risk_per_bin$prop_case)
+      output[['Data']]<-sim_dat
+      output[['Input']]<-data.frame(Option=c('n', 'PRS_auc', 'prev', 'n_quantile','seed'),
+                                    Value=c(n, PRS_auc, prev, n_quantile, seed))
+      
+      return(output)
+    }
+    
+    res<-PRS_abs_risk(PRS_auc=as.numeric(input$auc), prev=as.numeric(input$prev), n_quantile=20)
+    output$table <- renderTable(res$Risk)
+  }
+)
+  
+#shinyApp(
+#
+#  ui = fluidPage(
+#    sidebarLayout(
+#        sidebarPanel(
+#            numericInput("prev", "Prevelance:", 0.1, min = 0.0001, max = 0.9999),
+#            numericInput("auc", "AUC:", 0.6, min = 0.5, max = 0.9999)
+#        ),
+#
+#        # Show a plot of the generated distribution
+#        fluidRow(
+#          column(12,
+#           tableOutput("ab_risk")
+#          )
+#        )
+#    )
+#  ),
+#
+#  server = function(input, output) {
+#    res<-PRS_abs_risk(PRS_auc=input$auc, prev=input$prev, n_quantile=20)
+#    output$ab_risk <- renderTable(res$Risk)
+#  },
+#
+#  options = list(height = 500)
+#)
+```
+
+## Visualise PRS Z-score on normal distribution
+#
+#```{r, echo=FALSE}
+#library(cowplot)
+#
+#shinyApp(
+#
+#  ui = fluidPage(
+#        selectInput("user", "User ID:", choices = 'Demo', width = '100%'),
+#        uiOutput("secondSelection"),
+#        plotOutput("prs")
+#  ),
+#
+#  server = function(input, output) {
+#    # Read in the required data
+#    gwas_list<-list.files('~/Desktop/Demo')
+#    prs<-NULL
+#    for(i in gwas_list){
+#      prs_tmp<-read.table(paste0('~/Desktop/Demo/',i,'/','Robert_Plomin.w_hm3.',i,'.EUR.profiles'), header=T, stringsAsFactors=F)
+#      names(prs_tmp)<-gsub(i,'PRS',names(prs_tmp))
+#      prs_tmp<-data.frame(GWAS=i, PRS=prs_tmp$PRS_1)
+#      prs<-rbind(prs,prs_tmp)
+#    }
+#    
+#    # Read in GWAS index
+#    gwas_info<-read.csv('~/Desktop/QC_sumstats_list_031218.csv')
+#    gwas_info<-gwas_info[c('Code','trait_detail','year')]
+#    gwas_info<-gwas_info[(gwas_info$Code %in% gwas_list),]
+#    gwas_info<-gwas_info[order(gwas_info$trait_detail),]
+#    gwas_info$List_name<-paste0(gwas_info$trait_detail,' - ', gwas_info$year, " - ", gwas_info$Code)
+#    
+#    prs<-merge(prs, gwas_info, by.x='GWAS', by.y='Code')
+#    
+#    # List available GWAS
+#    output$secondSelection <- renderUI({selectInput("GWAS", "GWAS:", choices = gwas_info$List_name, width = '100%')})
+#
+#    # Set paramters for plot
+#    my_col <- "#00998a"
+#    x <- seq(from = -4, to = 4, by = .01)
+#    MyDF <- data.frame(x = x, y = dnorm(x))
+#
+#    # Create plot
+#    output$prs = renderPlot({
+#      ggplot(MyDF, aes(x = x, y = y)) + geom_line() +
+#        geom_area(data = subset(MyDF, x >= prs$PRS[prs$List_name == input$GWAS]), aes(y=y), fill = my_col, color = NA, alpha = 0.6) +
+#        geom_area(data = subset(MyDF, x <= prs$PRS[prs$List_name == input$GWAS]), aes(y=y), fill = my_col, color = NA, alpha = 0.3) +
+#        scale_x_continuous(breaks = -3:3) +
+#        scale_y_continuous(breaks = NULL) +
+#        theme_classic() +
+#        ylab("") + xlab("") +
+#        geom_vline(xintercept=prs$PRS[prs$List_name == input$GWAS]) +
+#        geom_text(data=data.frame(), aes(label = paste0(round(pnorm(prs$PRS[prs$List_name == input$GWAS])*100,1),'%'), x = -3, y = 0.3), size = 10, hjust = 0, vjust = 1) +
+#        geom_text(data=data.frame(), aes(label = paste0(round((1-pnorm(prs$PRS[prs$List_name == input$GWAS]))*100,1),'%'), x = 3, y = 0.3), size = 10, hjust = 1, vjust = 1) +
+#        geom_text(data=data.frame(), aes(label="Your score", x=prs$PRS[prs$List_name == input$GWAS], y=0.2), angle=90, vjust = 1.2, size = 5)
+#    })
+#  },
+#
+#  options = list(height = 600)
+#)
+#```
+#
+#```{r, echo=FALSE}
+#library(cowplot)
+#shinyApp(
+#
+#  ui = fluidPage(
+#    selectInput("prevelance", "Prevelance:",
+#                choices = seq(0.01,0.99,0.01)),
+#    plotOutput("prs")
+#  ),
+#
+#  server = function(input, output) {
+#    temp<-data.frame(x=seq(1,100,1),
+#                     y=seq(1,100,1))
+#
+#    output$prs = renderPlot({
+#      ggplot(temp,aes(x=x,y=y)) +
+#        geom_point() +
+#        geom_vline(xintercept=25)
+#    })
+#    
+#    ggplot(data = data.frame(x = c(-3, 3)), aes(x)) +
+#    stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) + ylab("") +
+#    scale_y_continuous(breaks = NULL)
+#
+#  },
+#
+#  options = list(height = 500)
+#)
+#```
+#
+#```{r, echo=FALSE}
+#library(cowplot)
+#
+#shinyApp(
+#
+#  ui = fluidPage(
+#    sidebarLayout(
+#        sidebarPanel(
+#            sliderInput("prs",
+#                        "PRS",
+#                        min = -3,
+#                        max = 3,
+#                        step=0.01,
+#                        value = 0)
+#        ),
+#
+#        # Show a plot of the generated distribution
+#        mainPanel(
+#           plotOutput("prs_plot")
+#        )
+#    )
+#  ),
+#
+#  server = function(input, output) {
+#    temp<-data.frame(x=seq(1,100,1),
+#                     y=seq(1,100,1))
+#
+#    output$prs_plot = renderPlot({
+#      ggplot(data = data.frame(x = c(-3, 3)), aes(x)) +
+#        stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) + ylab("") +
+#        scale_y_continuous(breaks = NULL) +
+#        geom_vline(xintercept=as.numeric(input$prs))
+#    })
+#    
+#  },
+#
+#  options = list(height = 500)
+#)
+#```
+#
+#```{r, echo=FALSE}
+#library(cowplot)
+#
+#prs<-data.frame(Disorder=c('Depression',
+#                           'Schizophrenia'),
+#                GWAS=c('DEPR06','SCHIZ06'),
+#                PRS=c(-1.13,-0.5))
+#
+#mean.1 <-0
+#sd.1 <- 1
+#zstart <- 2
+#zend <- 3
+#zcritical <- 1.65
+#
+#my_col <- "#00998a"
+#
+#x <- seq(from = mean.1 - 3*sd.1, to = mean.1 + 3*sd.1, by = .01)
+#MyDF <- data.frame(x = x, y = dnorm(x, mean = mean.1, sd = sd.1))
+#
+#shade_curve <- function(MyDF, zstart, zend, fill = "red", alpha = .5){
+#  geom_area(data = subset(MyDF, x >= mean.1 + zstart*sd.1
+#                          & x < mean.1 + zend*sd.1),
+#            aes(y=y), fill = fill, color = NA, alpha = alpha)
+#}
+#
+#shinyApp(
+#
+#  ui = fluidPage(
+#    selectInput("disorder", "Disorder:",
+#                choices = prs$Disorder),
+#    plotOutput("prs")
+#  ),
+#
+#  server = function(input, output) {
+#    output$prs = renderPlot({
+#      ggplot(MyDF, aes(x = x, y = y)) + geom_line() +
+#        shade_curve(MyDF = MyDF, zstart = -1, zend = 1, fill = my_col, alpha = .3) +
+#        shade_curve(MyDF = MyDF, zstart = 1, zend = 2, fill = my_col, alpha = .5) +
+#        shade_curve(MyDF = MyDF, zstart = -2, zend = -1, fill = my_col, alpha = .5) +
+#        shade_curve(MyDF = MyDF, zstart = 2, zend = 6, fill = my_col, alpha = .7) +
+#        shade_curve(MyDF = MyDF, zstart = -3, zend = -2, fill = my_col, alpha = .7) +
+#        scale_x_continuous(breaks = -3:3) +
+#        scale_y_continuous(breaks = NULL) +
+#        theme_classic() +
+#        ylab("") + xlab("") +
+#        geom_vline(xintercept=prs$PRS[prs$Disorder == input$disorder])
+#
+#    })
+#    
+#  },
+#
+#  options = list(height = 500)
+#)
+#```
+#
