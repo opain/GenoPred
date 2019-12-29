@@ -55,14 +55,25 @@ The allele frequency differences between ancestries are not only captured by PCs
 ***
 
 # Methods
-## Sample 
+## Samples
 - UK Biobank
+- TEDS
 
 ## Outcomes
-- Depression (binary)
-- Intelligence (continuous)
-- Body mass index (BMI - continuous)
-- Height (continuous)
+
+* UK Biobank
+  * Depression (binary)
+  * Intelligence (continuous)
+  * Body mass index (BMI - continuous)
+  * Height (continuous)
+  * Coronary Artery Disease (CAD - Binary)
+  * Type II Diabetes (T2D - Binary)
+
+* TEDS
+  * ADHD traits (continuous)
+  * Height (continuous)
+  * Body mass index (BMI - continuous)
+  * GCSE scores (continuous)
 
 ## Genotypic data
 HapMap3 variants were extracted from the HRC imputed genetic data, and converted to hard-call PLINK format with no hard-call threshold to maximise overlap with the HapMap3 SNP list. Individuals were excluded if they had extensive missing data, had non-European ancestry, or were closely-related to other individuals in the sample. This was done prior to this project.
@@ -73,7 +84,7 @@ Calculation of the first 100 European-specific and 100 all-ancestry PCs was perf
 ## Polygenic scoring
 Polygenic scores were derived using PRScs, a Bayesian shrinkage method. Polygenic scores based on a range of global shrinkage parameters were used as this approach was shown to explain the most variance (see [here](https://opain.github.io/GenoPred/Determine_optimal_polygenic_scoring_approach.html)). Furthermore, PRScs-based polygenic scores for a range of outcomes were included, as this approach has been shown to increase the variance explained by polygenic scores (see [here](https://opain.github.io/GenoPred/Determine_optimal_polygenic_scoring_approach.html)). Maximising the variance explained by polygenic scores will provide more robust evidence that PCs can explain additional variance to polygenic scores, and therefore are a useful predictor.
 
-Polygenic scores were calculated in UK Biobank using a reference-standardised approach (see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring)). In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on European individuals within the 1000 Genomes reference. Any HapMap3 missing in the target sample are imputed using the allele frequency measured in the European subset of the 1000 Genomes reference. Score were centreed and scaled based on the mean and standard deviation of scores in an ancestry matched samples.
+Polygenic scores were calculated in UK Biobankand TEDS using a reference-standardised approach (see [here](https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring)). In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on European individuals within the 1000 Genomes reference. Any HapMap3 missing in the target sample are imputed using the allele frequency measured in the European subset of the 1000 Genomes reference. Score were centreed and scaled based on the mean and standard deviation of scores in an ancestry matched samples.
 
 ## Estimating predictive ability
 All models were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process. Permutation testing was used to determine whether the difference in variance explained was significantly greater than 0. 
@@ -81,10 +92,11 @@ All models were derived using elastic-net regularisation to reduce the likelihoo
 Model building and evaluation was performed using an Rscript called Model_builder.R (more information [here](https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder)).
 
 ## Code
+### UK Biobank
 <details><summary>Evaluate PCs alone</summary>
 ```{bash, echo=T, eval=F}
 # Make required directories
-for pheno_i in $(echo Depression Intelligence BMI Height);do
+for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD);do
 mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPCs
 done
 
@@ -106,12 +118,12 @@ n
 ######
 # Derive and evaluate models
 ######
-pheno=$(echo Depression Intelligence BMI Height)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
-gwas=$(echo DEPR07 COLL01 BODY03 HEIG03)
-prev=$(echo 0.15 NA NA NA)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03)
 
-for i in $(seq 1 4);do
+for i in $(seq 1 6);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
 pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
 gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
@@ -126,6 +138,7 @@ qsub -l h_vmem=6G -pe smp 3 /users/k1806347/brc_scratch/Software/Rscript.sh /use
 --outcome_pop_prev ${prev_i} \
 --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/UKBB-projected-PCs.predictor_groups
 done
+
 ```
 </details>
 
@@ -188,6 +201,54 @@ done
 </details>
 
 <br/>
+
+### TEDS
+<details><summary>Evaluate PCs alone</summary>
+```{bash, echo=T, eval=F}
+# Make required directories
+for pheno_i in $(echo Height21 BMI21 GCSE ADHD);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPCs
+done
+
+######
+# Create a file to group the predictors
+######
+
+module add general/R/3.5.0
+R
+library(data.table)
+
+groups<-data.frame( predictor=c('/users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/EUR/EUR_specific/TEDS.w_hm3.EUR.EUR.eigenvec','/users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/EUR/AllAncestry/TEDS.w_hm3.AllAncestry.EUR.eigenvec'),
+                    group=c('EUR_PCs','AllAncestry_PCs'))
+                    
+write.table(groups, '/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/TEDS-projected-PCs.predictor_groups', col.names=T, row.names=F, quote=F)
+q()
+n
+
+######
+# Derive and evaluate models
+######
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+prev=$(echo NA NA NA NA)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+qsub -l h_vmem=6G -pe smp 3 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_${pheno_i}.txt \
+--keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+--out /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPCs/TEDS-projected-PCs \
+--n_core 3 \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/TEDS-projected-PCs.predictor_groups
+done
+
+```
+</details>
 
 ***
 
