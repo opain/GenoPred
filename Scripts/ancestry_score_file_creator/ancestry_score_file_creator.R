@@ -132,7 +132,7 @@ system(paste0(opt$plink,' --bfile ',opt$output_dir,'ref_merge --threads 1 --extr
 # Calculate SNP weights
 system(paste0(opt$plink2,' --bfile ',opt$output_dir,'ref_merge_pruned --threads 1 --pca ',opt$n_pcs,' var-wts  --out ',opt$output_dir,'ref_merge_pruned --memory ',floor(opt$memory*0.7)))
 
-# Calculate SNP weights
+# Calculate PCs in the reference
 system(paste0(opt$plink2,' --bfile ',opt$output_dir,'ref_merge_pruned --threads 1 --score ',opt$output_dir,'ref_merge_pruned.eigenvec.var header-read 2 3 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'ref_merge_pruned_score --memory ',floor(opt$memory*0.7)))
 
 # Read in reference PC scores
@@ -153,9 +153,9 @@ fwrite(PCs_ref_centre_scale, paste0(opt$output,'.scale'), sep=' ')
 rm(PCs_ref_centre_scale)
 gc()
 
-if(!is.na(opt$ref_pop_scale)){
+if(!is.na(opt$ref_pop)){
   # Calculate the mean and sd of scores for each population specified in pop_scale
-  pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
+  pop_keep_files<-read.table(opt$ref_pop, header=F, stringsAsFactors=F)
 
   for(k in 1:dim(pop_keep_files)[1]){
   	pop<-pop_keep_files$V1[k]
@@ -179,13 +179,13 @@ cat('Done!\n')
 sink()
 
 ###
-# Create model predicting ref_pop_scale groups
+# Create model predicting ref_pop groups
 ###
 
-if(!is.na(opt$ref_pop_scale)){
+if(!is.na(opt$ref_pop)){
 
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('Deriving model predicting ref_pop_scale groups...')
+	cat('Deriving model predicting ref_pop groups...')
 	sink()
 
 	# Read in whole sample scale file
@@ -198,7 +198,7 @@ if(!is.na(opt$ref_pop_scale)){
 		PCs_ref_scaled[[paste0('PC',i)]]<-PCs_ref_scaled[[paste0('PC',i)]]/PCs_ref_centre_scale$SD[PCs_ref_centre_scale$PC == paste0('PC',i)]
 	}
 	
-	# Label individuals with ref_pop_scale groups
+	# Label individuals with ref_pop groups
 	pop<-NULL
 	for(i in 1:dim(pop_keep_files)[1]){
 		keep<-fread(pop_keep_files$V2[i], header=F)
