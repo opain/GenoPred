@@ -67,12 +67,24 @@ Another approach for improving prediction using polygenic scores is to model pol
 
 ## Sample 
 - UK Biobank
+- TEDS
 
 ## Outcomes
-- Depression (binary)
-- Intelligence (continuous)
-- Body mass index (BMI - continuous)
-- Height (continuous)
+
+- UK Biobank
+-- Depression (binary)
+-- Intelligence (continuous)
+-- Body mass index (BMI - continuous)
+-- Height (continuous)
+-- Coronary Artery Disease (CAD - Binary)
+-- Type II Diabetes (T2D - Binary)
+
+- TEDS
+-- ADHD traits (continuous)
+-- Height (continuous)
+-- Body mass index (BMI - continuous)
+-- GCSE scores (continuous)
+
 
 ## Genotypic data
 HapMap3 variants were extracted from the HRC imputed genetic data, and converted to hard-call PLINK format with no hard-call threshold to maximise overlap with the HapMap3 SNP list. Individuals were excluded if they had extensive missing data, had non-European ancestry, or were closely-related to other individuals in the sample. This was done prior to this project.
@@ -92,6 +104,8 @@ All models were derived using elastic-net regularisation to reduce the likelihoo
 Model building and evaluation was performed using an Rscript called Model_builder.R (more information [here](https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder)).
 
 ## Code
+
+### UK Biobank
 <details><summary>pT + clump PRSs: Sparse</summary>
 ```{bash, echo=T, eval=F}
 ##############################
@@ -335,6 +349,241 @@ done
 
 <br/>
 
+### TEDS
+<details><summary>pT + clump PRSs: Sparse</summary>
+```{bash, echo=T, eval=F}
+##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+
+# Make required directories
+for pheno_i in $(echo Height21 BMI21 GCSE ADHD);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs
+done
+
+# Create a file listing the predictors files
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+
+cat > /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups <<EOF
+predictors 
+/users/k1806347/brc_scratch/Data/TEDS/PolygenicScores/EUR/${gwas_i}/TEDS.w_hm3.${gwas_i}.EUR.profiles
+EOF
+
+done
+
+# Derive and evaluate models
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+prev=$(echo NA NA NA NA)
+
+for i in $(seq 1 4);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+  qsub -l h_vmem=5G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+    --pheno /users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_${pheno_i}.txt \
+	  --keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+    --out /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs \
+    --n_core 4 \
+    --compare_predictors T \
+    --assoc T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups
+done
+
+```
+
+</details>
+
+<details><summary>pT + clump PRSs: Dense</summary>
+```{bash, echo=T, eval=F}
+##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+
+# Create a file listing the predictors files
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+
+cat > /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs-dense.predictor_groups <<EOF
+predictors 
+/users/k1806347/brc_scratch/Data/TEDS/PolygenicScores_dense/EUR/${gwas_i}/TEDS.w_hm3.${gwas_i}.EUR.profiles
+EOF
+
+done
+
+# Derive and evaluate models
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+prev=$(echo NA NA NA NA)
+
+for i in $(seq 1 4);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+  qsub -l h_vmem=10G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+    --pheno /users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_${pheno_i}.txt \
+	  --keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+    --out /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs-dense \
+    --n_core 4 \
+    --assoc T \
+    --compare_predictors T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs-dense.predictor_groups
+done
+
+```
+</details>
+
+<details><summary>lassosum PRSs</summary>
+```{bash, echo=T, eval=F}
+################################
+# Evaluate use of lassosum PRSs when using multiple shrinkage parameters individually and in combination
+################################
+
+# Create a file listing the predictors files
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+
+cat > /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups <<EOF
+predictors 
+/users/k1806347/brc_scratch/Data/TEDS/PolygenicScores_lassosum/EUR/${gwas_i}/TEDS.w_hm3.${gwas_i}.EUR.lassosum_profiles
+EOF
+
+done
+
+# Derive and evaluate
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+prev=$(echo NA NA NA NA)
+
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+qsub -l h_vmem=10G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_${pheno_i}.txt \
+--keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+--out /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_lassosum \
+--n_core 4 \
+--compare_predictors T \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups
+done
+
+```
+</details>
+
+<details><summary>PRScs PRSs</summary>
+```{bash, eval=F, echo=T}
+################################
+# Evaluate use of multiple PRSs based on different shrinkage parameters, and use of pseudo-validated PRS (PRScs)
+################################
+
+# Create a file listing the predictors files
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+
+cat > /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_PRScs.predictor_groups <<EOF
+predictors 
+/users/k1806347/brc_scratch/Data/TEDS/PolygenicScores_PRScs/EUR/${gwas_i}/TEDS.w_hm3.${gwas_i}.EUR.PRScs_profiles
+EOF
+
+done
+
+# Derive and evaluate
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+prev=$(echo NA NA NA NA)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+qsub -l h_vmem=10G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_${pheno_i}.txt \
+--keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+--out /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_PRScs \
+--n_core 4 \
+--compare_predictors T \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_PRScs.predictor_groups
+done
+
+```
+\details
+
+<details><summary>SBLUP PRSs</summary>
+```{bash, eval=F, echo=T}
+################################
+# Evaluate use of multiple PRSs based on different shrinkage parameters, and use of pseudo-validated PRS (PRScs)
+################################
+
+# Create a file listing the predictors files
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+
+cat > /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_SBLUP.predictor_groups <<EOF
+predictors 
+/users/k1806347/brc_scratch/Data/TEDS/PolygenicScores_SBLUP/EUR/${gwas_i}/TEDS.w_hm3.${gwas_i}.EUR.SBLUP_profiles
+EOF
+
+done
+
+# Derive and evaluate
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+prev=$(echo NA NA NA NA)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+qsub -l h_vmem=5G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+--pheno /users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_${pheno_i}.txt \
+--keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+--out /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_SBLUP \
+--n_core 4 \
+--compare_predictors T \
+--assoc T \
+--outcome_pop_prev ${prev_i} \
+--predictors /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_SBLUP.predictor_groups
+done
+
+```
+\details
+
+<br/>
+
 ***
 
 # Results
@@ -347,6 +596,8 @@ As previous studies have shown, performing a grid search of shrinkage parameters
 The pseudovalidation approach within lassosum performs worse than any other approach tested here. In contrast the PRScs pseduovalidated PRS performs well, providing nearly the best prediction for all outcomes.
 
 ***
+
+## UK Biobank
 
 <details><summary>Code for plotting results</summary>
 ```{bash, echo=T, eval=F}
@@ -456,7 +707,7 @@ plots[[pheno[i]]] <- ggplot( All_res[All_res$Phenotype==pheno[i],], aes(x=Method
             				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
-png('/mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_CrossVal.png', units='px', res=300, width=3000, height=3750)
+png('/mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_CrossVal_UKBB.png', units='px', res=300, width=3000, height=3750)
 plot_grid(plotlist=plots, ncol = 2)
 dev.off()
 
@@ -470,7 +721,7 @@ plots[[pheno[i]]] <- ggplot( All_res[All_res$Phenotype==pheno[i],], aes(x=Method
             				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
-png('/mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_IndepVal.png', units='px', res=300, width=3000, height=3750)
+png('/mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_IndepVal_UKBB.png', units='px', res=300, width=3000, height=3750)
 plot_grid(plotlist=plots, ncol = 2)
 dev.off()
 
@@ -482,20 +733,174 @@ n
 ```{bash, eval=T, echo=F}
 mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach
 
-cp /mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+cp /mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_CrossVal_UKBB.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
 
-cp /mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+cp /mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_IndepVal_UKBB.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
 ```
 
 <center>
 
-![Figure 1: Predictive utility estimated using 10-fold cross-validation](/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal.png)
+![Figure 1: Predictive utility estimated using 10-fold cross-validation](/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal_UKBB.png)
 
 <br/>
 
 ***
 
-![Figure 2: Predictive utility estimated using test set validation](/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal.png)
+![Figure 2: Predictive utility estimated using test set validation](/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal_UKBB.png)
+
+\center
+
+<br/>
+
+## TEDS
+
+<details><summary>Code for plotting results</summary>
+```{bash, echo=T, eval=F}
+#####
+# Compare results from each approach
+#####
+module add general/R/3.5.0
+R
+
+pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
+
+# Read in the results, labelling which parameters where pseudovalidated and validated using 10-fold cross validation
+All_res<-NULL
+for(i in c(1:4)){
+  pT_clump<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/TEDS.w_hm3.',gwas[i],'.EUR-PRSs.pred_eval.txt'), header=T, stringsAsFactors=F)
+  pT_clump$Method<-"pT + clump\n(sparse)"
+  Param_tmp<-sort(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'.'),'',pT_clump$Model)))))
+  pT_clump$Param<-as.character(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'.'),'',pT_clump$Model)))))
+  pT_clump$Param[dim(pT_clump)[1]]<-'Multi-PRS'
+  pT_clump<-pT_clump[match(c(Param_tmp,'Multi-PRS'), pT_clump$Param),]
+  pT_clump$Model<-NULL
+  pT_clump$Group<-NA
+  pT_clump$Group[pT_clump$CrossVal_R == max(abs(pT_clump$CrossVal_R[pT_clump$Param != 'Multi-PRS']))]<-'10FCVal'
+  pT_clump$Group[pT_clump$Param == 'Multi-PRS']<-'Multi-PRS'
+  pT_clump<-pT_clump[!is.na(pT_clump$Group),]
+
+  pT_clump_dense<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/TEDS.w_hm3.',gwas[i],'.EUR-PRSs-dense.pred_eval.txt'), header=T, stringsAsFactors=F)
+  pT_clump_dense$Method<-"pT + clump\n(dense)"
+  Param_tmp<-sort(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'_'),'',pT_clump_dense$Model)))))
+  pT_clump_dense$Param<-as.character(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'_'),'',pT_clump_dense$Model)))))
+  pT_clump_dense$Param[dim(pT_clump_dense)[1]]<-'Multi-PRS'
+  pT_clump_dense<-pT_clump_dense[match(c(Param_tmp,'Multi-PRS'), pT_clump_dense$Param),]
+  pT_clump_dense$Model<-NULL
+  pT_clump_dense$Group<-NA
+  pT_clump_dense$Group[pT_clump_dense$CrossVal_R == max(abs(pT_clump_dense$CrossVal_R[pT_clump_dense$Param != 'Multi-PRS']))]<-'10FCVal'
+  pT_clump_dense$Group[pT_clump_dense$Param == 'Multi-PRS']<-'Multi-PRS'
+  pT_clump_dense<-pT_clump_dense[!is.na(pT_clump_dense$Group),]
+  
+  lassosum_res<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/TEDS.w_hm3.',gwas[i],'.EUR-PRSs_lassosum.pred_eval.txt'), header=T, stringsAsFactors=F)
+  lassosum_res$Method<-'lassosum'
+  lassosum_res$Param<-gsub('_group','',gsub(paste0(gwas[i],'.'),'',lassosum_res$Model))
+  lassosum_res$Param[dim(lassosum_res)[1]]<-'Multi-PRS'
+  lassosum_res$Model<-NULL
+  lassosum_val<-read.table(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_lassosum/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.log'), sep='&')
+  lassosum_val_s<-as.numeric(gsub('s = ','',lassosum_val$V1[grepl('s = ',lassosum_val$V1)]))
+  lassosum_val_lambda<-as.numeric(gsub('lambda =','',lassosum_val$V1[grepl('lambda =',lassosum_val$V1)]))
+  lassosum_val_param<-paste0('s',lassosum_val_s,'.lambda',lassosum_val_lambda)
+  lassosum_val_param<-substr(lassosum_val_param, 1, nchar(lassosum_val_param)-1) 
+  lassosum_res$Group<-NA
+  lassosum_res$Group[which(lassosum_res$CrossVal_R == max(abs(lassosum_res$CrossVal_R[lassosum_res$Param != 'Multi-PRS'])))[1]]<-'10FCVal'
+  lassosum_res$Group[grepl(lassosum_val_param,lassosum_res$Param)]<-'PseudoVal'
+  lassosum_res$Group[lassosum_res$Param == 'Multi-PRS']<-'Multi-PRS'
+  lassosum_res<-lassosum_res[!is.na(lassosum_res$Group),]
+  
+  PRScs_res<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/TEDS.w_hm3.',gwas[i],'.EUR-PRSs_PRScs.pred_eval.txt'), header=T, stringsAsFactors=F)
+  PRScs_res$Method<-'PRScs'
+  PRScs_res$Param<-gsub('_group','',gsub(paste0(gwas[i],'.'),'',PRScs_res$Model))
+  PRScs_res$Param[dim(PRScs_res)[1]]<-'Multi-PRS'
+  PRScs_res$Model<-NULL
+  PRScs_res$Group<-NA
+  PRScs_res$Group[which(PRScs_res$CrossVal_R == max(abs(PRScs_res$CrossVal_R[PRScs_res$Param != 'Multi-PRS' & PRScs_res$Param != 'phiauto'])))[1]]<-'10FCVal'
+  PRScs_res$Group[PRScs_res$Param == 'phiauto']<-'PseudoVal'
+  PRScs_res$Group[PRScs_res$Param == 'Multi-PRS']<-'Multi-PRS'
+  PRScs_res<-PRScs_res[!is.na(PRScs_res$Group),]
+
+  SBLUP_res<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/TEDS.w_hm3.',gwas[i],'.EUR-PRSs_SBLUP.pred_eval.txt'), header=T, stringsAsFactors=F)
+  SBLUP_res$Method<-'SBLUP'
+  SBLUP_res$Param<-gsub('_group','',gsub(paste0(gwas[i],'.'),'',SBLUP_res$Model))
+  SBLUP_res$Model<-NULL
+  SBLUP_res$Group<-NA
+  SBLUP_res$Group[1]<-'PseudoVal'
+  SBLUP_res<-SBLUP_res[!is.na(SBLUP_res$Group),]
+
+  res<-do.call(rbind, list(pT_clump, pT_clump_dense, lassosum_res, PRScs_res, SBLUP_res))
+  res$Phenotype<-pheno[i]
+  res$Cross_LiabR2<-NULL
+  res$Indep_LiabR2<-NULL
+  res$CrossVal_pval<-NULL
+  res$IndepVal_pval<-NULL
+
+  All_res<-rbind(All_res, res)
+}
+
+# Reformat to be a table
+All_res<-All_res[c('Phenotype','Method','Group','CrossVal_R','CrossVal_R_SE','IndepVal_R','IndepVal_R_SE')]
+
+write.csv(All_res, '/mnt/lustre/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp.csv', row.names=F)
+
+###
+# Plot comparison between validated PRS vs multi-PRS when using pT + clump method
+###
+
+library(ggplot2)
+library(cowplot)
+
+All_res$Method<-factor(All_res$Method, levels=unique(All_res$Method))
+
+plots<-list()
+for(i in 1:4){
+plots[[pheno[i]]] <- ggplot( All_res[All_res$Phenotype==pheno[i],], aes(x=Method, y=CrossVal_R, fill=Group)) +
+                      geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.5, colour='black') +
+                      geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.5, preserve = "single")) +
+                      labs(y="Correlation (SE)", x='', title=pheno[i]) +
+                      coord_cartesian(ylim=c(min(All_res$CrossVal_R[All_res$Phenotype==pheno[i]])-0.02, max(All_res$CrossVal_R[All_res$Phenotype==pheno[i]])+0.025), clip="on") +
+            				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+png('/mnt/lustre/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_CrossVal_TEDS.png', units='px', res=300, width=3000, height=3000)
+plot_grid(plotlist=plots, ncol = 2)
+dev.off()
+
+plots<-list()
+for(i in 1:4){
+plots[[pheno[i]]] <- ggplot( All_res[All_res$Phenotype==pheno[i],], aes(x=Method, y=IndepVal_R, fill=Group)) +
+                      geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.5, colour='black') +
+                      geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.5, preserve = "single")) +
+                      labs(y="Correlation (SE)", x='', title=pheno[i]) +
+                      coord_cartesian(ylim=c(min(All_res$IndepVal_R[All_res$Phenotype==pheno[i]])-0.02, max(All_res$IndepVal_R[All_res$Phenotype==pheno[i]])+0.025), clip="on") +
+            				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+png('/mnt/lustre/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_IndepVal_TEDS.png', units='px', res=300, width=3000, height=3000)
+plot_grid(plotlist=plots, ncol = 2)
+dev.off()
+
+q()
+n
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach
+
+cp /mnt/lustre/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_CrossVal_TEDS.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /mnt/lustre/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_IndepVal_TEDS.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+```
+
+<center>
+
+![Figure 1: Predictive utility estimated using 10-fold cross-validation](/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal_TEDS.png)
+
+<br/>
+
+***
+
+![Figure 2: Predictive utility estimated using test set validation](/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal_TEDS.png)
 
 \center
 
@@ -504,7 +909,7 @@ cp /mnt/lustre/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_c
 ***
 
 ```{r, echo=F, eval=T, results='asis'}
-res<-read.csv("/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp.csv")
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp.csv")
 
 res[,-1:-3]<-round(res[,-1:-3], 3)
 res$CrossVal_R<-paste0(res$CrossVal_R, " (", res$CrossVal_R_SE, ")")
