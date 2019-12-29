@@ -468,7 +468,7 @@ qsub -l h_vmem=20G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k18063
 <pre class="bash"><code># Set required variables
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
-for individual in $(echo Rain_Rimfeld); do
+for individual in $(echo Esther_Anon); do
 geno_file=$(ls ${geno_23andMe}/${individual})
 
 # Run for one user
@@ -491,7 +491,7 @@ done
 #######
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
-for individual in $(echo Rain_Rimfeld); do
+for individual in $(echo Kathy_Pain Esther_Anon James_Pain Sophie_vonStumm); do
 qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh  /mnt/lustre/users/k1806347/Software/MyGit/GenoPred/Scripts/hm3_harmoniser/hm3_harmoniser.R \
 --target ${geno_23andMe}/${individual}/${individual}.1KGphase3.chr \
 --ref ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
@@ -505,15 +505,33 @@ done
 </div>
 <div id="ancestry-scoring" class="section level1">
 <h1><span class="header-section-number">2</span> Ancestry scoring</h1>
-<p>In genetic analyses it is important to consider an individual’s ancestry as the frequency of alleles vary between populations making comparison across ancestries often invalid. Differences in ancestry can lead to population stratification in genome-wide assocaition studies because the frequency of an outcome may vary between individuals of different ancestries, which will then lead to an association between the outcome and all genetic variants that differ in frequency between ancestral groups. Furthermore, differences in LD between ancestries lead to difference patterns of association which influences the predictive utility of polygenic scores across diverse populations.</p>
-<p>In this genotype-based scoring pipeline, we estimate factor scores for each individual on the first 100 European specific and 100 all-ancestry principal components (PCs) of populations structure by projecting previously identified PCs in the 1000 Genomes reference (see <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#3_ancestry_scoring">here</a>). Using the 100 all-ancestry PCs, we estimate which super population individuals belong to. This allows subsquent genotype-based scores to be scaled based on the mean and SD of scores within their ancestral group, improving their interpretability. We also use their inferred ancestry to stratify individuals when building predictive models, to provide population specific models of risk. Furthermore, given that the frequency of outcomes do often vary between ancestral groups, we also derive these estimates of ancestry to be used as predictors of risk. This is discussed more elsewhere (see here).</p>
-<p>This section uses a script called ‘scaled_ancestry_scorer.R’. See more information on the utility of this script <a href="https://github.com/opain/GenoPred/tree/master/Scripts/scaled_ancestry_scorer">here</a> for more information on this script.</p>
+<p>In genetic analyses it is important to consider an individual’s ancestry as the frequency of alleles vary between populations making comparison across ancestries often invalid. Differences in ancestry can lead to population stratification in genome-wide assocaition studies because the frequency of an outcome may vary between individuals of different ancestries, which will then lead to an association between the outcome and all genetic variants that differ in frequency between ancestral groups. Furthermore, differences in LD between ancestries lead to different patterns of association which influences the predictive utility of polygenic scores across diverse populations.</p>
+<p>In this genotype-based scoring pipeline, we estimate factor scores for each individual on the first 100 European specific and 100 all-ancestry principal components (PCs) of populations structure by projecting previously identified PCs in the 1000 Genomes reference (see <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#3_ancestry_scoring">here</a>). Using the 100 all-ancestry PCs, we estimate which super population individuals belong to. This allows subsquent genotype-based scores to be scaled based on the mean and SD of scores within their ancestral group, improving their interpretability. We also use their inferred ancestry to stratify individuals when building predictive models, to provide population specific models of risk. Furthermore, given that the frequency of outcomes do often vary between ancestral groups, we also derive these estimates of ancestry to be used as predictors of risk.</p>
+<p>Given that these PCs are projected and we want them to comparable across target samples, the PCs are derived using a pre-specified subset of LD-independant HapMap3 SNPs. Given that not all SNPs are available in target samples, to avoid bias due to missing data we impute missing SNPs using the MAF from an ancestry match reference population. However, to ensure appriorate ancestry matching, we must first perform PCA using only SNPs that are available in the target sample. Therefore the projected PCs are calculated in two stages:</p>
+<ul>
+<li><p>Ancestry idenitfication - PCs specific to the target sample are calcualted using available data, and compared to a reference to idenitfy the population each individual fits in. This section uses a script called ‘Ancestry_identifier.R’. See more information on the utility of this script <a href="https://github.com/opain/GenoPred/tree/master/Scripts/Ancestry_identifier">here</a> for more information on this script.</p></li>
+<li><p>Project ancestry - PCs are projected from a reference population and are comparable across target samples. Missing genotypes are imputed using the ancestry matched reference MAF. This section uses a script called ‘scaled_ancestry_scorer.R’. See more information on the utility of this script <a href="https://github.com/opain/GenoPred/tree/master/Scripts/scaled_ancestry_scorer">here</a> for more information on this script.</p></li>
+</ul>
 <div id="uk-biobank-1" class="section level2">
 <h2><span class="header-section-number">2.1</span> UK Biobank</h2>
 <details>
 <p><summary>See code</summary></p>
 <pre class="bash"><code># Set required variables
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+#################
+# Idenitfy ancestry of UKBB participants
+#################
+
+qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Ancestry_identifier/Ancestry_identifier.R \
+    --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --n_pcs 100 \
+  --plink ${plink1_9} \
+    --plink2 ${plink2} \
+    --output ${UKBB_output}/Projected_PCs/Ancestry_idenitfier/UKBB.w_hm3.AllAncestry \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
+  --pop_data ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small
 
 #################
 # Calculate all ancestry PCs of population structure and predict ancestry
@@ -558,35 +576,47 @@ qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k18063
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
 #################
-# Calculate all ancestry PCs of population structure and predict ancestry
+# Idenitfy ancestry of TEDS participants
+#################
+
+qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Ancestry_identifier/Ancestry_identifier.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --plink ${plink1_9} \
+  --n_pcs 100 \
+    --plink2 ${plink2} \
+    --output ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
+  --pop_data ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small
+
+#################
+# Calculate all ancestry PCs of population structure for Europeans
 #################
 
 qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R \
     --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
-    --ref_freq_chr ${Geno_1KG_dir}/freq_files/AllAncestry/1KGPhase3.w_hm3.AllAncestry.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+    --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
     --ref_score ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.eigenvec.var \
     --ref_eigenvec ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.eigenvec \
+    --ref_scale ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.EUR.scale \
     --plink2 ${plink2} \
-    --output ${TEDS_output_dir}/Projected_PCs/AllAncestry/TEDS.w_hm3.AllAncestry \
-    --pop_data ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small \
-    --pop_model ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.pop_enet_model.rds \
-    --pop_model_scale ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.scale \
-    --pop_scale_for_keep ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.scalefiles.txt
+    --output ${TEDS_output_dir}/Projected_PCs/EUR/AllAncestry/TEDS.w_hm3.AllAncestry \
+    --pop_data ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small
 
 #################
 # Calculate European ancestry PCs of population structure
 #################
 
-# Use the EUR.keep file from the AllAncestry run above to select people of EUR ancestry.
 qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R \
     --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
-    --target_keep ${TEDS_output_dir}/Projected_PCs/AllAncestry/TEDS.w_hm3.AllAncestry.EUR.keep \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
     --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
     --ref_score ${Geno_1KG_dir}/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR.eigenvec.var \
     --ref_eigenvec ${Geno_1KG_dir}/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR.eigenvec \
     --ref_scale ${Geno_1KG_dir}/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR.scale \
     --plink2 ${plink2} \
-    --output ${TEDS_output_dir}/Projected_PCs/EUR/TEDS.w_hm3 \
+    --output ${TEDS_output_dir}/Projected_PCs/EUR/EUR_specific/TEDS.w_hm3.EUR \
     --pop_data ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small
 </code></pre>
 </details>
@@ -599,12 +629,27 @@ qsub -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k18063
 <pre class="bash"><code># Set required variables
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
+#################
+# Identify ancestry
+#################
+
+for individual in $(echo Kathy_Pain); do
+qsub -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Ancestry_identifier/Ancestry_identifier.R \
+    --target_plink_chr ${geno_23andMe}/${individual}/${individual}.1KGphase3.hm3.chr \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --plink ${plink1_9} \
+  --n_pcs 100 \
+    --plink2 ${plink2} \
+    --output ${geno_23andMe}/${individual}/Projected_PCs/Ancestry_identifier/${individual}.w_hm3.AllAncestry \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
+  --pop_data ${Geno_1KG_dir}/integrated_call_samples_v3.20130502.ALL.panel_small
+done
 
 #################
-# Calculate all ancestry PCs of population structure and predict ancestry
+# Calculate AllAncestry PCs of population structure
 #################
 
-for individual in $(echo Rain_Rimfeld); do
+for individual in $(echo Oliver_Pain); do
 qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R \
     --target_plink_chr ${geno_23andMe}/${individual}/${individual}.1KGphase3.hm3.chr \
     --ref_freq_chr ${Geno_1KG_dir}/freq_files/AllAncestry/1KGPhase3.w_hm3.AllAncestry.chr \
@@ -623,7 +668,7 @@ done
 #################
 
 # Use the EUR.keep file from the AllAncestry run above to select people of EUR ancestry.
-for individual in $(echo Rain_Rimfeld); do
+for individual in $(echo Oliver_Pain); do
 qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R \
     --target_plink_chr ${geno_23andMe}/${individual}/${individual}.1KGphase3.hm3.chr \
     --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
@@ -741,14 +786,104 @@ done
 <p><br/></p>
 </div>
 </div>
-<div id="andme-2" class="section level3">
-<h3><span class="header-section-number">3.1.2</span> 23andMe</h3>
+<div id="teds-2" class="section level3">
+<h3><span class="header-section-number">3.1.2</span> TEDS</h3>
+<div id="sparse-p-value-thresholding-1" class="section level4">
+<h4><span class="header-section-number">3.1.2.1</span> Sparse p-value thresholding</h4>
 <details>
 <p><summary>See code</summary></p>
 <pre class="bash"><code># Set required variables
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
-for individual in $(echo Rain_Rimfeld); do
+mkdir -p ${TEDS_output_dir}/PolygenicScores/EUR
+
+# Create a list of gwas that haven&#39;t got corresponding PRS files in TEDS
+&gt; ${TEDS_output_dir}/PolygenicScores/EUR/todo.txt
+for gwas in $(cut -f 1 -d &#39; &#39; ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt);do
+if [ ! -f ${TEDS_output_dir}/PolygenicScores/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR.profiles ]; then
+echo $gwas &gt;&gt; ${TEDS_output_dir}/PolygenicScores/EUR/todo.txt
+fi
+done
+
+# Calculate polygenic scores for for Europeans only for now.
+n=0
+for gwas in $(cat ${TEDS_output_dir}/PolygenicScores/EUR/todo.txt);do
+qsub -N $(echo PRS_job$(($n+50))) -hold_jid $(echo PRS_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="dense-p-value-thresholding-1" class="section level4">
+<h4><span class="header-section-number">3.1.2.2</span> Dense p-value thresholding</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+###
+# Split the EUR TEDS individuals into 10K batches
+###
+# Temporary files would require a large amount of storage for all TEDS individuals
+# Splitting the data into batches avoids this issue
+mkdir /users/k1806347/brc_scratch/Data/TEDS/PolygenicScores_dense
+split -l 1000 -d ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep ${TEDS_output_dir}/PolygenicScores_dense/TEDS.w_hm3.AllAncestry.EUR.keep.Batch_
+
+# Calculate polygenic scores for for Europeans only for now.
+n=0
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+for batch in $(ls ${TEDS_output_dir}/PolygenicScores_dense/TEDS.w_hm3.AllAncestry.EUR.keep.Batch_* | cut -d. -f6-);do
+qsub -N $(echo PRS_job$(($n+50))) -hold_jid $(echo PRS_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+  --target_keep ${TEDS_output_dir}/PolygenicScores_dense/TEDS.w_hm3.AllAncestry.EUR.keep.${batch} \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/${batch}/TEDS.w_hm3.${gwas}.EUR.${batch}
+n=$(($n+1))
+done
+done
+
+# Check all the batches finished correctly There should be 11 files
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+ls ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/*/TEDS.w_hm3.${gwas}.EUR.*.profiles | wc -l
+done
+
+# Combine the batches into a single file
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+head -1 ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/Batch_00/TEDS.w_hm3.${gwas}.EUR.Batch_00.profiles &gt; ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR.profiles
+tail -n +2 -q ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/*/TEDS.w_hm3.${gwas}.EUR.*.profiles &gt;&gt; ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR.profiles
+done
+
+# Delete per batch files and move log files into a single folder
+for gwas in $(echo EDUC03 ADHD04 BODY11);do
+mkdir ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/log_files
+mv ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/*/TEDS.w_hm3.${gwas}.EUR.*.log ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/log_files/
+rm -r ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/Batch_*
+done
+</code></pre>
+</details>
+<p><br/></p>
+</div>
+</div>
+<div id="andme-2" class="section level3">
+<h3><span class="header-section-number">3.1.3</span> 23andMe</h3>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+for individual in $(echo Kathy_Pain Esther_Anon James_Pain Sophie_vonStumm); do
 
 mkdir -p ${geno_23andMe}/${individual}/PolygenicScores/EUR
 
@@ -764,7 +899,7 @@ done
 n=0
 
 for gwas in $(cat ${geno_23andMe}/${individual}/PolygenicScores/EUR/todo.txt);do
-qsub -N $(echo PRS_job$(($n+10))) -hold_jid $(echo PRS_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+qsub -q  LowMemShortterm.q@nodec10 -N $(echo PRS_job$(($n+10))) -hold_jid $(echo PRS_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
   --target_plink_chr ${geno_23andMe}/${individual}/${individual}.1KGphase3.hm3.chr \
   --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
   --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
@@ -774,7 +909,6 @@ qsub -N $(echo PRS_job$(($n+10))) -hold_jid $(echo PRS_job$(($n+0))) /users/k180
   --output ${geno_23andMe}/${individual}/PolygenicScores/EUR/${gwas}/${individual}.w_hm3.${gwas}.EUR
 n=$(($n+1))
 done
-
 done
 </code></pre>
 </details>
@@ -807,10 +941,33 @@ n=$(($n+1))
 done</code></pre>
 </details>
 <p><br/></p>
-<hr />
+</div>
+<div id="teds-3" class="section level3">
+<h3><span class="header-section-number">3.2.2</span> TEDS</h3>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Here we only calculate scores relevent to the phenotyps that we will use for comparing methods
+n=0
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+qsub -N $(echo PRS_job$(($n+10))) -hold_jid $(echo PRS_job$(($n+0))) -pe smp 6 -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_lassosum/Scaled_polygenic_scorer_lassosum.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_model ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.unvalidated.model.RDS \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --pheno_name ${gwas} \
+  --n_cores 6 \
+  --output ${TEDS_output_dir}/PolygenicScores_lassosum/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done
+</code></pre>
+</details>
+<p><br/></p>
 </div>
 <div id="andme-3" class="section level3">
-<h3><span class="header-section-number">3.2.2</span> 23andMe</h3>
+<h3><span class="header-section-number">3.2.3</span> 23andMe</h3>
 <details>
 <p><summary>See code</summary></p>
 <pre class="bash"><code># Set required variables
@@ -888,8 +1045,39 @@ done</code></pre>
 </details>
 <p><br/></p>
 </div>
+<div id="teds-4" class="section level3">
+<h3><span class="header-section-number">3.3.2</span> TEDS</h3>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create a list of gwas that haven&#39;t got corresponding PRS files in TEDS
+&gt; ${TEDS_output_dir}/PolygenicScores/EUR/todo_PRScs.txt
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${TEDS_output_dir}/PolygenicScores_PRScs/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR.PRScs_profiles ]; then
+echo $gwas &gt;&gt; ${TEDS_output_dir}/PolygenicScores/EUR/todo_PRScs.txt
+fi
+done
+
+n=0
+for gwas in $(cat ${TEDS_output_dir}/PolygenicScores/EUR/todo_PRScs.txt);do
+qsub -N $(echo PRScs_job$(($n+25))) -hold_jid $(echo PRScs_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_PRScs/Scaled_polygenic_scorer_PRScs.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores_PRScs/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
 <div id="andme-4" class="section level3">
-<h3><span class="header-section-number">3.3.2</span> 23andMe</h3>
+<h3><span class="header-section-number">3.3.3</span> 23andMe</h3>
 <details>
 <p><summary>See code</summary></p>
 <pre class="bash"><code># Set required variables
@@ -940,7 +1128,6 @@ mkdir -p ${UKBB_output}/PolygenicScores_SBLUP/EUR
 
 # Create a list of gwas that haven&#39;t got corresponding PRS files in UKBB
 &gt; ${UKBB_output}/PolygenicScores_SBLUP/EUR/todo_SBLUP.txt
-#for gwas in $(cut -f 1 -d &#39; &#39; ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
 for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01);do
 if [ ! -f ${UKBB_output}/PolygenicScores_SBLUP/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR.SBLUP_profiles ]; then
 echo $gwas &gt;&gt; ${UKBB_output}/PolygenicScores_SBLUP/EUR/todo_SBLUP.txt
@@ -958,6 +1145,40 @@ qsub -N $(echo SBLUP_job$(($n+25))) -hold_jid $(echo SBLUP_job$(($n+0))) /users/
   --plink ${plink1_9} \
   --pheno_name ${gwas} \
   --output ${UKBB_output}/PolygenicScores_SBLUP/EUR/${gwas}/UKBB.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done
+</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="teds-5" class="section level3">
+<h3><span class="header-section-number">3.4.2</span> TEDS</h3>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+mkdir -p ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR
+
+# Create a list of gwas that haven&#39;t got corresponding PRS files in TEDS
+&gt; ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/todo_SBLUP.txt
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR.SBLUP_profiles ]; then
+echo $gwas &gt;&gt; ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/todo_SBLUP.txt
+fi
+done
+
+n=0
+for gwas in $(cat ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/todo_SBLUP.txt);do
+qsub -N $(echo SBLUP_job$(($n+25))) -hold_jid $(echo SBLUP_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_SBLUP/Scaled_polygenic_scorer_SBLUP.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas}/GWAS_sumstats_SBLUP.sblup.cojo \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
 n=$(($n+1))
 done
 </code></pre>
