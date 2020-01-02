@@ -475,7 +475,7 @@ pre code, pre, code {
 </div>
 <div id="ancestry-scoring" class="section level2">
 <h2><span class="header-section-number">3.4</span> Ancestry scoring</h2>
-<p>Calculation of the first 100 European-specific and 100 all-ancestry PCs was perfomed using a reference standardised approach (see <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#3_ancestry_scoring">here</a>). In brief, PCs were derived in the 1000 Genomes reference, then projected onto the UK Biobank sample, and subsequent factor scores were then centered and scaled according to the mean and standard deviation of the PCs in an ancestry matched sample.</p>
+<p>Calculation of the first 100 European-specific and 100 all-ancestry PCs was perfomed using a reference standardised approach (see <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#3_ancestry_scoring">here</a>). In brief, PCs were derived in the 1000 Genomes reference, then projected onto the UK Biobank sample, and subsequent factor scores were then centered and scaled according to the mean and standard deviation of the PCs in an ancestry matched sample. The standard deviation of PCs in UKBB and TEDS was estimated for comparison as this may effect the variance that PCs can explain in each target sample.</p>
 </div>
 <div id="polygenic-scoring" class="section level2">
 <h2><span class="header-section-number">3.5</span> Polygenic scoring</h2>
@@ -489,8 +489,80 @@ pre code, pre, code {
 </div>
 <div id="code" class="section level2">
 <h2><span class="header-section-number">3.7</span> Code</h2>
+<div id="calculate-descriptives-of-pcs-in-teds-and-ukbb" class="section level3">
+<h3><span class="header-section-number">3.7.1</span> Calculate descriptives of PCs in TEDS and UKBB</h3>
+<details>
+<p><summary>Evaluate PCs alone</summary></p>
+<pre class="bash"><code>module add general/R/3.5.0
+R
+library(data.table)
+
+##
+# UKBB
+##
+
+# Read in the UKBB PCs
+UKBB_EUR_PCs&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/EUR/UKBB.w_hm3.EUR.eigenvec&#39;)
+UKBB_All_PCs&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/EUR/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.eigenvec&#39;)
+
+# Read in the TEDS PCs
+TEDS_EUR_PCs&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/EUR/EUR_specific/TEDS.w_hm3.EUR.EUR.eigenvec&#39;)
+TEDS_All_PCs&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/EUR/AllAncestry/TEDS.w_hm3.AllAncestry.EUR.eigenvec&#39;)
+
+# Extract individuals with European ancestry
+UKBB_EUR_keep&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/Ancestry_idenitfier/UKBB.w_hm3.AllAncestry.EUR.keep&#39;)
+UKBB_EUR_PCs&lt;-UKBB_EUR_PCs[(UKBB_EUR_PCs$IID %in% UKBB_EUR_keep$V2),]
+UKBB_All_PCs&lt;-UKBB_All_PCs[(UKBB_All_PCs$IID %in% UKBB_EUR_keep$V2),]
+
+TEDS_EUR_keep&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep&#39;)
+TEDS_EUR_PCs&lt;-TEDS_EUR_PCs[(TEDS_EUR_PCs$IID %in% TEDS_EUR_keep$V2),]
+TEDS_All_PCs&lt;-TEDS_All_PCs[(TEDS_All_PCs$IID %in% TEDS_EUR_keep$V2),]
+
+# Calculate mean and sd
+UKBB_EUR_PCs_desc&lt;-NULL
+for(i in names(UKBB_EUR_PCs)[-1:-2]){
+  tmp&lt;-data.frame(Mean_UKBB_EUR=mean(UKBB_EUR_PCs[[i]]),
+                  SD_UKBB_EUR=sd(UKBB_EUR_PCs[[i]]))
+  UKBB_EUR_PCs_desc&lt;-rbind(UKBB_EUR_PCs_desc,tmp)
+}
+
+UKBB_All_PCs_desc&lt;-NULL
+for(i in names(UKBB_All_PCs)[-1:-2]){
+  tmp&lt;-data.frame(Mean_UKBB_All=mean(UKBB_All_PCs[[i]]),
+                  SD_UKBB_All=sd(UKBB_All_PCs[[i]]))
+  UKBB_All_PCs_desc&lt;-rbind(UKBB_All_PCs_desc,tmp)
+}
+
+TEDS_EUR_PCs_desc&lt;-NULL
+for(i in names(TEDS_EUR_PCs)[-1:-2]){
+  tmp&lt;-data.frame(Mean_TEDS_EUR=mean(TEDS_EUR_PCs[[i]]),
+                  SD_TEDS_EUR=sd(TEDS_EUR_PCs[[i]]))
+  TEDS_EUR_PCs_desc&lt;-rbind(TEDS_EUR_PCs_desc,tmp)
+}
+
+TEDS_All_PCs_desc&lt;-NULL
+for(i in names(TEDS_All_PCs)[-1:-2]){
+  tmp&lt;-data.frame(Mean_TEDS_All=mean(TEDS_All_PCs[[i]]),
+                  SD_TEDS_All=sd(TEDS_All_PCs[[i]]))
+  TEDS_All_PCs_desc&lt;-rbind(TEDS_All_PCs_desc,tmp)
+}
+
+PCs_desc&lt;-do.call(cbind, list(UKBB_EUR_PCs_desc,UKBB_All_PCs_desc,TEDS_EUR_PCs_desc,TEDS_All_PCs_desc))
+PCs_desc&lt;-data.frame(PC=1:dim(PCs_desc)[1], PCs_desc)
+
+write.csv(PCs_desc[c(&#39;PC&#39;,&#39;Mean_UKBB_EUR&#39;,&#39;SD_UKBB_EUR&#39;,&#39;Mean_UKBB_All&#39;,&#39;SD_UKBB_All&#39;)], &#39;/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/UKBB_PC_descriptives.csv&#39;, col.names=T, row.names=F, quote=F)
+write.csv(PCs_desc[c(&#39;PC&#39;,&#39;Mean_TEDS_EUR&#39;,&#39;SD_TEDS_EUR&#39;,&#39;Mean_TEDS_All&#39;,&#39;SD_TEDS_All&#39;)], &#39;/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/TEDS_PC_descriptives.csv&#39;, col.names=T, row.names=F, quote=F)
+
+q()
+n
+</code></pre>
+</details>
+</div>
+</div>
+<div id="pcs-alone" class="section level2">
+<h2><span class="header-section-number">3.8</span> PCs alone</h2>
 <div id="uk-biobank" class="section level3">
-<h3><span class="header-section-number">3.7.1</span> UK Biobank</h3>
+<h3><span class="header-section-number">3.8.1</span> UK Biobank</h3>
 <details>
 <p><summary>Evaluate PCs alone</summary></p>
 <pre class="bash"><code># Make required directories
@@ -521,7 +593,7 @@ pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligen
 gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
 prev=$(echo 0.15 NA NA NA 0.05 0.03)
 
-for i in $(seq 5 6);do
+for i in $(seq 1 6);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
@@ -529,7 +601,7 @@ prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 
 qsub -l h_vmem=10G -pe smp 5 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/Model_builder.R \
 --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
---keep ${UKBB_output}/Projected_PCs/Ancestry_idenitfier/UKBB.w_hm3.AllAncestry.EUR.keep \
+--keep /users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/Ancestry_idenitfier/UKBB.w_hm3.AllAncestry.EUR.keep \
 --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPCs/UKBB-projected-PCs \
 --n_core 5 \
 --assoc T \
@@ -540,7 +612,7 @@ done
 </details>
 </div>
 <div id="teds" class="section level3">
-<h3><span class="header-section-number">3.7.2</span> TEDS</h3>
+<h3><span class="header-section-number">3.8.2</span> TEDS</h3>
 <details>
 <p><summary>Evaluate PCs alone</summary></p>
 <pre class="bash"><code># Make required directories
@@ -586,184 +658,780 @@ qsub -l h_vmem=6G -pe smp 3 /users/k1806347/brc_scratch/Software/Rscript.sh /use
 done
 </code></pre>
 </details>
-<hr />
+<p><br/></p>
 </div>
+</div>
+<div id="pcs-prss" class="section level2">
+<h2><span class="header-section-number">3.9</span> PCs + PRSs</h2>
+<p>Here we will test PCs can significantly improve prediction over multiple-trait PRSs alone.</p>
+</div>
+<div id="prss-controlled-for-pcs" class="section level2">
+<h2><span class="header-section-number">3.10</span> PRSs controlled for PCs</h2>
+<p>Here will test whether PRSs controlled for PCs improve prediction. We will adjust PRSs for PCs using the EUR 1KG reference sample.</p>
+<hr />
 </div>
 </div>
 <div id="results" class="section level1">
 <h1><span class="header-section-number">4</span> Results</h1>
-<div id="pcs-alone" class="section level2">
-<h2><span class="header-section-number">4.1</span> PCs alone</h2>
-<div id="uk-biobank-1" class="section level3">
-<h3><span class="header-section-number">4.1.1</span> UK biobank</h3>
-<details>
-<p><summary>Show UK Biobank results table</summary></p>
+<div id="descriptives" class="section level2">
+<h2><span class="header-section-number">4.1</span> Descriptives</h2>
 <table>
-<caption>Table 1: Correlation between PC model predictions and observed values in UK Biobank</caption>
+<caption>Table 1: Mean SD of PCs in UKBB and TEDS</caption>
 <thead>
 <tr class="header">
-<th align="left">Phenotype</th>
-<th align="left">PCs</th>
-<th align="left">CrossVal R (SE)</th>
-<th align="left">CrossVal p-value</th>
-<th align="left">IndepVal R (SE)</th>
-<th align="left">IndepVal p-value</th>
+<th align="right">PC</th>
+<th align="left">UKBB EUR Mean (SD)</th>
+<th align="left">UKBB All Mean (SD)</th>
+<th align="left">TEDS EUR Mean (SD)</th>
+<th align="left">TEDS All Mean (SD)</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td align="left">Depression</td>
-<td align="left">EUR</td>
-<td align="left">0.007 (0.004)</td>
-<td align="left">0.052</td>
-<td align="left">0.004 (0.007)</td>
-<td align="left">0.608</td>
+<td align="right">1</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0.46(0.32)</td>
+<td align="left">0.01(0.05)</td>
+<td align="left">0.36(0.26)</td>
 </tr>
 <tr class="even">
-<td align="left">Depression</td>
-<td align="left">AllAncestry</td>
-<td align="left">0.006 (0.004)</td>
-<td align="left">0.101</td>
-<td align="left">0.021 (0.007)</td>
-<td align="left">0.006</td>
+<td align="right">2</td>
+<td align="left">0.47(0.12)</td>
+<td align="left">-0.24(0.26)</td>
+<td align="left">0.36(0.08)</td>
+<td align="left">-0.16(0.22)</td>
 </tr>
 <tr class="odd">
-<td align="left">Depression</td>
-<td align="left">EUR + AllAncestry</td>
-<td align="left">0.008 (0.004)</td>
-<td align="left">0.026</td>
-<td align="left">0.015 (0.007)</td>
-<td align="left">0.05</td>
+<td align="right">3</td>
+<td align="left">0.05(0.07)</td>
+<td align="left">0.34(0.46)</td>
+<td align="left">0.05(0.06)</td>
+<td align="left">0.31(0.39)</td>
 </tr>
 <tr class="even">
-<td align="left">Intelligence</td>
-<td align="left">EUR</td>
-<td align="left">0.026 (0.003)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.02 (0.007)</td>
-<td align="left">0.003</td>
+<td align="right">4</td>
+<td align="left">0.05(0.07)</td>
+<td align="left">-0.81(0.56)</td>
+<td align="left">0.04(0.06)</td>
+<td align="left">-0.63(0.48)</td>
 </tr>
 <tr class="odd">
-<td align="left">Intelligence</td>
-<td align="left">AllAncestry</td>
-<td align="left">0.016 (0.003)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.022 (0.007)</td>
-<td align="left">0.001</td>
+<td align="right">5</td>
+<td align="left">-0.07(0.07)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">-0.07(0.06)</td>
+<td align="left">-0.02(0.06)</td>
 </tr>
 <tr class="even">
-<td align="left">Intelligence</td>
-<td align="left">EUR + AllAncestry</td>
-<td align="left">0.028 (0.003)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.024 (0.007)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">6</td>
+<td align="left">-0.04(0.07)</td>
+<td align="left">0.12(0.21)</td>
+<td align="left">-0.04(0.06)</td>
+<td align="left">0.08(0.18)</td>
 </tr>
 <tr class="odd">
-<td align="left">BMI</td>
-<td align="left">EUR</td>
-<td align="left">0.026 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.028 (0.003)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">7</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.15(0.57)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">-0.18(0.52)</td>
 </tr>
 <tr class="even">
-<td align="left">BMI</td>
-<td align="left">AllAncestry</td>
-<td align="left">0.031 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.035 (0.003)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">8</td>
+<td align="left">-0.03(0.07)</td>
+<td align="left">-0.23(0.31)</td>
+<td align="left">-0.04(0.06)</td>
+<td align="left">-0.15(0.27)</td>
 </tr>
 <tr class="odd">
-<td align="left">BMI</td>
-<td align="left">EUR + AllAncestry</td>
-<td align="left">0.032 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.037 (0.003)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">9</td>
+<td align="left">-0.02(0.08)</td>
+<td align="left">0.35(0.21)</td>
+<td align="left">-0.01(0.06)</td>
+<td align="left">0.28(0.18)</td>
 </tr>
 <tr class="even">
-<td align="left">Height</td>
-<td align="left">EUR</td>
-<td align="left">0.035 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.038 (0.003)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">10</td>
+<td align="left">0(0.07)</td>
+<td align="left">0.31(0.12)</td>
+<td align="left">0(0.06)</td>
+<td align="left">0.24(0.09)</td>
 </tr>
 <tr class="odd">
-<td align="left">Height</td>
-<td align="left">AllAncestry</td>
-<td align="left">0.044 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.042 (0.003)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">11</td>
+<td align="left">0(0.07)</td>
+<td align="left">0.48(0.17)</td>
+<td align="left">0(0.06)</td>
+<td align="left">0.36(0.14)</td>
 </tr>
 <tr class="even">
-<td align="left">Height</td>
-<td align="left">EUR + AllAncestry</td>
-<td align="left">0.047 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.046 (0.003)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">12</td>
+<td align="left">-0.02(0.07)</td>
+<td align="left">-0.46(0.14)</td>
+<td align="left">-0.02(0.06)</td>
+<td align="left">-0.36(0.11)</td>
 </tr>
 <tr class="odd">
-<td align="left">T2D</td>
-<td align="left">EUR</td>
-<td align="left">-0.001 (0.002)</td>
-<td align="left">0.583</td>
-<td align="left">0.007 (0.004)</td>
-<td align="left">0.059</td>
+<td align="right">13</td>
+<td align="left">0(0.07)</td>
+<td align="left">0.63(0.28)</td>
+<td align="left">0(0.06)</td>
+<td align="left">0.53(0.24)</td>
 </tr>
 <tr class="even">
-<td align="left">T2D</td>
-<td align="left">AllAncestry</td>
-<td align="left">0.002 (0.002)</td>
-<td align="left">0.216</td>
-<td align="left">0.006 (0.004)</td>
-<td align="left">0.134</td>
+<td align="right">14</td>
+<td align="left">0.04(0.07)</td>
+<td align="left">-0.09(0.31)</td>
+<td align="left">0.03(0.06)</td>
+<td align="left">-0.08(0.27)</td>
 </tr>
 <tr class="odd">
-<td align="left">T2D</td>
-<td align="left">EUR + AllAncestry</td>
-<td align="left">0.001 (0.002)</td>
-<td align="left">0.607</td>
-<td align="left">0.005 (0.004)</td>
-<td align="left">0.171</td>
+<td align="right">15</td>
+<td align="left">-0.04(0.07)</td>
+<td align="left">-0.5(0.28)</td>
+<td align="left">-0.04(0.06)</td>
+<td align="left">-0.39(0.25)</td>
 </tr>
 <tr class="even">
-<td align="left">CAD</td>
-<td align="left">EUR</td>
-<td align="left">0.016 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.016 (0.004)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">16</td>
+<td align="left">0(0.07)</td>
+<td align="left">-0.06(0.33)</td>
+<td align="left">0(0.06)</td>
+<td align="left">-0.07(0.3)</td>
 </tr>
 <tr class="odd">
-<td align="left">CAD</td>
-<td align="left">AllAncestry</td>
-<td align="left">0.014 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.018 (0.004)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">17</td>
+<td align="left">0(0.07)</td>
+<td align="left">-0.24(0.28)</td>
+<td align="left">0(0.06)</td>
+<td align="left">-0.19(0.24)</td>
 </tr>
 <tr class="even">
-<td align="left">CAD</td>
-<td align="left">EUR + AllAncestry</td>
-<td align="left">0.015 (0.002)</td>
-<td align="left">&lt;0.001</td>
-<td align="left">0.015 (0.004)</td>
-<td align="left">&lt;0.001</td>
+<td align="right">18</td>
+<td align="left">0.04(0.07)</td>
+<td align="left">0.16(0.31)</td>
+<td align="left">0.05(0.06)</td>
+<td align="left">0.13(0.27)</td>
+</tr>
+<tr class="odd">
+<td align="right">19</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.21(0.3)</td>
+<td align="left">0.02(0.06)</td>
+<td align="left">-0.21(0.26)</td>
+</tr>
+<tr class="even">
+<td align="right">20</td>
+<td align="left">0.06(0.07)</td>
+<td align="left">0.34(0.33)</td>
+<td align="left">0.06(0.06)</td>
+<td align="left">0.31(0.29)</td>
+</tr>
+<tr class="odd">
+<td align="right">21</td>
+<td align="left">-0.02(0.07)</td>
+<td align="left">0.01(0.31)</td>
+<td align="left">-0.02(0.06)</td>
+<td align="left">-0.02(0.27)</td>
+</tr>
+<tr class="even">
+<td align="right">22</td>
+<td align="left">0.03(0.07)</td>
+<td align="left">0.04(0.31)</td>
+<td align="left">0.03(0.06)</td>
+<td align="left">0.02(0.27)</td>
+</tr>
+<tr class="odd">
+<td align="right">23</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.35(0.27)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">-0.3(0.24)</td>
+</tr>
+<tr class="even">
+<td align="right">24</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.13(0.29)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">-0.12(0.26)</td>
+</tr>
+<tr class="odd">
+<td align="right">25</td>
+<td align="left">0.03(0.07)</td>
+<td align="left">0.07(0.24)</td>
+<td align="left">0.03(0.06)</td>
+<td align="left">0.05(0.21)</td>
+</tr>
+<tr class="even">
+<td align="right">26</td>
+<td align="left">0(0.07)</td>
+<td align="left">0.19(0.14)</td>
+<td align="left">-0.01(0.06)</td>
+<td align="left">0.15(0.12)</td>
+</tr>
+<tr class="odd">
+<td align="right">27</td>
+<td align="left">-0.01(0.08)</td>
+<td align="left">0.13(0.23)</td>
+<td align="left">-0.02(0.06)</td>
+<td align="left">0.11(0.21)</td>
+</tr>
+<tr class="even">
+<td align="right">28</td>
+<td align="left">-0.04(0.08)</td>
+<td align="left">0.05(0.18)</td>
+<td align="left">-0.04(0.06)</td>
+<td align="left">0.04(0.16)</td>
+</tr>
+<tr class="odd">
+<td align="right">29</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">-0.05(0.17)</td>
+<td align="left">0.02(0.06)</td>
+<td align="left">-0.04(0.15)</td>
+</tr>
+<tr class="even">
+<td align="right">30</td>
+<td align="left">0(0.08)</td>
+<td align="left">-0.05(0.08)</td>
+<td align="left">0(0.06)</td>
+<td align="left">-0.04(0.07)</td>
+</tr>
+<tr class="odd">
+<td align="right">31</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0.03(0.12)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">0.02(0.1)</td>
+</tr>
+<tr class="even">
+<td align="right">32</td>
+<td align="left">0(0.08)</td>
+<td align="left">0.02(0.11)</td>
+<td align="left">0(0.06)</td>
+<td align="left">0.02(0.1)</td>
+</tr>
+<tr class="odd">
+<td align="right">33</td>
+<td align="left">-0.03(0.08)</td>
+<td align="left">0.01(0.1)</td>
+<td align="left">-0.03(0.06)</td>
+<td align="left">0(0.09)</td>
+</tr>
+<tr class="even">
+<td align="right">34</td>
+<td align="left">0.03(0.08)</td>
+<td align="left">-0.05(0.1)</td>
+<td align="left">0.02(0.06)</td>
+<td align="left">-0.05(0.09)</td>
+</tr>
+<tr class="odd">
+<td align="right">35</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">-0.03(0.09)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">-0.03(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">36</td>
+<td align="left">-0.02(0.08)</td>
+<td align="left">0(0.09)</td>
+<td align="left">-0.02(0.06)</td>
+<td align="left">0(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">37</td>
+<td align="left">0.03(0.07)</td>
+<td align="left">-0.02(0.09)</td>
+<td align="left">0.03(0.06)</td>
+<td align="left">-0.02(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">38</td>
+<td align="left">-0.03(0.08)</td>
+<td align="left">0.02(0.1)</td>
+<td align="left">-0.03(0.06)</td>
+<td align="left">0.03(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">39</td>
+<td align="left">0.04(0.08)</td>
+<td align="left">0.05(0.09)</td>
+<td align="left">0.04(0.06)</td>
+<td align="left">0.04(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">40</td>
+<td align="left">0.03(0.08)</td>
+<td align="left">-0.01(0.09)</td>
+<td align="left">0.03(0.06)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">41</td>
+<td align="left">0(0.08)</td>
+<td align="left">-0.02(0.09)</td>
+<td align="left">0(0.06)</td>
+<td align="left">-0.03(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">42</td>
+<td align="left">0.03(0.08)</td>
+<td align="left">-0.03(0.1)</td>
+<td align="left">0.03(0.06)</td>
+<td align="left">-0.03(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">43</td>
+<td align="left">-0.01(0.08)</td>
+<td align="left">-0.05(0.09)</td>
+<td align="left">-0.01(0.06)</td>
+<td align="left">-0.04(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">44</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">-0.02(0.09)</td>
+<td align="left">0.02(0.06)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">45</td>
+<td align="left">0(0.08)</td>
+<td align="left">0.03(0.09)</td>
+<td align="left">0(0.07)</td>
+<td align="left">0.03(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">46</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">-0.03(0.1)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">-0.03(0.09)</td>
+</tr>
+<tr class="odd">
+<td align="right">47</td>
+<td align="left">-0.02(0.08)</td>
+<td align="left">-0.03(0.1)</td>
+<td align="left">-0.02(0.07)</td>
+<td align="left">-0.02(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">48</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0.03(0.1)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">0.02(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">49</td>
+<td align="left">-0.04(0.08)</td>
+<td align="left">0.03(0.1)</td>
+<td align="left">-0.04(0.06)</td>
+<td align="left">0.03(0.09)</td>
+</tr>
+<tr class="even">
+<td align="right">50</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">-0.04(0.1)</td>
+<td align="left">0.02(0.06)</td>
+<td align="left">-0.05(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">51</td>
+<td align="left">0.03(0.08)</td>
+<td align="left">0.02(0.09)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">0.02(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">52</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">0.04(0.09)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">0.04(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">53</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">0(0.1)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">0(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">54</td>
+<td align="left">-0.01(0.08)</td>
+<td align="left">0.01(0.1)</td>
+<td align="left">-0.01(0.06)</td>
+<td align="left">0.01(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">55</td>
+<td align="left">0(0.08)</td>
+<td align="left">-0.04(0.1)</td>
+<td align="left">-0.01(0.07)</td>
+<td align="left">-0.04(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">56</td>
+<td align="left">-0.07(0.08)</td>
+<td align="left">-0.01(0.09)</td>
+<td align="left">-0.06(0.06)</td>
+<td align="left">-0.02(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">57</td>
+<td align="left">-0.01(0.08)</td>
+<td align="left">0.05(0.09)</td>
+<td align="left">0(0.06)</td>
+<td align="left">0.04(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">58</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">0.02(0.1)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">0.02(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">59</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">-0.01(0.1)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">-0.02(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">60</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">-0.01(0.09)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">61</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">0.05(0.09)</td>
+<td align="left">0.02(0.06)</td>
+<td align="left">0.04(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">62</td>
+<td align="left">-0.02(0.08)</td>
+<td align="left">0.02(0.09)</td>
+<td align="left">-0.03(0.07)</td>
+<td align="left">0.02(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">63</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0(0.1)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">0(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">64</td>
+<td align="left">-0.03(0.08)</td>
+<td align="left">0(0.09)</td>
+<td align="left">-0.02(0.06)</td>
+<td align="left">0(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">65</td>
+<td align="left">-0.08(0.08)</td>
+<td align="left">0.01(0.1)</td>
+<td align="left">-0.07(0.06)</td>
+<td align="left">0.02(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">66</td>
+<td align="left">0.04(0.08)</td>
+<td align="left">-0.01(0.1)</td>
+<td align="left">0.04(0.06)</td>
+<td align="left">-0.01(0.09)</td>
+</tr>
+<tr class="odd">
+<td align="right">67</td>
+<td align="left">0.04(0.08)</td>
+<td align="left">-0.01(0.1)</td>
+<td align="left">0.04(0.07)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">68</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0.06(0.1)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">0.05(0.09)</td>
+</tr>
+<tr class="odd">
+<td align="right">69</td>
+<td align="left">0(0.08)</td>
+<td align="left">0.04(0.1)</td>
+<td align="left">0(0.06)</td>
+<td align="left">0.03(0.09)</td>
+</tr>
+<tr class="even">
+<td align="right">70</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0(0.1)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">0.01(0.09)</td>
+</tr>
+<tr class="odd">
+<td align="right">71</td>
+<td align="left">-0.04(0.08)</td>
+<td align="left">0(0.09)</td>
+<td align="left">-0.03(0.07)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">72</td>
+<td align="left">-0.04(0.08)</td>
+<td align="left">-0.01(0.1)</td>
+<td align="left">-0.04(0.07)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">73</td>
+<td align="left">-0.01(0.08)</td>
+<td align="left">0.01(0.1)</td>
+<td align="left">-0.01(0.07)</td>
+<td align="left">0(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">74</td>
+<td align="left">-0.02(0.08)</td>
+<td align="left">0.03(0.09)</td>
+<td align="left">-0.02(0.06)</td>
+<td align="left">0.03(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">75</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.01(0.09)</td>
+</tr>
+<tr class="even">
+<td align="right">76</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">0.05(0.09)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">0.05(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">77</td>
+<td align="left">0.03(0.08)</td>
+<td align="left">-0.04(0.1)</td>
+<td align="left">0.04(0.07)</td>
+<td align="left">-0.04(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">78</td>
+<td align="left">0(0.08)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.03(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">79</td>
+<td align="left">0(0.08)</td>
+<td align="left">0(0.1)</td>
+<td align="left">0(0.07)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">80</td>
+<td align="left">-0.05(0.08)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">-0.05(0.06)</td>
+<td align="left">-0.02(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">81</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.02(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">82</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">0.01(0.06)</td>
+<td align="left">-0.02(0.09)</td>
+</tr>
+<tr class="odd">
+<td align="right">83</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0.02(0.1)</td>
+<td align="left">0(0.07)</td>
+<td align="left">0.01(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">84</td>
+<td align="left">0.04(0.08)</td>
+<td align="left">-0.03(0.1)</td>
+<td align="left">0.04(0.07)</td>
+<td align="left">-0.03(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">85</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0.04(0.09)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">0.04(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">86</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">-0.01(0.1)</td>
+<td align="left">0(0.07)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">87</td>
+<td align="left">-0.04(0.08)</td>
+<td align="left">0.02(0.1)</td>
+<td align="left">-0.04(0.07)</td>
+<td align="left">0.02(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">88</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">0.04(0.1)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">0.03(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">89</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0(0.1)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">0(0.09)</td>
+</tr>
+<tr class="even">
+<td align="right">90</td>
+<td align="left">0.03(0.08)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">-0.02(0.09)</td>
+</tr>
+<tr class="odd">
+<td align="right">91</td>
+<td align="left">-0.03(0.08)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">-0.03(0.06)</td>
+<td align="left">-0.02(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">92</td>
+<td align="left">0.01(0.08)</td>
+<td align="left">0.03(0.1)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">0.03(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">93</td>
+<td align="left">-0.02(0.08)</td>
+<td align="left">-0.01(0.1)</td>
+<td align="left">-0.02(0.07)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">94</td>
+<td align="left">-0.01(0.08)</td>
+<td align="left">-0.01(0.1)</td>
+<td align="left">-0.01(0.07)</td>
+<td align="left">-0.01(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">95</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">-0.04(0.1)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">-0.03(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">96</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">-0.02(0.1)</td>
+<td align="left">0.01(0.07)</td>
+<td align="left">-0.03(0.09)</td>
+</tr>
+<tr class="odd">
+<td align="right">97</td>
+<td align="left">0.02(0.08)</td>
+<td align="left">0(0.1)</td>
+<td align="left">0.02(0.07)</td>
+<td align="left">0(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">98</td>
+<td align="left">-0.02(0.08)</td>
+<td align="left">0(0.1)</td>
+<td align="left">-0.02(0.06)</td>
+<td align="left">0(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">99</td>
+<td align="left">-0.01(0.08)</td>
+<td align="left">0.03(0.1)</td>
+<td align="left">-0.01(0.07)</td>
+<td align="left">0.03(0.08)</td>
+</tr>
+<tr class="even">
+<td align="right">100</td>
+<td align="left">0.06(0.08)</td>
+<td align="left">0.03(0.09)</td>
+<td align="left">0.06(0.07)</td>
+<td align="left">0.03(0.08)</td>
+</tr>
+<tr class="odd">
+<td align="right">&lt;/deta</td>
+<td align="left">ils&gt;</td>
+<td align="left"></td>
+<td align="left"></td>
+<td align="left"></td>
 </tr>
 </tbody>
 </table>
+<p><br/></p>
+</div>
+<div id="pcs-alone-1" class="section level2">
+<h2><span class="header-section-number">4.2</span> PCs alone</h2>
+<div id="uk-biobank-1" class="section level3">
+<h3><span class="header-section-number">4.2.1</span> UK biobank</h3>
+<details>
+<p><summary>Show UK Biobank results table</summary></p>
+<p>Table: Table 2: Correlation between PC model predictions and observed values in UK Biobank</p>
+Phenotype PCs CrossVal R (SE) CrossVal p-value IndepVal R (SE) IndepVal p-value ————- —————— —————- —————– —————- —————– Depression EUR 0.007 (0.004) 0.052 0.004 (0.007) 0.608<br />
+Depression AllAncestry 0.006 (0.004) 0.104 0.02 (0.007) 0.006<br />
+Depression EUR + AllAncestry 0.008 (0.004) 0.028 0.014 (0.007) 0.051<br />
+Intelligence EUR 0.026 (0.003) &lt;0.001 0.02 (0.007) 0.003<br />
+Intelligence AllAncestry 0.016 (0.003) &lt;0.001 0.022 (0.007) 0.001<br />
+Intelligence EUR + AllAncestry 0.028 (0.003) &lt;0.001 0.024 (0.007) &lt;0.001<br />
+BMI EUR 0.026 (0.002) &lt;0.001 0.028 (0.003) &lt;0.001<br />
+BMI AllAncestry 0.031 (0.002) &lt;0.001 0.035 (0.003) &lt;0.001<br />
+BMI EUR + AllAncestry 0.032 (0.002) &lt;0.001 0.037 (0.003) &lt;0.001<br />
+Height EUR 0.035 (0.002) &lt;0.001 0.038 (0.003) &lt;0.001<br />
+Height AllAncestry 0.044 (0.002) &lt;0.001 0.042 (0.003) &lt;0.001<br />
+Height EUR + AllAncestry 0.047 (0.002) &lt;0.001 0.046 (0.003) &lt;0.001<br />
+T2D EUR -0.001 (0.002) 0.583 0.007 (0.004) 0.059<br />
+T2D AllAncestry 0.002 (0.002) 0.22 0.006 (0.004) 0.135<br />
+T2D EUR + AllAncestry 0.001 (0.002) 0.614 0.005 (0.004) 0.171<br />
+CAD EUR 0.016 (0.002) &lt;0.001 0.016 (0.004) &lt;0.001<br />
+CAD AllAncestry 0.014 (0.002) &lt;0.001 0.018 (0.004) &lt;0.001<br />
+CAD EUR + AllAncestry 0.015 (0.002) &lt;0.001 0.015 (0.004) &lt;0.001
+</details>
+<p><br/></p>
 </div>
 <div id="teds-1" class="section level3">
-<h3><span class="header-section-number">4.1.2</span> TEDS</h3>
+<h3><span class="header-section-number">4.2.2</span> TEDS</h3>
 <details>
 <p><summary>Show TEDS results table</summary></p>
 <table>
-<caption>Table 2: Correlation between PC model predictions and observed values in TEDS</caption>
+<caption>Table 3: Correlation between PC model predictions and observed values in TEDS</caption>
 <thead>
 <tr class="header">
 <th align="left">Phenotype</th>
@@ -874,6 +1542,8 @@ done
 </tbody>
 </table>
 </details>
+<p><br/></p>
+<p>PCs show significant prediction in the test set of UKBB, but not in TEDS. The estimates of correlation between predicted and observed values are more accurate in UKBB than TEDS due to a larger sample size. TEDS may not have sufficient sample size to detect significant prediction using PCs.</p>
 <p><br/></p>
 <hr />
 </div>
