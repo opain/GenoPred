@@ -18,6 +18,8 @@ make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]"),
 make_option("--sumstats", action="store", default=NA, type='character',
 		help="GWAS summary statistics in LDSC format [required]"),
+make_option("--covar", action="store", default=NA, type='character',
+		help="File containing covariates to be regressed from the scores [optional]"),
 make_option("--pTs", action="store", default='1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1', type='character',
 		help="List of p-value thresholds for scoring [optional]"),
 make_option("--dense", action="store", default=F, type='logical',
@@ -262,6 +264,28 @@ SCORE_temp<-0
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
+
+# Regress out covariates if specified
+if(!is.na(opt$covar) == T){
+	covar<-fread(opt$covar)
+	scores_covar<-merge(scores,covar,by=c('FID','IID'))
+	
+	# Scale the covariates so coeficients correspond to covariates in target samples
+	for(i in names(scores_covar)[grepl('PC',names(scores_covar))]){
+		scores_covar[[i]]<-as.numeric(scale(scores_covar[[i]]))
+	}
+	
+	models<-list()
+	scores_resid<-data.frame(scores_covar[,c('FID','IID')])
+	for(i in names(scores[,-1:-2])){
+		models[[i]]<-lm(as.formula(paste0('scores_covar[[i]] ~ ',paste(names(scores_covar)[grepl('PC', names(scores_covar))], collapse=' + '))), data=scores_covar)
+		scores_resid[[i]]<-resid(models[[i]])
+	}
+	
+saveRDS(models, paste0(opt$output,'.models.rds'))
+scores<-scores_resid
+
+}
 
 # Calculate the mean and sd of scores for each population specified in pop_scale
 pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
