@@ -133,7 +133,7 @@ sink()
 # Run GCTB SBayesR
 #####
 
-for(i in 1:22){
+for(i in 22:1){
 	system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 100 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i))
 }
 

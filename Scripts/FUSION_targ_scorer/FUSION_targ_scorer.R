@@ -123,7 +123,7 @@ for(chr in CHROMS){
 		}
 
 		# Read in the predictions, extract SCORE column and change header.
-		feature<-fread(paste0("tr -s ' ' '\t' < ",opt$output_dir,pos_chr$WGT[i],'.profile | cut -f 7'), nThread=1)
+		feature<-fread(cmd=paste0("tr -s ' ' '\t' < ",opt$output_dir,pos_chr$WGT[i],'.profile | cut -f 7'), nThread=1)
 		names(feature)<-pos_chr$WGT[i]
 
 		# Delete temporary files

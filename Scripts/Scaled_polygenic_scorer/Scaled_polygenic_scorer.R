@@ -18,6 +18,10 @@ make_option("--output", action="store", default='./Output', type='character',
 		help="Path for output files [required]"),
 make_option("--ref_scale", action="store", default=NA, type='character',
 		help="Path reference scale file [required]"),
+make_option("--covar_model", action="store", default=NA, type='character',
+		help="Path to reference-derived model for covariates [optional]"),
+make_option("--target_covar", action="store", default=NA, type='character',
+		help="Target sample covariates data [optional]"),
 make_option("--pheno_name", action="store", default='./Output', type='character',
 		help="Name of phenotype to be added to column names. Default is SCORE. [optional]"),
 make_option("--memory", action="store", default=5000, type='numeric',
@@ -86,6 +90,33 @@ SCORE_temp<-0
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
+
+###
+# Regress out covariate effects
+###
+
+if(!is.na(opt$covar_model) == T){
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Regressing covariates based on covar_model and target_covar...')
+sink()
+
+models<-readRDS(opt$covar_model)
+covar<-fread(opt$target_covar)
+scores_covar<-merge(scores,covar,by=c('FID','IID'))
+scores_resid<-data.frame(scores_covar[,c('FID','IID')])
+
+for(i in names(scores[,-1:-2])){
+	scores_resid[[i]]<-scores_covar[[i]]-predict(models[[i]], scores_covar)
+}
+
+scores<-scores_resid
+rm(scores_resid)
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Done!\n')
+sink()
+}
 
 ###
 # Scale the polygenic scores based on the reference
