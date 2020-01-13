@@ -62,7 +62,7 @@ if(substr(opt$targ_feature_pred, nchar(opt$targ_feature_pred)-2, nchar(opt$targ_
 originally_compressed<-F
 }
 
-TargGene<-fread(paste0('head -n 1 ',opt$targ_feature_pred), nThread=opt$n_cores)
+TargGene<-fread(cmd=paste0('head -n 1 ',opt$targ_feature_pred), nThread=opt$n_cores)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat(dim(TargGene)[2]-2, 'features are present in targ_feature_pred.\n')
@@ -108,7 +108,7 @@ sink()
 GeneX_Risk<-foreach(batch=1:length(batch_list), .combine=rbind) %dopar% {
 
 	# Read in the target feature predictions names
-	TargGene_batch<-fread(paste0("sed -n '",min(batch_list[[batch]]),",",max(batch_list[[batch]]),"p;",max(batch_list[[batch]])+1,"q' ",opt$targ_feature_pred), nThread=1)
+	TargGene_batch<-fread(cmd=paste0("sed -n '",min(batch_list[[batch]]),",",max(batch_list[[batch]]),"p;",max(batch_list[[batch]])+1,"q' ",opt$targ_feature_pred), nThread=1)
 
 	names(TargGene_batch)<-names(TargGene)
 	
