@@ -474,6 +474,9 @@ pre code, pre, code {
 <li>Height (continuous)</li>
 <li>Coronary Artery Disease (CAD - Binary)</li>
 <li>Type II Diabetes (T2D - Binary)</li>
+<li>Inflammatory Bowel Disorder (IBD - Binary)</li>
+<li>Rheumatoid arthritis (RheuArth - Binary)</li>
+<li>Multiple Slerosis (MultiScler - Binary)</li>
 </ul></li>
 <li>TEDS
 <ul>
@@ -492,16 +495,371 @@ pre code, pre, code {
 <h2><span class="header-section-number">3.4</span> Polygenic scoring</h2>
 <p>Polygenic scores were derived using three methods: 1. p-value thresholding and clumping (pT + clump). No pseudo-validation approach for selecting the optimal pT is available). Both sparse (8 pTs) and dense (500 pTs) will be tested. 2. lassosum - Lasso-based shrinkage method. 3. PRScs - Bayesian shrinkage method. 3. SBLUP - Summary statistic-based BLUP estimates</p>
 <p>Polygenic scores were derived using a reference standardised pipeline, previously described in detail <a href="https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring">here</a>. In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on European individuals within the 1000 Genomes reference. Any HapMap3 missing in the target sample are imputed using the allele frequency measured in the European subset of the 1000 Genomes reference.</p>
+<div id="uk-biobank" class="section level3">
+<h3><span class="header-section-number">3.4.1</span> UK Biobank</h3>
+<div id="pt-clump-sparse" class="section level4">
+<h4><span class="header-section-number">3.4.1.1</span> pT + clump sparse</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+# Create directory for PRS
+mkdir -p ${UKBB_output}/users/k1806347/brc_scratch/Data/UKBB/PRS_for_comparison/1KG_ref/pt_clump
+
+# Calculate polygenic scores
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+  qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+    --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas_i}/1KGPhase3.w_hm3.${gwas_i} \
+    --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale \
+    --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+    --plink ${plink1_9} \
+    --pheno_name ${gwas_i} \
+    --output ${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}
+    
+done</code></pre>
+</details>
+</div>
+<div id="pt-clump-dense" class="section level4">
+<h4><span class="header-section-number">3.4.1.2</span> pT + clump dense</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+# Create directory for PRS
+mkdir -p ${UKBB_output}/users/k1806347/brc_scratch/Data/UKBB/PRS_for_comparison/1KG_ref/pt_clump_dense
+
+# Calculate polygenic scores
+n=0
+for i in $(seq 2 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+  
+  qsub -N $(echo PRS_job$(($n+50))) -hold_jid $(echo PRS_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_dense/Scaled_polygenic_scorer_dense.R \
+    --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.GWAS_sumstats_clumped.txt \
+    --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale \
+    --prsice_path ${prsice_path} \
+    --rscript ${rscript} \
+    --pheno_name ${gwas_i} \
+    --output ${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump_dense/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}
+
+    n=$(($n+1))
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="pt-clump-sparse-non-nested" class="section level4">
+<h4><span class="header-section-number">3.4.1.3</span> pT + clump sparse (non-nested)</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+# Create directory for PRS
+mkdir -p ${UKBB_output}/users/k1806347/brc_scratch/Data/UKBB/PRS_for_comparison/1KG_ref/pt_clump
+
+# Calculate polygenic scores
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+  qsub -N non_nested /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+    --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/${gwas_i}/1KGPhase3.w_hm3.${gwas_i} \
+    --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale \
+    --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+    --plink ${plink1_9} \
+    --pheno_name ${gwas_i} \
+    --output ${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump_non_nested/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}
+    
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="lassosum" class="section level4">
+<h4><span class="header-section-number">3.4.1.4</span> lassosum</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+# Create directory for PRS
+mkdir -p ${UKBB_output}/users/k1806347/brc_scratch/Data/UKBB/PRS_for_comparison/1KG_ref/lassosum
+
+# Calculate polygenic scores
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+  
+  qsub -N lassosum -pe smp 6 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_lassosum/Scaled_polygenic_scorer_lassosum.R \
+    --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --ref_model ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.unvalidated.model.RDS \
+    --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale \
+    --pheno_name ${gwas_i} \
+    --n_cores 6 \
+    --output ${UKBB_output}/PRS_for_comparison/1KG_ref/lassosum/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}
+    
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="prscs" class="section level4">
+<h4><span class="header-section-number">3.4.1.5</span> PRScs</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+# Create directory for PRS
+mkdir -p ${UKBB_output}/users/k1806347/brc_scratch/Data/UKBB/PRS_for_comparison/1KG_ref/PRScs
+
+# Calculate polygenic scores
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+  qsub -N PRScs /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_PRScs/Scaled_polygenic_scorer_PRScs.R \
+    --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas_i}/1KGPhase3.w_hm3.${gwas_i} \
+    --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale \
+    --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+    --plink ${plink1_9} \
+    --pheno_name ${gwas_i} \
+    --output ${UKBB_output}/PRS_for_comparison/1KG_ref/PRScs/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}
+    
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="sblup" class="section level4">
+<h4><span class="header-section-number">3.4.1.6</span> SBLUP</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+# Create directory for PRS
+mkdir -p ${UKBB_output}/users/k1806347/brc_scratch/Data/UKBB/PRS_for_comparison/1KG_ref/SBLUP
+
+# Calculate polygenic scores
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+  qsub -N SBLUP /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_SBLUP/Scaled_polygenic_scorer_SBLUP.R \
+    --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas_i}/GWAS_sumstats_SBLUP.sblup.cojo \
+    --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale \
+    --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+    --plink ${plink1_9} \
+    --pheno_name ${gwas_i} \
+    --output ${UKBB_output}/PRS_for_comparison/1KG_ref/SBLUP/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}
+    
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+</div>
+<div id="teds" class="section level3">
+<h3><span class="header-section-number">3.4.2</span> TEDS</h3>
+<div id="pt-clump-sparse-1" class="section level4">
+<h4><span class="header-section-number">3.4.2.1</span> pT + clump sparse</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+mkdir -p ${TEDS_output_dir}/PolygenicScores/EUR
+
+# Calculate polygenic scores for for Europeans only for now.
+n=0
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+qsub -N $(echo PRS_job$(($n+50))) -hold_jid $(echo PRS_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="pt-clump-dense-1" class="section level4">
+<h4><span class="header-section-number">3.4.2.2</span> pT + clump dense</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Calculate polygenic scores for for Europeans only for now.
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+qsub -N PRS_dense /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_dense/Scaled_polygenic_scorer_dense.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas}.GWAS_sumstats_clumped.txt \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --prsice_path ${prsice_path} \
+  --rscript ${rscript} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores_dense/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+done
+</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="pt-clump-sparse-non-nested-1" class="section level4">
+<h4><span class="header-section-number">3.4.2.3</span> pT + clump sparse (non-nested)</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+mkdir -p ${TEDS_output_dir}/PolygenicScores_non_nested/EUR
+
+# Calculate polygenic scores for for Europeans only for now.
+n=0
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+qsub -N $(echo PRS_job$(($n+50))) -hold_jid $(echo PRS_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores_non_nested/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="lassosum-1" class="section level4">
+<h4><span class="header-section-number">3.4.2.4</span> lassosum</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Here we only calculate scores relevent to the phenotyps that we will use for comparing methods
+n=0
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+qsub -pe smp 6 -l h_vmem=10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_lassosum/Scaled_polygenic_scorer_lassosum.R \
+  --target_plink_chr /users/k1806347/brc_scratch/Data/TEDS/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_model ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.unvalidated.model.RDS \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --pheno_name ${gwas} \
+  --n_cores 6 \
+  --output /users/k1806347/brc_scratch/Data/TEDS/PolygenicScores_lassosum/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+done
+</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="prscs-1" class="section level4">
+<h4><span class="header-section-number">3.4.2.5</span> PRScs</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+n=0
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_PRScs/Scaled_polygenic_scorer_PRScs.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores_PRScs/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+done</code></pre>
+</details>
+<p><br/></p>
+</div>
+<div id="sblup-1" class="section level4">
+<h4><span class="header-section-number">3.4.2.6</span> SBLUP</h4>
+<details>
+<p><summary>See code</summary></p>
+<pre class="bash"><code># Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+mkdir -p ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR
+
+# Create a list of gwas that haven&#39;t got corresponding PRS files in TEDS
+&gt; ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/todo_SBLUP.txt
+for gwas in $(echo HEIG03 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR.SBLUP_profiles ]; then
+echo $gwas &gt;&gt; ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/todo_SBLUP.txt
+fi
+done
+
+n=0
+for gwas in $(cat ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/todo_SBLUP.txt);do
+qsub -N $(echo SBLUP_job$(($n+25))) -hold_jid $(echo SBLUP_job$(($n+0))) /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_SBLUP/Scaled_polygenic_scorer_SBLUP.R \
+  --target_plink_chr ${TEDS_output_dir}/Genotype/Harmonised/TEDS.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${TEDS_output_dir}/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas}/GWAS_sumstats_SBLUP.sblup.cojo \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --plink ${plink1_9} \
+  --pheno_name ${gwas} \
+  --output ${TEDS_output_dir}/PolygenicScores_SBLUP/EUR/${gwas}/TEDS.w_hm3.${gwas}.EUR
+n=$(($n+1))
+done
+</code></pre>
+</details>
+<p><br/></p>
+</div>
+</div>
 </div>
 <div id="estimating-predictive-ability" class="section level2">
 <h2><span class="header-section-number">3.5</span> Estimating predictive ability</h2>
 <p>All models were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process.</p>
 <p>Model building and evaluation was performed using an Rscript called Model_builder.R (more information <a href="https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder">here</a>).</p>
-</div>
-<div id="code" class="section level2">
-<h2><span class="header-section-number">3.6</span> Code</h2>
-<div id="uk-biobank" class="section level3">
-<h3><span class="header-section-number">3.6.1</span> UK Biobank</h3>
+<div id="uk-biobank-1" class="section level3">
+<h3><span class="header-section-number">3.5.1</span> UK Biobank</h3>
 <details>
 <p><summary>pT + clump PRSs: Sparse</summary></p>
 <pre class="bash"><code>##############################
@@ -509,39 +867,38 @@ pre code, pre, code {
 ##############################
 
 # Make required directories
-for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD);do
+for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth);do
 mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs
 done
 
 # Create a file listing the predictors files
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
 
-for i in $(seq 1 6);do
+for i in $(seq 1 9);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 
 cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups &lt;&lt;EOF
 predictors 
-/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.profiles
+${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}.profiles
 EOF
 
 done
 
 # Derive and evaluate models
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
-prev=$(echo 0.15 NA NA NA 0.05 0.03)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
 
-for i in $(seq 1 6);do
+for i in $(seq 1 9);do
   pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
   pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
   gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
   prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 
   qsub -l h_vmem=5G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
-    --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+    --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
     --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
     --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs \
     --n_core 2 \
@@ -559,41 +916,85 @@ done
 ##############################
 
 # Create a file listing the predictors files
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
 
-for i in $(seq 1 6);do
+for i in $(seq 2 2);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 
 cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs-dense.predictor_groups &lt;&lt;EOF
 predictors 
-/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_dense/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.profiles
+${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump_dense/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}.profiles
 EOF
 
 done
 
 # Derive and evaluate models
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
 prev=$(echo 0.15 NA NA NA 0.05 0.03)
 
-for i in $(seq 5 6);do
+for i in $(seq 2 2);do
   pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
   pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
   gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
   prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 
-  qsub -l h_vmem=120G -pe smp 1 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
-    --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+  qsub -l h_vmem=20G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+    --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
     --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
     --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs-dense \
-    --n_core 1 \
+    --n_core 2 \
+    --model_comp F \
     --assoc T \
     --compare_predictors T \
     --outcome_pop_prev ${prev_i} \
     --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs-dense.predictor_groups
+done
+</code></pre>
+</details>
+<details>
+<p><summary>pT + clump PRSs: Sparse (non-nested)</summary></p>
+<pre class="bash"><code>##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+
+# Create a file listing the predictors files
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+for i in $(seq 1 9);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_non_nested.predictor_groups &lt;&lt;EOF
+predictors 
+${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump_non_nested/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}.profiles
+EOF
+
+done
+
+# Derive and evaluate models
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
+
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+  prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
+
+  qsub -l h_vmem=5G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+    --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+    --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_non_nested \
+    --n_core 2 \
+    --compare_predictors T \
+    --assoc T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_non_nested.predictor_groups
 done
 </code></pre>
 </details>
@@ -604,41 +1005,40 @@ done
 ################################
 
 # Create a file listing the predictors files
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
 
-for i in $(seq 1 6);do
+for i in $(seq 1 9);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 
 cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups &lt;&lt;EOF
 predictors 
-/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_lassosum/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.lassosum_profiles
+${UKBB_output}/PRS_for_comparison/1KG_ref/lassosum/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}.profiles
 EOF
 
 done
 
 # Derive and evaluate
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
-prev=$(echo 0.15 NA NA NA 0.05 0.03)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
 
-for i in $(seq 1 6);do
+for i in $(seq 1 9);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 
-qsub -l h_vmem=20G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
---pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
---keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
---out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum \
---n_core 4 \
---compare_predictors T \
---assoc T \
---outcome_pop_prev ${prev_i} \
---predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups
+qsub -l h_vmem=10G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+  --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+  --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+  --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum \
+  --n_core 2 \
+  --compare_predictors T \
+  --assoc T \
+  --outcome_pop_prev ${prev_i} \
+  --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_lassosum.predictor_groups
 done
 </code></pre>
 </details>
@@ -649,93 +1049,92 @@ done
 ################################
 
 # Create a file listing the predictors files
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
 
-for i in $(seq 1 6);do
+for i in $(seq 1 9);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 
 cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs.predictor_groups &lt;&lt;EOF
 predictors 
-/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_PRScs/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.PRScs_profiles
+${UKBB_output}/PRS_for_comparison/1KG_ref/PRScs/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}.profiles
 EOF
 
 done
 
 # Derive and evaluate
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
-prev=$(echo 0.15 NA NA NA 0.05 0.03)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
 
-for i in $(seq 1 6);do
+for i in $(seq 1 9);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 
-qsub -l h_vmem=10G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
---pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
---keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
---out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs \
---n_core 2 \
---compare_predictors T \
---assoc T \
---outcome_pop_prev ${prev_i} \
---predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs.predictor_groups
+qsub -l h_vmem=5G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+  --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+  --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+  --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs \
+  --n_core 2 \
+  --compare_predictors T \
+  --assoc T \
+  --outcome_pop_prev ${prev_i} \
+  --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_PRScs.predictor_groups
 done
 </code></pre>
 </details>
 <details>
 <p><summary>SBLUP PRSs</summary></p>
 <pre class="bash"><code>################################
-# Evaluate use of multiple PRSs based on different shrinkage parameters, and use of pseudo-validated PRS (PRScs)
+# Evaluate use of SBLUP PRS
 ################################
 
 # Create a file listing the predictors files
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
 
-for i in $(seq 1 6);do
+for i in $(seq 7 9);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 
 cat &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_SBLUP.predictor_groups &lt;&lt;EOF
 predictors 
-/users/k1806347/brc_scratch/Data/UKBB/PolygenicScores_SBLUP/EUR/${gwas_i}/UKBB.w_hm3.${gwas_i}.EUR.SBLUP_profiles
+${UKBB_output}/PRS_for_comparison/1KG_ref/SBLUP/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}.profiles
 EOF
 
 done
 
 # Derive and evaluate
-pheno=$(echo Depression Intelligence BMI Height T2D CAD)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01)
-prev=$(echo 0.15 NA NA NA 0.05 0.03)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt UKBB.IBD.txt UKBB.MultiScler.txt UKBB.RheuArth.txt)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
 
-for i in $(seq 1 6);do
+for i in $(seq 7 9);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 
 qsub -l h_vmem=10G -pe smp 2 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
---pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
---keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
---out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_SBLUP \
---n_core 2 \
---compare_predictors T \
---assoc T \
---outcome_pop_prev ${prev_i} \
---predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_SBLUP.predictor_groups
+  --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/${pheno_i}/${pheno_file_i} \
+  --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+  --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_SBLUP \
+  --n_core 2 \
+  --compare_predictors T \
+  --assoc T \
+  --outcome_pop_prev ${prev_i} \
+  --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs_SBLUP.predictor_groups
 done
 </code></pre>
 </details>
 <p><br/></p>
 </div>
-<div id="teds" class="section level3">
-<h3><span class="header-section-number">3.6.2</span> TEDS</h3>
+<div id="teds-1" class="section level3">
+<h3><span class="header-section-number">3.5.2</span> TEDS</h3>
 <details>
 <p><summary>pT + clump PRSs: Sparse</summary></p>
 <pre class="bash"><code>##############################
@@ -794,7 +1193,7 @@ done
 pheno=$(echo Height21 BMI21 GCSE ADHD)
 gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
 
-for i in $(seq 1 4);do
+for i in $(seq 4 4);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 
@@ -815,7 +1214,7 @@ for i in $(seq 1 4);do
   gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
   prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 
-  qsub -l h_vmem=10G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+  qsub -l h_vmem=5G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
     --pheno /users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_${pheno_i}.txt \
       --keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
     --out /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs-dense \
@@ -824,6 +1223,54 @@ for i in $(seq 1 4);do
     --compare_predictors T \
     --outcome_pop_prev ${prev_i} \
     --predictors /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs-dense.predictor_groups
+done
+</code></pre>
+</details>
+<details>
+<p><summary>pT + clump PRSs: Sparse (non-nested)</summary></p>
+<pre class="bash"><code>##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+
+# Make required directories
+for pheno_i in $(echo Height21 BMI21 GCSE ADHD);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs
+done
+
+# Create a file listing the predictors files
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+
+for i in $(seq 1 4);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+
+cat &gt; /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_non_nested.predictor_groups &lt;&lt;EOF
+predictors 
+/users/k1806347/brc_scratch/Data/TEDS/PolygenicScores_non_nested/EUR/${gwas_i}/TEDS.w_hm3.${gwas_i}.EUR.profiles
+EOF
+
+done
+
+# Derive and evaluate models
+pheno=$(echo Height21 BMI21 GCSE ADHD)
+gwas=$(echo HEIG03 BODY11 EDUC03 ADHD04)
+prev=$(echo NA NA NA NA)
+
+for i in $(seq 1 4);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+  prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
+
+  qsub -l h_vmem=5G -pe smp 4 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+    --pheno /users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_${pheno_i}.txt \
+      --keep /users/k1806347/brc_scratch/Data/TEDS/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep \
+    --out /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_non_nested \
+    --n_core 4 \
+    --compare_predictors T \
+    --assoc T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/${pheno_i}/Association_withPRSs/TEDS.w_hm3.${gwas_i}.EUR-PRSs_non_nested.predictor_groups
 done
 </code></pre>
 </details>
@@ -969,7 +1416,7 @@ done
 <p>As previous studies have shown, performing a grid search of shrinkage parameters with both lassosum- and PRScs-based PRSs consistently out performs PRS derived using the traditional pT + clump method.</p>
 <p>The pseudovalidation approach within lassosum performs worse than any other approach tested here. In contrast the PRScs pseduovalidated PRS performs well, providing nearly the best prediction for all outcomes.</p>
 <p><br/></p>
-<div id="uk-biobank-1" class="section level2">
+<div id="uk-biobank-2" class="section level2">
 <h2><span class="header-section-number">4.1</span> UK Biobank</h2>
 <details>
 <p><summary>Code for plotting results</summary></p>
@@ -1597,7 +2044,7 @@ n</code></pre>
 </details>
 <p><br/></p>
 </div>
-<div id="teds-1" class="section level2">
+<div id="teds-2" class="section level2">
 <h2><span class="header-section-number">4.2</span> TEDS</h2>
 <details>
 <p><summary>Code for plotting results</summary></p>
@@ -1614,7 +2061,7 @@ gwas&lt;-c(&#39;HEIG03&#39;, &#39;BODY11&#39;, &#39;EDUC03&#39;, &#39;ADHD04&#39
 All_res&lt;-NULL
 for(i in c(1:4)){
   pT_clump&lt;-read.table(paste0(&#39;/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/TEDS.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs.pred_eval.txt&#39;), header=T, stringsAsFactors=F)
-  pT_clump$Method&lt;-&quot;pT + clump\n(sparse)&quot;
+  pT_clump$Method&lt;-&quot;pT&quot;
   Param_tmp&lt;-sort(as.numeric(gsub(&#39;e.&#39;,&#39;e-&#39;,gsub(&#39;_group&#39;,&#39;&#39;,gsub(paste0(gwas[i],&#39;.&#39;),&#39;&#39;,pT_clump$Model)))))
   pT_clump$Param&lt;-as.character(as.numeric(gsub(&#39;e.&#39;,&#39;e-&#39;,gsub(&#39;_group&#39;,&#39;&#39;,gsub(paste0(gwas[i],&#39;.&#39;),&#39;&#39;,pT_clump$Model)))))
   pT_clump$Param[dim(pT_clump)[1]]&lt;-&#39;Multi-PRS&#39;
@@ -1625,8 +2072,25 @@ for(i in c(1:4)){
   pT_clump$Group[pT_clump$Param == &#39;Multi-PRS&#39;]&lt;-&#39;Multi-PRS&#39;
   pT_clump&lt;-pT_clump[!is.na(pT_clump$Group),]
 
+  pT_clump_nn&lt;-read.table(paste0(&#39;/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/TEDS.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs_non_nested.pred_eval.txt&#39;), header=T, stringsAsFactors=F)
+  pT_clump_nn$Method&lt;-&quot;pT (non-nested)&quot;
+  pT_clump_nn$Param&lt;-as.character(as.numeric(gsub(&#39;e.&#39;,&#39;e-&#39;,gsub(&#39;_group&#39;,&#39;&#39;,gsub(paste0(gwas[i],&#39;.&#39;),&#39;&#39;,pT_clump_nn$Model)))))
+  for(j in (length(pT_clump_nn$Param)-1):1){
+    if(j==1){
+      pT_clump_nn$Param[j]&lt;-paste0(&#39;0 - &#39;,pT_clump_nn$Param[j])
+    } else {
+      pT_clump_nn$Param[j]&lt;-paste0(pT_clump_nn$Param[j-1],&#39; - &#39;,pT_clump_nn$Param[j])
+    }
+  }
+  pT_clump_nn$Param[dim(pT_clump_nn)[1]]&lt;-&#39;Multi-PRS&#39;
+  pT_clump_nn$Model&lt;-NULL
+  pT_clump_nn$Group&lt;-NA
+  pT_clump_nn$Group[pT_clump_nn$CrossVal_R == max(abs(pT_clump_nn$CrossVal_R[pT_clump_nn$Param != &#39;Multi-PRS&#39;]))]&lt;-&#39;10FCVal&#39;
+  pT_clump_nn$Group[pT_clump_nn$Param == &#39;Multi-PRS&#39;]&lt;-&#39;Multi-PRS&#39;
+  pT_clump_nn&lt;-pT_clump_nn[!is.na(pT_clump_nn$Group),]
+
   pT_clump_dense&lt;-read.table(paste0(&#39;/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/TEDS.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs-dense.pred_eval.txt&#39;), header=T, stringsAsFactors=F)
-  pT_clump_dense$Method&lt;-&quot;pT + clump\n(dense)&quot;
+  pT_clump_dense$Method&lt;-&quot;pT (dense)&quot;
   Param_tmp&lt;-sort(as.numeric(gsub(&#39;e.&#39;,&#39;e-&#39;,gsub(&#39;_group&#39;,&#39;&#39;,gsub(paste0(gwas[i],&#39;.&#39;),&#39;&#39;,pT_clump_dense$Model)))))
   pT_clump_dense$Param&lt;-as.character(as.numeric(gsub(&#39;e.&#39;,&#39;e-&#39;,gsub(&#39;_group&#39;,&#39;&#39;,gsub(paste0(gwas[i],&#39;.&#39;),&#39;&#39;,pT_clump_dense$Model)))))
   pT_clump_dense$Param[dim(pT_clump_dense)[1]]&lt;-&#39;Multi-PRS&#39;
@@ -1672,7 +2136,7 @@ for(i in c(1:4)){
   SBLUP_res$Group[1]&lt;-&#39;PseudoVal&#39;
   SBLUP_res&lt;-SBLUP_res[!is.na(SBLUP_res$Group),]
 
-  res&lt;-do.call(rbind, list(pT_clump, pT_clump_dense, lassosum_res, PRScs_res, SBLUP_res))
+  res&lt;-do.call(rbind, list(pT_clump, pT_clump_nn, pT_clump_dense, lassosum_res, PRScs_res, SBLUP_res))
   res$Phenotype&lt;-pheno[i]
   res$Cross_LiabR2&lt;-NULL
   res$Indep_LiabR2&lt;-NULL
@@ -1761,31 +2225,45 @@ n</code></pre>
 <tbody>
 <tr class="odd">
 <td align="left">Height21</td>
-<td align="left">pT + clump (sparse)</td>
+<td align="left">pT</td>
 <td align="left">10FCVal</td>
 <td align="left">0.382 (0.014)</td>
 <td align="left">0.382 (0.028)</td>
 </tr>
 <tr class="even">
 <td align="left">Height21</td>
-<td align="left">pT + clump (sparse)</td>
+<td align="left">pT</td>
 <td align="left">Multi-PRS</td>
 <td align="left">0.397 (0.014)</td>
 <td align="left">0.406 (0.028)</td>
 </tr>
 <tr class="odd">
 <td align="left">Height21</td>
-<td align="left">pT + clump (dense)</td>
+<td align="left">pT (non-nested)</td>
 <td align="left">10FCVal</td>
-<td align="left">0.384 (0.014)</td>
-<td align="left">0.384 (0.028)</td>
+<td align="left">0.321 (0.014)</td>
+<td align="left">0.333 (0.029)</td>
 </tr>
 <tr class="even">
 <td align="left">Height21</td>
-<td align="left">pT + clump (dense)</td>
+<td align="left">pT (non-nested)</td>
 <td align="left">Multi-PRS</td>
-<td align="left">0.392 (0.014)</td>
-<td align="left">0.401 (0.028)</td>
+<td align="left">0.397 (0.014)</td>
+<td align="left">0.403 (0.028)</td>
+</tr>
+<tr class="odd">
+<td align="left">Height21</td>
+<td align="left">pT (dense)</td>
+<td align="left">10FCVal</td>
+<td align="left">0.381 (0.014)</td>
+<td align="left">0.378 (0.028)</td>
+</tr>
+<tr class="even">
+<td align="left">Height21</td>
+<td align="left">pT (dense)</td>
+<td align="left">Multi-PRS</td>
+<td align="left">0.395 (0.014)</td>
+<td align="left">0.383 (0.028)</td>
 </tr>
 <tr class="odd">
 <td align="left">Height21</td>
@@ -1838,31 +2316,45 @@ n</code></pre>
 </tr>
 <tr class="even">
 <td align="left">BMI21</td>
-<td align="left">pT + clump (sparse)</td>
+<td align="left">pT</td>
 <td align="left">10FCVal</td>
 <td align="left">0.319 (0.015)</td>
 <td align="left">0.302 (0.03)</td>
 </tr>
 <tr class="odd">
 <td align="left">BMI21</td>
-<td align="left">pT + clump (sparse)</td>
+<td align="left">pT</td>
 <td align="left">Multi-PRS</td>
 <td align="left">0.32 (0.015)</td>
 <td align="left">0.304 (0.03)</td>
 </tr>
 <tr class="even">
 <td align="left">BMI21</td>
-<td align="left">pT + clump (dense)</td>
+<td align="left">pT (non-nested)</td>
 <td align="left">10FCVal</td>
-<td align="left">0.319 (0.015)</td>
-<td align="left">0.302 (0.03)</td>
+<td align="left">0.212 (0.015)</td>
+<td align="left">0.183 (0.03)</td>
 </tr>
 <tr class="odd">
 <td align="left">BMI21</td>
-<td align="left">pT + clump (dense)</td>
+<td align="left">pT (non-nested)</td>
 <td align="left">Multi-PRS</td>
-<td align="left">0.32 (0.015)</td>
-<td align="left">0.304 (0.03)</td>
+<td align="left">0.316 (0.015)</td>
+<td align="left">0.301 (0.03)</td>
+</tr>
+<tr class="even">
+<td align="left">BMI21</td>
+<td align="left">pT (dense)</td>
+<td align="left">10FCVal</td>
+<td align="left">0.28 (0.015)</td>
+<td align="left">0.272 (0.03)</td>
+</tr>
+<tr class="odd">
+<td align="left">BMI21</td>
+<td align="left">pT (dense)</td>
+<td align="left">Multi-PRS</td>
+<td align="left">0.318 (0.015)</td>
+<td align="left">0.292 (0.03)</td>
 </tr>
 <tr class="even">
 <td align="left">BMI21</td>
@@ -1915,30 +2407,44 @@ n</code></pre>
 </tr>
 <tr class="odd">
 <td align="left">GCSE</td>
-<td align="left">pT + clump (sparse)</td>
+<td align="left">pT</td>
 <td align="left">10FCVal</td>
 <td align="left">0.367 (0.012)</td>
 <td align="left">0.351 (0.025)</td>
 </tr>
 <tr class="even">
 <td align="left">GCSE</td>
-<td align="left">pT + clump (sparse)</td>
+<td align="left">pT</td>
 <td align="left">Multi-PRS</td>
 <td align="left">0.372 (0.012)</td>
 <td align="left">0.362 (0.024)</td>
 </tr>
 <tr class="odd">
 <td align="left">GCSE</td>
-<td align="left">pT + clump (dense)</td>
+<td align="left">pT (non-nested)</td>
 <td align="left">10FCVal</td>
-<td align="left">0.368 (0.012)</td>
-<td align="left">0.352 (0.025)</td>
+<td align="left">0.254 (0.013)</td>
+<td align="left">0.234 (0.025)</td>
 </tr>
 <tr class="even">
 <td align="left">GCSE</td>
-<td align="left">pT + clump (dense)</td>
+<td align="left">pT (non-nested)</td>
 <td align="left">Multi-PRS</td>
 <td align="left">0.371 (0.012)</td>
+<td align="left">0.361 (0.024)</td>
+</tr>
+<tr class="odd">
+<td align="left">GCSE</td>
+<td align="left">pT (dense)</td>
+<td align="left">10FCVal</td>
+<td align="left">0.366 (0.012)</td>
+<td align="left">0.348 (0.025)</td>
+</tr>
+<tr class="even">
+<td align="left">GCSE</td>
+<td align="left">pT (dense)</td>
+<td align="left">Multi-PRS</td>
+<td align="left">0.372 (0.012)</td>
 <td align="left">0.362 (0.024)</td>
 </tr>
 <tr class="odd">
@@ -1992,30 +2498,44 @@ n</code></pre>
 </tr>
 <tr class="even">
 <td align="left">ADHD</td>
-<td align="left">pT + clump (sparse)</td>
+<td align="left">pT</td>
 <td align="left">10FCVal</td>
 <td align="left">0.116 (0.013)</td>
 <td align="left">0.113 (0.025)</td>
 </tr>
 <tr class="odd">
 <td align="left">ADHD</td>
-<td align="left">pT + clump (sparse)</td>
+<td align="left">pT</td>
 <td align="left">Multi-PRS</td>
 <td align="left">0.116 (0.013)</td>
 <td align="left">0.127 (0.025)</td>
 </tr>
 <tr class="even">
 <td align="left">ADHD</td>
-<td align="left">pT + clump (dense)</td>
+<td align="left">pT (non-nested)</td>
 <td align="left">10FCVal</td>
-<td align="left">0.116 (0.013)</td>
-<td align="left">0.115 (0.025)</td>
+<td align="left">0.082 (0.013)</td>
+<td align="left">0.081 (0.025)</td>
 </tr>
 <tr class="odd">
 <td align="left">ADHD</td>
-<td align="left">pT + clump (dense)</td>
+<td align="left">pT (non-nested)</td>
 <td align="left">Multi-PRS</td>
-<td align="left">0.113 (0.013)</td>
+<td align="left">0.114 (0.013)</td>
+<td align="left">0.125 (0.025)</td>
+</tr>
+<tr class="even">
+<td align="left">ADHD</td>
+<td align="left">pT (dense)</td>
+<td align="left">10FCVal</td>
+<td align="left">0.099 (0.013)</td>
+<td align="left">0.122 (0.025)</td>
+</tr>
+<tr class="odd">
+<td align="left">ADHD</td>
+<td align="left">pT (dense)</td>
+<td align="left">Multi-PRS</td>
+<td align="left">0.102 (0.013)</td>
 <td align="left">0.121 (0.025)</td>
 </tr>
 <tr class="even">
