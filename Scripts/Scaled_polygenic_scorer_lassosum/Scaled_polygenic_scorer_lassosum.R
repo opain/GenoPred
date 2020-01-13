@@ -70,8 +70,11 @@ CHROMS<-as.numeric(CHROMS_mat)
 CHROMS<-CHROMS[!is.na(CHROMS)] 
 print(CHROMS)
 
+keep<-fread(opt$target_keep)
+write.table(keep[,1:2], paste0(opt$output,'keep_temp.txt'), col.names=F, row.names=F, quote=F)
+
 scores_all<-foreach(i=1:22) %dopar% {
-	v2 <- validate(mod, test.bfile=paste0(opt$target_plink_chr,i), keep=opt$target_keep, pheno=pheno, plot=F)
+	v2 <- validate(mod, test.bfile=paste0(opt$target_plink_chr,i), keep=paste0(opt$output,'keep_temp.txt'), pheno=pheno, plot=F)
 	
 	scores<-v2$results.table[!is.na(v2$results.table$order),c('FID','IID')]
 	for(j in 1:length(v2$s)){
@@ -125,6 +128,8 @@ fwrite(scores_GW, paste0(opt$output,'.lassosum_profiles'), sep=' ', na='NA')
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Saved polygenic scores to: ',opt$output,'.lassosum_profiles.\n',sep='')
 sink()
+
+system(paste0('rm ',opt$output,'keep_temp.txt'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

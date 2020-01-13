@@ -12,6 +12,10 @@ make_option("--ref_pop_scale", action="store", default=NA, type='character',
 		help="File containing the population code and location of the keep file [required]"),
 make_option("--plink", action="store", default='plink', type='character',
 		help="Path PLINK software binary [required]"),
+make_option("--prsice_path", action="store", default=NA, type='character',
+    help="Path to PRSice. [optional]"),
+make_option("--rscript", action="store", default='Rscript', type='character',
+    help="Path to Rscript [optional]"),
 make_option("--output", action="store", default='./Output', type='character',
 		help="Path for output files [required]"),
 make_option("--memory", action="store", default=5000, type='numeric',
@@ -24,8 +28,6 @@ make_option("--pTs", action="store", default='1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.
 		help="List of p-value thresholds for scoring [optional]"),
 make_option("--dense", action="store", default=F, type='logical',
   help="Specify as T for dense thresholding. pTs then interpretted as seq() command wih default 5e-8,1,5e-4 [optional]"),
-make_option("--nested", action="store", default=T, type='logical',
-  help="Specify as F to use non-overlapping p-value intervals [optional]"),
 make_option("--prune_hla", action="store", default=T, type='logical',
 		help="Retain only top assocaited variant in HLA region [optional]")
 )
@@ -41,7 +43,7 @@ system(paste0('mkdir -p ',opt$output_dir))
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
-# polygenic_score_file_creator.R V1.0
+# polygenic_score_file_creator_dense.R V1.0
 # For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
 #################################################################
 Analysis started at',as.character(start.time),'
@@ -53,26 +55,6 @@ cat('Analysis started at',as.character(start.time),'\n')
 sink()
 
 #####
-# Format pT option
-#####
-
-opt$pTs<-as.numeric(unlist(strsplit(opt$pTs,',')))
-
-if(opt$dense == T){
-	if(opt$pTs == c(1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1)){
-		opt$pTs<-c(1e-8,0.5,5e-4)
-	}
-	
-	opt$pTs<-c(seq(opt$pTs[1],opt$pTs[2],opt$pTs[3]),0.5,1)
-	opt$pTs[opt$pTs >= 0.01]<-round(opt$pTs[opt$pTs >= 0.01],4)
-	  
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('Dense thresholding selected.\n')
-	cat(length(opt$pTs),'thresholds will be used.\n')
-	sink()
-}
-
-#####
 # Read in sumstats and insert p-values
 #####
 
@@ -80,7 +62,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Reading in GWAS and harmonising with reference.\n')
 sink()
 
-GWAS<-fread(paste0('zcat ',opt$sumstats))
+GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
 GWAS<-GWAS[complete.cases(GWAS),]
 GWAS$N<-NULL
 GWAS$P<-2*pnorm(-abs(GWAS$Z))
@@ -174,62 +156,21 @@ if(!is.na(opt$ref_keep)){
 	}
 }
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
-
-#####
-# Create score files
-#####
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Creating score files...')
-sink()
-
 GWAS_clumped_all<-NULL
 for(i in 1:22){
-	clumped<-fread(paste0(opt$output_dir,'GWAS_sumstats_temp_clumped_chr',i,'.txt.clumped'))
-	clumped_SNPs<-clumped$SNP
-	GWAS_clumped_temp<-GWAS[(GWAS$SNP %in% clumped_SNPs),]
-	fwrite(GWAS_clumped_temp[,c('SNP','A1','Z')], paste0(opt$output,'.chr',i,'.score'), sep=' ', col.names=F)
-	fwrite(GWAS_clumped_temp[,c('SNP','P')], paste0(opt$output,'.chr',i,'.range_values'), sep=' ', col.names=F)
-	GWAS_clumped_all<-rbind(GWAS_clumped_all, GWAS_clumped_temp[,c('SNP','P')])
+  clumped<-fread(paste0(opt$output_dir,'GWAS_sumstats_temp_clumped_chr',i,'.txt.clumped'))
+  clumped_SNPs<-clumped$SNP
+  GWAS_clumped_temp<-GWAS[(GWAS$SNP %in% clumped_SNPs),]
+  GWAS_clumped_all<-rbind(GWAS_clumped_all, GWAS_clumped_temp)
 }
+GWAS_clumped_all$IUPAC<-NULL
+names(GWAS_clumped_all)[4]<-'BETA'
+
+write.table(GWAS_clumped_all, paste0(opt$output,'.GWAS_sumstats_clumped.txt'), col.names=T, row.names=F, quote=F)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
-
-#####
-# Create range list file
-#####
-if(opt$nested == T){
-  range_list<-data.frame(	Name=paste0('S',1:length(opt$pTs)),
-                          pT0=0,
-                          pT1=opt$pTs)
-} else {
-  range_list<-data.frame(	Name=paste0('S',1:length(opt$pTs)),
-                          pT0=c(0,opt$pTs[-length(opt$pTs)]),
-                          pT1=opt$pTs)
-}
-
-###
-# Count the number of SNPs to be included at each pT
-###
-
-for(i in 1:dim(range_list)[1]){
-	range_list$NSNP[i]<-sum(GWAS_clumped_all$P > range_list$pT0[i] & GWAS_clumped_all$P < range_list$pT1[i])
-}
-
-fwrite(range_list, paste0(opt$output,'.NSNP_per_pT'),sep='\t')
-
-# Output range list file with ranges containing at least 1 SNP
-range_list<-range_list[range_list$NSNP > 0,]	
-range_list$NSNP<-NULL
-fwrite(range_list, paste0(opt$output,'.range_list'), col.names=F, sep=' ')
-
-rm(GWAS_clumped_all)
-gc()
 
 ###
 # Clean up temporary files
@@ -249,52 +190,15 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-for(i in 1:22){
-	system(paste0(opt$plink, ' --bfile ',opt$ref_plink_chr,i,' --score ',opt$output,'.chr',i,'.score sum --q-score-range ',opt$output,'.range_list ',opt$output,'.chr',i,'.range_values --out ',opt$output,'.profiles.chr',i,' --memory ',floor(opt$memory*0.7)))
-}
+system(paste0(opt$rscript,' ',opt$prsice,'/PRSice.R --prsice ',opt$prsice,'/PRSice_linux --base ',opt$output,'.GWAS_sumstats_clumped.txt --target ',opt$ref_plink_chr,"# --thread 1 --lower 1e-8 --stat BETA --binary-target F --no-clump --no-regress --out ",opt$output,'ref_score'))
 
-# Add up the scores across chromosomes
-fam<-fread(paste0(opt$ref_plink_chr,'22.fam'))
-scores<-fam[,1:2]
-names(scores)<-c('FID','IID')
-
-for(k in 1:dim(range_list)[1]){
-SCORE_temp<-0
-	for(i in 1:22){
-		if(file.exists(paste0(opt$output,'.profiles.chr',i,'.',range_list$Name[k],'.profile'))){			
-			profile<-fread(paste0(opt$output,'.profiles.chr',i,'.',range_list$Name[k],'.profile'))
-			SCORE_temp<-SCORE_temp+profile$SCORE
-		}
-	}
-	scores<-cbind(scores, SCORE_temp)
-	names(scores)[k+2]<-paste0('SCORE_',range_list$pT1[k])
-}
+# Read in the scores
+scores<-fread(paste0(opt$output,'ref_score.all.score'), header=T)
+names(scores)[-1:-2]<-paste0('SCORE_',names(scores)[-1:-2])
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
-
-# Regress out covariates if specified
-if(!is.na(opt$covar) == T){
-	covar<-fread(opt$covar)
-	scores_covar<-merge(scores,covar,by=c('FID','IID'))
-	
-	# Scale the covariates so coeficients correspond to covariates in target samples
-	for(i in names(scores_covar)[grepl('PC',names(scores_covar))]){
-		scores_covar[[i]]<-as.numeric(scale(scores_covar[[i]]))
-	}
-	
-	models<-list()
-	scores_resid<-data.frame(scores_covar[,c('FID','IID')])
-	for(i in names(scores[,-1:-2])){
-		models[[i]]<-lm(as.formula(paste0('scores_covar[[i]] ~ ',paste(names(scores_covar)[grepl('PC', names(scores_covar))], collapse=' + '))), data=scores_covar)
-		scores_resid[[i]]<-resid(models[[i]])
-	}
-	
-saveRDS(models, paste0(opt$output,'.models.rds'))
-scores<-scores_resid
-
-}
 
 # Calculate the mean and sd of scores for each population specified in pop_scale
 pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
@@ -315,7 +219,7 @@ for(k in 1:dim(pop_keep_files)[1]){
 # Clean up temporary files
 ###
 
-system(paste0('rm ',opt$output,'.profiles.*'))
+system(paste0('rm ',opt$output,'ref_score.all.score'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
