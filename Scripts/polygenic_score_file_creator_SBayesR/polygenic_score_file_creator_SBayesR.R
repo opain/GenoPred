@@ -63,6 +63,9 @@ sink()
 
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
 GWAS<-GWAS[complete.cases(GWAS),]
+
+# Calculate P values (first change 0 z-scores to a small non-zero number, as otherwise calculating the beta and se leads to na)
+GWAS$Z[GWAS$Z == 0]<-1e-10
 GWAS$P<-2*pnorm(-abs(GWAS$Z))
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -92,7 +95,6 @@ GWAS_clean<-bim_GWAS[bim_GWAS$IUPAC.x == bim_GWAS$IUPAC.y,]
 GWAS_clean<-GWAS_clean[,c('V2','A1','A2','Z','P','N')]
 names(GWAS_clean)<-c('SNP','A1','A2','Z','P','N')
 
-nsnp<-dim(GWAS_clean)[1]
 
 ###
 # Change to COJO format
@@ -115,6 +117,9 @@ GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','Z','P','N','MAF')]
 GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 0,]
 GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 1,]
 
+# Truncate the sample size distribution across variants
+GWAS_clean<-GWAS_clean[GWAS_clean$N >= max(GWAS_clean$N)*0.90,]
+
 # Transform Z score to beta and se using formula from https://www.ncbi.nlm.nih.gov/pubmed/27019110
 # Note, we could use full sumstats rather than munged which would contain more accurate beta and se.
 GWAS_clean$beta<-GWAS_clean$Z/sqrt((2*GWAS_clean$MAF)*(1-GWAS_clean$MAF)*(GWAS_clean$N+sqrt(abs(GWAS_clean$Z))))
@@ -133,8 +138,8 @@ sink()
 # Run GCTB SBayesR
 #####
 
-for(i in 3:3){
-	system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 100 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i))
+for(i in 1:22){
+	system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i))
 }
 
 ####
