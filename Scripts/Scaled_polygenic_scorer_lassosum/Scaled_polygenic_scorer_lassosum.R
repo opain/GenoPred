@@ -8,12 +8,18 @@ make_option("--target_plink_chr", action="store", default=NA, type='character',
 		help="Path to per chromosome target PLINK files [required]"),
 make_option("--target_keep", action="store", default=NA, type='character',
 		help="Path to keep file for target [optional]"),
-make_option("--ref_model", action="store", default=NA, type='character',
+make_option("--ref_score", action="store", default=NA, type='character',
 		help="Path to reference scoring files [required]"),
+make_option("--ref_freq_chr", action="store", default=NA, type='character',
+		help="Path to per chromosome reference PLINK .frq files [required]"),
 make_option("--output", action="store", default='./Output', type='character',
 		help="Path for output files [required]"),
 make_option("--ref_scale", action="store", default=NA, type='character',
 		help="Path reference scale file [required]"),
+make_option("--plink", action="store", default='plink', type='character',
+    help="Path PLINK software binary [required]"),
+make_option("--memory", action="store", default=5000, type='numeric',
+    help="Memory limit [optional]"),
 make_option("--n_cores", action="store", default=1, type='numeric',
 		help="Path reference scale file [required]"),
 make_option("--pheno_name", action="store", default='./Output', type='character',
@@ -23,7 +29,6 @@ make_option("--pheno_name", action="store", default='./Output', type='character'
 opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
-library(lassosum)
 library(foreach)
 library(doMC)
 registerDoMC(opt$n_cores)
@@ -54,46 +59,58 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in the target sample...')
 sink()
 
-# Read in the lassosum model
-mod<-readRDS(opt$ref_model)
+# List parameters to use in scoring
+tmp<-sub('.*/','',opt$ref_score)
+opt$ref_score_dir<-sub(paste0(tmp,'*.'),'',opt$ref_score)
 
-# Make fake pheno so validate runs
-fam<-fread(paste0(opt$target_plink_chr,'22.fam'))
-pheno<-data.frame(fam[,1:2],pheno=rnorm(dim(fam)[1]))
-names(pheno)<-c('FID','IID','pheno')
+score_files<-list.files(path=opt$ref_score_dir, pattern='.score')
+score_files_param<-gsub('.score','',gsub(paste0('.*',opt$pheno_name,'.'),'',score_files))
 
-is.odd <- function(x){x %% 2 != 0}
-CHROMS_mat<-matrix(NA,nrow=opt$n_cores, ncol=ceiling(22/opt$n_cores)) 
-CHROMS_mat[1:22]<-1:22
-for(i in which(is.odd(1:dim(CHROMS_mat)[2]))){CHROMS_mat[,i]<-rev(CHROMS_mat[,i])} 
-CHROMS<-as.numeric(CHROMS_mat) 
-CHROMS<-CHROMS[!is.na(CHROMS)] 
-print(CHROMS)
+# Remove parameters with 0 variance in the reference
+ref_scale<-fread(opt$ref_scale)
+ref_scale_nonZero<-ref_scale$Param[ref_scale$SD != 0]
+ref_scale_nonZero<-gsub('SCORE_','',ref_scale_nonZero)
+score_files_param<-score_files_param[score_files_param %in% ref_scale_nonZero]
 
-keep<-fread(opt$target_keep)
-write.table(keep[,1:2], paste0(opt$output,'keep_temp.txt'), col.names=F, row.names=F, quote=F)
-
-scores_all<-foreach(i=1:22) %dopar% {
-	v2 <- validate(mod, test.bfile=paste0(opt$target_plink_chr,i), keep=paste0(opt$output,'keep_temp.txt'), pheno=pheno, plot=F)
-	
-	scores<-v2$results.table[!is.na(v2$results.table$order),c('FID','IID')]
-	for(j in 1:length(v2$s)){
-		for(k in 1:length(v2$lambda)){
-			scores_tmp<-data.frame(v2$pgs[[j]][,k])
-			names(scores_tmp)<-paste0('s',v2$s[j],'_lambda',v2$lambda[k])
-			scores<-cbind(scores,scores_tmp)
-		}
-	}
-	scores
+foreach(param_i=score_files_param, .combine=c)%dopar%{
+  if(is.na(opt$target_keep)){
+    for(i in 1:22){
+      system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,'.',param_i,'.score 2 4 6 sum --out ',opt$output_dir,'profiles.',param_i,'.chr',i,' --memory ',floor((opt$memory*0.9)/opt$n_cores)))
+	  system(paste0('rm ',opt$output_dir,'profiles.',param_i,'.chr',i,'.nopred'))
+	  system(paste0('rm ',opt$output_dir,'profiles.',param_i,'.chr',i,'.nosex'))
+	  system(paste0('rm ',opt$output_dir,'profiles.',param_i,'.chr',i,'.log'))
+    }
+  } else {
+    for(i in 1:22){
+      system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,'.',param_i,'.score 2 4 6 sum --out ',opt$output_dir,'profiles.',param_i,'.chr',i,' --memory ',floor((opt$memory*0.9)/opt$n_cores)))
+	  system(paste0('rm ',opt$output_dir,'profiles.',param_i,'.chr',i,'.nopred'))
+	  system(paste0('rm ',opt$output_dir,'profiles.',param_i,'.chr',i,'.nosex'))
+	  system(paste0('rm ',opt$output_dir,'profiles.',param_i,'.chr',i,'.log'))
+    }
+  }
 }
 
-scores_GW<-cbind(scores_all[[1]][,c('FID','IID')], Reduce('+', lapply(scores_all, "[", , -1:-2)))
-rm(scores_all)
-gc()
+# Add up the scores across chromosomes
+profile_example<-list.files(path=opt$output_dir, pattern='*.profile')[1]
+scores<-fread(paste0(opt$output_dir,profile_example))
+scores<-scores[,1:2]
+
+for(param_i in score_files_param){
+  SCORE_temp<-0
+  for(i in 1:22){
+    profile<-fread(paste0(opt$output_dir,'profiles.',param_i,'.chr',i,'.profile'))
+    SCORE_temp<-SCORE_temp+profile$SCORESUM
+  }
+  scores<-cbind(scores, SCORE_temp)
+  
+  names(scores)[grepl('SCORE_temp',names(scores))]<-paste0('SCORE_',param_i)
+}
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
+
+system(paste0('rm ',opt$output_dir,'profiles.*.chr*.profile'))
 
 ###
 # Scale the polygenic scores based on the reference
@@ -105,10 +122,10 @@ sink()
 
 ref_scale<-fread(opt$ref_scale)
 
-for(i in names(scores_GW[,-1:-2])){
-	scores_GW[[i]]<-scores_GW[[i]]-ref_scale$Mean[ref_scale$Param == i]
-	scores_GW[[i]]<-scores_GW[[i]]/ref_scale$SD[ref_scale$Param == i]
-	scores_GW[[i]]<-round(scores_GW[[i]],3)
+for(i in names(scores[,-1:-2])){
+	scores[[i]]<-scores[[i]]-ref_scale$Mean[ref_scale$Param == i]
+	scores[[i]]<-scores[[i]]/ref_scale$SD[ref_scale$Param == i]
+	scores[[i]]<-round(scores[[i]],3)
 }
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -120,16 +137,14 @@ sink()
 ###
 
 if(!is.na(opt$pheno_name)){
-	names(scores_GW)[-1:-2]<-paste0(opt$pheno_name,'_',names(scores_GW)[-1:-2])
+	names(scores)[-1:-2]<-paste0(opt$pheno_name,'_',names(scores)[-1:-2])
 }
 
-fwrite(scores_GW, paste0(opt$output,'.lassosum_profiles'), sep=' ', na='NA')
+fwrite(scores, paste0(opt$output,'.lassosum_profiles'), sep=' ', na='NA', quote=F)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Saved polygenic scores to: ',opt$output,'.lassosum_profiles.\n',sep='')
 sink()
-
-system(paste0('rm ',opt$output,'keep_temp.txt'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

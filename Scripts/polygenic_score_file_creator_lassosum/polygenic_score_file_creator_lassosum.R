@@ -10,8 +10,12 @@ option_list = list(
 			help="Keep file to subset individuals in reference for clumping [required]"),
 	make_option("--ref_pop_scale", action="store", default=NA, type='character',
 			help="File containing the population code and location of the keep file [required]"),
+	make_option("--plink", action="store", default='plink', type='character',
+	            help="Path PLINK software binary [required]"),
 	make_option("--output", action="store", default='./Output', type='character',
 			help="Path for output files [required]"),
+	make_option("--memory", action="store", default=5000, type='numeric',
+	            help="Memory limit [optional]"),
 	make_option("--sumstats", action="store", default=NA, type='character',
 			help="GWAS summary statistics in LDSC format [optional]")
 )
@@ -112,7 +116,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
 
-rm(GWAS_clean, cor)
+rm(cor)
 gc()
 
 #####
@@ -142,33 +146,52 @@ sink()
 rm(v)
 gc()
 
-# Save the validated lassosum model as an R object
-saveRDS(out, paste0(opt$output,'.unvalidated.model.RDS'))
-saveRDS(out2, paste0(opt$output,'.pseudovalidated.model.RDS'))
+# Write out a score file
+score_file<-data.frame(SNP=GWAS_clean$SNP[out$sumstats$order],
+                       out$sumstats[c('chr','pos','A1','A2')])
+score_file<-score_file[,c('chr','SNP','pos','A1','A2')]
+names(score_file)<-c('CHR','SNP','pos','A1','A2')
+
+for(i in 1:length(out$s)){
+  for(k in 1:length(out$lambda)){
+    score_file_tmp<-data.frame(out$beta[[i]][,k])
+    names(score_file_tmp)<-paste0('s',out$s[i],'_lambda',out$lambda[k])
+    score_file_tmp<-cbind(score_file,score_file_tmp)
+    write.table(score_file_tmp, paste0(opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.score'), col.names=F, row.names=F, quote=F)
+  }
+}
 
 #####
 # Calculate the mean and sd of scores for each population specified in pop_scale
 #####
 
-# Create random pheno to validate function works
-fam<-fread(paste0(opt$ref_plink_gw,'.fam'))
-pheno<-data.frame(fam[,1:2],pheno=rnorm(dim(fam)[1]))
-names(pheno)<-c('FID','IID','pheno')
+# Calculate polygenic scores for reference individuals
+# Do this using PLINK not lassosum as we want to use MAF to impute missing genotypes in target samples, which lassosum does not do.
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Calculating polygenic scores in reference...')
+sink()
 
-# Calculate risk scores in the reference
-png(paste0(opt$output,'.temp.png'), unit='px', res=300, height=2000, width=2000)
-v2 <- validate(out, test.bfile=opt$ref_plink_gw, pheno=pheno)
-dev.off()
-system(paste0('rm ',opt$output,'.temp.png'))
-
-scores<-v2$results.table[,c('FID','IID')]
-for(i in 1:length(v2$s)){
-	for(k in 1:length(v2$lambda)){
-		scores_tmp<-data.frame(v2$pgs[[i]][,k])
-		names(scores_tmp)<-paste0('s',v2$s[i],'_lambda',v2$lambda[k])
-		scores<-cbind(scores,scores_tmp)
-	}
+for(i in 1:length(out$s)){
+  for(k in 1:length(out$lambda)){
+    system(paste0(opt$plink, ' --bfile ',opt$ref_plink_gw,' --score ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.score 2 4 6 sum --out ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],' --memory ',floor(opt$memory*0.7)))
+  }
 }
+
+fam<-fread(paste0(opt$ref_plink_gw,'.fam'))
+scores<-fam[,1:2]
+names(scores)<-c('FID','IID')
+
+for(i in 1:length(out$s)){
+  for(k in 1:length(out$lambda)){
+    profile<-fread(paste0(opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.profile'))
+    scores<-cbind(scores, profile$SCORESUM)
+    names(scores)[grepl('V2',names(scores))]<-paste0('SCORE_s',out$s[i],'_lambda',out$lambda[k])
+  }
+}
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Done!\n')
+sink()
 
 #####
 # Calculate the mean and sd of scores for each population specified in pop_scale
@@ -185,6 +208,14 @@ for(k in 1:dim(pop_keep_files)[1]){
 													SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
 
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
+}
+
+for(i in 1:length(out$s)){
+  for(k in 1:length(out$lambda)){
+    system(paste0('rm ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.profile'))
+    system(paste0('rm ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.nosex'))
+    system(paste0('rm ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.log'))
+  }
 }
 
 end.time <- Sys.time()
