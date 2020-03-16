@@ -25,9 +25,7 @@ make_option("--n_cores", action="store", default=1, type='numeric',
 make_option("--PRScs_ref_path", action="store", default=T, type='character',
 		help="Path to PRScs reference [required]"),
 make_option("--phi_param", action="store", default='auto', type='character',
-		help="Path to PRScs reference [optional]"),
-make_option("--python_path", action="store", default=NA, type='character',
-		help="Path to python 2.X [required]")
+		help="Path to PRScs reference [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -134,9 +132,9 @@ print(CHROMS)
 foreach(i=CHROMS, .combine=c) %dopar% {
 	for(phi_i in phi_param){
 		if(phi_i == 'auto'){
-			system(paste0('python ',opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix ',opt$ref_plink_chr,i,' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',i))
+			system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix ',opt$ref_plink_chr,i,' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',i))
 		} else {
-			system(paste0('python ',opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix ',opt$ref_plink_chr,i,' --phi=',phi_i,' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',i))
+			system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix ',opt$ref_plink_chr,i,' --phi=',phi_i,' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',i))
 		}
 	}
 }
