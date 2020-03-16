@@ -796,7 +796,7 @@ gunzip *.gz
 
 mkdir -p ${UKBB_output}/UKBB_ref/LD_matrix/EUR
 
-module add general/R/3.5.0
+module add apps/R/3.6.0
 R
 
 # Read in environmental variables
@@ -804,7 +804,7 @@ source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Targ
 source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config&#39;)
 
 # Create list of SNPs that have MAF above 0.001 in the EUR 1KG sample
-for(i in 3:3){
+for(i in 1:22){
   frq&lt;-read.table(paste0(UKBB_output, &#39;/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.chr&#39;,i,&#39;.frq&#39;), header=T)
   frq&lt;-frq[frq$MAF &gt; 0.001,]
   write.table(frq$SNP,paste0(UKBB_output, &#39;/UKBB_ref/LD_matrix/EUR/SNP_maf0.001_EUR_chr&#39;,i,&#39;.txt&#39;), col.names=F, row.names=F, quote=F)
@@ -814,7 +814,7 @@ for(i in 3:3){
 options(scipen=999)
 
 # Create shrunk LD matrix in 5000 SNP pieces
-for(i in 3:3){
+for(i in 1:22){
   nsnp&lt;-system(paste0(&#39;wc -l &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/SNP_maf0.001_EUR_chr&#39;,i,&#39;.txt&#39;), intern=T)
   nsnp&lt;-as.numeric(unlist(strsplit(nsnp, &#39; &#39;))[1])
   nsnp_chunk&lt;-ceiling(nsnp/5000)
@@ -824,13 +824,13 @@ for(i in 3:3){
     print(start)
     print(end)
 
-    system(paste0(&#39;qsub -b y -l h_vmem=5G &#39;,gctb,&#39; --bfile &#39;,UKBB_output,&#39;/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.chr&#39;,i,&#39; --make-shrunk-ldm --extract &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/SNP_maf0.001_EUR_chr&#39;,i,&#39;.txt --gen-map &#39;,genetic_map,&#39;/CEU/chr&#39;,i,&#39;.OMNI.interpolated_genetic_map --snp &#39;,start,&#39;-&#39;,end,&#39; --out &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr&#39;,i))
+    system(paste0(&#39;sbatch -p brc,shared --mem 5G &#39;,gctb,&#39; --bfile &#39;,UKBB_output,&#39;/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.chr&#39;,i,&#39; --make-shrunk-ldm --extract &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/SNP_maf0.001_EUR_chr&#39;,i,&#39;.txt --gen-map &#39;,genetic_map,&#39;/CEU/chr&#39;,i,&#39;.OMNI.interpolated_genetic_map --snp &#39;,start,&#39;-&#39;,end,&#39; --out &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr&#39;,i))
 
   }
 }
 
 # Merge the chunks into per chromosome LD matrices
-for(i in 3:3){
+for(i in 1:22){
   nsnp&lt;-system(paste0(&#39;wc -l &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/SNP_maf0.001_EUR_chr&#39;,i,&#39;.txt&#39;), intern=T)
   nsnp&lt;-as.numeric(unlist(strsplit(nsnp, &#39; &#39;))[1])
   nsnp_chunk&lt;-ceiling(nsnp/5000)
@@ -839,8 +839,12 @@ for(i in 3:3){
   files&lt;-paste0(UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/&#39;,files)
   if(length(files) == nsnp_chunk){
     files&lt;-gsub(&#39;.bin&#39;, &#39;&#39;, files)
+    file_num&lt;-gsub(&#39;.*.snp&#39;, &#39;&#39;, files)
+    file_num&lt;-as.numeric(gsub(&#39;-.*&#39;, &#39;&#39;, file_num))
+    files&lt;-files[order(file_num)]
+    # Sort files in order of genomic location otherwise SBayeR does not converge!
     write.table(files,paste0(UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/shrunk_ld_chr&#39;,i,&#39;merge_list&#39;), col.names=F, row.names=F, quote=F)
-    system(paste0(&#39;qsub -b y -l h_vmem=&#39;,round(2.1*nsnp_chunk),&#39;G &#39;,gctb,&#39; --mldm &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/shrunk_ld_chr&#39;,i,&#39;merge_list --make-shrunk-ldm --out &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr&#39;,i))
+    system(paste0(&#39;sbatch -p brc,shared --mem &#39;,round(2.5*nsnp_chunk),&#39;G &#39;,gctb,&#39; --mldm &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/shrunk_ld_chr&#39;,i,&#39;merge_list --make-shrunk-ldm --out &#39;,UKBB_output,&#39;/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr&#39;,i))
   } else {
     print(&#39;Not all chunks finished&#39;)
     print(files)
@@ -851,37 +855,24 @@ q()
 n
 
 # Delete temporary files
-for chr in $(seq 3 3);do
+for chr in $(seq 1 22);do
 rm ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr${chr}.snp*
 rm ${UKBB_output}/UKBB_ref/LD_matrix/EUR/SNP_maf0.001_EUR_chr${chr}.txt
 rm ${UKBB_output}/UKBB_ref/LD_matrix/EUR/shrunk_ld_chr${chr}merge_list
 done
 
 # Make the LD matrices sparse
-for chr in $(seq 3 3);do 
-qsub -b y -l h_vmem=30G ${gctb} --ldm ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr${chr}.ldm.shrunk --chisq 0 --make-sparse-ldm --out ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr${chr}
+for chr in $(seq 1 22);do 
+sbatch -p brc,shared --mem 50G ${gctb} --ldm ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr${chr}.ldm.shrunk --chisq 0 --make-sparse-ldm --out ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr${chr}
 done
 
 # Delete temporary files
-for chr in $(seq 3 3);do
+for chr in $(seq 1 22);do
 rm ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr${chr}.ldm.shrunk.*
 done
 
 # Make a list of shrunk sparse matrices
 ls ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr*.ldm.sparse.bin | sed &quot;s/.bin//&quot; &gt; ${Geno_1KG_dir}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.sparse.ldm.list</code></pre>
-</details>
-<p>LD matrices based on EUR 1KG individuals derived by GCTB authors have shared. Download them for comparison.</p>
-<details>
-<p><summary>Show code</summary></p>
-<pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
-
-cd /users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix
-mkdir /users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/GCTB_shared
-cd GCTB_shared
-wget https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1
-mv ukbEURu_hm3_sparse.zip?download=1 ukbEURu_hm3_sparse.zip
-unzip ukbEURu_hm3_sparse.zip
-</code></pre>
 </details>
 <p>Now the LD reference is ready, we can calculate SBayesR shrunk GWAS summary statistics. This section uses an R script called ‘polygenic_score_file_creator_SBayes.R’. Further information the usage of this script can be found <a href="https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_SBLUP">here</a>.</p>
 <details>
@@ -893,62 +884,28 @@ mkdir ${UKBB_output}/UKBB_ref/Score_files_for_poylygenic_SBayesR
 
 # Create list of gwas that PRScs scores should calculated for
 &gt; ${UKBB_output}/UKBB_ref/Score_files_for_poylygenic_SBayesR/todo.txt
-#for gwas in $(cut -f 1 -d &#39; &#39; ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01);do
-if [ ! -f ${UKBB_output}/UKBB_ref/Score_files_for_poylygenic_SBayesR/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/${gwas}/UKBB.noPheno.EUR.10K.w_hm3.${gwas}.EUR.scale ]; then
 echo $gwas &gt;&gt; ${UKBB_output}/UKBB_ref/Score_files_for_poylygenic_SBayesR/todo.txt
 fi
 done
 
 # Run script for selected GWAS
-n=0
 for gwas in $(cat ${UKBB_output}/UKBB_ref/Score_files_for_poylygenic_SBayesR/todo.txt);do
-qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 5 -l h_vmem=12G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+sbatch -J SBayesR -n 5 --mem 25G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
 --ref_plink ${UKBB_output}/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.GW \
 --ref_keep ${UKBB_output}/UKBB_ref/keep_files/UKBB_noPheno_EUR_10K.keep \
 --ref_freq_chr ${UKBB_output}/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.chr \
 --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
 --plink ${plink1_9} \
---gcta ${gcta} \
---ldsc ${ldsc} \
---ldsc_ref ${ldsc_ref} \
---memory 40000 \
+--gctb ${gctb} \
+--ld_matrix_chr ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr \
+--memory 20000 \
 --n_cores 5 \
 --output ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/${gwas}/UKBB.noPheno.EUR.10K.w_hm3.${gwas} \
 --ref_pop_scale ${UKBB_output}/UKBB_ref/keep_files/keep_file.list
 n=$(($n+1))
 done
-
-module add general/R/3.5.0
-module add compilers/gcc/8.1.0
-module add general/python/2.7.10
-R
-
-opt$ref_plink&lt;-&#39;/users/k1806347/brc_scratch/Data/UKBB/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.GW&#39;
-opt$ref_freq_chr&lt;-&#39;/users/k1806347/brc_scratch/Data/UKBB/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.chr&#39;
-opt$ref_keep&lt;-&#39;/users/k1806347/brc_scratch/Data/UKBB/UKBB_ref/keep_files/UKBB_noPheno_EUR_10K.keep&#39;
-opt$sumstats&lt;-&#39;/scratch/groups/ukbiobank/sumstats/munged/HEIG03.sumstats.gz&#39;
-opt$plink&lt;-&#39;/users/k1806347/brc_scratch/Software/plink1.9.sh&#39;
-opt$gctb&lt;-&#39;/users/k1806347/brc_scratch/Software/gctb_2.0_Linux/gctb&#39;
-opt$ld_matrix&lt;-&#39;/users/k1806347/brc_scratch/Data/UKBB/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr&#39;
-opt$memory&lt;-8000
-opt$n_cores&lt;-1
-opt$output&lt;-&#39;/users/k1806347/brc_scratch/Data/UKBB/UKBB_ref/Score_files_for_polygenic_SBayesR/HEIG03/UKBB.noPheno.EUR.10K.w_hm3.HEIG03&#39;
-opt$ref_pop_scale&lt;-&#39;/users/k1806347/brc_scratch/Data/UKBB/UKBB_ref/keep_files/keep_file.list&#39;
-
-
-#Error: Zero SNP effect in the model for 100 cycles of sampling
-# This error is received when analysing all chromosomes together (memory intensive), and for some chromosomes alone.
-# I think there may be something wrong with the LD matriced I have generated. Test code using the LD matrices provided by GCTB authors.
-
-opt$ld_matrix&lt;-&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/GCTB_shared/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr1_v3_50k&#39;
-
-i&lt;-1
-
-system(paste0(opt$gctb,&#39; --sbayes R --ldm &#39;,opt$ld_matrix,&#39;.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary &#39;,opt$output_dir,&#39;GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 100 --out &#39;,opt$output_dir,&#39;GWAS_sumstats_SBayesR.chr&#39;,i))
-
-
-chromosomes 3,2, and 1 fail
 </code></pre>
 </details>
 <p><br/></p>

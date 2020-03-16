@@ -613,6 +613,8 @@ done
 
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
+devtools/python/3.7.3
+
 module add general/R/3.5.0
 module add compilers/gcc/8.1.0
 module add general/python/2.7.10
@@ -806,8 +808,136 @@ done
 
 ## Prepare score and scale files for polygenic scoring using PRScs
 
-Here we create reference files for polygenic scores calculated by PRScs, a method for performing Bayesian continuous shrinkage to GWAS sumstats to account for LD and winners curse. More information on PRScs can be found [here](https://github.com/getian107/PRScs). You will need to download the PRScs software and reference data in advance.
+Here we create reference files for polygenic scores calculated by PRScs, a method for performing Bayesian continuous shrinkage to GWAS sumstats to account for LD and winners curse. More information on PRScs can be found [here](https://github.com/getian107/PRScs). The PRScs developers provide reference LD data based on European individuals in the 1KG sample. To make this directly comparable to other methods I will create my own LD reference data. A comparison will be made to when using the PRScs-provided LD reference as well.
 
+### Prepare PRScs LD reference
+Instructions were provided by Tian Ge.
+
+We need to divide the reference genetic data into LD blocks. Previously defined LD blocks have been downloaded from here: https://bitbucket.org/nygcresearch/ldetect-data/src/master/
+
+First, we need to create a SNPlist for each LD block.
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+mkdir -p ${Geno_1KG_dir}/PRSs_LD_matrix/LD_Blocks
+mkdir -p ${Geno_1KG_dir}/PRSs_LD_matrix/EUR
+
+module load apps/R/3.6.0
+R
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+
+library(data.table)
+
+# Read in bim file for reference
+bim_all<-NULL
+for(i in 1:22){
+	bim<-fread(paste0(Geno_1KG_dir,'/1KGPhase3.w_hm3.chr',i,'.bim'))
+	bim_all<-rbind(bim_all, bim)
+}
+
+# Read in the freq files to create the snopinfo file
+frq_all<-NULL
+for(i in 1:22){
+	frq<-fread(paste0(Geno_1KG_dir,'/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr',i,'.frq'))
+	frq_all<-rbind(frq_all, frq)
+}
+
+# Create snpinfo file
+frq_bim<-merge(bim_all, frq_all[,c('SNP','MAF','NCHROBS')], by.x='V2', by.y='SNP')
+names(frq_bim)<-c('SNP','CHR','POS','BP','A1','A2','MAF','NCHROBS')
+frq_bim<-frq_bim[,c('CHR','SNP','BP','A1','A2','MAF','NCHROBS')]
+frq_bim<-frq_bim[order(frq_bim$CHR, frq_bim$BP),]
+
+# Remove SNPs with a MAF < 0.01
+frq_bim<-frq_bim[frq_bim$MAF > 0.01,]
+# Remove SNPs with a missingness > 0.01
+frq_bim<-frq_bim[frq_bim$NCHROBS > (max(frq_bim$NCHROBS)*0.99),]
+frq_bim$NCHROBS<-NULL
+
+write.table(frq_bim, paste0(Geno_1KG_dir,'/PRSs_LD_matrix/EUR/snpinfo_1kg_hm3'), col.names=T, row.names=F, quote=F)
+
+# Extract snplist for each range in LD Block bed files
+bed<-fread('/users/k1806347/brc_scratch/Data/LDetect/EUR/fourier_ls-all.bed')
+bed$chr<-as.numeric(gsub('chr','',bed$chr))
+
+blk_chr<-bed$chr
+write.table(blk_chr,paste0(Geno_1KG_dir,'/PRSs_LD_matrix/LD_Blocks/blk_chr'), col.names=F, row.names=F, quote=F)
+
+blk_size<-NULL
+for(i in 1:dim(bed)[1]){
+  frq_bim_i<-frq_bim[frq_bim$CHR == bed$chr[i] & frq_bim$BP > bed$start[i] & frq_bim$BP < bed$stop[i],]
+  blk_size<-c(blk_size,dim(frq_bim_i)[1])
+  write.table(frq_bim_i$SNP,paste0(Geno_1KG_dir,'/PRSs_LD_matrix/LD_Blocks/Block_',i,'.snplist'), col.names=F, row.names=F, quote=F)
+}
+
+write.table(blk_size,paste0(Geno_1KG_dir,'/PRSs_LD_matrix/LD_Blocks/blk_size'), col.names=F, row.names=F, quote=F)
+
+q()
+n
+```
+</details>
+
+Then, we need to calculate LD within each block using PLINK.
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+for block in $(seq 1 1703);do 
+sbatch -p brc,shared ${plink1_9} \
+    --bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+    --extract ${Geno_1KG_dir}/PRSs_LD_matrix/LD_Blocks/Block_${block}.snplist \
+    --r square \
+    --keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+    --out ${Geno_1KG_dir}/PRSs_LD_matrix/LD_Blocks/1KGPhase3.w_hm3.EUR.Block_${block}
+done
+
+for block in $(seq 1 1703);do 
+if [ ! -f ${Geno_1KG_dir}/PRSs_LD_matrix/LD_Blocks/1KGPhase3.w_hm3.EUR.Block_${block}.ld ]; then
+echo $block
+fi
+done
+
+# Block 1187 doesn't contain any SNPs
+
+module load apps/R/3.6.0
+R
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+
+library(data.table)
+
+for(i in c(1:1186,1189:1703)){
+  LD_mat<-as.matrix(fread(paste0(Geno_1KG_dir,'/PRSs_LD_matrix/LD_Blocks/1KGPhase3.w_hm3.EUR.Block_',i,'.ld')))
+  if(sum(!is.finite(LD_mat)) > 0){
+    print(i)
+  }
+}
+
+q()
+n
+
+```
+</details>
+
+Lastly, we need to store the LD information in HDF5 format. Tian Ge sent a script called write_ldblk.py to do this. I have edited the paths to work for my file structure.
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create blk_chr indicating which chromosome each block belongs to
+module add devtools/anaconda/2019.3-python2.7.16
+export HDF5_USE_FILE_LOCKING='FALSE'
+python /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/PRScs_ldblk/write_ldblk_1KG_EUR.py
+
+```
+</details>
+
+### Run PRScs
 This section uses an R script called 'polygenic_score_file_creator_PRScs.R'. Further information the usage of this script can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_PRScs).
 
 <details><summary>Show code</summary>
@@ -818,44 +948,38 @@ This section uses an R script called 'polygenic_score_file_creator_PRScs.R'. Fur
 mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs
 
 #######
-# Run for best GWAS for target traits in UKBB
+# Run for best GWAS for target traits
 #######
-> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
+> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo_My1KGRef.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}_My1KGRef/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo_My1KGRef.txt
 fi
 done
 
-# Run script for selected GWAS
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt);do
-qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 6 -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo_My1KGRef.txt | head -n 1);do
+sbatch -p brc,shared -n 6 --mem 6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
 --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
 --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
 --plink ${plink1_9} \
 --memory 5000 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--output ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}_My1KGRef/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
---PRScs_path ${PRScs_dir}/PRScs.py \
---PRScs_ref_path ${PRScs_dir}/ldblk_1kg_eur \
+--PRScs_path /users/k1806347/brc_scratch/Software/PRScs.sh \
+--PRScs_ref_path ${Geno_1KG_dir}/PRSs_LD_matrix/EUR \
 --n_cores 6 \
 --phi_param 1e-6,1e-4,1e-2,1,auto
-n=$(($n+1))
 done
 
-#######
-# Run for best GWAS for target traits in TEDS
-#######
+# Run using the PRScs-provided LD reference.
 > ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
-for gwas in $(echo EDUC03 ADHD04 HEIG03 BODY11);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
 echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
 fi
 done
 
-# Run script for selected GWAS
 n=0
 for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt);do
 qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 6 -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
@@ -977,14 +1101,14 @@ done
 
 gunzip *.gz
 
-module add general/R/3.5.0
+module add apps/R/3.6.0
 R
 
 # Read in environmental variables
 source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
 
 # Create list of SNPs that have MAF above 0.001 in the EUR 1KG sample
-for(i in 3:3){
+for(i in 1:22){
   frq<-read.table(paste0(Geno_1KG_dir, '/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr',i,'.frq'), header=T)
   frq<-frq[frq$MAF > 0.001,]
   write.table(frq$SNP,paste0(Geno_1KG_dir,'/LD_matrix/EUR/SNP_maf0.001_EUR_chr',i,'.txt'), col.names=F, row.names=F, quote=F)
@@ -994,7 +1118,7 @@ for(i in 3:3){
 options(scipen=999)
 
 # Create shrunk LD matrix in 5000 SNP pieces
-for(i in 3:3){
+for(i in 1:22){
   nsnp<-system(paste0('wc -l ',Geno_1KG_dir,'/LD_matrix/EUR/SNP_maf0.001_EUR_chr',i,'.txt'), intern=T)
   nsnp<-as.numeric(unlist(strsplit(nsnp, ' '))[1])
   nsnp_chunk<-ceiling(nsnp/5000)
@@ -1004,13 +1128,13 @@ for(i in 3:3){
     print(start)
     print(end)
     
-    system(paste0('qsub -b y -l h_vmem=5G ',gctb,' --bfile ',Geno_1KG_dir,'/1KGPhase3.w_hm3.chr',i,' --keep ',Geno_1KG_dir,'/keep_files/EUR_samples.keep --make-shrunk-ldm --extract ',Geno_1KG_dir,'/LD_matrix/EUR/SNP_maf0.001_EUR_chr',i,'.txt --gen-map ',genetic_map,'/CEU/chr',i,'.OMNI.interpolated_genetic_map --snp ',start,'-',end,' --out ',Geno_1KG_dir,'/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr',i))
+    system(paste0('sbatch -p brc,shared --mem 5G ',gctb,' --bfile ',Geno_1KG_dir,'/1KGPhase3.w_hm3.chr',i,' --keep ',Geno_1KG_dir,'/keep_files/EUR_samples.keep --make-shrunk-ldm --extract ',Geno_1KG_dir,'/LD_matrix/EUR/SNP_maf0.001_EUR_chr',i,'.txt --gen-map ',genetic_map,'/CEU/chr',i,'.OMNI.interpolated_genetic_map --snp ',start,'-',end,' --out ',Geno_1KG_dir,'/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr',i))
 
   }
 }
 
 # Merge the chunks into per chromosome LD matrices
-for(i in 3:3){
+for(i in 1:22){
   nsnp<-system(paste0('wc -l ',Geno_1KG_dir,'/LD_matrix/EUR/SNP_maf0.001_EUR_chr',i,'.txt'), intern=T)
   nsnp<-as.numeric(unlist(strsplit(nsnp, ' '))[1])
   nsnp_chunk<-ceiling(nsnp/5000)
@@ -1019,8 +1143,12 @@ for(i in 3:3){
   files<-paste0(Geno_1KG_dir,'/LD_matrix/EUR/',files)
   if(length(files) == nsnp_chunk){
     files<-gsub('.bin', '', files)
+    file_num<-gsub('.*.snp', '', files)
+    file_num<-as.numeric(gsub('-.*', '', file_num))
+    # Sort files in order of genomic location otherwise SBayeR does not converge!
+    files<-files[order(file_num)]
     write.table(files,paste0(Geno_1KG_dir,'/LD_matrix/EUR/shrunk_ld_chr',i,'merge_list'), col.names=F, row.names=F, quote=F)
-    system(paste0('qsub -b y -l h_vmem=',round(2.1*nsnp_chunk),'G ',gctb,' --mldm ',Geno_1KG_dir,'/LD_matrix/EUR/shrunk_ld_chr',i,'merge_list --make-shrunk-ldm --out ',Geno_1KG_dir,'/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr',i))
+    system(paste0('sbatch -p brc,shared --mem ',round(2.1*nsnp_chunk),'G ',gctb,' --mldm ',Geno_1KG_dir,'/LD_matrix/EUR/shrunk_ld_chr',i,'merge_list --make-shrunk-ldm --out ',Geno_1KG_dir,'/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr',i))
   } else {
     print('Not all chunks finished')
     print(files)
@@ -1033,24 +1161,22 @@ n
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
 # Delete temporary files
-for chr in $(seq 3 3);do
+for chr in $(seq 1 22);do
 rm ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr${chr}.snp*
 rm ${Geno_1KG_dir}/LD_matrix/EUR/SNP_maf0.001_EUR_chr${chr}.txt
 rm ${Geno_1KG_dir}/LD_matrix/EUR/shrunk_ld_chr${chr}merge_list
 done
 
 # Make the LD matrices sparse
-for chr in $(seq 3 3);do 
-qsub -b y -q LowMemShortterm.q@nodec01,LowMemShortterm.q@nodec10,LowMemShortterm.q@nodec05,LowMemShortterm.q@nodec16,LowMemShortterm.q@nodec06 -l h_vmem=30G ${gctb} --ldm ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr${chr}.ldm.shrunk --chisq 0 --make-sparse-ldm --out ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr${chr}
+for chr in $(seq 1 22);do 
+sbatch -p brc,shared --mem 50G ${gctb} --ldm ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr${chr}.ldm.shrunk --chisq 0 --make-sparse-ldm --out ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr${chr}
 done
 
 # Delete temporary files
-for chr in $(seq 3 3);do
+for chr in $(seq 11 22);do
 rm ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr${chr}.ldm.shrunk.*
 done
 
-# Make a list of shrunk sparse matrices
-ls ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr*.ldm.sparse.bin | sed "s/.bin//" > ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.sparse.ldm.list
 ```
 
 </details>
@@ -1068,6 +1194,12 @@ cd GCTB_shared
 wget https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1
 mv ukbEURu_hm3_sparse.zip?download=1 ukbEURu_hm3_sparse.zip
 unzip ukbEURu_hm3_sparse.zip
+# Rename matrices so chromosome number is at the end of the file name
+for chr in $(seq 1 22);do
+mv ukbEURu_hm3_chr${chr}_v3_50k.ldm.sparse.bin ukbEURu_hm3_v3_50k_chr${chr}.ldm.sparse.bin
+mv ukbEURu_hm3_chr${chr}_v3_50k.ldm.sparse.info ukbEURu_hm3_v3_50k_chr${chr}.ldm.sparse.info
+mv ukbEURu_hm3_chr${chr}_v3_50k_sparse.log ukbEURu_hm3_v3_50k_sparse_chr${chr}.log
+done
 
 ```
 
@@ -1084,70 +1216,108 @@ mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR
 
 # Create list of gwas that PRScs scores should calculated for
 > ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo.txt
-#for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
 echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo.txt
 fi
 done
 
 # Run script for selected GWAS
-n=0
 for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo.txt);do
-qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 5 -l h_vmem=12G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+sbatch -J SBayesR -n 5 --mem 35G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
 --ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
 --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
 --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
 --plink ${plink1_9} \
---gcta ${gcta} \
---ldsc ${ldsc} \
---ldsc_ref ${ldsc_ref} \
---memory 40000 \
+--gctb ${gctb} \
+--ld_matrix_chr ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr \
+--memory 20000 \
 --n_cores 5 \
 --output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
 done
 
-module add apps/R/3.6.0
-R
+# Re-run SBayesR analysis using the GCTB-provided LD-matrix based on 50,000 UKB individuals.
+> ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_LD.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_LD.txt
+fi
+done
 
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_LD.txt);do
+sbatch -J SBayesR -n 5 --mem 25G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+--ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+--ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--plink ${plink1_9} \
+--gctb ${gctb} \
+--ld_matrix_chr /users/k1806347/brc_scratch/Data/GCTB/LD_matrix/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
+--memory 20000 \
+--n_cores 5 \
+--output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+done
+
+# Too many variants are being removed from the BODY03, BODY11 and SCLE02 GWAS.
 opt$ref_plink<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW'
 opt$ref_freq_chr<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr'
 opt$ref_keep<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep'
-opt$sumstats<-'/scratch/groups/ukbiobank/sumstats/munged/HEIG03.sumstats.gz'
-opt$plink<-'/users/k1806347/brc_scratch/Software/plink1.9.sh'
-opt$gctb<-'/users/k1806347/brc_scratch/Software/gctb_2.0_Linux/gctb'
-opt$ld_matrix<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr'
-opt$memory<-8000
+opt$sumstats<-'/scratch/groups/ukbiobank/sumstats/munged/BODY11.sumstats.gz'
+opt$plink<-'/users/k1806347/brc_scratch/Software/plink1.9/plink'
+opt$gctb<-'/users/k1806347/brc_scratch/Software/gctb_2.0_Linux/gctb.sh'
+opt$ld_matrix_chr<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr'
+opt$memory<-30000
 opt$n_cores<-1
-opt$output<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_SBayesR/HEIG03/1KGPhase3.w_hm3.HEIG03'
+opt$output<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_SBayesR/BODY11_Test/1KGPhase3.w_hm3.BODY11'
 opt$ref_pop_scale<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list'
 
+```
+</details>
 
-#Error: Zero SNP effect in the model for 100 cycles of sampling
-# This error is received when analysing all chromosomes together (memory intensive), and for some chromosomes alone.
-# I think there may be something wrong with the LD matriced I have generated. Test code using the LD matrices provided by GCTB authors.
+<br/>
 
-opt$ld_matrix<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/GCTB_shared/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr3_v3_50k'
+***
 
-i<-3
+## Prepare score and scale files for polygenic scoring using LDPred
+Here we create reference files for polygenic scores calculated by LDPred, a method for performing bayesian shrinkage analysis with summary data and an LD-reference. More information on LDPred can be found [here](https://github.com/bvilhjal/ldpred). 
 
-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 100 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i))
+This section uses an R script called 'polygenic_score_file_creator_LDPred.R'. Further information the usage of this script can be found [here](https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_LDPred).
 
-/users/k1806347/brc_scratch/Software/gctb_2.0_Linux/gctb --sbayes R --ldm /users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/GCTB_shared/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr3_v3_50k.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.001,0.1,1 --gwas-summary /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_SBayesR/HEIG03/GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 100 --out /users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_SBayesR/HEIG03/GWAS_sumstats_SBayesR.chr3 > GCTB_LD_mat.out
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-# The hsq estimates was blowing up quickly because some SNPs contained na values for the se due to Z scores of exactly 0.
-# I remove those SNPs and the hsq still blows up after 3000 iterations, even when using the gctb ldmatrix. 
-# If I truncate the sample size distribution (i.e. remove SNPs with N >= 0.9*max(N)), the analysis finishes when using the gctb ld matrix, but not the 1KG reference. It also fails with my UKBB reference but after more iterations.
+# Create directory for the output
+mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred
 
-# Create cojo format GWAS sumstats from the original GWAS sumstats.
-GWAS<-fread(cmd=paste0('zcat /scratch/groups/ukbiobank/sumstats/cleaned/HEIG03.gz'))
+#######
+# Run for best GWAS for target traits
+#######
 
-GWAS_clean<-GWAS_clean[,c('V2','A1','A2','BETA','SE','P','N')]
-names(GWAS_clean)<-c('SNP','A1','A2','BETA','SE','P','N')
+> ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/todo.txt
+fi
+done
 
+# Run script for selected GWAS
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/todo.txt | head -n 1);do
+sbatch -p brc,shared --mem 50G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_LDPred/polygenic_score_file_creator_LDPred.R \
+--ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+--ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--plink ${plink1_9} \
+--memory 20000 \
+--n_cores 1 \
+--ldpred ${ldpred} \
+--output ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+done
 
 ```
 </details>
