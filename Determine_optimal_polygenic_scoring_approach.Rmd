@@ -32,32 +32,18 @@ pre code, pre, code {
 ***
 
 # Introduction
-There are two main approaches for calculating polygenic scores (PRSs):
 
-* *p*-value thresholding and clumping
-* Shrinkage of GWAS summary statistics
-* Best-Linear Unbiased Predictor (BLUP)
+Genome-wide association studies (GWAS) with large sample sizes have been performed for a wide range of complex phenotypes. This has enabled biological insights but also enables individual-level prediction. Polygenic scoring is the process of calculating an individuals genetic risk or propensity for an outcome by calculating the sum of effect alleles an individual carries, weighting each allele by its effect size. It is important to account for the linkage disequilibrium (LD) between genetic variants when estimating an individual's risk to avoid double counting. This is typically achieved either by performing LD-based clumping to retain only LD-independent genetic variants, or by joint estimation of genetic variant effects. A range of methods have been developed to calculate polygenic scores and adjust GWAS effect sizes for improved prediction. Some methods derive polygenic scores using a range of parameters (p-value thresholds or shrinkage parameters), requiring cross-validation to idenitfy the optimal parameters. Other methods estimates the optimal parameter without c validation sample, an approach called pseudovalidation. Previous research has not investigated whether combining information across polygenic scores derived using a range of parameters can improve prediction. 
 
-We often don't know what the optimal parameters are when deriving a polygenic score, i.e. best p-value threshold or best shrinkage parameters. Methods to identify the best parameter are: 
-
-* Cross-validation (e.g. 10-fold cross validation).
-  + Will find optimal parameters, however is time consuming.
-* Pseudo-validation - optimal parameters are predicted based on distribution of GWAS summary statistics.
-  + Fast but may not find optimal threshold.
-
-Rather than using a single PRS, it may also be advantageous to predict outcome using multiple PRSs based on different parameters. A limitation to this approach is that modelling many predictors is computationally intensive and may increase the risk of overfitting.
-
-Another approach for improving prediction using polygenic scores is to model polygenic scores for multiple outcomes in an elastic net model ([ref](https://www.nature.com/articles/mp2017163),[ref](https://www.nature.com/articles/s41380-019-0394-4)). Here we will aim to replicate these findings with the polygenic score method that this study determines as optimal.
+In this study we compare a range of polygenic scoring approaches within a reference standardised framework, whereby the polygenic scores are derived using a previously defined set of variants, and LD and minor allele frequency (MAF) are estimated using an ancestry matched reference genotype data sample. This ensures the performance of the methods will hold true when implmenting them within a clinical context, which will require reference-standardisation of polygenic scoring.
 
 <br/>
 
 ***
 
 # Aims
-1. Compare PRS derived from p-value and clumping method, shrinkage methods (including lassosum and PRScs), and S-BLUP, using 10-fold cross validation to identify the optimal parameters.
-2. Compare the predictive utility of the best PRS identified using 10-fold cross-validated PRS with the PRS selected using pseudo-validation.
-3. Compare predictive utility of models including multiple PRSs based on difference parameters, to those using a single PRS selected using 10-fold cross-validation or pseudo-validation.
-4. Test whether models containing polygenic scores for multiple outcomes improve prediction over the use of a polygenic score for a single outcome.
+1. Compare the predictive utility of polygenic scores derived using a range of methods.
+2. Compare predictive utility of models including multiple PRSs based on difference parameters, to those using a single PRS selected using 10-fold cross-validation or pseudo-validation.
 
 <br/>
 
@@ -90,16 +76,19 @@ Another approach for improving prediction using polygenic scores is to model pol
 
 
 ## Genotypic data
-HapMap3 variants were extracted from the HRC imputed genetic data, and converted to hard-call PLINK format with no hard-call threshold to maximise overlap with the HapMap3 SNP list. Individuals were excluded if they had extensive missing data, had non-European ancestry, or were closely-related to other individuals in the sample. This was done prior to this project.
+Both target sample underwent stringent quality control prior to imputation using the HRC-reference. After imputation, genotypes were converted to PLINK hard-calls, and only HapMap3 SNPs were retained. Eureopean individuals within the target samples were identified and retained if they were within the 3SD of the 1KG European mean of the first 100 principal components.
 
 ## Polygenic scoring
-Polygenic scores were derived using three methods: 
-1. p-value thresholding and clumping (pT + clump). No pseudo-validation approach for selecting the optimal pT is available). Both sparse (8 pTs) and dense (500 pTs) will be tested.
-2. lassosum - Lasso-based shrinkage method.
-3. PRScs - Bayesian shrinkage method.
-3. SBLUP - Summary statistic-based BLUP estimates
+Polygenic scores were derived using the following methods: 
 
-Polygenic scores were derived using a reference standardised pipeline, previously described in detail [here](https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring). In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on European individuals within the 1000 Genomes reference. Any HapMap3 missing in the target sample are imputed using the allele frequency measured in the European subset of the 1000 Genomes reference.
+  1. p-value thresholding and clumping (pT + clump).
+  2. lassosum - Lasso-based shrinkage method.
+  3. PRScs - Bayesian shrinkage method.
+  4. SBLUP - Summary statistic-based BLUP estimates
+  5. SBayesR - Bayesian joint estimation method
+  6. LDPred - Bayesian joint estimation method
+
+Polygenic scores were derived using a reference standardised pipeline. Two references were used for all methods, the European subset of the 1KG reference ([described here](https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring)), and an independant subset of 10K European individuals from UK Biobank ([described here](https://opain.github.io/GenoPred/Pipeline_prep_withUKBB_ref.html#3_polygenic_scoring)). In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on these references Any HapMap3 missing in the target sample are imputed using the reference estimated allele frequency.
 
 ### UK Biobank
 <details><summary>pT + clump: Sparse</summary>
@@ -785,7 +774,7 @@ done
 <br/>
 
 ## Estimating predictive ability
-All models were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process.
+Models containing a single predictor were derived using generalised linear model (GLM). Models containing multiple predictors were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process.
 
 Model building and evaluation was performed using an Rscript called Model_builder.R (more information [here](https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder)).
 
@@ -1957,9 +1946,7 @@ done
 ***
 
 # Results
-The pattern of results are consistent between 10-fold cross-validation and test set validation. Modelling multiple PRSs based on a range of parameters consistenly provides an improvement over the best single PRS idenitfied by cross-validation. This applies to both the pT + clump methods, and the shrinkage and SBLUP methods. Using dense pTs or non-nested pTs doesn't improve upon use of standard sparse and nested pTs. Shrinkage and BLUP methods consistantly perform better than the pT + clump approach, even when modelling multiple pTs using elastic net. The pseudovalidation approach within PRScs (AKA fully bayesian) was the best approach not requiring cross-validation to select the best parameter, with pseudovalidated lassosum and SBLUP approaches performing poorly for several outcomes.
-
-The prediction accuracy of methods did not differ substantially when using the 1K Genomes or UK biobank references, nor when using either UK biobank or TEDS as target sampples.
+The pattern of results are consistent between 10-fold cross-validation and test set validation. Modelling multiple polygenic scores based on a range of parameters consistenly provides an improvement over the best single polygenic score idenitfied by cross-validation. This applies to all polygenic scoring methods. Using dense pTs or non-nested pTs doesn't improve upon use of standard sparse and nested pTs. Methods adjusting GWAS effect sizes consistantly perform better than the pT + clump approach, even when modelling multiple pTs using elastic net. The pseudovalidation approach within PRScs (AKA fully bayesian) was the best approach not requiring cross-validation to select the best parameter, providing near optimal prediction across outcomes, references and target samples.
 
 <br/>
 
@@ -2578,13 +2565,13 @@ cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp
 
 <center>
 
-![Figure 1: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal_UKBB.UKBB_ref.png)
+![Figure 5: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal_UKBB.UKBB_ref.png)
 
 </details>
 
 <details><summary>Show UKBB test-validation results</summary>
 
-![Figure 2: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal_UKBB.UKBB_ref.png)
+![Figure 6: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal_UKBB.UKBB_ref.png)
 
 \center
 
@@ -2777,13 +2764,13 @@ cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp
 
 <center>
 
-![Figure 3: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal_TEDS.UKBB_ref.png)
+![Figure 7: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal_TEDS.UKBB_ref.png)
 
 </details>
 
 <details><summary>Show TEDS test-validation results</summary>
 
-![Figure 4: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal_TEDS.UKBB_ref.png)
+![Figure 8: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal_TEDS.UKBB_ref.png)
 
 \center
 
@@ -2883,8 +2870,6 @@ write.csv(All_res, '/scratch/users/k1806347/Analyses/UKBB_outcomes_for_predictio
 q()
 n
 ```
-
-</details>
 
 ```{r, echo=T, eval=F}
 module add apps/R/3.6.0
@@ -3075,10 +3060,57 @@ q()
 
 ```
 
+</details>
+
+```{bash, eval=T, echo=F}
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_SBayesR_LDref_comp_Average_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_SBayesR_LDref_comp_Average_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_SBayesR_LDref_comp_CrossVal_TEDS.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_SBayesR_LDref_comp_IndepVal_TEDS.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+```
+
+<details><summary>Show UKBB cross-validation results</summary>
+
+<center>
+
+![Figure 9: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_LDref_comp_Average_CrossVal.png)
+
+</details>
+
+<details><summary>Show UKBB test-validation results</summary>
+
+![Figure 10: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_LDref_comp_Average_IndepVal.png)
+
+\center
+
+</details>
+
+<details><summary>Show TEDS cross-validation results</summary>
+
+<center>
+
+![Figure 11: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_LDref_comp_CrossVal_TEDS.png)
+
+</details>
+
+<details><summary>Show TEDS test-validation results</summary>
+
+![Figure 12: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_LDref_comp_IndepVal_TEDS.png)
+
+\center
+
+</details>
+
+<br/>
+
 ## Summary of results
 Here we will estimate the average correlation between observed and predicted values across all phenotypes.
 
-<details><summary>Show TEDS results table</summary>
+<details><summary>Average results across phenotypes</summary>
 
 ```{r, echo=T, eval=F}
 ###
@@ -3183,20 +3215,55 @@ n
 
 ```
 
-***
+</details>
 
-# Discussion
+```{bash, eval=T, echo=F}
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
 
-This study has replicated previous findings that shrinkage of GWAS summary statistics using lassosum, PRScs and SBLUP can increase the variance explained by subsequent PRSs. Interestingly predicting the optimal shrinkage paramter via pseudovalidation is suboptimal for lassosum and SBLUP, with selection of the shrinkage parameter by formal cross validation providing substantial improvements the variance explained by the PRS. In contrast psudovalidation, or fully bayesian mode, implemented by PRScs performs well, providing PRSs with a predictive utility close to those derived using a shrinkage parameter identified via cross validation.
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
 
-This study also reports that use of an elastic net to model model PRSs, based on a range of shrinkage paramters provides the optimal variance explained for all methods and outcomes. However, the improvement in prediction is small, and computational burden of generating multiple PRSs, and modelling them in an elastic net can be substantial. Furthermore, as more predictors are included in the model, the likelihood of overfitting increases, particularly in smaller sample, making approches that use fewer predictors more appealing.
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_diff_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
 
-<br/>
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_diff_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+```
+
+<details><summary>Show average cross-validation results</summary>
+
+<center>
+
+![Figure 13: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_Average_CrossVal.png)
+
+</details>
+
+<details><summary>Show average test-validation results</summary>
+
+![Figure 14: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_Average_IndepVal.png)
+
+\center
+
+</details>
+
+<details><summary>Show average difference cross-validation results</summary>
+
+<center>
+
+![Figure 15: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_Average_diff_CrossVal.png)
+
+</details>
+
+<details><summary>Show average difference test-validation results</summary>
+
+![Figure 16: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_Average_diff_IndepVal.png)
+
+\center
+
+</details>
 
 ***
 
 # Conclusion
-Based on our results we think suggest the use of PRScs using only the pseudovalidated, or fully bayesian, global shrinkage parameter, as this provides near optimal prediction whilst reducing computional burden and risk of overfitting.
+Our results suggest the use of PRScs using only the pseudovalidated global shrinkage parameter, as this provides near optimal prediction whilst reducing computional burden and risk of overfitting.
 
 <br/>
 
