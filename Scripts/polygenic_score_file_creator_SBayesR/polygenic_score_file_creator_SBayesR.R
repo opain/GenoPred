@@ -71,7 +71,14 @@ if(opt$munged == F){
     GWAS$BETA<-log(GWAS$OR)
   }
 }
-  
+
+if(opt$munged == F){
+  if(!('SE' %in% names(GWAS))){
+    GWAS$Z<-abs(qnorm(GWAS$P/2))
+    GWAS$SE<-abs(GWAS$BETA/GWAS$Z)
+  }
+}
+
 if(opt$munged == T){
   # Calculate P values (first change 0 z-scores to a small non-zero number, as otherwise calculating the beta and se leads to na)
   GWAS$Z[GWAS$Z == 0]<-1e-10
