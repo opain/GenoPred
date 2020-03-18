@@ -39,7 +39,7 @@ Genotype-based scores are typically based on several target sample specific feat
 
 * Minor allele frequecy (MAF)
 
-Basing these features on the target sample lead to differences in genotype-based scores across samples seperately processed, meaning they cannot be directly compared. This is not a limitation when performing inference within a single dataset, however in framework of prediction it is important that the predictors are derived in a way that can be replicated in any future dataset to optimise external validity of the prediction model.
+Basing these features on the target sample lead to differences in genotype-based scores across samples separately processed, meaning they cannot be directly compared. This is not a limitation when performing inference within a single dataset, however in framework of prediction it is important that the predictors are derived in a way that can be replicated in any future dataset to optimise external validity of the prediction model.
 
 To ensure consistency in genotye-based scoring we can base each of these features on a reference dataset, such as the 1000 Genomes reference, an approach herein refered to as 'reference-standardised'. Another advantage of reference-standardised scoring is that a single sample can be realiably processed, enabling reliable prediction for n individual.
 
@@ -997,6 +997,31 @@ qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 6 -l h_vmem
 n=$(($n+1))
 done
 
+# Run using the PRScs-provided LD reference.
+> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
+fi
+done
+
+n=0
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt);do
+qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 6 -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
+--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--plink ${plink1_9} \
+--memory 5000 \
+--output ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
+--PRScs_path ${PRScs_dir}/PRScs.py \
+--PRScs_ref_path ${PRScs_dir}/ldblk_1kg_eur \
+--n_cores 6 \
+--phi_param 1e-6,1e-4,1e-2,1,auto
+n=$(($n+1))
+done
+
 ```
 </details>
 <br/>
@@ -1261,17 +1286,43 @@ sbatch -J SBayesR -n 5 --mem 25G -p brc,shared /users/k1806347/brc_scratch/Softw
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
 done
 
-# Too many variants are being removed from the BODY03, BODY11 and SCLE02 GWAS.
+# Re-run SBayesR analysis using the GCTB-provided LD-matrix based on 50,000 UKB individuals, and unmunged sumstats
+> ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_unmunged_LD.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref_unmunged/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_unmunged_LD.txt
+fi
+done
+
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_unmunged_LD.txt);do
+sbatch -J SBayesR -n 5 --mem 25G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+--ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+--ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--sumstats ${gwas_rep_unmunged}/${gwas}.gz \
+--plink ${plink1_9} \
+--gctb ${gctb} \
+--ld_matrix_chr /users/k1806347/brc_scratch/Data/GCTB/LD_matrix/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
+--memory 20000 \
+--munged F \
+--n_cores 5 \
+--output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref_unmunged/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+done
+
+module load apps/R/3.6.0
+
 opt$ref_plink<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW'
 opt$ref_freq_chr<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr'
 opt$ref_keep<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep'
-opt$sumstats<-'/scratch/groups/ukbiobank/sumstats/munged/BODY11.sumstats.gz'
+opt$sumstats<-'/scratch/groups/ukbiobank/sumstats/cleaned/RHEU01.gz'
 opt$plink<-'/users/k1806347/brc_scratch/Software/plink1.9/plink'
 opt$gctb<-'/users/k1806347/brc_scratch/Software/gctb_2.0_Linux/gctb.sh'
 opt$ld_matrix_chr<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr'
 opt$memory<-30000
 opt$n_cores<-1
-opt$output<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_SBayesR/BODY11_Test/1KGPhase3.w_hm3.BODY11'
+opt$munged<-F
+opt$output<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic_SBayesR/RHEU01_Test/1KGPhase3.w_hm3.RHEU01'
 opt$ref_pop_scale<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list'
 
 ```
