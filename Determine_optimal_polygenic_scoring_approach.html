@@ -472,8 +472,414 @@ pre code, pre, code {
 <h2><span class="header-section-number">3.3</span> Genotypic data</h2>
 <p>Both target sample underwent stringent quality control prior to imputation using the HRC-reference. After imputation, genotypes were converted to PLINK hard-calls, and only HapMap3 SNPs were retained. Eureopean individuals within the target samples were identified and retained if they were within the 3SD of the 1KG European mean of the first 100 principal components.</p>
 </div>
+<div id="gwas-summary-statistics" class="section level2">
+<h2><span class="header-section-number">3.4</span> GWAS summary statistics</h2>
+<p>For each target phenotype, the largest independent phenotype-matched GWAS was selected for calculating polygenic scores. More information can be found in the table below.</p>
+<details>
+<p><summary>Preparing GWAS sumstats table for UK Biobank phenotypes</summary></p>
+<pre class="bash"><code>
+module add apps/R/3.6.0
+R
+
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config&#39;)
+
+library(data.table)
+
+pheno&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_031218.csv&#39;)
+
+ukb_pheno=c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;,&#39;T2D&#39;,&#39;CAD&#39;,&#39;IBD&#39;,&#39;MultiScler&#39;,&#39;RheuArth&#39;)
+ukb_gwas=c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;SCLE02&#39;,&#39;RHEU01&#39;)
+ukb_prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005)
+ukb_dat&lt;-data.frame(pheno=ukb_pheno,gwas=ukb_gwas,prev=ukb_prev)
+
+pheno_ukb&lt;-pheno[(pheno$Code %in% ukb_gwas),]
+pheno_ukb&lt;-pheno_ukb[,c(&#39;Code&#39;,&#39;trait&#39;,&#39;year&#39;,&#39;PMID&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sample_size_discovery&#39;,&#39;h2 observed&#39;,&#39;h2 se&#39;,&#39;lambda GC&#39;,&#39;intercept&#39;,&#39;intercept se&#39;)]
+names(pheno_ukb)&lt;-c(&#39;Code&#39;,&#39;trait&#39;,&#39;year&#39;,&#39;PMID&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sample_size_discovery&#39;,&#39;h2_obs&#39;,&#39;h2_se&#39;,&#39;lambda&#39;,&#39;intercept&#39;,&#39;intercept_se&#39;)
+
+pheno_ukb$pop_prev&lt;-ukb_dat$prev[match(pheno_ukb$Code, ukb_dat$gwas)]
+pheno_ukb$Target_Phenotype&lt;-ukb_dat$pheno[match(pheno_ukb$Code, ukb_dat$gwas)]
+pheno_ukb$Ncases&lt;-as.numeric(gsub(&#39;,&#39;,&#39;&#39;,pheno_ukb$Ncases))
+pheno_ukb$Ncontrols&lt;-as.numeric(gsub(&#39;,&#39;,&#39;&#39;,pheno_ukb$Ncontrols))
+pheno_ukb$samp_prev&lt;-pheno_ukb$Ncases/(pheno_ukb$Ncases+pheno_ukb$Ncontrols)
+
+h2l_R2 &lt;- function(k, r2, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  h2l_R2 = C*r2 / (1 + C*theta*r2)
+}
+
+se_h2l_R2 &lt;- function(k,h2,se, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+
+  #SE on the liability (From a Taylor series expansion)
+  #var(h2l_r2) = [d(h2l_r2)/d(R2v)]^2*var(R2v) with d being calculus differentiation
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  se_h2l_R2 = C*(1-h2*theta)*se
+}
+
+pheno_ukb$h2_obs&lt;-as.numeric(pheno_ukb$h2_obs)
+pheno_ukb$h2_se&lt;-as.numeric(pheno_ukb$h2_se)
+
+pheno_ukb$h2_liab&lt;-round(h2l_R2(k=pheno_ukb$pop_prev, r2=pheno_ukb$h2_obs, p=pheno_ukb$samp_prev),3)
+pheno_ukb$h2_liab_se&lt;-round(se_h2l_R2(k=pheno_ukb$pop_prev,h2=pheno_ukb$h2_obs,se=pheno_ukb$h2_se, p=pheno_ukb$samp_prev),3)
+
+pheno_ukb$h2_obs&lt;-paste0(pheno_ukb$h2_obs,&quot; (&quot;, pheno_ukb$h2_se,&quot;)&quot;)
+pheno_ukb$h2_se&lt;-NULL
+pheno_ukb$h2_liab[!is.na(pheno_ukb$Ncases)]&lt;-paste0(pheno_ukb$h2_liab[!is.na(pheno_ukb$Ncases)],&quot; (&quot;, pheno_ukb$h2_liab_se[!is.na(pheno_ukb$Ncases)],&quot;)&quot;)
+pheno_ukb$h2_liab_se&lt;-NULL
+pheno_ukb$intercept&lt;-paste0(pheno_ukb$intercept,&quot; (&quot;, pheno_ukb$intercept_se,&quot;)&quot;)
+pheno_ukb$intercept_se&lt;-NULL
+
+pheno_ukb$trait&lt;-c(&#39;BMI&#39;,&#39;CAD&#39;,&#39;College Completion&#39;,&quot;Crohn&#39;s Disease&quot;,&#39;Major Depression&#39;,&#39;T2D&#39;,&#39;Height&#39;,&#39;RheuArth&#39;,&#39;MultiScler&#39;)
+pheno_ukb&lt;-pheno_ukb[match(ukb_dat$gwas,pheno_ukb$Code),]
+
+pheno_ukb&lt;-pheno_ukb[,c(&#39;Target_Phenotype&#39;,&#39;Code&#39;,&#39;trait&#39;,&#39;year&#39;,&#39;PMID&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sample_size_discovery&#39;,&#39;h2_obs&#39;,&#39;h2_liab&#39;,&#39;intercept&#39;,&#39;lambda&#39;)]
+names(pheno_ukb)&lt;-c(&#39;Target Phenotype&#39;,&#39;Code&#39;,&#39;GWAS Phenotype&#39;,&#39;Year&#39;,&#39;PMID&#39;,&#39;Ncase&#39;,&#39;Ncontrol&#39;,&#39;N&#39;,&#39;h2_obs&#39;,&#39;h2_liab&#39;,&#39;Intercept&#39;,&#39;Lambda&#39;)
+
+write.csv(pheno_ukb, &#39;/users/k1806347/brc_scratch/Data/GWAS_sumstats/UKBB_phenotype_GWAS_descrip.csv&#39;, row.names=F, quote=F)
+q()
+n
+</code></pre>
+</details>
+<details>
+<p><summary>Show GWAS for UK Biobank phenotypes</summary></p>
+<table>
+<caption>GWAS used for each UK Biobank phenotype</caption>
+<thead>
+<tr class="header">
+<th align="left">Target Phenotype</th>
+<th align="left">Code</th>
+<th align="left">GWAS Phenotype</th>
+<th align="right">Year</th>
+<th align="right">PMID</th>
+<th align="right">Ncase</th>
+<th align="right">Ncontrol</th>
+<th align="right">N</th>
+<th align="left">h2-obs (SE)</th>
+<th align="left">h2-liab (SE)</th>
+<th align="left">Intercept</th>
+<th align="right">Lambda</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">Depression</td>
+<td align="left">DEPR06</td>
+<td align="left">Major Depression</td>
+<td align="right">2018</td>
+<td align="right">29700475</td>
+<td align="right">116404</td>
+<td align="right">314990</td>
+<td align="right">431394</td>
+<td align="left">0.0551 (0.0023)</td>
+<td align="left">0.085 (0.004)</td>
+<td align="left">1.017 (0.009)</td>
+<td align="right">1.3894</td>
+</tr>
+<tr class="even">
+<td align="left">Intelligence</td>
+<td align="left">COLL01</td>
+<td align="left">College Completion</td>
+<td align="right">2013</td>
+<td align="right">23722424</td>
+<td align="right">NA</td>
+<td align="right">NA</td>
+<td align="right">95427</td>
+<td align="left">0.1048 (0.0075)</td>
+<td align="left">NA</td>
+<td align="left">1.0214 (0.0086)</td>
+<td align="right">1.1940</td>
+</tr>
+<tr class="odd">
+<td align="left">BMI</td>
+<td align="left">BODY03</td>
+<td align="left">BMI</td>
+<td align="right">2015</td>
+<td align="right">25673413</td>
+<td align="right">NA</td>
+<td align="right">NA</td>
+<td align="right">339224</td>
+<td align="left">0.1346 (0.0057)</td>
+<td align="left">NA</td>
+<td align="left">0.7054 (0.0078)</td>
+<td align="right">1.1301</td>
+</tr>
+<tr class="even">
+<td align="left">Height</td>
+<td align="left">HEIG03</td>
+<td align="left">Height</td>
+<td align="right">2014</td>
+<td align="right">25282103</td>
+<td align="right">NA</td>
+<td align="right">NA</td>
+<td align="right">253288</td>
+<td align="left">0.312 (0.0141)</td>
+<td align="left">NA</td>
+<td align="left">1.3254 (0.0185)</td>
+<td align="right">2.0007</td>
+</tr>
+<tr class="odd">
+<td align="left">T2D</td>
+<td align="left">DIAB05</td>
+<td align="left">T2D</td>
+<td align="right">2017</td>
+<td align="right">28566273</td>
+<td align="right">26676</td>
+<td align="right">132532</td>
+<td align="right">159208</td>
+<td align="left">0.0781 (0.0053)</td>
+<td align="left">0.124 (0.008)</td>
+<td align="left">0.9984 (0.0083)</td>
+<td align="right">1.1459</td>
+</tr>
+<tr class="even">
+<td align="left">CAD</td>
+<td align="left">COAD01</td>
+<td align="left">CAD</td>
+<td align="right">2015</td>
+<td align="right">26343387</td>
+<td align="right">60801</td>
+<td align="right">123504</td>
+<td align="right">184305</td>
+<td align="left">0.0661 (0.0045)</td>
+<td align="left">0.057 (0.004)</td>
+<td align="left">0.8875 (0.0074)</td>
+<td align="right">1.0466</td>
+</tr>
+<tr class="odd">
+<td align="left">IBD</td>
+<td align="left">CROH01</td>
+<td align="left">Crohn’s Disease</td>
+<td align="right">2015</td>
+<td align="right">26192919</td>
+<td align="right">5956</td>
+<td align="right">14927</td>
+<td align="right">20883</td>
+<td align="left">0.4751 (0.0538)</td>
+<td align="left">0.542 (0.059)</td>
+<td align="left">1.0316 (0.0092)</td>
+<td align="right">1.1396</td>
+</tr>
+<tr class="even">
+<td align="left">MultiScler</td>
+<td align="left">SCLE02</td>
+<td align="left">MultiScler</td>
+<td align="right">2011</td>
+<td align="right">21833088</td>
+<td align="right">9772</td>
+<td align="right">17376</td>
+<td align="right">27148</td>
+<td align="left">0.048 (0.0263)</td>
+<td align="left">0.021 (0.012)</td>
+<td align="left">1.0602 (0.0087)</td>
+<td align="right">1.0375</td>
+</tr>
+<tr class="odd">
+<td align="left">RheuArth</td>
+<td align="left">RHEU01</td>
+<td align="left">RheuArth</td>
+<td align="right">2014</td>
+<td align="right">24390342</td>
+<td align="right">19234</td>
+<td align="right">60565</td>
+<td align="right">79799</td>
+<td align="left">0.1018 (0.013)</td>
+<td align="left">0.072 (0.01)</td>
+<td align="left">0.9532 (0.0078)</td>
+<td align="right">1.0466</td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<p><summary>Preparing GWAS sumstats table for TEDS phenotypes</summary></p>
+<pre class="bash"><code>
+module add apps/R/3.6.0
+R
+
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config&#39;)
+
+library(data.table)
+
+pheno&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_031218.csv&#39;)
+
+teds_pheno=c(&#39;Height21&#39;, &#39;BMI21&#39;, &#39;GCSE&#39;, &#39;ADHD&#39;)
+teds_gwas=c(&#39;HEIG03&#39;, &#39;BODY11&#39;, &#39;EDUC03&#39;, &#39;ADHD04&#39;)
+teds_prev=c(NA,NA,NA,0.05)
+teds_dat&lt;-data.frame(pheno=teds_pheno,gwas=teds_gwas,prev=teds_prev)
+
+pheno_teds&lt;-pheno[(pheno$Code %in% teds_gwas),]
+pheno_teds&lt;-pheno_teds[,c(&#39;Code&#39;,&#39;trait&#39;,&#39;year&#39;,&#39;PMID&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sample_size_discovery&#39;,&#39;h2 observed&#39;,&#39;h2 se&#39;,&#39;lambda GC&#39;,&#39;intercept&#39;,&#39;intercept se&#39;)]
+names(pheno_teds)&lt;-c(&#39;Code&#39;,&#39;trait&#39;,&#39;year&#39;,&#39;PMID&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sample_size_discovery&#39;,&#39;h2_obs&#39;,&#39;h2_se&#39;,&#39;lambda&#39;,&#39;intercept&#39;,&#39;intercept_se&#39;)
+
+pheno_teds$pop_prev&lt;-teds_dat$prev[match(pheno_teds$Code, teds_dat$gwas)]
+pheno_teds$Target_Phenotype&lt;-teds_dat$pheno[match(pheno_teds$Code, teds_dat$gwas)]
+pheno_teds$Ncases&lt;-as.numeric(gsub(&#39;,&#39;,&#39;&#39;,pheno_teds$Ncases))
+pheno_teds$Ncontrols&lt;-as.numeric(gsub(&#39;,&#39;,&#39;&#39;,pheno_teds$Ncontrols))
+pheno_teds$samp_prev&lt;-pheno_teds$Ncases/(pheno_teds$Ncases+pheno_teds$Ncontrols)
+
+h2l_R2 &lt;- function(k, r2, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  h2l_R2 = C*r2 / (1 + C*theta*r2)
+}
+
+se_h2l_R2 &lt;- function(k,h2,se, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+
+  #SE on the liability (From a Taylor series expansion)
+  #var(h2l_r2) = [d(h2l_r2)/d(R2v)]^2*var(R2v) with d being calculus differentiation
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  se_h2l_R2 = C*(1-h2*theta)*se
+}
+
+pheno_teds$h2_obs&lt;-as.numeric(pheno_teds$h2_obs)
+pheno_teds$h2_se&lt;-as.numeric(pheno_teds$h2_se)
+
+pheno_teds$h2_liab&lt;-round(h2l_R2(k=pheno_teds$pop_prev, r2=pheno_teds$h2_obs, p=pheno_teds$samp_prev),3)
+pheno_teds$h2_liab_se&lt;-round(se_h2l_R2(k=pheno_teds$pop_prev,h2=pheno_teds$h2_obs,se=pheno_teds$h2_se, p=pheno_teds$samp_prev),3)
+
+pheno_teds$h2_obs&lt;-paste0(pheno_teds$h2_obs,&quot; (&quot;, pheno_teds$h2_se,&quot;)&quot;)
+pheno_teds$h2_se&lt;-NULL
+pheno_teds$h2_liab[!is.na(pheno_teds$Ncases)]&lt;-paste0(pheno_teds$h2_liab[!is.na(pheno_teds$Ncases)],&quot; (&quot;, pheno_teds$h2_liab_se[!is.na(pheno_teds$Ncases)],&quot;)&quot;)
+pheno_teds$h2_liab_se&lt;-NULL
+pheno_teds$intercept&lt;-paste0(pheno_teds$intercept,&quot; (&quot;, pheno_teds$intercept_se,&quot;)&quot;)
+pheno_teds$intercept_se&lt;-NULL
+
+pheno_teds$trait&lt;-c(&quot;ADHD (mixed ancestry)&quot;,&#39;BMI&#39;,&#39;Educational Attainment&#39;,&#39;Height&#39;)
+pheno_teds&lt;-pheno_teds[match(teds_dat$gwas,pheno_teds$Code),]
+
+pheno_teds&lt;-pheno_teds[,c(&#39;Target_Phenotype&#39;,&#39;Code&#39;,&#39;trait&#39;,&#39;year&#39;,&#39;PMID&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sample_size_discovery&#39;,&#39;h2_obs&#39;,&#39;h2_liab&#39;,&#39;intercept&#39;,&#39;lambda&#39;)]
+names(pheno_teds)&lt;-c(&#39;Target Phenotype&#39;,&#39;Code&#39;,&#39;GWAS Phenotype&#39;,&#39;Year&#39;,&#39;PMID&#39;,&#39;Ncase&#39;,&#39;Ncontrol&#39;,&#39;N&#39;,&#39;h2_obs&#39;,&#39;h2_liab&#39;,&#39;Intercept&#39;,&#39;Lambda&#39;)
+
+pheno_teds$PMID[2]&lt;-30124842
+pheno_teds$PMID[4]&lt;-30478444
+
+write.csv(pheno_teds, &#39;/users/k1806347/brc_scratch/Data/GWAS_sumstats/TEDS_phenotype_GWAS_descrip.csv&#39;, row.names=F, quote=F)
+q()
+n
+</code></pre>
+</details>
+<details>
+<p><summary>Show GWAS for TEDS phenotypes</summary></p>
+<table>
+<caption>GWAS used for each TEDS phenotype</caption>
+<thead>
+<tr class="header">
+<th align="left">Target Phenotype</th>
+<th align="left">Code</th>
+<th align="left">GWAS Phenotype</th>
+<th align="right">Year</th>
+<th align="right">PMID</th>
+<th align="right">Ncase</th>
+<th align="right">Ncontrol</th>
+<th align="right">N</th>
+<th align="left">h2-obs (SE)</th>
+<th align="left">h2-liab (SE)</th>
+<th align="left">Intercept</th>
+<th align="right">Lambda</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">Height21</td>
+<td align="left">HEIG03</td>
+<td align="left">Height</td>
+<td align="right">2014</td>
+<td align="right">25282103</td>
+<td align="right">NA</td>
+<td align="right">NA</td>
+<td align="right">253288</td>
+<td align="left">0.312 (0.0141)</td>
+<td align="left">NA</td>
+<td align="left">1.3254 (0.0185)</td>
+<td align="right">2.0007</td>
+</tr>
+<tr class="even">
+<td align="left">BMI21</td>
+<td align="left">BODY11</td>
+<td align="left">BMI</td>
+<td align="right">2018</td>
+<td align="right">30124842</td>
+<td align="right">NA</td>
+<td align="right">NA</td>
+<td align="right">693529</td>
+<td align="left">0.1576 (0.0048)</td>
+<td align="left">NA</td>
+<td align="left">1.1988 (0.0186)</td>
+<td align="right">2.5641</td>
+</tr>
+<tr class="odd">
+<td align="left">GCSE</td>
+<td align="left">EDUC03</td>
+<td align="left">Educational Attainment</td>
+<td align="right">2018</td>
+<td align="right">30038396</td>
+<td align="right">NA</td>
+<td align="right">NA</td>
+<td align="right">766345</td>
+<td align="left">0.1066 (0.0026)</td>
+<td align="left">NA</td>
+<td align="left">1.0301 (0.0137)</td>
+<td align="right">2.0940</td>
+</tr>
+<tr class="even">
+<td align="left">ADHD</td>
+<td align="left">ADHD04</td>
+<td align="left">ADHD (mixed ancestry)</td>
+<td align="right">2017</td>
+<td align="right">30478444</td>
+<td align="right">20183</td>
+<td align="right">35191</td>
+<td align="right">55374</td>
+<td align="left">0.3635 (0.0227)</td>
+<td align="left">0.426 (0.026)</td>
+<td align="left">1.0295 (0.0096)</td>
+<td align="right">1.2431</td>
+</tr>
+</tbody>
+</table>
+</details>
+<p><br/></p>
+</div>
 <div id="polygenic-scoring" class="section level2">
-<h2><span class="header-section-number">3.4</span> Polygenic scoring</h2>
+<h2><span class="header-section-number">3.5</span> Polygenic scoring</h2>
 <p>Polygenic scores were derived using the following methods:</p>
 <ol style="list-style-type: decimal">
 <li>p-value thresholding and clumping (pT + clump).</li>
@@ -485,7 +891,7 @@ pre code, pre, code {
 </ol>
 <p>Polygenic scores were derived using a reference standardised pipeline. Two references were used for all methods, the European subset of the 1KG reference (<a href="https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring">described here</a>), and an independant subset of 10K European individuals from UK Biobank (<a href="https://opain.github.io/GenoPred/Pipeline_prep_withUKBB_ref.html#3_polygenic_scoring">described here</a>). In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on these references Any HapMap3 missing in the target sample are imputed using the reference estimated allele frequency.</p>
 <div id="uk-biobank" class="section level3">
-<h3><span class="header-section-number">3.4.1</span> UK Biobank</h3>
+<h3><span class="header-section-number">3.5.1</span> UK Biobank</h3>
 <details>
 <p><summary>pT + clump: Sparse</summary></p>
 <pre class="bash"><code># Set required variables
@@ -871,7 +1277,7 @@ done</code></pre>
 <p><br/></p>
 </div>
 <div id="teds" class="section level3">
-<h3><span class="header-section-number">3.4.2</span> TEDS</h3>
+<h3><span class="header-section-number">3.5.2</span> TEDS</h3>
 <details>
 <p><summary>pT + clump: Sparse</summary></p>
 <pre class="bash"><code># Set required variables
@@ -1167,11 +1573,11 @@ done
 </div>
 </div>
 <div id="estimating-predictive-ability" class="section level2">
-<h2><span class="header-section-number">3.5</span> Estimating predictive ability</h2>
+<h2><span class="header-section-number">3.6</span> Estimating predictive ability</h2>
 <p>Models containing a single predictor were derived using generalised linear model (GLM). Models containing multiple predictors were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process.</p>
 <p>Model building and evaluation was performed using an Rscript called Model_builder.R (more information <a href="https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder">here</a>).</p>
 <div id="uk-biobank-1" class="section level3">
-<h3><span class="header-section-number">3.5.1</span> UK Biobank</h3>
+<h3><span class="header-section-number">3.6.1</span> UK Biobank</h3>
 <details>
 <p><summary>pT + clump: Sparse</summary></p>
 <pre class="bash"><code>##############################
@@ -1785,7 +2191,7 @@ done
 <p><br/></p>
 </div>
 <div id="teds-1" class="section level3">
-<h3><span class="header-section-number">3.5.2</span> TEDS</h3>
+<h3><span class="header-section-number">3.6.2</span> TEDS</h3>
 <details>
 <p><summary>pT + clump: Sparse</summary></p>
 <pre class="bash"><code>##############################
@@ -6199,7 +6605,7 @@ plot_grid(plotlist=plots_UKBB, ncol = 2)
 dev.off()
 
 plots_UKBB&lt;-list()
-for(i in 1:8){
+for(i in 1:9){
 plots_UKBB[[pheno_UKBB[i]]] &lt;- ggplot( res_UKBB[res_UKBB$Phenotype==pheno_UKBB[i],], aes(x=Ref, y=IndepVal_R, fill=Ref)) +
                       geom_bar(stat=&quot;identity&quot;, position=position_dodge(preserve = &quot;single&quot;), width = 0.7, colour=&#39;black&#39;) +
                       geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.4, position=position_dodge(width = 0.7, preserve = &quot;single&quot;)) +

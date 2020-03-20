@@ -951,18 +951,213 @@ for(i in 1:length(pheno)){
 
 write.csv(pheno_N, paste0(UKBB_output,&#39;/Phenotype/PRS_comp_subset/Pheno_N.csv&#39;), row.names=F, quote=F)
   </code></pre>
+</div>
+<div id="estimate-snp-h2-of-uk-biobank-phenotypes" class="section level2">
+<h2><span class="header-section-number">1.9</span> Estimate SNP-h2 of UK Biobank phenotypes</h2>
+<p>We will estimate the SNP-heritability of each phenotype based on the 50k subsets we have just created. We will retain only indiviudals that pass Kylie’s QC, as we have done in the prediction modelling stage. Given the sample size of each phenotype, LD-score regression seems the most suitable strategy for estimating heritability. GREML in GCTA will be computationally intensive.</p>
 <details>
-<p><summary>Subsetting phenotypic data</summary></p>
-<pre class="bash"><code>#####
-# Calculate descriptives for phenotypes.
+<p><summary>Estimating SNP-heritability</summary></p>
+<pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config
+####
+# Perform GWAS for each phenotype
+####
+
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+binary=$(echo T F F F T T T T T)
+
+for i in $(seq 1 9); do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  binary_i=$(echo ${binary} | cut -f ${i} -d &#39; &#39;)
+  
+  mkdir ${UKBB_output}/Phenotype/${pheno_i}/GWAS
+  
+  if [[ ${binary_i} == &quot;T&quot; ]]
+  then
+    for chr in $(seq 1 22);do
+      sbatch -p brc,shared ${plink1_9} \
+        --bfile ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
+        --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+        --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+        --1 \
+        --assoc \
+        --allow-no-sex \
+        --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.chr${chr}
+        
+      sbatch -p brc,shared ${plink1_9} \
+        --bfile ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
+        --keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+        --freq \
+        --allow-no-sex \
+        --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.chr${chr}
+
+    done
+  else
+      for chr in $(seq 1 22);do
+      sbatch -p brc,shared ${plink1_9} \
+        --bfile ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
+        --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+        --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+        --assoc \
+        --allow-no-sex \
+        --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.chr${chr}
+    done
+  fi
+    
+done
+
+####
+# Format for munge_sumstats.py
+####
+
+module add apps/R/3.6.0
+R
+
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config&#39;)
+
+library(data.table)
+
+# Read in bim file
+bim&lt;-NULL
+for(chr in 1:22){
+  bim_chr&lt;-fread(paste0(UKBB_output,&#39;/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr&#39;,chr,&#39;.bim&#39;))
+  bim&lt;-rbind(bim,bim_chr)
+}
+
+pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;,&#39;T2D&#39;,&#39;CAD&#39;,&#39;IBD&#39;,&#39;MultiScler&#39;,&#39;RheuArth&#39;)
+binary&lt;-c(T,F,F,F,T,T,T,T,T)
+
+for(i in 1:9){
+gwas_i&lt;-NULL
+  for(chr in 1:22){
+    if(binary[i] == T){
+        gwas_i_chr&lt;-fread(paste0(UKBB_output,&#39;/Phenotype/&#39;,pheno[i],&#39;/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.&#39;,pheno[i],&#39;.chr&#39;,chr,&#39;.assoc&#39;))
+        frq_i_chr&lt;-fread(paste0(UKBB_output,&#39;/Phenotype/&#39;,pheno[i],&#39;/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.&#39;,pheno[i],&#39;.chr&#39;,chr,&#39;.frq&#39;))
+        frq_i_chr$NCHROBS&lt;-frq_i_chr$NCHROBS/2
+        gwas_i_chr&lt;-merge(gwas_i_chr,frq_i_chr[,c(&#39;SNP&#39;,&#39;NCHROBS&#39;)],by=&#39;SNP&#39;)
+        gwas_i_chr&lt;-gwas_i_chr[,c(&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;,&#39;OR&#39;,&#39;P&#39;,&#39;NCHROBS&#39;)]
+        names(gwas_i_chr)&lt;-c(&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;,&#39;OR&#39;,&#39;P&#39;,&#39;N&#39;)
+        gwas_i_chr&lt;-gwas_i_chr[complete.cases(gwas_i_chr),]
+    } else {
+        gwas_i_chr&lt;-fread(paste0(UKBB_output,&#39;/Phenotype/&#39;,pheno[i],&#39;/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.&#39;,pheno[i],&#39;.chr&#39;,chr,&#39;.qassoc&#39;))
+        gwas_i_chr&lt;-merge(gwas_i_chr, bim, by.x=&#39;SNP&#39;, by.y=&#39;V2&#39;)
+        gwas_i_chr&lt;-gwas_i_chr[,c(&#39;SNP&#39;,&#39;V5&#39;,&#39;V6&#39;,&#39;BETA&#39;,&#39;P&#39;,&#39;NMISS&#39;)]
+        names(gwas_i_chr)&lt;-c(&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;,&#39;BETA&#39;,&#39;P&#39;,&#39;N&#39;)
+        gwas_i_chr&lt;-gwas_i_chr[complete.cases(gwas_i_chr),]
+    }
+    gwas_i&lt;-rbind(gwas_i, gwas_i_chr)
+  }
+  
+  write.table(gwas_i, paste0(UKBB_output,&#39;/Phenotype/&#39;,pheno[i],&#39;/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.&#39;,pheno[i],&#39;.GW.assoc_clean&#39;), col.names=T, row.names=F, quote=F)
+}
+
+q()
+n
+
+####
+# Munge sumstats
+####
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config
+
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+binary=$(echo T F F F T T T T T)
+
+for i in $(seq 1 9); do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  binary_i=$(echo ${binary} | cut -f ${i} -d &#39; &#39;)
+  
+  sbatch -p brc,shared ~/brc_scratch/Software/munge_sumstats.sh \
+   --sumstats ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.assoc_clean \
+   --merge-alleles ${HapMap3_snplist_dir}/w_hm3.snplist \
+   --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW
+done
+
+####
+# Estimate heritability
+####
+
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+binary=$(echo T F F F T T T T T)
+pop_prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
+samp_prev=$(echo 0.5 NA NA NA 0.298 0.5 0.069 0.023 0.068)
+
+for i in $(seq 1 9); do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  binary_i=$(echo ${binary} | cut -f ${i} -d &#39; &#39;)
+  pop_prev_i=$(echo ${pop_prev} | cut -f ${i} -d &#39; &#39;)
+  samp_prev_i=$(echo ${samp_prev} | cut -f ${i} -d &#39; &#39;)
+  
+  if [[ ${binary_i} == &quot;T&quot; ]]
+    then
+    sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh \
+     --h2 ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.sumstats.gz \
+     --ref-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
+     --w-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
+     --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW
+     
+    sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh \
+     --h2 ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.sumstats.gz \
+     --ref-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
+     --w-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
+     --samp-prev ${pop_prev_i} \
+     --pop-prev ${pop_prev_i} \
+     --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.liab
+     
+  else
+  
+   sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh \
+     --h2 ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.sumstats.gz \
+     --ref-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
+     --w-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
+     --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW
+
+  fi
+  
+done
+
+#####
+# Tabulate results
 #####
 
 module add apps/R/3.6.0
 R
+
 source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config&#39;)
+
 library(data.table)
 
 pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;,&#39;T2D&#39;,&#39;CAD&#39;,&#39;IBD&#39;,&#39;MultiScler&#39;,&#39;RheuArth&#39;)
+binary&lt;-c(T,F,F,F,T,T,T,T,T)
+
+N_tab&lt;-fread(paste0(UKBB_output,&#39;/Phenotype/PRS_comp_subset/Pheno_N.csv&#39;))
+for(i in 1:9){
+  if(binary[i] == T){
+    h2_i&lt;-read.table(paste0(UKBB_output,&#39;/Phenotype/&#39;,pheno[i],&#39;/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.&#39;,pheno[i],&#39;.GW.log&#39;), header=F, sep=&#39;&amp;&#39;)
+    h2_liab_i&lt;-read.table(paste0(UKBB_output,&#39;/Phenotype/&#39;,pheno[i],&#39;/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.&#39;,pheno[i],&#39;.GW.liab.log&#39;), header=F, sep=&#39;&amp;&#39;)
+    N_tab$h2_obs[N_tab$Pheno == pheno[i]]&lt;-gsub(&#39;Total Observed scale h2: &#39;,&#39;&#39;,h2_i$V1[grepl(&#39;Total Observed scale h2: &#39;,h2_i$V1)])
+    N_tab$h2_liab[N_tab$Pheno == pheno[i]]&lt;-gsub(&#39;Total Liability scale h2: &#39;,&#39;&#39;,h2_liab_i$V1[grepl(&#39;Total Liability scale h2: &#39;,h2_liab_i$V1)])
+    N_tab$intercept[N_tab$Pheno == pheno[i]]&lt;-gsub(&#39;Intercept: &#39;,&#39;&#39;,h2_i$V1[grepl(&#39;Intercept: &#39;,h2_i$V1)])
+    N_tab$lambda[N_tab$Pheno == pheno[i]]&lt;-gsub(&#39;Lambda GC: &#39;,&#39;&#39;,h2_i$V1[grepl(&#39;Lambda GC: &#39;,h2_i$V1)])
+  } else {
+      h2_i&lt;-read.table(paste0(UKBB_output,&#39;/Phenotype/&#39;,pheno[i],&#39;/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.&#39;,pheno[i],&#39;.GW.log&#39;), header=F, sep=&#39;&amp;&#39;)
+    N_tab$h2_obs[N_tab$Pheno == pheno[i]]&lt;-gsub(&#39;Total Observed scale h2: &#39;,&#39;&#39;,h2_i$V1[grepl(&#39;Total Observed scale h2: &#39;,h2_i$V1)])
+    N_tab$intercept[N_tab$Pheno == pheno[i]]&lt;-gsub(&#39;Intercept: &#39;,&#39;&#39;,h2_i$V1[grepl(&#39;Intercept: &#39;,h2_i$V1)])
+    N_tab$lambda[N_tab$Pheno == pheno[i]]&lt;-gsub(&#39;Lambda GC: &#39;,&#39;&#39;,h2_i$V1[grepl(&#39;Lambda GC: &#39;,h2_i$V1)])
+  }
+}
+
+write.csv(N_tab, paste0(UKBB_output,&#39;/Phenotype/PRS_comp_subset/Pheno_N_h2.csv&#39;), row.names=F, quote=F)
+q()
+n
+
+####
+# Delete intermediate files
+####
+
+rm ${UKBB_output}/Phenotype/*/GWAS/*.assoc
+rm ${UKBB_output}/Phenotype/*/GWAS/*chr*.frq
+rm ${UKBB_output}/Phenotype/*/GWAS/*chr*.log
+rm ${UKBB_output}/Phenotype/*/GWAS/*chr*.nosex
 </code></pre>
 </div>
 </div>

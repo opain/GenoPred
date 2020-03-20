@@ -78,6 +78,212 @@ In this study we compare a range of polygenic scoring approaches within a refere
 ## Genotypic data
 Both target sample underwent stringent quality control prior to imputation using the HRC-reference. After imputation, genotypes were converted to PLINK hard-calls, and only HapMap3 SNPs were retained. Eureopean individuals within the target samples were identified and retained if they were within the 3SD of the 1KG European mean of the first 100 principal components.
 
+## GWAS summary statistics
+For each target phenotype, the largest independent phenotype-matched GWAS was selected for calculating polygenic scores. More information can be found in the table below.
+
+<details><summary>Preparing GWAS sumstats table for UK Biobank phenotypes</summary>
+```{bash, echo=T, eval=F}
+
+module add apps/R/3.6.0
+R
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
+
+library(data.table)
+
+pheno<-fread('/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_031218.csv')
+
+ukb_pheno=c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
+ukb_gwas=c('DEPR06','COLL01','BODY03','HEIG03','DIAB05','COAD01','CROH01','SCLE02','RHEU01')
+ukb_prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005)
+ukb_dat<-data.frame(pheno=ukb_pheno,gwas=ukb_gwas,prev=ukb_prev)
+
+pheno_ukb<-pheno[(pheno$Code %in% ukb_gwas),]
+pheno_ukb<-pheno_ukb[,c('Code','trait','year','PMID','Ncases','Ncontrols','sample_size_discovery','h2 observed','h2 se','lambda GC','intercept','intercept se')]
+names(pheno_ukb)<-c('Code','trait','year','PMID','Ncases','Ncontrols','sample_size_discovery','h2_obs','h2_se','lambda','intercept','intercept_se')
+
+pheno_ukb$pop_prev<-ukb_dat$prev[match(pheno_ukb$Code, ukb_dat$gwas)]
+pheno_ukb$Target_Phenotype<-ukb_dat$pheno[match(pheno_ukb$Code, ukb_dat$gwas)]
+pheno_ukb$Ncases<-as.numeric(gsub(',','',pheno_ukb$Ncases))
+pheno_ukb$Ncontrols<-as.numeric(gsub(',','',pheno_ukb$Ncontrols))
+pheno_ukb$samp_prev<-pheno_ukb$Ncases/(pheno_ukb$Ncases+pheno_ukb$Ncontrols)
+
+h2l_R2 <- function(k, r2, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  h2l_R2 = C*r2 / (1 + C*theta*r2)
+}
+
+se_h2l_R2 <- function(k,h2,se, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+
+  #SE on the liability (From a Taylor series expansion)
+  #var(h2l_r2) = [d(h2l_r2)/d(R2v)]^2*var(R2v) with d being calculus differentiation
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  se_h2l_R2 = C*(1-h2*theta)*se
+}
+
+pheno_ukb$h2_obs<-as.numeric(pheno_ukb$h2_obs)
+pheno_ukb$h2_se<-as.numeric(pheno_ukb$h2_se)
+
+pheno_ukb$h2_liab<-round(h2l_R2(k=pheno_ukb$pop_prev, r2=pheno_ukb$h2_obs, p=pheno_ukb$samp_prev),3)
+pheno_ukb$h2_liab_se<-round(se_h2l_R2(k=pheno_ukb$pop_prev,h2=pheno_ukb$h2_obs,se=pheno_ukb$h2_se, p=pheno_ukb$samp_prev),3)
+
+pheno_ukb$h2_obs<-paste0(pheno_ukb$h2_obs," (", pheno_ukb$h2_se,")")
+pheno_ukb$h2_se<-NULL
+pheno_ukb$h2_liab[!is.na(pheno_ukb$Ncases)]<-paste0(pheno_ukb$h2_liab[!is.na(pheno_ukb$Ncases)]," (", pheno_ukb$h2_liab_se[!is.na(pheno_ukb$Ncases)],")")
+pheno_ukb$h2_liab_se<-NULL
+pheno_ukb$intercept<-paste0(pheno_ukb$intercept," (", pheno_ukb$intercept_se,")")
+pheno_ukb$intercept_se<-NULL
+
+pheno_ukb$trait<-c('BMI','CAD','College Completion',"Crohn's Disease",'Major Depression','T2D','Height','RheuArth','MultiScler')
+pheno_ukb<-pheno_ukb[match(ukb_dat$gwas,pheno_ukb$Code),]
+
+pheno_ukb<-pheno_ukb[,c('Target_Phenotype','Code','trait','year','PMID','Ncases','Ncontrols','sample_size_discovery','h2_obs','h2_liab','intercept','lambda')]
+names(pheno_ukb)<-c('Target Phenotype','Code','GWAS Phenotype','Year','PMID','Ncase','Ncontrol','N','h2_obs','h2_liab','Intercept','Lambda')
+
+write.csv(pheno_ukb, '/users/k1806347/brc_scratch/Data/GWAS_sumstats/UKBB_phenotype_GWAS_descrip.csv', row.names=F, quote=F)
+q()
+n
+
+```
+</details>
+
+<details><summary>Show GWAS for UK Biobank phenotypes</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Data/GWAS_sumstats/UKBB_phenotype_GWAS_descrip.csv")
+
+names(res)<-c('Target Phenotype','Code','GWAS Phenotype','Year','PMID','Ncase','Ncontrol','N',"h2-obs (SE)","h2-liab (SE)",'Intercept','Lambda')
+
+library(knitr)
+kable(res, rownames = FALSE, caption='GWAS used for each UK Biobank phenotype')
+```
+
+</details>
+
+<details><summary>Preparing GWAS sumstats table for TEDS phenotypes</summary>
+```{bash, echo=T, eval=F}
+
+module add apps/R/3.6.0
+R
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
+
+library(data.table)
+
+pheno<-fread('/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_031218.csv')
+
+teds_pheno=c('Height21', 'BMI21', 'GCSE', 'ADHD')
+teds_gwas=c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
+teds_prev=c(NA,NA,NA,0.05)
+teds_dat<-data.frame(pheno=teds_pheno,gwas=teds_gwas,prev=teds_prev)
+
+pheno_teds<-pheno[(pheno$Code %in% teds_gwas),]
+pheno_teds<-pheno_teds[,c('Code','trait','year','PMID','Ncases','Ncontrols','sample_size_discovery','h2 observed','h2 se','lambda GC','intercept','intercept se')]
+names(pheno_teds)<-c('Code','trait','year','PMID','Ncases','Ncontrols','sample_size_discovery','h2_obs','h2_se','lambda','intercept','intercept_se')
+
+pheno_teds$pop_prev<-teds_dat$prev[match(pheno_teds$Code, teds_dat$gwas)]
+pheno_teds$Target_Phenotype<-teds_dat$pheno[match(pheno_teds$Code, teds_dat$gwas)]
+pheno_teds$Ncases<-as.numeric(gsub(',','',pheno_teds$Ncases))
+pheno_teds$Ncontrols<-as.numeric(gsub(',','',pheno_teds$Ncontrols))
+pheno_teds$samp_prev<-pheno_teds$Ncases/(pheno_teds$Ncases+pheno_teds$Ncontrols)
+
+h2l_R2 <- function(k, r2, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  h2l_R2 = C*r2 / (1 + C*theta*r2)
+}
+
+se_h2l_R2 <- function(k,h2,se, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+
+  #SE on the liability (From a Taylor series expansion)
+  #var(h2l_r2) = [d(h2l_r2)/d(R2v)]^2*var(R2v) with d being calculus differentiation
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  se_h2l_R2 = C*(1-h2*theta)*se
+}
+
+pheno_teds$h2_obs<-as.numeric(pheno_teds$h2_obs)
+pheno_teds$h2_se<-as.numeric(pheno_teds$h2_se)
+
+pheno_teds$h2_liab<-round(h2l_R2(k=pheno_teds$pop_prev, r2=pheno_teds$h2_obs, p=pheno_teds$samp_prev),3)
+pheno_teds$h2_liab_se<-round(se_h2l_R2(k=pheno_teds$pop_prev,h2=pheno_teds$h2_obs,se=pheno_teds$h2_se, p=pheno_teds$samp_prev),3)
+
+pheno_teds$h2_obs<-paste0(pheno_teds$h2_obs," (", pheno_teds$h2_se,")")
+pheno_teds$h2_se<-NULL
+pheno_teds$h2_liab[!is.na(pheno_teds$Ncases)]<-paste0(pheno_teds$h2_liab[!is.na(pheno_teds$Ncases)]," (", pheno_teds$h2_liab_se[!is.na(pheno_teds$Ncases)],")")
+pheno_teds$h2_liab_se<-NULL
+pheno_teds$intercept<-paste0(pheno_teds$intercept," (", pheno_teds$intercept_se,")")
+pheno_teds$intercept_se<-NULL
+
+pheno_teds$trait<-c("ADHD (mixed ancestry)",'BMI','Educational Attainment','Height')
+pheno_teds<-pheno_teds[match(teds_dat$gwas,pheno_teds$Code),]
+
+pheno_teds<-pheno_teds[,c('Target_Phenotype','Code','trait','year','PMID','Ncases','Ncontrols','sample_size_discovery','h2_obs','h2_liab','intercept','lambda')]
+names(pheno_teds)<-c('Target Phenotype','Code','GWAS Phenotype','Year','PMID','Ncase','Ncontrol','N','h2_obs','h2_liab','Intercept','Lambda')
+
+pheno_teds$PMID[2]<-30124842
+pheno_teds$PMID[4]<-30478444
+
+write.csv(pheno_teds, '/users/k1806347/brc_scratch/Data/GWAS_sumstats/TEDS_phenotype_GWAS_descrip.csv', row.names=F, quote=F)
+q()
+n
+
+```
+</details>
+
+<details><summary>Show GWAS for TEDS phenotypes</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Data/GWAS_sumstats/TEDS_phenotype_GWAS_descrip.csv")
+
+names(res)<-c('Target Phenotype','Code','GWAS Phenotype','Year','PMID','Ncase','Ncontrol','N',"h2-obs (SE)","h2-liab (SE)",'Intercept','Lambda')
+
+library(knitr)
+kable(res, rownames = FALSE, caption='GWAS used for each TEDS phenotype')
+```
+
+</details>
+
+<br/>
+
 ## Polygenic scoring
 Polygenic scores were derived using the following methods: 
 
@@ -3093,7 +3299,7 @@ plot_grid(plotlist=plots_UKBB, ncol = 2)
 dev.off()
 
 plots_UKBB<-list()
-for(i in 1:8){
+for(i in 1:9){
 plots_UKBB[[pheno_UKBB[i]]] <- ggplot( res_UKBB[res_UKBB$Phenotype==pheno_UKBB[i],], aes(x=Ref, y=IndepVal_R, fill=Ref)) +
                       geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
                       geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
