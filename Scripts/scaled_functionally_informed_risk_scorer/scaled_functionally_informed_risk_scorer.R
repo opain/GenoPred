@@ -6,6 +6,8 @@ suppressMessages(library("optparse"))
 option_list = list(
 make_option("--targ_feature_pred", action="store", default=NA, type='character',
 		help="Path to predicted expression file [required]"),
+make_option("--target_keep", action="store", default=NA, type='character',
+    help="Path to keep file for target [optional]"),
 make_option("--ref_score", action="store", default=NA, type='character',
 		help="Path to reference scoring files [required]"),
 make_option("--output", action="store", default='./Output', type='character',
@@ -53,8 +55,8 @@ if(substr(opt$targ_feature_pred, nchar(opt$targ_feature_pred)-2, nchar(opt$targ_
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
 	cat('Decompressing targ_feature_pred...')
 	sink()
-	system(paste0(opt$pigz,' -dk -p ',opt$n_cores,' ',opt$targ_feature_pred))
-	opt$targ_feature_pred<-gsub('.gz','',opt$targ_feature_pred)
+	system(paste0(opt$pigz,' -dc -p ',opt$n_cores,' ',opt$targ_feature_pred,' > ',opt$output,'.target_feature_pred'))
+	opt$targ_feature_pred<-paste0(opt$output,'.target_feature_pred')
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
 	cat('Done!\n')
 	sink()
@@ -63,10 +65,36 @@ originally_compressed<-F
 }
 
 TargGene<-fread(cmd=paste0('head -n 1 ',opt$targ_feature_pred), nThread=opt$n_cores)
+n_indiv<-system(paste0('wc -l ', opt$targ_feature_pred), intern=T)
+n_indiv<-as.numeric(gsub(' .*','',n_indiv))
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat(dim(TargGene)[2]-2, 'features are present in targ_feature_pred.\n')
+cat(n_indiv-1, 'individulas are present in targ_feature_pred.\n')
 sink()
+
+if(!is.na(opt$target_keep)){
+  keep<-fread(opt$target_keep)
+  names(keep)[1:2]<-c('FID','IID')
+  write.table(keep[,1:2], paste0(opt$output,'.keep'), col.names=T, row.names=F, quote=F)
+  
+  system(paste0("awk -F' ' 'NR==FNR{c[$1$2]++;next};c[$1$2] > 0' ",opt$output,'.keep ' ,opt$targ_feature_pred,' > ', opt$output,'.target_feature_pred.subset'))
+  
+  if(originally_compressed == T){
+    system(paste0('rm ',opt$targ_feature_pred))
+  }
+  
+  opt$targ_feature_pred<-paste0(opt$output,'.target_feature_pred.subset')
+
+  n_indiv<-system(paste0('wc -l ', opt$targ_feature_pred), intern=T)
+  n_indiv<-as.numeric(gsub(' .*','',n_indiv))
+  
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat(n_indiv-1, 'individuals remain after applying keep file.\n')
+  sink()
+  
+  system(paste0('rm ',opt$output,'.keep'))
+}
 
 # Convert '-' and ':' to '.' to match TWAS$FILE
 names(TargGene)<-gsub('-','.',names(TargGene))
@@ -95,9 +123,6 @@ ref_scale$pT_num<-as.numeric(gsub('SCORE_','',ref_scale$pT))
 ref_scale<-ref_scale[order(ref_scale$pT_num),]
 
 # Calculate risk scores in batches to reduce memory requirements
-n_indiv<-system(paste0('wc -l ',opt$targ_feature_pred), intern=T)
-n_indiv<-as.numeric(strsplit(n_indiv, ' ')[[1]][1])
-
 batch_list<-split(2:n_indiv, ceiling(seq_along(2:n_indiv)/opt$batch_size))
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -109,9 +134,8 @@ GeneX_Risk<-foreach(batch=1:length(batch_list), .combine=rbind) %dopar% {
 
 	# Read in the target feature predictions names
 	TargGene_batch<-fread(cmd=paste0("sed -n '",min(batch_list[[batch]]),",",max(batch_list[[batch]]),"p;",max(batch_list[[batch]])+1,"q' ",opt$targ_feature_pred), nThread=1)
-
 	names(TargGene_batch)<-names(TargGene)
-	
+
 	TargGene_batch<-cbind(TargGene_batch[,1:2], t(t(TargGene_batch[,intersecting_genes, with=FALSE]) * TWAS_clumped$TWAS.Z))
 
 	GeneX_Risk_tmp<-data.table(	FID=TargGene_batch$FID,
@@ -133,6 +157,13 @@ GeneX_Risk<-foreach(batch=1:length(batch_list), .combine=rbind) %dopar% {
 	
 	GeneX_Risk_tmp
 	
+}
+
+if(dim(GeneX_Risk)[1] != (n_indiv-1)){
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('Error during scoring.\n')
+  sink()
+  q()
 }
 
 names(GeneX_Risk)<-gsub('SCORE_',paste0(opt$pheno_name,'_'),names(GeneX_Risk))

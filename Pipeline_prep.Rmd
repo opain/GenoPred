@@ -767,7 +767,7 @@ fi
 done
 
 for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt);do
-sbatch --mem 10G -p shared,brc /users/k1806347/brc_scratch/Software/Rscript_for_lassosum.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
+sbatch --mem 10G -p shared,brc /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
 	--ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
 	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
 	--sumstats ${gwas_rep}/${gwas}.sumstats.gz \
@@ -789,7 +789,7 @@ fi
 done
 
 for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt);do
-sbatch --mem 10G -p shared,brc /users/k1806347/brc_scratch/Software/Rscript_for_lassosum.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
+sbatch --mem 10G -p shared,brc /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
 	--ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
 	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
 	--sumstats ${gwas_rep}/${gwas}.sumstats.gz \
@@ -1410,7 +1410,7 @@ module add general/R/3.5.0
 R
 
 # Read in environmental variables
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Pipeline_prep.config')
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
 
 library(data.table)
 
@@ -1418,7 +1418,7 @@ library(data.table)
 weights<-list.files(path=paste0(FUSION_dir,'/SNP-weights/.'), recursive=F)
 
 # Write a file listing all SNP-weight sets.
-write.table(weights, paste0(TWAS_rep, '/snp_weight_list.txt', col.names=F, row.names=F, quote=F)
+write.table(weights, paste0(TWAS_rep, '/snp_weight_list.txt'), col.names=F, row.names=F, quote=F)
 
 # Create a .pos file containing SNP-weights for all tissues.
 pos<-NULL
@@ -1436,32 +1436,30 @@ n
 
 # Perform TWAS for all selected GWAS and all tissues
 # Create file listing GWAS that haven't been converted to TWAS
-###
-# Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt
-###
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 > ${TWAS_rep}/todo.txt
-for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
 if [ ! -f ${TWAS_rep}/${gwas}/${gwas}_res_GW.txt ]; then
-grep $gwas ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt >> ${TWAS_rep}/todo.txt
+echo $gwas ${gwas_rep}/${gwas}.sumstats.gz >> ${TWAS_rep}/todo.txt
 fi
 done
 
-qsub -l h_vmem=6G -pe smp 8 -tc 3 -t 1-$(wc -l ${TWAS_rep}/todo.txt | cut -d' ' -f1) /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Run_TWAS/Run_TWAS.sh \
+sbatch -p brc,shared --mem 10G -n 4 --array 1-$(wc -l ${TWAS_rep}/todo.txt | cut -d' ' -f1)%3 /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Run_TWAS/Run_TWAS.sh \
   --gwas_list ${TWAS_rep}/todo.txt \
   --pos ${TWAS_rep}/All_tissues.pos \
   --outdir ${TWAS_rep} \
   --fusion_dir ${FUSION_dir} \
-  --ncores 8
+  --ncores 4
 
 # Create a list of TWAS that have less than 25% missing TWAS.Z
-module add general/R/3.5.0
+module add apps/R/3.6.0
 R
 
 # Read in environmental variables
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Pipeline_prep.config')
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
 
 library(data.table)
-gwas<-fread('~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt', header=F)$V1
+gwas<-c('DEPR06','COLL01','HEIG03','BODY03','DIAB05','COAD01','CROH01','SCLE02','RHEU01','EDUC03','ADHD04','BODY11')
 twas_comp<-NULL
 twas_incomp<-NULL
 for(gwas_name in gwas){
@@ -1473,49 +1471,11 @@ for(gwas_name in gwas){
 	}
 }
 
-write.table(twas_comp, paste0(TWAS_rep,'/Largest_TWAS_over15K_withoutUKBB_75comp.txt'), col.names=F, row.names=F, quote=F)
+write.table(twas_comp, paste0(TWAS_rep,'/Largest_TWAS_selected_75comp.txt'), col.names=F, row.names=F, quote=F)
 q()
 n
 
-###
-# Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt
-###
-> ${TWAS_rep}/todo.txt
-for gwas in $(cut -f 1 -d ' ' ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt);do
-if [ ! -f ${TWAS_rep}/${gwas}/${gwas}_res_GW.txt ]; then
-grep $gwas ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt >> ${TWAS_rep}/todo.txt
-fi
-done
-
-qsub -l h_vmem=6G -pe smp 8 -tc 3 -t 1-$(wc -l ${TWAS_rep}/todo.txt | cut -d' ' -f1) /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/Run_TWAS_new.sh \
-  --gwas_list ${TWAS_rep}/todo.txt \
-  --pos ${TWAS_rep}/All_tissues.pos \
-  --outdir ${TWAS_rep} \
-  --ncores 8
-  
-# Create a list of TWAS that have less than 25% missing TWAS.Z
-module add general/R/3.5.0
-R
-
-# Read in environmental variables
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/Pipeline_prep.config')
-
-library(data.table)
-gwas<-fread('~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt', header=F)$V1
-twas_comp<-NULL
-twas_incomp<-NULL
-for(gwas_name in gwas){
-	twas<-fread(paste0(TWAS_rep,'/',gwas_name,'/',gwas_name,'_res_GW.txt'))
-	if((sum(is.na(twas$TWAS.Z)) / dim(twas)[1]) < 0.25){
-		twas_comp<-c(twas_comp,gwas_name)
-	} else {
-		twas_incomp<-c(twas_incomp,gwas_name)
-	}
-}
-
-write.table(twas_comp, paste0(TWAS_rep,'/Largest_TWAS_over15K_withoutTEDS_75comp.txt'), col.names=F, row.names=F, quote=F)
-q()
-n
+# SCLE02 has a large proportion of missing data in the TWAS. This is due to very few SNPs. Exclude from future analysis.
 ```
 </details>
 
@@ -1584,10 +1544,10 @@ This section uses an R script called 'ref_funtionally_informed_risk_scorer.R' fo
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
 ######
-# Calculate for /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt
+# Calculate for Largest_TWAS_selected_75comp.txt
 ######
 > ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
-for gwas in $(cat ${TWAS_rep}/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
+for gwas in $(cat ${TWAS_rep}/Largest_TWAS_selected_75comp.txt);do
 for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
 echo $gwas $weights >> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt
@@ -1599,7 +1559,7 @@ for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_r
 gwas=$(awk -v var="$i" 'NR == var {print $1}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt)
 weights=$(awk -v var="$i" 'NR == var {print $2}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.txt)
 
-qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ref_funtionally_informed_risk_scorer/ref_funtionally_informed_risk_scorer.R \
+sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ref_funtionally_informed_risk_scorer/ref_funtionally_informed_risk_scorer.R \
   --twas_results ${TWAS_rep}/${gwas}/${gwas}_res_GW.txt \
   --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
   --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights} \
@@ -1609,7 +1569,6 @@ qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch
 
 sleep 1
 done
-
 
 #####
 # Calculate GeRSs weighting genes by tissue specificity and TWAS.Z
@@ -1663,6 +1622,96 @@ qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch
 sleep 5
 done
 
+
+```
+</details>
+
+<br/>
+
+***
+
+## For comparison, calculate other functionally informed polygenic scores
+We will use several methods for comparison:
+
+  1. TWAS-gene stratified p-value thresholding and clumping (Gene_pT+clump)
+  2. LDPred-funct - Bayesian shrinkage method using LDSC enrichment to derive prior distribution
+
+<details><summary>Gene_pT+clump</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+####
+# Create a list of SNP-weigths used in TWAS
+####
+module add apps/R
+R
+library(data.table)
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+
+pos<-fread(paste0(TWAS_rep, '/All_tissues.pos'))
+pos<-pos[!duplicated(pos$ID),]
+pos<-pos
+
+set<-pos[,c('CHR','P0','P1'),]
+set$ID<-'TWAS_Gene'
+set<-set[order(set$CHR,set$P0),]
+
+write.table(set, paste0(TWAS_rep, '/TWAS_Gene_ranges.set'), col.names=F, row.names=F, quote=F)
+
+q()
+n
+
+# Read in reference bim files
+bim<-NULL
+for(i in 1:22){
+  bim_i<-fread(paste0(Geno_1KG_dir,'/1KGPhase3.w_hm3.chr',i,'.bim'))
+  bim<-rbind(bim,bim_i)
+}
+
+# Extract SNPs within ranges
+snps<-NULL
+for(i in 1:dim(pos)[1]){
+  snps_i<-bim$V2[bim$V1 == pos$CHR[i] & bim$V4 >= pos$P0[i] & bim$V4 <= pos$P1[i]]
+  snps<-c(snps,snps_i)
+  snps<-unique(snps)
+  print(i)
+}
+
+write.table(snps, paste0(TWAS_rep, '/TWAS_Gene.snplist'), col.names=F, row.names=F, quote=F)
+q()
+n
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+${plink1_9} \
+  --bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+  --extract range ${TWAS_rep}/TWAS_Gene_ranges.set \
+  --write-snplist \
+  --out ${TWAS_rep}/TWAS_Gene
+
+####
+# Calculate stratified PRS score files
+####
+# Create file listing GWAS that haven't been processed.
+mkdir -p ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene
+> ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene/todo.txt
+fi
+done
+
+for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene/todo.txt);do
+sbatch -p brc,shared --mem 6G -n 1 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+  --plink ${plink1_9} \
+  --extract ${TWAS_rep}/TWAS_Gene.snplist \
+  --memory 3000 \
+  --output ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+n=$(($n+1))
+done
 
 ```
 </details>

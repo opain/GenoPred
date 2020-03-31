@@ -41,7 +41,7 @@ sink()
 sink(file = paste0(opt$out,'.log'), append = T)
 cat('Removing rows containing blanks from gwas file...')
 sink()
-sumstats<-data.frame(fread(paste0('zcat ',opt$gwas)))
+sumstats<-data.frame(fread(cmd=paste0('zcat ',opt$gwas)))
 sumstats<-sumstats[complete.cases(sumstats),]
 sumstat_out <- gzfile(paste0(opt$out,'_noNA.sumstats.gz'), "w")
 write.table(sumstats, file=sumstat_out, col.names=T,row.names=F, quote=F)

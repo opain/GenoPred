@@ -23,9 +23,11 @@ make_option("--covar", action="store", default=NA, type='character',
 make_option("--pTs", action="store", default='1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1', type='character',
 		help="List of p-value thresholds for scoring [optional]"),
 make_option("--dense", action="store", default=F, type='logical',
-  help="Specify as T for dense thresholding. pTs then interpretted as seq() command wih default 5e-8,1,5e-4 [optional]"),
+		help="Specify as T for dense thresholding. pTs then interpretted as seq() command wih default 5e-8,1,5e-4 [optional]"),
+make_option("--extract", action="store", default=F, type='character',
+		help="File listing SNPs to extract for polygenic scoring [optional]"),
 make_option("--nested", action="store", default=T, type='logical',
-  help="Specify as F to use non-overlapping p-value intervals [optional]"),
+		help="Specify as F to use non-overlapping p-value intervals [optional]"),
 make_option("--prune_hla", action="store", default=T, type='logical',
 		help="Retain only top assocaited variant in HLA region [optional]")
 )
@@ -80,7 +82,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Reading in GWAS and harmonising with reference.\n')
 sink()
 
-GWAS<-fread(paste0('zcat ',opt$sumstats))
+GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
 GWAS<-GWAS[complete.cases(GWAS),]
 GWAS$N<-NULL
 GWAS$P<-2*pnorm(-abs(GWAS$Z))
@@ -119,6 +121,14 @@ names(GWAS_clean)<-c('SNP','A1','A2','Z','P')
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('After harmonisation with the reference,',dim(GWAS_clean)[1],'variants remain.\n')
 sink()
+
+if(!is.na(opt$extract)){
+	extract_snplist<-fread(opt$extract, header=F)$V1
+	GWAS_clean<-GWAS_clean[(GWAS_clean$SNP %in% extract_snplist),]
+	sink(file = paste(opt$output,'.log',sep=''), append = T)
+	cat('After applying the extract file,',dim(GWAS_clean)[1],'variants remain.\n')
+	sink()
+}
 
 fwrite(GWAS_clean, paste0(opt$output_dir,'GWAS_sumstats_temp.txt'), sep=' ')
 

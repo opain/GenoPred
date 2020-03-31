@@ -36,10 +36,10 @@ esac
 done
 set -- "${POSITIONAL[@]}" # restore positional parameters
 
-module add general/R/3.5.0
+module add apps/R/3.6.0
 
-gwas=$(cut -d' ' -f 2 $gwas_list | awk "NR==${SGE_TASK_ID}")
-name=$(cut -d' ' -f 1 $gwas_list | awk "NR==${SGE_TASK_ID}")
+gwas=$(cut -d' ' -f 2 $gwas_list | awk "NR==${SLURM_ARRAY_TASK_ID}")
+name=$(cut -d' ' -f 1 $gwas_list | awk "NR==${SLURM_ARRAY_TASK_ID}")
 out=$(echo ${outdir}/${name}/${name})
 
 Rscript /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Run_TWAS/Run_TWAS.R \
