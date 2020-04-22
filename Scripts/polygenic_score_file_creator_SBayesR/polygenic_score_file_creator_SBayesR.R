@@ -26,6 +26,8 @@ make_option("--gctb", action="store", default=NA, type='character',
     help="Path to GCTB binary [required]"),
 make_option("--munged", action="store", default=T, type='logical',
     help="Logical indicating whether the GWAS summary statistics are in munged format [required]"),
+make_option("--auto_trunc", action="store", default=F, type='logical',
+    help="Logical indicating whether optimal sample size truncation should be used. Default is 0.1*median. [required]"),
 make_option("--ld_matrix_chr", action="store", default=NA, type='character',
 		help="Path to per chromosome shrunk sparse LD matrix from GCTB [required]")
 )
@@ -122,6 +124,9 @@ if(opt$munged == T){
   }
 }
 
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('After merging with the reference there are',dim(GWAS_clean)[1],'variants.\n')
+sink()
 
 ###
 # Change to COJO format
@@ -164,36 +169,62 @@ if(opt$munged == T){
 }
 
 # Truncate the sample size distribution across variants
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat(dim(GWAS_clean)[1],'variants in GWAS sumstats before truncating sample size distribution.\n')
-sink()
+if(length(unique(GWAS_clean$N)) == 1){
 
-med_N<-median(GWAS_clean$N)
-GWAS_clean<-GWAS_clean[GWAS_clean$N > (med_N-(med_N*0.10)) & GWAS_clean$N < (med_N+(med_N*0.10)),]
+	sink(file = paste(opt$output,'.log',sep=''), append = T)
+	cat('GWAS sumstats do not include variant specific sample size info.\n')
+	sink()
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat(dim(GWAS_clean)[1],'variants in GWAS sumstats before truncating sample size distribution.\n')
-sink()
+} else {
 
-# Remove invariant SNPs
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat(dim(GWAS_clean)[1],'variants in GWAS sumstats before removing invariant variation.\n')
-sink()
+	bitmap(paste(opt$output,'N_dist_preTrunc.png',sep=''), units='px', res=300, width=3000, height=5000)
+	hist(GWAS_clean$N)
+	dev.off()
+
+	med_N<-median(GWAS_clean$N)
+	
+	if(opt$auto_trunc == F){
+	  GWAS_clean<-GWAS_clean[GWAS_clean$N > (med_N-(med_N*0.10)) & GWAS_clean$N < (med_N+(med_N*0.10)),]
+
+	} else {
+	  N_sd<-NULL
+	  sd_dev<-seq(0,0.3,0.005)
+	  for(i in 1:length(sd_dev)){
+	    N_sd<-rbind(N_sd, data.frame(i=sd_dev[i],
+	                                 sd_i=sd(scale(GWAS_clean$N)[GWAS_clean$N > (med_N-(med_N*sd_dev[i])) & GWAS_clean$N < (med_N+(med_N*sd_dev[i]))]),
+	                                 sd_diff=NA))
+        if(i!=1){
+  	      N_sd$sd_diff[i]<-N_sd$sd_i[i] - N_sd$sd_i[i-1]
+  	    }
+	  }
+	  
+	  opt_i<-N_sd$i[which(N_sd$sd_diff==max(N_sd$sd_diff,na.rm=T))-1]
+	  GWAS_clean<-GWAS_clean[GWAS_clean$N > (med_N-(med_N*opt_i)) & GWAS_clean$N < (med_N+(med_N*opt_i)),]
+	
+	  sink(file = paste(opt$output,'.log',sep=''), append = T)
+	  cat('Variants removed is N if ',round(opt_i*100,2),'% from the median N.\n', sep='')
+	  sink()
+	}
+
+	bitmap(paste(opt$output,'N_dist_postTrunc.png',sep=''), units='px', res=300, width=3000, height=5000)
+	hist(GWAS_clean$N)
+	dev.off()
+
+	sink(file = paste(opt$output,'.log',sep=''), append = T)
+	cat(dim(GWAS_clean)[1],'variants in GWAS sumstats after truncating sample size distribution.\n')
+	sink()
+}
 
 GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 0,]
 GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 1,]
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat(dim(GWAS_clean)[1],'variants in GWAS sumstats before removing invariant variation.\n')
+cat(dim(GWAS_clean)[1],'variants in GWAS sumstats after removing invariant variation.\n')
 sink()
 
 names(GWAS_clean)<-c('SNP','A1','A2','freq','b','se','p','N')
 
 fwrite(GWAS_clean, paste0(opt$output_dir,'GWAS_sumstats_COJO.txt'), sep=' ', na = "NA", quote=F)
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('After harmonisation with the reference,',dim(GWAS_clean)[1],'variants remain.\n')
-sink()
 
 #####
 # Run GCTB SBayesR
@@ -203,7 +234,15 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Running SBayesR analysis...')
 sink()
 
-error<-foreach(i=c(1:22), .combine=rbind) %dopar% {
+is.odd <- function(x){x %% 2 != 0}
+CHROMS<-c(1:22, rep(NA,30)) 
+CHROMS_mat<-matrix(CHROMS,nrow=opt$n_cores, ncol=ceiling(22/opt$n_cores)) 
+for(i in which(is.odd(1:dim(CHROMS_mat)[2]))){CHROMS_mat[,i]<-rev(CHROMS_mat[,i])} 
+CHROMS<-as.numeric(CHROMS_mat) 
+CHROMS<-CHROMS[!is.na(CHROMS)] 
+print(CHROMS)
+
+error<-foreach(i=CHROMS, .combine=rbind) %dopar% {
   
 	log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
   
@@ -228,7 +267,7 @@ sink()
 
 if(sum(grepl('Error', error$Log) == T) > 1){
   sink(file = paste(opt$output,'.log',sep=''), append = T)
-    cat('An error occured for',sum(grepl('Error', error$Log) == T),'chromosomes. Retry requesting more memory or run interactively to debug.\n')
+    cat('An error occurred for',sum(grepl('Error', error$Log) == T),'chromosomes. Retry requesting more memory or run interactively to debug.\n')
     print(error)
   sink()
   system(paste0('rm ',opt$output_dir,'GWAS_sumstats_*'))
@@ -251,11 +290,41 @@ snpRes<-snpRes[,c('Chrom','Name','Position','A1','A2','A1Effect')]
 
 write.table(snpRes, paste0(opt$output_dir,'GWAS_sumstats_SBayesR.GW.snpRes'), col.names=F, row.names=F, quote=F)
 
+# Combine per chromosome parRes files
+parRes_mcmc<-list()
+for(i in comp){
+	parRes_mcmc[[i]]<-fread(paste0(opt$output_dir,'GWAS_sumstats_SBayesR.chr',i,'.mcmcsamples.Par'))
+}
+
+parRes<-NULL
+for(par in names(parRes_mcmc[[i]])){
+	parRes_mcmc_par<-NULL
+	for(i in comp){
+		parRes_mcmc_par<-cbind(parRes_mcmc_par,parRes_mcmc[[i]][[par]])
+	}
+	
+	parRes_mcmc_par_sum<-rowSums(parRes_mcmc_par)
+	
+	parRes_par<-data.frame(	Par=par,
+							Mean=mean(parRes_mcmc_par_sum),
+							SD=sd(parRes_mcmc_par_sum))
+							
+	parRes<-rbind(parRes,parRes_par)
+}
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('SNP-heritability estimate is ',parRes[parRes$Par == 'hsq', names(parRes) == 'Mean']," (SD=",parRes[parRes$Par == 'hsq', names(parRes) == 'SD'],").\n", sep='')
+sink()
+
+write.table(parRes, paste0(opt$output_dir,'GWAS_sumstats_SBayesR.GW.parRes'), col.names=T, row.names=F, quote=F)
+
 system(paste0('rm ',opt$output_dir,'GWAS_sumstats_SBayesR.chr*')) 
 system(paste0('rm ',opt$output_dir,'GWAS_sumstats_COJO.txt')) 
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('No SNP effects for chromosomes',paste(incomp, collapse=','),'\n')
+if(length(incomp) >=1){
+	cat('No results for chromosomes',paste(incomp, collapse=','),'\n')
+}
 cat('Logs:\n')
 print(error)
 cat('\n')
