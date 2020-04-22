@@ -18,7 +18,7 @@ make_option("--output", action="store", default='./Output', type='character',
 		help="Path for output files [required]"),
 make_option("--ref_scale", action="store", default=NA, type='character',
 		help="Path reference scale file [required]"),
-make_option("--pheno_name", action="store", default='./Output', type='character',
+make_option("--pheno_name", action="store", default='SCORE', type='character',
 		help="Name of phenotype to be added to column names. Default is SCORE. [optional]"),
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]")

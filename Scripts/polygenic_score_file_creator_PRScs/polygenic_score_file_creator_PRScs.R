@@ -132,9 +132,9 @@ print(CHROMS)
 foreach(i=CHROMS, .combine=c) %dopar% {
 	for(phi_i in phi_param){
 		if(phi_i == 'auto'){
-			system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix ',opt$ref_plink_chr,i,' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',i))
+			system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix=',opt$ref_plink_chr,i,' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',i))
 		} else {
-			system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix ',opt$ref_plink_chr,i,' --phi=',phi_i,' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',i))
+			system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix=',opt$ref_plink_chr,i,' --phi=',phi_i,' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',i))
 		}
 	}
 }
