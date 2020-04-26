@@ -1712,13 +1712,13 @@ write.table(weights, paste0(TWAS_rep, &#39;/snp_weight_list.txt&#39;), col.names
 # Create a .pos file containing SNP-weights for all tissues.
 pos&lt;-NULL
 for(i in weights){
-  pos_tmp&lt;-data.frame(fread(paste0(&#39;${FUSION_dir}/SNP-weights/&#39;,i,&#39;/&#39;,i,&#39;.pos&#39;)))
+  pos_tmp&lt;-data.frame(fread(paste0(FUSION_dir,&#39;/SNP-weights/&#39;,i,&#39;/&#39;,i,&#39;.pos&#39;)))
   pos_tmp$PANEL&lt;-i
   pos_tmp$WGT&lt;-paste0(i,&#39;/&#39;,pos_tmp$WGT)
-  pos&lt;-rbind(pos,pos_tmp[c(&#39;PANEL&#39;,&#39;WGT&#39;,&#39;ID&#39;,&#39;CHR&#39;,&#39;P0&#39;,&#39;P1&#39;)])
+  pos&lt;-rbind(pos,pos_tmp[c(&#39;PANEL&#39;,&#39;WGT&#39;,&#39;ID&#39;,&#39;CHR&#39;,&#39;P0&#39;,&#39;P1&#39;,&#39;N&#39;)])
 }
 
-write.table(pos, paste0(TWAS_rep,&#39;/All_tissues.pos&#39;, col.names=T, row.names=F, quote=F)
+write.table(pos, paste0(TWAS_rep,&#39;/All_tissues.pos&#39;), col.names=T, row.names=F, quote=F)
 
 q()
 n
@@ -1739,6 +1739,22 @@ sbatch -p brc,shared --mem 10G -n 4 --array 1-$(wc -l ${TWAS_rep}/todo.txt | cut
   --outdir ${TWAS_rep} \
   --fusion_dir ${FUSION_dir} \
   --ncores 4
+
+# Perform TWAS for all selected GWAS and all tissues but also estimate COLOC values
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+&gt; ${TWAS_rep}/todo_withCOLOC.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${TWAS_rep}/${gwas}_withCOLOC/${gwas}_res_GW.txt ]; then
+echo $gwas ${gwas_rep}/${gwas}.sumstats.gz &gt;&gt; ${TWAS_rep}/todo_withCOLOC.txt
+fi
+done
+
+sbatch -p brc,shared --mem 20G -n 11 --array 1-$(wc -l ${TWAS_rep}/todo_withCOLOC.txt | cut -d&#39; &#39; -f1)%3 /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Run_TWAS/Run_TWAS_withCOLOC.sh \
+  --gwas_list ${TWAS_rep}/todo_withCOLOC.txt \
+  --pos ${TWAS_rep}/All_tissues.pos \
+  --outdir ${TWAS_rep} \
+  --fusion_dir ${FUSION_dir} \
+  --ncores 11
 
 # Create a list of TWAS that have less than 25% missing TWAS.Z
 module add apps/R/3.6.0
@@ -1849,56 +1865,34 @@ sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k180
 sleep 1
 done
 
-#####
-# Calculate GeRSs weighting genes by tissue specificity and TWAS.Z
-#####
+######
+# Prepare score files filtering by COLOC_PP4
+######
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-# Create files containing tissue specific weights for each gene
-module add general/R/3.5.0
-R
-library(data.table)
-
-Tissue_Z&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/GTeX/GTEx_v7_gene_median_tpm.tmp1.windsorised50.pseudo1.log2.Z.tsv&#39;)
-
-Tissue_Z$gene_id&lt;-NULL
-names(Tissue_Z)[1]&lt;-&#39;ID&#39;
-
-# Scale the Z scores to be between 0 and 1 for each tissue
-Tissue_Z_tmp&lt;-Tissue_Z[,-1]
-Tissue_Z_tmp&lt;-pnorm(as.matrix(Tissue_Z_tmp)
-Tissue_Z_01&lt;-data.frame(Tissue_Z[,1:2], Tissue_Z_tmp)
-
-# Write file out seperately for each tissue
-for(i in names(Tissue_Z)[-1]){
-  write.table(Tissue_Z[,c(&#39;ID&#39;,i),with=F], paste0(&#39;/users/k1806347/brc_scratch/Data/GTeX/GTex_v7_TissueSpecificity_Weight.&#39;,i,&#39;.txt&#39;), col.names=T, row.names=F, quote=F)
-}
-
-# Extract genes in top 95% confidence interval
-
-# Create score files
-&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt
-for gwas in $(cat /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/Largest_TWAS_over15K_withoutUKBB_75comp.txt);do
+&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_COLOC_PP4.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 RHEU01 EDUC03 ADHD04 BODY11);do
 for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.TissueWeighted.scale ]; then
-echo $gwas $weights &gt;&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}_COLOC_PP4/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
+echo $gwas $weights &gt;&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_COLOC_PP4.txt
 fi
 done
 done
 
-for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt | cut -d &#39; &#39; -f 1));do
-gwas=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $1}&#39; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt)
-weights=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $2}&#39; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_TissueWeighted.txt)
+for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_COLOC_PP4.txt | cut -d &#39; &#39; -f 1));do
+gwas=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $1}&#39; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_COLOC_PP4.txt)
+weights=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $2}&#39; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_COLOC_PP4.txt)
 
-qsub /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/Scripts/GenoPred_Pipeline/ref_funtionally_informed_risk_scorer.R \
-  --twas_results /users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/${gwas}/${gwas}_res_GW.txt \
+sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ref_funtionally_informed_risk_scorer/ref_funtionally_informed_risk_scorer.R \
+  --twas_results ${TWAS_rep}/${gwas}_withCOLOC/${gwas}_res_GW.txt \
   --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
-  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.TissueWeighted \
+  --coloc T \
+  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}_COLOC_PP4/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights} \
   --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
   --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
-  --panel ${weights} \
-  --r2_weighted T
+  --panel ${weights}
 
-sleep 5
+sleep 3
 done
 </code></pre>
 </details>
@@ -1910,7 +1904,6 @@ done
 <p>We will use several methods for comparison:</p>
 <ol style="list-style-type: decimal">
 <li>TWAS-gene stratified p-value thresholding and clumping (Gene_pT+clump)</li>
-<li>LDPred-funct - Bayesian shrinkage method using LDSC enrichment to derive prior distribution</li>
 </ol>
 <details>
 <p><summary>Gene_pT+clump</summary></p>

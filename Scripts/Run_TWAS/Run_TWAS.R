@@ -11,7 +11,9 @@ make_option("--pos", action="store", default=NA, type='character',
 make_option("--out", action="store", default=NA, type='character',
 			help="Name of output files [required]"),
 make_option("--fusion_dir", action="store", default=NA, type='character',
-			help="Directory containing fusion software and reference data [required]"),
+      help="Directory containing fusion software and reference data [required]"),
+make_option("--coloc_P", action="store", default=NA, type='numeric',
+      help="Specify as T to perform colocalisation [optional]"),
 make_option("--ncores", action="store", default=5, type='numeric',
 			help="Number of cores for parallel analysis [optional]")
 )
@@ -43,9 +45,10 @@ cat('Removing rows containing blanks from gwas file...')
 sink()
 sumstats<-data.frame(fread(cmd=paste0('zcat ',opt$gwas)))
 sumstats<-sumstats[complete.cases(sumstats),]
-sumstat_out <- gzfile(paste0(opt$out,'_noNA.sumstats.gz'), "w")
+sumstat_out <- paste0(opt$out,'_noNA.sumstats')
+GWASN<-round(median(sumstats$N),0)
 write.table(sumstats, file=sumstat_out, col.names=T,row.names=F, quote=F)
-close(sumstat_out)
+system(paste0('gzip ',sumstat_out))
 sink(file = paste0(opt$out,'.log'), append = T)
 cat('Done!\n')
 sink()
@@ -53,7 +56,8 @@ opt$gwas_new<-paste0(opt$out,'_noNA.sumstats.gz')
 
 # Print the FUSION command to the log files
 sink(file = paste0(opt$out,'.log'), append = T)
-cat('
+if(is.na(opt$coloc_P)){
+  cat('
 FUSION command:
 	Rscript ',opt$fusion_dir,'/fusion_twas-master/FUSION.assoc_test.R \\
 		--sumstats ',opt$gwas_new,' \\
@@ -64,6 +68,21 @@ FUSION command:
 		--chr $i
 
 ',sep='')
+} else {
+  cat('
+FUSION command:
+	Rscript ',opt$fusion_dir,'/fusion_twas-master/FUSION.assoc_test.R \\
+		--sumstats ',opt$gwas_new,' \\
+		--weights ',opt$pos,' \\
+		--weights_dir ',opt$fusion_dir,'/SNP-weights \\
+		--ref_ld_chr ',opt$fusion_dir,'/LDREF/1000G.EUR. \\
+		--out ',opt$out,'_res_chr$i.txt \\
+		--coloc_P ',opt$coloc_P,' \\
+		--GWASN ',GWASN,' \\
+		--chr $i
+
+',sep='')
+}
 sink()
 
 sink(file = paste0(opt$out,'.log'), append = T)
@@ -79,20 +98,37 @@ CHROMS<-as.numeric(CHROMS_mat)
 CHROMS<-CHROMS[!is.na(CHROMS)] 
 print(CHROMS)
 
-TWAS_log<-foreach(i=CHROMS) %dopar% {
-  log<-system(paste0(
-    'Rscript ',opt$fusion_dir,'/fusion_twas-master/FUSION.assoc_test.R ',
-    '--sumstats ',opt$gwas_new,' ',
-    '--weights ',opt$pos,' ',
-    '--weights_dir ',opt$fusion_dir,'/SNP-weights ',
-    '--ref_ld_chr ',opt$fusion_dir,'/LDREF/1000G.EUR. ',
-    '--out ',opt$out,'_res_chr',i,'.txt ',
-    '--chr ',i
-  ),intern = TRUE)
-	write.table(log, paste0(opt$out,'_logs/chr',i,'.log'), col.names=F, row.names=F, quote=F)
-	log
+if(is.na(opt$coloc_P)){
+  TWAS_log<-foreach(i=CHROMS) %dopar% {
+    log<-system(paste0(
+      'Rscript ',opt$fusion_dir,'/fusion_twas-master/FUSION.assoc_test.R ',
+      '--sumstats ',opt$gwas_new,' ',
+      '--weights ',opt$pos,' ',
+      '--weights_dir ',opt$fusion_dir,'/SNP-weights ',
+      '--ref_ld_chr ',opt$fusion_dir,'/LDREF/1000G.EUR. ',
+      '--out ',opt$out,'_res_chr',i,'.txt ',
+      '--chr ',i
+    ),intern = TRUE)
+  	write.table(log, paste0(opt$out,'_logs/chr',i,'.log'), col.names=F, row.names=F, quote=F)
+  	log
+  }
+} else {
+  TWAS_log<-foreach(i=CHROMS) %dopar% {
+    log<-system(paste0(
+      'Rscript ',opt$fusion_dir,'/fusion_twas-master/FUSION.assoc_test.R ',
+      '--sumstats ',opt$gwas_new,' ',
+      '--weights ',opt$pos,' ',
+      '--weights_dir ',opt$fusion_dir,'/SNP-weights ',
+      '--ref_ld_chr ',opt$fusion_dir,'/LDREF/1000G.EUR. ',
+      '--out ',opt$out,'_res_chr',i,'.txt ',
+      '--coloc_P ',opt$coloc_P,' ',
+      '--GWASN ',GWASN,' ',
+      '--chr ',i
+    ),intern = TRUE)
+    write.table(log, paste0(opt$out,'_logs/chr',i,'.log'), col.names=F, row.names=F, quote=F)
+    log
+  }
 }
-
 sink(file = paste0(opt$out,'.log'), append = T)
 	cat('Done!\n')
 sink()
