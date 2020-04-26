@@ -22,15 +22,21 @@ make_option("--ref_keep", action="store", default=NA, type='character',
 		help="Keep file for reference individuals [optional]"),
 make_option("--panel", action="store", default=NA, type='character',
 		help="Panel from TWAS [optional]"),
-make_option("--r2_weighted", action="store", default=F, type='logical',
-		help="Set to T if gene expression should be weighted by R2 of predicted expression [optional]"),
+make_option("--coloc", action="store", default=F, type='logical',
+    help="Specify T to filter associations by PP4 estimates. --pTs can be used to select PP4 thresholds [optional]"),
 make_option("--ref_scale", action="store", default=NA, type='character',
 		help="Path to file for scaling feature predictions [required]"),
 make_option("--gene_weights", action="store", default=NA, type='character',
-		help="Path to file containing gene-weights [required]")
+		help="Path to file containing gene-weights [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
+
+if(opt$coloc == T){
+  if(opt$pTs == '1,5e-1,1e-1,5e-2,1e-2,1e-3,1e-4,1e-5,1e-6'){
+      opt$pTs<-'0.5,0.6,0.7,0.8,0.9'
+  }
+}
 
 opt$pTs<- as.numeric(unlist(strsplit(opt$pTs,',')))
 
@@ -73,15 +79,11 @@ if(substr(opt$twas_results, nchar(opt$twas_results)-2, nchar(opt$twas_results)) 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('twas_results contains', dim(TWAS)[1],'rows.\n')
 
-if(opt$r2_weighted == T){
-###
-# Weight TWAS.Z by MODELCV.R2
-###
-
-TWAS$TWAS.Z<-TWAS$TWAS.Z*TWAS$MODELCV.R2
-# Recalculate TWAS.P
-TWAS$TWAS.P<-2*pnorm(-abs(TWAS$TWAS.Z))
-
+if(opt$coloc == T){
+  # Remove features without COLOC.PP4
+  TWAS<-TWAS[!is.na(TWAS$COLOC.PP4),]
+  
+  cat('After removing features without COLOC estimates,', dim(TWAS)[1],'genes remain.\n')
 }
 
 if(is.na(opt$gene_weights) == F){
@@ -160,7 +162,7 @@ if(substr(opt$ref_feature_pred, nchar(opt$ref_feature_pred)-16, nchar(opt$ref_fe
 	}
 } else {
 	if(substr(opt$ref_feature_pred, nchar(opt$ref_feature_pred)-2, nchar(opt$ref_feature_pred)) == '.gz'){
-		RefGene<-fread(paste('zcat ',opt$ref_feature_pred,sep=''))
+		RefGene<-fread(cmd=paste('zcat ',opt$ref_feature_pred,sep=''))
 	} else {
 		RefGene<-fread(opt$ref_feature_pred)
 	}
@@ -207,7 +209,12 @@ if(opt$clump_mhc == T){
 	TWAS_notMHC<-TWAS[!(TWAS$CHR == 6 & TWAS$P0 > 26e6 & TWAS$P1 < 34e6),]
 	TWAS_MHC<-TWAS[TWAS$CHR == 6 & TWAS$P0 > 26e6 & TWAS$P1 < 34e6,]
 	if(dim(TWAS_MHC)[1] > 0){
-		TWAS_MHC_retain<-TWAS_MHC[TWAS_MHC$TWAS.P == min(TWAS_MHC$TWAS.P),]
+	  if(opt$coloc == T){
+	    TWAS_MHC_retain<-TWAS_MHC[TWAS_MHC$COLOC.PP4 == max(TWAS_MHC$COLOC.PP4),]
+	    TWAS_MHC_retain<-TWAS_MHC_retain[TWAS_MHC_retain$TWAS.P == min(TWAS_MHC_retain$TWAS.P),]
+	  } else {
+	    TWAS_MHC_retain<-TWAS_MHC[TWAS_MHC$TWAS.P == min(TWAS_MHC$TWAS.P),]
+	  }
 		TWAS<-rbind(TWAS_notMHC,TWAS_MHC_retain)
 		RefGene<-RefGene[,c('FID','IID',TWAS$FILE),with=F]
 		sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -224,13 +231,22 @@ if(opt$clump_mhc == T){
 # Create a table showing the number of genes in each pT
 ###
 # The number of features after clumping will be filled in as each pT is processed.
-
-NGenes_table<-NULL
-for(i in 1:length(opt$pTs)){
-	NGenes<-data.frame(	pT=opt$pTs[i],
-						NGenes=sum(TWAS$TWAS.P < opt$pTs[i]),
-						NGenes_post_clump=NA)
-	NGenes_table<-rbind(NGenes_table,NGenes)
+if(opt$coloc == T){
+  NGenes_table<-NULL
+  for(i in 1:length(opt$pTs)){
+  	NGenes<-data.frame(	PP4_pt=opt$pTs[i],
+  						NGenes=sum(TWAS$COLOC.PP4 > opt$pTs[i]),
+  						NGenes_post_clump=NA)
+  	NGenes_table<-rbind(NGenes_table,NGenes)
+  }
+} else {
+  NGenes_table<-NULL
+  for(i in 1:length(opt$pTs)){
+    NGenes<-data.frame(	pT=opt$pTs[i],
+                        NGenes=sum(TWAS$TWAS.P < opt$pTs[i]),
+                        NGenes_post_clump=NA)
+    NGenes_table<-rbind(NGenes_table,NGenes)
+  }
 }
 
 ###
@@ -268,7 +284,11 @@ for(j in unique(TWAS$Block)){
 		TWAS_clumped<-rbind(TWAS_clumped,TWAS[TWAS$Block == j,])
 	} else {
 		TWAS_Block<-TWAS[TWAS$Block == j,]
-		TWAS_Block<-TWAS_Block[order(TWAS_Block$TWAS.P),]
+		if(opt$coloc == T){
+		  TWAS_Block<-TWAS_Block[rev(order(TWAS_Block$COLOC.PP4)),]
+		} else {
+		  TWAS_Block<-TWAS_Block[order(TWAS_Block$TWAS.P),]
+		} 
 		cor_block<-cor(as.matrix(RefGene[,TWAS_Block$FILE,with=F]), method='pearson')
 
 		i<-1
@@ -279,7 +299,12 @@ for(j in unique(TWAS$Block)){
 		  
 		  # If no nearby features (after previous pruning) skip
 		  if(dim(TWAS_Block_i)[1] == 1){
-			i<-i+1
+  			i<-i+1
+  			
+  			if(i > dim(TWAS_Block)[1]){
+  			  break()
+  			}
+			
 		  	next()
 		  }
 		  
@@ -315,13 +340,22 @@ cat('Done!\n')
 sink()
 
 # Save list of clumped TWAS results with TWAS.Z and TWAS.P values
-fwrite(TWAS_clumped[,c('FILE','TWAS.Z','TWAS.P'), with=F], paste0(opt$output,'.score'), sep=' ')
-
-# Update NGenes_table after clumping
-for(i in 1:length(opt$pTs)){
-	NGenes_table$NGenes_post_clump[i]<-sum(TWAS_clumped$TWAS.P <= opt$pTs[i])
+if(opt$coloc == T){
+  fwrite(TWAS_clumped[,c('FILE','TWAS.Z','TWAS.P','COLOC.PP4'), with=F], paste0(opt$output,'.score'), sep=' ')
+} else {
+  fwrite(TWAS_clumped[,c('FILE','TWAS.Z','TWAS.P'), with=F], paste0(opt$output,'.score'), sep=' ')
 }
 
+# Update NGenes_table after clumping
+if(opt$coloc == T){
+  for(i in 1:length(opt$pTs)){
+    NGenes_table$NGenes_post_clump[i]<-sum(TWAS_clumped$COLOC.PP4 >= opt$pTs[i])
+  }
+} else {
+  for(i in 1:length(opt$pTs)){
+    NGenes_table$NGenes_post_clump[i]<-sum(TWAS_clumped$TWAS.P <= opt$pTs[i])
+  }
+}
 write.table(NGenes_table, paste(opt$output,'.NFeat',sep=''), row.names=F, quote=F, sep='\t')
 
 ###
@@ -370,10 +404,18 @@ RefGene<-cbind(RefGene_ID,RefGene_noID)
 GeneX_Risk_reference<-data.frame(	FID=RefGene$FID,
 																	IID=RefGene$IID)
 
-for(i in 1:sum(NGenes_table$pT > min(TWAS_clumped$TWAS.P))){
-	tmp<-rowSums(RefGene[which(names(RefGene) %in% TWAS_clumped$FILE[TWAS_clumped$TWAS.P <= NGenes_table$pT[i]])])
-	GeneX_Risk_reference<-cbind(GeneX_Risk_reference,tmp)
-	names(GeneX_Risk_reference)[2+i]<-paste0('SCORE_',NGenes_table$pT[i])
+if(opt$coloc == T){
+  for(i in 1:sum(NGenes_table$PP4_pt < max(TWAS_clumped$COLOC.PP4))){
+    tmp<-rowSums(RefGene[which(names(RefGene) %in% TWAS_clumped$FILE[TWAS_clumped$COLOC.PP4 >= NGenes_table$PP4_pt[i]])])
+    GeneX_Risk_reference<-cbind(GeneX_Risk_reference,tmp)
+    names(GeneX_Risk_reference)[2+i]<-paste0('SCORE_',NGenes_table$PP4_pt[i])
+  }
+} else {
+  for(i in 1:sum(NGenes_table$pT > min(TWAS_clumped$TWAS.P))){
+    tmp<-rowSums(RefGene[which(names(RefGene) %in% TWAS_clumped$FILE[TWAS_clumped$TWAS.P <= NGenes_table$pT[i]])])
+    GeneX_Risk_reference<-cbind(GeneX_Risk_reference,tmp)
+    names(GeneX_Risk_reference)[2+i]<-paste0('SCORE_',NGenes_table$pT[i])
+  }
 }
 
 # Calculate the mean and sd for each SCORE

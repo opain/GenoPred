@@ -104,6 +104,12 @@ names(TargGene)<-gsub(':','.',names(TargGene))
 TWAS_clumped<-fread(opt$ref_score, nThread=opt$n_cores)
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat(length(TWAS_clumped$FILE), 'features are present in ref_score.\n')
+if(sum(names(TWAS_clumped) == 'COLOC.PP4') == 1){
+  cat('COLOC PP4 estimates will be used to filter features.\n')
+  opt$coloc<-T
+} else {
+  opt$coloc<-F
+}
 sink()
 
 # Extract intersecting genes between the target feature predictions and the score file
@@ -141,14 +147,24 @@ GeneX_Risk<-foreach(batch=1:length(batch_list), .combine=rbind) %dopar% {
 	GeneX_Risk_tmp<-data.table(	FID=TargGene_batch$FID,
 															IID=TargGene_batch$IID)
 
-	for(i in 1:sum(ref_scale$pT_num > min(TWAS_clumped$TWAS.P))){
-		tmp<-rowSums(TargGene_batch[,which(names(TargGene_batch) %in% TWAS_clumped$FILE[TWAS_clumped$TWAS.P <= ref_scale$pT_num[i]]), with=F])
-		tmp<-tmp-ref_scale$Mean[i]
-		tmp<-tmp/ref_scale$SD[i]
-		GeneX_Risk_tmp<-cbind(GeneX_Risk_tmp,round(tmp,4))
-		names(GeneX_Risk_tmp)[2+i]<-paste0('SCORE_',ref_scale$pT_num[i])
+	if(opt$coloc == T){
+	  for(i in 1:sum(ref_scale$pT_num < max(TWAS_clumped$COLOC.PP4))){
+	    tmp<-rowSums(TargGene_batch[,which(names(TargGene_batch) %in% TWAS_clumped$FILE[TWAS_clumped$COLOC.PP4 >= ref_scale$pT_num[i]]), with=F])
+	    tmp<-tmp-ref_scale$Mean[i]
+	    tmp<-tmp/ref_scale$SD[i]
+	    GeneX_Risk_tmp<-cbind(GeneX_Risk_tmp,round(tmp,4))
+	    names(GeneX_Risk_tmp)[2+i]<-paste0('SCORE_',ref_scale$pT_num[i])
+	  }
+	} else {
+	  for(i in 1:sum(ref_scale$pT_num > min(TWAS_clumped$TWAS.P))){
+	    tmp<-rowSums(TargGene_batch[,which(names(TargGene_batch) %in% TWAS_clumped$FILE[TWAS_clumped$TWAS.P <= ref_scale$pT_num[i]]), with=F])
+	    tmp<-tmp-ref_scale$Mean[i]
+	    tmp<-tmp/ref_scale$SD[i]
+	    GeneX_Risk_tmp<-cbind(GeneX_Risk_tmp,round(tmp,4))
+	    names(GeneX_Risk_tmp)[2+i]<-paste0('SCORE_',ref_scale$pT_num[i])
+	  }
 	}
-	
+
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
 	cat('Processed batch ',batch,'.\n', sep='')
 	sink()
