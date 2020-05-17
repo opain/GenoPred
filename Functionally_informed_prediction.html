@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html>
 
 <head>
 
 <meta charset="utf-8" />
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
 
 
 
@@ -88,7 +88,6 @@ code {
 }
 img {
   max-width:100%;
-  height: auto;
 }
 .tabbed-pane {
   padding-top: 12px;
@@ -237,6 +236,7 @@ $(document).ready(function () {
   border: none;
   display: inline-block;
   border-radius: 4px;
+  background-color: transparent;
 }
 
 .tabset-dropdown > .nav-tabs.nav-tabs-open > li {
@@ -249,48 +249,9 @@ $(document).ready(function () {
 }
 </style>
 
-<script>
-$(document).ready(function () {
-  window.buildTabsets("TOC");
-});
-
-$(document).ready(function () {
-  $('.tabset-dropdown > .nav-tabs > li').click(function () {
-    $(this).parent().toggleClass('nav-tabs-open')
-  });
-});
-</script>
-
 <!-- code folding -->
 
 
-
-<script>
-$(document).ready(function ()  {
-
-    // move toc-ignore selectors from section div to header
-    $('div.section.toc-ignore')
-        .removeClass('toc-ignore')
-        .children('h1,h2,h3,h4,h5').addClass('toc-ignore');
-
-    // establish options
-    var options = {
-      selectors: "h1,h2,h3",
-      theme: "bootstrap3",
-      context: '.toc-content',
-      hashGenerator: function (text) {
-        return text.replace(/[.\\/?&!#<>]/g, '').replace(/\s/g, '_').toLowerCase();
-      },
-      ignoreSelector: ".toc-ignore",
-      scrollTo: 0
-    };
-    options.showAndHide = true;
-    options.smoothScroll = true;
-
-    // tocify
-    var toc = $("#TOC").tocify(options).data("toc-tocify");
-});
-</script>
 
 <style type="text/css">
 
@@ -304,6 +265,12 @@ $(document).ready(function ()  {
 }
 }
 
+@media print {
+.toc-content {
+  /* see https://github.com/w3c/csswg-drafts/issues/4434 */
+  float: right;
+}
+}
 
 .toc-content {
   padding-left: 30px;
@@ -1248,6 +1215,94 @@ sbatch --mem 10G -n 2 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript
 done</code></pre>
 </details>
 <details>
+<p><summary>Multi-tissue per pT</summary></p>
+<pre class="bash"><code>##############################
+# Evaluating predictive utility of GeRS across multiple tissues for each pT seperately
+##############################
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs
+done
+
+# Split the GeRS files by pT
+module add apps/R
+R
+
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config&#39;)
+
+gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;RHEU01&#39;)
+
+weights&lt;-read.table(&#39;~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt&#39;, stringsAsFactors=F)$V1
+
+library(data.table)
+
+for(gwas_i in gwas){
+print(gwas_i)
+  for(weights_i in weights){
+
+    GeRS&lt;-fread(paste0(UKBB_output,&#39;/GeRS_for_comparison/1KG_ref/EUR/&#39;,weights_i,&#39;/UKBB.w_hm3.EUR.&#39;,weights_i,&#39;.&#39;,gwas_i,&#39;.fiprofile&#39;))
+  
+    GeRS_pT&lt;-gsub(&#39;.*_&#39;,&#39;&#39;,names(GeRS)[-1:-2])
+    
+    for(pT_i in GeRS_pT){
+      write.table(GeRS[,c(&#39;FID&#39;,&#39;IID&#39;,paste0(gwas_i,&#39;_&#39;,pT_i)), with=F], paste0(UKBB_output,&#39;/GeRS_for_comparison/1KG_ref/EUR/&#39;,weights_i,&#39;/UKBB.w_hm3.EUR.&#39;,weights_i,&#39;.&#39;,gwas_i,&#39;.pT_&#39;,pT_i,&#39;.fiprofile&#39;),col.names=T, row.names=F, quote=F)
+    }
+  }
+}
+
+q()
+n
+
+# Create a file listing the predictors files
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 RHEU01)
+weights=$(cat ${TWAS_rep}/snp_weight_list.txt)
+pT=$(echo 1e-06 1e-05 1e-04 0.001 0.01 0.05 0.1 0.5 1)
+
+for i in $(seq 1 8);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+  
+  echo &quot;predictors group&quot; &gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.per_PT.predictor_groups
+  
+  for pT_i in ${pT};do
+    for weight in ${weights}; do
+        if [ -f ${UKBB_output}/GeRS_for_comparison/1KG_ref/EUR/${weight}/UKBB.w_hm3.EUR.${weight}.${gwas_i}.pT_${pT_i}.fiprofile ]; then
+
+        echo ${UKBB_output}/GeRS_for_comparison/1KG_ref/EUR/${weight}/UKBB.w_hm3.EUR.${weight}.${gwas_i}.pT_${pT_i}.fiprofile ${pT_i} &gt;&gt; /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.per_PT.predictor_groups
+      
+        fi
+    done
+  done
+  
+done
+
+# Derive and evaluate models
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
+
+# 1KG reference
+for i in $(seq 1 8);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+  prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
+
+sbatch --mem 20G -n 4 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+    --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+    --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.per_PT \
+    --n_core 4 \
+    --compare_predictors F \
+    --assoc T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.per_PT.predictor_groups
+done</code></pre>
+</details>
+<details>
 <p><summary>Single-tissue vs. Multi-tissue (PP4+clump)</summary></p>
 <pre class="bash"><code>##############################
 # Evaluating predictive utility of GeRS across multiple tissues individually and in combination
@@ -1861,6 +1916,39 @@ done
 </code></pre>
 </details>
 <p><br/></p>
+</div>
+<div id="estimate-proportion-of-snp-based-heritability-explained-by-gers-and-stratified-prs" class="section level3">
+<h3><span class="header-section-number">3.8.3</span> Estimate proportion of SNP-based heritability explained by GeRS and stratified PRS</h3>
+<pre class="bash"><code>
+module add apps/R/3.6.0
+R
+
+pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;,&#39;T2D&#39;,&#39;CAD&#39;,&#39;IBD&#39;,&#39;RheuArth&#39;)
+gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;RHEU01&#39;)
+weight=c(&#39;YFS.BLOOD.RNAARR&#39;)
+
+library(avengeme)
+
+GeRS_res&lt;-NULL
+for(i in 1:8){
+  res_i&lt;-read.table(paste0(&#39;/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withGeRSs/UKBB.w_hm3.AllTissue.&#39;,gwas[i],&#39;.EUR-GeRSs.pred_eval.txt&#39;), header=T, stringsAsFactors=F)
+  
+  res_i&lt;-res_i[dim(res_i)[1],]
+  res_i$Phenotype&lt;-pheno[i]
+  if(sum(names(res_i) == &#39;Indep_LiabR2&#39;) == 1){
+    res_i&lt;-res_i[,c(&#39;Phenotype&#39;,&#39;Indep_LiabR2&#39;)]
+    names(res_i)[2]&lt;-&#39;R2&#39;
+  } else {
+    res_i&lt;-res_i[,c(&#39;Phenotype&#39;,&#39;IndepVal_R&#39;)]
+    res_i$R2&lt;-res_i$IndepVal_R^2
+    res_i$IndepVal_R&lt;-NULL
+  }
+  
+  
+
+  GeRS_res&lt;-rbind(GeRS_res, res_i)
+}
+</code></pre>
 <hr />
 </div>
 </div>
@@ -5133,10 +5221,10 @@ n
 <h1><span class="header-section-number">5</span> Conclusion</h1>
 <ul>
 <li>Gene expression risk scores (GeRS) can explain a significantly non-zero amount of variance in a range of phenotypes</li>
-<li>The amount of variance explained by GeRS is less than explained by a genome-wide or TWAS SNP-weight stratified polygenic scores, except for Rheumatoid Arthritis.</li>
+<li>The amount of variance explained by GeRS is less than explained by a genome-wide pT+clump polygenic score or TWAS SNP-weight stratified polygenic scores, except for Rheumatoid Arthritis.</li>
 <li>Use of elastic net models to combine GeRSs derived using multiple pTs does not significantly improve prediction over the single best pT as idenitified using 10-fold cross validation, though prediction never decreases</li>
 <li>Inclusion of GeRS based on SNP-weights derived using multiple tissues consistently improves prediction over the single best tissues as idenitified using 10-fold cross validation</li>
-<li>Inclusion of GeRSs only improved prediction over genome-wide polygenic scores for rheumatoid arthritis, providing an 1.6 times increase in r2 (0.021 to 0.035). Prediction improvements were non significant for all other henotypes in UK Biobank and TEDS.</li>
+<li>Inclusion of GeRSs only improved prediction over genome-wide polygenic scores for rheumatoid arthritis, providing an 1.6 times increase in r2 (0.021 to 0.035). Prediction improvements were non significant for all other phenotypes in UK Biobank and TEDS.</li>
 <li>However, PRScs polygenic scores which does not use LD clumping reduces the benefit of using GeRS for all outcomes, and the increase for RheumArth is no longer significant. This indicates the gain is in the fact that GeRS are based on joint SNP models.</li>
 <li>This findings suggest that GeRS represent a component of risk captured within genome-wide polygenic scores, rather than containing novel information.</li>
 <li>This indicates GeRS may be more useful for stratifying risk rather than improving risk prediction in a linear model.</li>
@@ -5144,10 +5232,10 @@ n
 </ul>
 <p>In the Crohn’s disease paper they use Ileal specific eQTLs by coparing to whole blood. They also used colocalisation and SMR to idenitfy genes with shared causal variant with IBD. It also only used candidate IBD genes as tagged by the immunochip. Ileal QTL data was derived using the target sample so possible overfitting. They mention the question of coherence and incoherence, indicating whether SNPs affect gene expression as well the phenotype?</p>
 <ul>
-<li>I should try filtering genes based on coloc PP4 values</li>
+<li>I should try filtering genes based on coloc PP4 values (Done)</li>
 <li>I should try using tissue-specific eQTL effects</li>
 </ul>
-<p>Compare gain in R2 when including multiple tissue but use the same genes, so gains represent gian from tissue specificity rather than number of genes. Though SNP-weight sets with large sample will stll predict better due to higher R2 estimates.</p>
+<p>Compare gain in R2 when including multiple tissue but use the same genes, so gains represent gain from tissue specificity rather than number of genes. Though SNP-weight sets with large sample will stll predict better due to higher R2 estimates.</p>
 <p>I think I could end the study here and keep it short and sweet. Although it is tempting to include a GeRS based on PrediXcan/MetaXcan models. This would be a quite a substantial rework though as it would require more than HapMap3 variants: - Subset UK Biobank individuals with required phenotype data - Predict expression using PrediXcan and GTEx v7 models - Perform TWAS using GTExv7 models for desired GWAS - Create feature correlation matrix using 1000 genomes - Calculate GeRS - For comparison also calculate PRS based on more than HapMap3 SNPs (interesting comparison anyway)</p>
 <p>Making this change moves away from the highly reference standardised framework as the availability of SNPs will vary across target samples. I need to figure out what SNP list these models are based on.</p>
 <p>SCZ TWAS: “A GE-PRS from actual measured expression and differential splicing in brain was significant but substantially less so than the genetic GE-PRS (Supplementary Fig. 13). Based on polygenic theory37,38, the best TWAS GE-PRS was estimated to account for 26% of the total SCZ SNP-heritability, providing an upper-bound on the amount of trait variance that could be mediated by the steady-state expression in these tissues (Supplementary Note).”</p>
@@ -5173,6 +5261,49 @@ $(document).ready(function () {
 });
 
 
+</script>
+
+<!-- tabsets -->
+
+<script>
+$(document).ready(function () {
+  window.buildTabsets("TOC");
+});
+
+$(document).ready(function () {
+  $('.tabset-dropdown > .nav-tabs > li').click(function () {
+    $(this).parent().toggleClass('nav-tabs-open')
+  });
+});
+</script>
+
+<!-- code folding -->
+
+<script>
+$(document).ready(function ()  {
+
+    // move toc-ignore selectors from section div to header
+    $('div.section.toc-ignore')
+        .removeClass('toc-ignore')
+        .children('h1,h2,h3,h4,h5').addClass('toc-ignore');
+
+    // establish options
+    var options = {
+      selectors: "h1,h2,h3",
+      theme: "bootstrap3",
+      context: '.toc-content',
+      hashGenerator: function (text) {
+        return text.replace(/[.\\/?&!#<>]/g, '').replace(/\s/g, '_').toLowerCase();
+      },
+      ignoreSelector: ".toc-ignore",
+      scrollTo: 0
+    };
+    options.showAndHide = true;
+    options.smoothScroll = true;
+
+    // tocify
+    var toc = $("#TOC").tocify(options).data("toc-tocify");
+});
 </script>
 
 <!-- dynamically load mathjax for compatibility with self-contained -->

@@ -672,6 +672,96 @@ done
 ```
 </details>
 
+<details><summary>Multi-tissue per pT</summary>
+```{bash, echo=T, eval=F}
+##############################
+# Evaluating predictive utility of GeRS across multiple tissues for each pT seperately
+##############################
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs
+done
+
+# Split the GeRS files by pT
+module add apps/R
+R
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03','DIAB05','COAD01','CROH01','RHEU01')
+
+weights<-read.table('~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt', stringsAsFactors=F)$V1
+
+library(data.table)
+
+for(gwas_i in gwas){
+print(gwas_i)
+  for(weights_i in weights){
+
+    GeRS<-fread(paste0(UKBB_output,'/GeRS_for_comparison/1KG_ref/EUR/',weights_i,'/UKBB.w_hm3.EUR.',weights_i,'.',gwas_i,'.fiprofile'))
+  
+    GeRS_pT<-gsub('.*_','',names(GeRS)[-1:-2])
+    
+    for(pT_i in GeRS_pT){
+      write.table(GeRS[,c('FID','IID',paste0(gwas_i,'_',pT_i)), with=F], paste0(UKBB_output,'/GeRS_for_comparison/1KG_ref/EUR/',weights_i,'/UKBB.w_hm3.EUR.',weights_i,'.',gwas_i,'.pT_',pT_i,'.fiprofile'),col.names=T, row.names=F, quote=F)
+    }
+  }
+}
+
+q()
+n
+
+# Create a file listing the predictors files
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 RHEU01)
+weights=$(cat ${TWAS_rep}/snp_weight_list.txt)
+pT=$(echo 1e-06 1e-05 1e-04 0.001 0.01 0.05 0.1 0.5 1)
+
+for i in $(seq 1 8);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  
+  echo "predictors group" > /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.per_PT.predictor_groups
+  
+  for pT_i in ${pT};do
+    for weight in ${weights}; do
+        if [ -f ${UKBB_output}/GeRS_for_comparison/1KG_ref/EUR/${weight}/UKBB.w_hm3.EUR.${weight}.${gwas_i}.pT_${pT_i}.fiprofile ]; then
+
+        echo ${UKBB_output}/GeRS_for_comparison/1KG_ref/EUR/${weight}/UKBB.w_hm3.EUR.${weight}.${gwas_i}.pT_${pT_i}.fiprofile ${pT_i} >> /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.per_PT.predictor_groups
+      
+        fi
+    done
+  done
+  
+done
+
+# Derive and evaluate models
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
+
+# 1KG reference
+for i in $(seq 1 8);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+sbatch --mem 20G -n 4 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder.R \
+    --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+    --out /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.per_PT \
+    --n_core 4 \
+    --compare_predictors F \
+    --assoc T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/${pheno_i}/Association_withGeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.per_PT.predictor_groups
+done
+```
+</details>
+
 <details><summary>Single-tissue vs. Multi-tissue (PP4+clump)</summary>
 ```{bash, echo=T, eval=F}
 ##############################
@@ -1310,6 +1400,41 @@ done
 </details>
 
 <br/>
+
+### Estimate proportion of SNP-based heritability explained by GeRS and stratified PRS
+
+```{bash, eval=F, echo=T}
+
+module add apps/R/3.6.0
+R
+
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','RheuArth')
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03','DIAB05','COAD01','CROH01','RHEU01')
+weight=c('YFS.BLOOD.RNAARR')
+
+library(avengeme)
+
+GeRS_res<-NULL
+for(i in 1:8){
+  res_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withGeRSs/UKBB.w_hm3.AllTissue.',gwas[i],'.EUR-GeRSs.pred_eval.txt'), header=T, stringsAsFactors=F)
+  
+  res_i<-res_i[dim(res_i)[1],]
+  res_i$Phenotype<-pheno[i]
+  if(sum(names(res_i) == 'Indep_LiabR2') == 1){
+    res_i<-res_i[,c('Phenotype','Indep_LiabR2')]
+    names(res_i)[2]<-'R2'
+  } else {
+    res_i<-res_i[,c('Phenotype','IndepVal_R')]
+    res_i$R2<-res_i$IndepVal_R^2
+    res_i$IndepVal_R<-NULL
+  }
+  
+  
+
+  GeRS_res<-rbind(GeRS_res, res_i)
+}
+
+```
 
 ***
 
@@ -2764,22 +2889,21 @@ cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/GeRS_PP4_Tissue
 # Conclusion
 
 * Gene expression risk scores (GeRS) can explain a significantly non-zero amount of variance in a range of phenotypes
-* The amount of variance explained by GeRS is less than explained by a genome-wide or TWAS SNP-weight stratified polygenic scores, except for Rheumatoid Arthritis.
+* The amount of variance explained by GeRS is less than explained by a genome-wide pT+clump polygenic score or TWAS SNP-weight stratified polygenic scores, except for Rheumatoid Arthritis.
 * Use of elastic net models to combine GeRSs derived using multiple pTs does not significantly improve prediction over the single best pT as idenitified using 10-fold cross validation, though prediction never decreases
 * Inclusion of GeRS based on SNP-weights derived using multiple tissues consistently improves prediction over the single best tissues as idenitified using 10-fold cross validation
-* Inclusion of GeRSs only improved prediction over genome-wide polygenic scores for rheumatoid arthritis, providing an 1.6 times increase in r2 (0.021 to 0.035). Prediction improvements were non significant for all other henotypes in UK Biobank and TEDS.
-* However, PRScs polygenic scores which does not use LD clumping  reduces the benefit of using GeRS for all outcomes, and the increase for RheumArth is no longer significant. This indicates the gain is in the fact that GeRS are based on joint SNP models.
+* Inclusion of GeRSs only improved prediction over genome-wide polygenic scores for rheumatoid arthritis, providing an 1.6 times increase in r2 (0.021 to 0.035). Prediction improvements were non significant for all other phenotypes in UK Biobank and TEDS.
+* However, PRScs polygenic scores which does not use LD clumping reduces the benefit of using GeRS for all outcomes, and the increase for RheumArth is no longer significant. This indicates the gain is in the fact that GeRS are based on joint SNP models.
 * This findings suggest that GeRS represent a component of risk captured within genome-wide polygenic scores, rather than containing novel information.
 * This indicates GeRS may be more useful for stratifying risk rather than improving risk prediction in a linear model.
 * TWAS SNP PRS explain a suprisingly large amount of variance considering they only contain a fraction of the genome.
 
-
 In the Crohn's disease paper they use Ileal specific eQTLs by coparing to whole blood. They also used colocalisation and SMR to idenitfy genes with shared causal variant with IBD. It also only used candidate IBD genes as tagged by the immunochip. Ileal QTL data was derived using the target sample so possible overfitting. They mention the question of coherence and incoherence, indicating whether SNPs affect gene expression as well the phenotype?
 
-* I should try filtering genes based on coloc PP4 values
+* I should try filtering genes based on coloc PP4 values (Done)
 * I should try using tissue-specific eQTL effects
 
-Compare gain in R2 when including multiple tissue but use the same genes, so gains represent gian from tissue specificity rather than number of genes. Though SNP-weight sets with large sample will stll predict better due to higher R2 estimates.
+Compare gain in R2 when including multiple tissue but use the same genes, so gains represent gain from tissue specificity rather than number of genes. Though SNP-weight sets with large sample will stll predict better due to higher R2 estimates.
 
 I think I could end the study here and keep it short and sweet. Although it is tempting to include a GeRS based on PrediXcan/MetaXcan models. This would be a quite a substantial rework though as it would require more than HapMap3 variants:
 - Subset UK Biobank individuals with required phenotype data

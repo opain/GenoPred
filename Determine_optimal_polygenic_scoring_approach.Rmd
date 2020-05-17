@@ -3683,13 +3683,15 @@ cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_SBayesR_LDr
 <br/>
 
 ## Summary of results
-Here we will estimate the average correlation between observed and predicted values across all phenotypes.
 
-<details><summary>Average results across phenotypes</summary>
+### Per phenotype performance
+
+<details><summary>Compare methods</summary>
 
 ```{r, echo=T, eval=F}
+# Create a matrix for each phenotype indicating the percentage improvement of each method and the corresponding p-value (estimated using a Z test)
 ###
-# Calculate average correlation between observed and predicted values across phenotypes
+# Compare each method
 ###
 
 module add apps/R/3.6.0
@@ -3703,6 +3705,340 @@ Files<-c('UKBB','UKBB.UKBB_ref','TEDS','TEDS.UKBB_ref')
 Samples<-c('UKBB','UKBB','TEDS','TEDS')
 Files_descrip<-c('UKBB target with 1KG ref','UKBB target with UKBB ref','TEDS target with 1KG ref','TEDS target with UKBBref')
 
+for(file in 1:length(Files)){
+  res<-fread(paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'.csv'))
+  res$Test<-paste0(res$Method, ':', res$Group)
+
+  # Calculate difference between each method
+  res_diff<-NULL
+  
+  CrossVal_plot<-list()
+  IndepVal_plot<-list()
+  for(pheno in unique(res$Phenotype)){
+    res_pheno<-res[res$Phenotype == pheno,]
+    res_diff_pheno<-NULL
+    for(i in unique(res_pheno$Test)){
+      for(k in unique(res_pheno$Test)){
+          res_pheno_i<-res_pheno[res_pheno$Test == i,]
+          res_pheno_k<-res_pheno[res_pheno$Test == k,]
+      
+          res_diff_i_k<-data.table(Phenotype=pheno,
+                                   Test_ref=i,
+                                   Test_targ=k,
+                                   CrossVal_Diff=res_pheno_k$CrossVal_R-res_pheno_i$CrossVal_R,
+                                   IndepVal_Diff=res_pheno_k$IndepVal_R-res_pheno_i$IndepVal_R)
+          
+          res_diff_i_k$Perc_CrossVal_Diff<-res_diff_i_k$CrossVal_Diff/res_pheno_i$CrossVal_R*100
+          res_diff_i_k$CrossVal_Diff_Z<-res_diff_i_k$CrossVal_Diff/sqrt((res_pheno_i$CrossVal_R_SE^2)+(res_pheno_k$CrossVal_R_SE^2))
+          res_diff_i_k$CrossVal_Diff_P<-pnorm(-(res_diff_i_k$CrossVal_Diff_Z))              
+          res_diff_i_k$Perc_IndepVal_Diff<-res_diff_i_k$IndepVal_Diff/res_pheno_i$IndepVal_R*100
+          res_diff_i_k$IndepVal_Diff_Z<-res_diff_i_k$IndepVal_Diff/sqrt((res_pheno_i$IndepVal_R_SE^2)+(res_pheno_k$IndepVal_R_SE^2))
+          res_diff_i_k$IndepVal_Diff_P<-pnorm(-(res_diff_i_k$IndepVal_Diff_Z))              
+          res_diff_i_k<-res_diff_i_k[,c("Phenotype","Test_ref","Test_targ","CrossVal_Diff","Perc_CrossVal_Diff","CrossVal_Diff_Z","CrossVal_Diff_P","IndepVal_Diff","Perc_IndepVal_Diff","IndepVal_Diff_Z","IndepVal_Diff_P"), with=F]
+          res_diff_pheno<-rbind(res_diff_pheno,res_diff_i_k)
+    
+      }
+      
+    }
+    
+    # Format for plotting
+    res_diff_pheno$Test_ref<-factor(res_diff_pheno$Test_ref, levels=unique(res_pheno$Test))
+  res_diff_pheno$Test_targ<-factor(res_diff_pheno$Test_targ, levels=unique(res_pheno$Test))
+  
+    # R CrossVal diff matrix
+    res_CrossVal_diff_pheno_mat<-as.matrix(dcast(data=res_diff_pheno, formula=Test_ref~Test_targ, fun.aggregate=sum, value.var="CrossVal_Diff")[,-1])
+    rownames(res_CrossVal_diff_pheno_mat)<-colnames(res_CrossVal_diff_pheno_mat)
+    
+    # R IndepVal diff matrix
+    res_IndepVal_diff_pheno_mat<-as.matrix(dcast(data=res_diff_pheno, formula=Test_ref~Test_targ, fun.aggregate=sum, value.var="IndepVal_Diff")[,-1])
+    rownames(res_IndepVal_diff_pheno_mat)<-colnames(res_IndepVal_diff_pheno_mat)
+
+    # R diff P matrix
+    res_CrossVal_diff_P_pheno_mat<-as.matrix(dcast(data=res_diff_pheno, formula=Test_ref~Test_targ, fun.aggregate=sum, value.var="CrossVal_Diff_P")[,-1])
+    rownames(res_CrossVal_diff_P_pheno_mat)<-colnames(res_CrossVal_diff_P_pheno_mat)
+
+    # R diff P matrix
+    res_IndepVal_diff_P_pheno_mat<-as.matrix(dcast(data=res_diff_pheno, formula=Test_ref~Test_targ, fun.aggregate=sum, value.var="IndepVal_Diff_P")[,-1])
+    rownames(res_IndepVal_diff_P_pheno_mat)<-colnames(res_IndepVal_diff_P_pheno_mat)
+  
+    library(reshape2)
+    res_CrossVal_diff_pheno_mat_melt <- melt(res_CrossVal_diff_pheno_mat, na.rm = TRUE)
+    res_CrossVal_diff_P_pheno_mat_melt <- melt(res_CrossVal_diff_P_pheno_mat, na.rm = TRUE)
+    res_CrossVal_diff_P_pheno_mat_melt$star<-' '
+    res_CrossVal_diff_P_pheno_mat_melt$star[res_CrossVal_diff_P_pheno_mat_melt$value < 0.05]<-'*'
+    res_CrossVal_diff_P_pheno_mat_melt$star[res_CrossVal_diff_P_pheno_mat_melt$value < 0.001]<-'**'
+    
+    res_IndepVal_diff_pheno_mat_melt <- melt(res_IndepVal_diff_pheno_mat, na.rm = TRUE)
+    res_IndepVal_diff_P_pheno_mat_melt <- melt(res_IndepVal_diff_P_pheno_mat, na.rm = TRUE)
+    res_IndepVal_diff_P_pheno_mat_melt$star<-' '
+    res_IndepVal_diff_P_pheno_mat_melt$star[res_IndepVal_diff_P_pheno_mat_melt$value < 0.05]<-'*'
+    res_IndepVal_diff_P_pheno_mat_melt$star[res_IndepVal_diff_P_pheno_mat_melt$value < 0.001]<-'**'
+
+    CrossVal_plot[[pheno]]<-ggplot(data = res_CrossVal_diff_pheno_mat_melt, aes(Var2, Var1, fill = value))+
+     geom_tile(color = "white")+
+     labs(y='Reference', x='Test', title=pheno) +
+     scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+       midpoint = 0, limit = c(-0.45,0.45), space = "Lab", 
+       name="Correlation\ndifference") +
+      theme_minimal()+ 
+     theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+        size = 8, hjust = 1))+
+     coord_fixed() +
+    geom_text(data=res_CrossVal_diff_P_pheno_mat_melt, aes(Var2, Var1, label = star), color = "black", size = 4)
+    
+        IndepVal_plot[[pheno]]<-ggplot(data = res_IndepVal_diff_pheno_mat_melt, aes(Var2, Var1, fill = value))+
+     geom_tile(color = "white")+
+     labs(y='Reference', x='Test', title=pheno) +
+     scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+       midpoint = 0, limit = c(-0.45,0.45), space = "Lab", 
+       name="Correlation\ndifference") +
+      theme_minimal()+ 
+     theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+        size = 8, hjust = 1))+
+     coord_fixed() +
+    geom_text(data=res_IndepVal_diff_P_pheno_mat_melt, aes(Var2, Var1, label = star), color = "black", size = 4)
+
+    res_diff<-rbind(res_diff,res_diff_pheno)
+  }
+  
+  if(Samples[file] == 'TEDS'){
+
+    png(paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'_diff_CrossVal.png'), units='px', res=300, width=4000, height=6000)
+    print(plot_grid(plotlist=CrossVal_plot, ncol = 1))
+    dev.off()
+  
+    png(paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'_diff_IndepVal.png'), units='px', res=300, width=4000, height=6000)
+    print(plot_grid(plotlist=IndepVal_plot, ncol = 1))
+    dev.off()
+
+  } else {
+    
+    png(paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'_diff_CrossVal.png'), units='px', res=300, width=4000, height=18000)
+    print(plot_grid(plotlist=CrossVal_plot, ncol = 1))
+    dev.off()
+  
+    png(paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'_diff_IndepVal.png'), units='px', res=300, width=4000, height=18000)
+    print(plot_grid(plotlist=IndepVal_plot, ncol = 1))
+    dev.off()
+
+  }
+
+  write.csv(res_diff, paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'_diff.csv'), row.names=F, quote=F)
+}
+
+q()
+n
+
+```
+
+</details>
+
+<br/>
+
+#### 1KG reference
+##### UKBB
+```{bash, eval=T, echo=F}
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB_diff_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB_diff_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+```
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Figure 13: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_UKBB_diff_CrossVal.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Figure 14: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_UKBB_diff_IndepVal.png)
+
+\center
+
+</details>
+
+<details><summary>Show table: UKBB (1KG ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB_diff.csv")
+
+res[,!grepl("Phenotype|Test|Diff_P",names(res))]<-round(res[,!grepl("Phenotype|Test|Diff_P",names(res))], 3)
+
+res$CrossVal_Diff_P<-format(res$CrossVal_Diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_Diff_P<-format(res$IndepVal_Diff_P, scientific = TRUE, digits = 3)
+
+names(res)<-c("Phenotype","Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in UKBB with 1KG reference')
+
+```
+
+</details>
+
+<br/>
+
+##### TEDS
+```{bash, eval=T, echo=F}
+cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS_diff_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS_diff_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+```
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Figure 13: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_TEDS_diff_CrossVal.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Figure 14: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_TEDS_diff_IndepVal.png)
+
+\center
+
+</details>
+
+<details><summary>Show table: TEDS (1KG ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS_diff.csv")
+
+res[,!grepl("Phenotype|Test|Diff_P",names(res))]<-round(res[,!grepl("Phenotype|Test|Diff_P",names(res))], 3)
+
+res$CrossVal_Diff_P<-format(res$CrossVal_Diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_Diff_P<-format(res$IndepVal_Diff_P, scientific = TRUE, digits = 3)
+
+names(res)<-c("Phenotype","Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in TEDS with 1KG reference')
+
+```
+
+</details>
+
+<br/>
+
+#### UKB reference
+```{bash, eval=T, echo=F}
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB.UKBB_ref_diff_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB.UKBB_ref_diff_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+```
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Figure 13: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_UKBB.UKBB_ref_diff_CrossVal.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Figure 14: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_UKBB.UKBB_ref_diff_IndepVal.png)
+
+\center
+
+</details>
+
+<details><summary>Show table: UKBB (1KG ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB.UKBB_ref_diff.csv")
+
+res[,!grepl("Phenotype|Test|Diff_P",names(res))]<-round(res[,!grepl("Phenotype|Test|Diff_P",names(res))], 3)
+
+res$CrossVal_Diff_P<-format(res$CrossVal_Diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_Diff_P<-format(res$IndepVal_Diff_P, scientific = TRUE, digits = 3)
+
+names(res)<-c("Phenotype","Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in UKBB with UKBB reference')
+
+```
+
+</details>
+
+<br/>
+
+##### TEDS
+```{bash, eval=T, echo=F}
+cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS.UKBB_ref_diff_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/users/k1806347/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS.UKBB_ref_diff_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+```
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Figure 13: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_TEDS.UKBB_ref_diff_CrossVal.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Figure 14: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_TEDS.UKBB_ref_diff_IndepVal.png)
+
+\center
+
+</details>
+
+<details><summary>Show table: TEDS (1KG ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS.UKBB_ref_diff.csv")
+
+res[,!grepl("Phenotype|Test|Diff_P",names(res))]<-round(res[,!grepl("Phenotype|Test|Diff_P",names(res))], 3)
+
+res$CrossVal_Diff_P<-format(res$CrossVal_Diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_Diff_P<-format(res$IndepVal_Diff_P, scientific = TRUE, digits = 3)
+
+names(res)<-c("Phenotype","Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in TEDS with UKBB reference')
+
+```
+
+</details>
+
+<br/>
+
+### Average performance
+
+<details><summary>Average results across phenotypes</summary>
+
+```{bash, echo=T, eval=F}
+# Create a matrix comparing average differences between methods.
+###
+# Calculate average correlation between observed and predicted values across phenotypes
+###
+
+module add apps/R/3.6.0
+R
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(meta)
+library(MAd)
+
+Files<-c('UKBB','UKBB.UKBB_ref','TEDS','TEDS.UKBB_ref')
+Samples<-c('UKBB','UKBB','TEDS','TEDS')
+Files_descrip<-c('UKBB target with 1KG ref','UKBB target with UKBB ref','TEDS target with 1KG ref','TEDS target with UKBBref')
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+Plots_CrossVal_diff_mat<-list()
+Plots_IndepVal_diff_mat<-list()
 Plots_CrossVal<-list()
 Plots_IndepVal<-list()
 Plots_CrossVal_diff<-list()
@@ -3711,77 +4047,220 @@ Plots_IndepVal_diff<-list()
 for(file in 1:length(Files)){
   res<-fread(paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'.csv'))
   res$Test<-paste0(res$Method, ':', res$Group)
+  
+  res$Phenotype<-factor(res$Phenotype, level=unique(res$Phenotype))
+  res$Method<-factor(res$Method, level=unique(res$Method))
+  res$Group<-factor(res$Group, level=c('10FCVal','Multi-PRS','PseudoVal'))
+  
+  res<-res[order(res$Phenotype, res$Method, res$Group),]
+  
+  # Calculate mean R and SE using MAd aggregate function for each method
+  # This method requires a correlation matrix representing the dependancy of tests
+  # We will use the correlation between phenotypes although this is probably conservative
+  # Read in the phenotypic data
+  if(Samples[file] == 'UKBB'){
+    pheno<-unique(res$Phenotype)
+  for(pheno_i in 1:length(pheno)){
+    if(pheno_i==1){
+      pheno_i_dat<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',pheno[pheno_i],'.txt'))
+      names(pheno_i_dat)[3]<-pheno[pheno_i]
+      pheno_dat<-pheno_i_dat
+    } else {
+      pheno_i_dat<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',pheno[pheno_i],'.txt'))
+      names(pheno_i_dat)[3]<-pheno[pheno_i]
+      pheno_dat<-merge(pheno_dat, pheno_i_dat, by=c('FID','IID'), all=T)
+    }
+  }
+} else {
+      pheno<-unique(res$Phenotype)
+  for(pheno_i in 1:length(pheno)){
+    if(pheno_i==1){
+      pheno_i_dat<-fread(paste0('/users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_',pheno[pheno_i],'.txt'))
+      names(pheno_i_dat)[3]<-pheno[pheno_i]
+      pheno_dat<-pheno_i_dat
+    } else {
+      pheno_i_dat<-fread(paste0('/users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_',pheno[pheno_i],'.txt'))
+      names(pheno_i_dat)[3]<-pheno[pheno_i]
+      pheno_dat<-merge(pheno_dat, pheno_i_dat, by=c('FID','IID'), all=T)
+    }
+  }
+}
 
-  res_aver<-NULL
+  # Calculate corelation between all phenotypes
+  cors<-abs(cor(as.matrix(pheno_dat[,-1:-2]), use='p'))
+  cors<-cors[unique(res$Phenotype,),unique(res$Phenotype,)]
+  
+  # Run aggregate function
+  meta_res<-NULL
   for(i in unique(res$Test)){
     res_i<-res[res$Test == i,]
-    res_pT_10FC<-res[res$Test == 'pT:10FCVal',]
-    
-    res_i_diff<-res_i
-    res_i_diff$CrossVal_R<-res_i$CrossVal_R-res_pT_10FC$CrossVal_R
-    res_i_diff$IndepVal_R<-res_i$IndepVal_R-res_pT_10FC$IndepVal_R
-      
-    res_aver_i<-data.frame(Test=i,
-                          Method=res_i$Method[1],
-                          Group=res_i$Group[1],
-                          Mean_R_CrossVal=mean(res_i$CrossVal_R),
-                          min_R_CrossVal=min(res_i$CrossVal_R),
-                          max_R_CrossVal=max(res_i$CrossVal_R),
-                          Mean_R_IndepVal=mean(res_i$IndepVal_R),
-                          min_R_IndepVal=min(res_i$IndepVal_R),
-                          max_R_IndepVal=max(res_i$IndepVal_R),
+    res_i$Sample<-'Target'
 
-                          Mean_R_diff_CrossVal=mean(res_i_diff$CrossVal_R),
-                          min_R_diff_CrossVal=min(res_i_diff$CrossVal_R),
-                          max_R_diff_CrossVal=max(res_i_diff$CrossVal_R),
-                          Mean_R_diff_IndepVal=mean(res_i_diff$IndepVal_R),
-                          min_R_diff_IndepVal=min(res_i_diff$IndepVal_R),
-                          max_R_diff_IndepVal=max(res_i_diff$IndepVal_R))
-    res_aver<-rbind(res_aver, res_aver_i)
-    
+    CrossVal_agg_res_i<-agg(id=Sample, es=CrossVal_R, var=CrossVal_R_SE^2, cor=cors, method="BHHR", mod=NULL, data=res_i)
+    IndepVal_agg_res_i<-agg(id=Sample, es=IndepVal_R, var=IndepVal_R_SE^2, cor=cors, method="BHHR", mod=NULL, data=res_i)
+
+    meta_res<-rbind(meta_res, data.frame(  Test=i,
+                                           CrossVal_R=CrossVal_agg_res_i$es[1],
+                                           CrossVal_R_SE=sqrt(CrossVal_agg_res_i$var[1]),
+                                           IndepVal_R=IndepVal_agg_res_i$es[1],
+                                           IndepVal_R_SE=sqrt(IndepVal_agg_res_i$var[1])))
   }
   
-      Plots_CrossVal[[Files[file]]] <- ggplot( res_aver, aes(x=Method, y=Mean_R_CrossVal, fill=Group)) +
-                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
-                        geom_errorbar(aes(ymin=min_R_CrossVal, ymax=max_R_CrossVal), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
-                        labs(y="Mean Correlation\n(min and max)", x='', title=Files_descrip[file]) +
-                        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  write.csv(meta_res, paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'_meta.csv'), row.names=F, quote=F)
+
+  # Calculate difference between methods and p-value using Z test
+  meta_res_diff<-NULL
+  for(i in unique(meta_res$Test)){
+    for(k in unique(meta_res$Test)){
+      meta_res_i<-meta_res[meta_res$Test == i,]
+      meta_res_k<-meta_res[meta_res$Test == k,]
   
-      Plots_IndepVal[[Files[file]]] <- ggplot( res_aver, aes(x=Method, y=Mean_R_IndepVal, fill=Group)) +
-                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
-                        geom_errorbar(aes(ymin=min_R_IndepVal, ymax=max_R_IndepVal), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
-                        labs(y="Mean Correlation\n(min and max)", x='', title=Files_descrip[file]) +
-              				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+      res_diff_i_k<-data.table(Test_ref=i,
+                               Test_targ=k,
+                               CrossVal_Diff=meta_res_k$CrossVal_R-meta_res_i$CrossVal_R,
+                               IndepVal_Diff=meta_res_k$IndepVal_R-meta_res_i$IndepVal_R)
+      
+      res_diff_i_k$Perc_CrossVal_Diff<-res_diff_i_k$CrossVal_Diff/meta_res_i$CrossVal_R*100
+      res_diff_i_k$CrossVal_Diff_Z<-res_diff_i_k$CrossVal_Diff/sqrt((meta_res_i$CrossVal_R_SE^2)+(meta_res_k$CrossVal_R_SE^2))
+      res_diff_i_k$CrossVal_Diff_P<-pnorm(-(res_diff_i_k$CrossVal_Diff_Z))              
+      res_diff_i_k$Perc_IndepVal_Diff<-res_diff_i_k$IndepVal_Diff/meta_res_i$IndepVal_R*100
+      res_diff_i_k$IndepVal_Diff_Z<-res_diff_i_k$IndepVal_Diff/sqrt((meta_res_i$IndepVal_R_SE^2)+(meta_res_k$IndepVal_R_SE^2))
+      res_diff_i_k$IndepVal_Diff_P<-pnorm(-(res_diff_i_k$IndepVal_Diff_Z))              
+      res_diff_i_k<-res_diff_i_k[,c("Test_ref","Test_targ","CrossVal_Diff","Perc_CrossVal_Diff","CrossVal_Diff_Z","CrossVal_Diff_P","IndepVal_Diff","Perc_IndepVal_Diff","IndepVal_Diff_Z","IndepVal_Diff_P"), with=F]
+      meta_res_diff<-rbind(meta_res_diff,res_diff_i_k)
+    }
+  }
+
+  # Format for plotting
+  meta_res_diff$Test_ref<-factor(meta_res_diff$Test_ref, levels=unique(meta_res_diff$Test_ref))
+  meta_res_diff$Test_targ<-factor(meta_res_diff$Test_targ, levels=unique(meta_res_diff$Test_ref))
+
+  # R CrossVal diff matrix
+  res_CrossVal_diff_pheno_mat<-as.matrix(dcast(data=meta_res_diff, formula=Test_ref~Test_targ, fun.aggregate=sum, value.var="CrossVal_Diff")[,-1])
+  rownames(res_CrossVal_diff_pheno_mat)<-colnames(res_CrossVal_diff_pheno_mat)
   
-      Plots_CrossVal_diff[[Files[file]]] <- ggplot( res_aver, aes(x=Method, y=Mean_R_diff_CrossVal, fill=Group)) +
-                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
-                        geom_errorbar(aes(ymin=min_R_diff_CrossVal, ymax=max_R_diff_CrossVal), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
-                        labs(y="Mean difference\n(min and max)", x='', title=Files_descrip[file]) +
-                        geom_hline(yintercept=0) +
-                        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  # R IndepVal diff matrix
+  res_IndepVal_diff_pheno_mat<-as.matrix(dcast(data=meta_res_diff, formula=Test_ref~Test_targ, fun.aggregate=sum, value.var="IndepVal_Diff")[,-1])
+  rownames(res_IndepVal_diff_pheno_mat)<-colnames(res_IndepVal_diff_pheno_mat)
+
+  # R diff P matrix
+  res_CrossVal_diff_P_pheno_mat<-as.matrix(dcast(data=meta_res_diff, formula=Test_ref~Test_targ, fun.aggregate=sum, value.var="CrossVal_Diff_P")[,-1])
+  rownames(res_CrossVal_diff_P_pheno_mat)<-colnames(res_CrossVal_diff_P_pheno_mat)
+
+  # R diff P matrix
+  res_IndepVal_diff_P_pheno_mat<-as.matrix(dcast(data=meta_res_diff, formula=Test_ref~Test_targ, fun.aggregate=sum, value.var="IndepVal_Diff_P")[,-1])
+  rownames(res_IndepVal_diff_P_pheno_mat)<-colnames(res_IndepVal_diff_P_pheno_mat)
+
+  library(reshape2)
+  res_CrossVal_diff_pheno_mat_melt <- melt(res_CrossVal_diff_pheno_mat, na.rm = TRUE)
+  res_CrossVal_diff_P_pheno_mat_melt <- melt(res_CrossVal_diff_P_pheno_mat, na.rm = TRUE)
+  res_CrossVal_diff_P_pheno_mat_melt$star<-' '
+  res_CrossVal_diff_P_pheno_mat_melt$star[res_CrossVal_diff_P_pheno_mat_melt$value < 0.05]<-'*'
+  res_CrossVal_diff_P_pheno_mat_melt$star[res_CrossVal_diff_P_pheno_mat_melt$value < 0.001]<-'**'
+  res_CrossVal_diff_P_pheno_mat_melt$star[res_CrossVal_diff_P_pheno_mat_melt$value < 0.000001]<-'***'
   
-      Plots_IndepVal_diff[[Files[file]]] <- ggplot( res_aver, aes(x=Method, y=Mean_R_diff_IndepVal, fill=Group)) +
-                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
-                        geom_errorbar(aes(ymin=min_R_diff_IndepVal, ymax=max_R_diff_IndepVal), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
-                        labs(y="Mean difference\n(min and max)", x='', title=Files_descrip[file]) +
-                        geom_hline(yintercept=0) +
-              				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  res_IndepVal_diff_pheno_mat_melt <- melt(res_IndepVal_diff_pheno_mat, na.rm = TRUE)
+  res_IndepVal_diff_P_pheno_mat_melt <- melt(res_IndepVal_diff_P_pheno_mat, na.rm = TRUE)
+  res_IndepVal_diff_P_pheno_mat_melt$star<-' '
+  res_IndepVal_diff_P_pheno_mat_melt$star[res_IndepVal_diff_P_pheno_mat_melt$value < 0.05]<-'*'
+  res_IndepVal_diff_P_pheno_mat_melt$star[res_IndepVal_diff_P_pheno_mat_melt$value < 0.001]<-'**'
+  res_IndepVal_diff_P_pheno_mat_melt$star[res_IndepVal_diff_P_pheno_mat_melt$value < 0.000001]<-'***'
+
+  Plots_CrossVal_diff_mat[[Files[file]]]<-ggplot(data = res_CrossVal_diff_pheno_mat_melt, aes(Var2, Var1, fill = value))+
+     geom_tile(color = "white")+
+     labs(y='Reference', x='Test', title=Files_descrip[file]) +
+     scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+       midpoint = 0, limit = c(-0.15,0.15), space = "Lab", 
+       name="Correlation\ndifference") +
+      theme_minimal()+ 
+     theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+        size = 8, hjust = 1))+
+     coord_fixed() +
+    geom_text(data=res_CrossVal_diff_P_pheno_mat_melt, aes(Var2, Var1, label = star), color = "black", size = 4)
+
+  Plots_IndepVal_diff_mat[[Files[file]]]<-ggplot(data = res_IndepVal_diff_pheno_mat_melt, aes(Var2, Var1, fill = value))+
+     geom_tile(color = "white")+
+     labs(y='Reference', x='Test', title=Files_descrip[file]) +
+     scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+       midpoint = 0, limit = c(-0.15,0.15), space = "Lab", 
+       name="Correlation\ndifference") +
+      theme_minimal()+ 
+     theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+        size = 8, hjust = 1))+
+     coord_fixed() +
+    geom_text(data=res_IndepVal_diff_P_pheno_mat_melt, aes(Var2, Var1, label = star), color = "black", size = 4)
+  
+  write.csv(meta_res_diff, paste0('/scratch/users/k1806347/Analyses/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'_meta_diff.csv'), row.names=F, quote=F)
+
+  # Create bar plots showing results
+  meta_res$Method<-gsub(':.*','',meta_res$Test)
+  meta_res$Group<-gsub('.*:','',meta_res$Test)
+  
+  meta_res$Method<-factor(meta_res$Method, levels=unique(meta_res$Method))
+  meta_res$Group<-factor(meta_res$Group, levels=unique(meta_res$Group))
+  
+  Plots_CrossVal[[Files[file]]] <- ggplot( meta_res, aes(x=Method, y=CrossVal_R, fill=Group)) +
+                    geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                    geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
+                    labs(y="Mean Correlation (SE)", x='', title=Files_descrip[file]) +
+                    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  Plots_IndepVal[[Files[file]]] <- ggplot( meta_res, aes(x=Method, y=IndepVal_R, fill=Group)) +
+                    geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                    geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
+                    labs(y="Mean Correlation (SE)", x='', title=Files_descrip[file]) +
+          				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  meta_res_diff_pT<-meta_res_diff[meta_res_diff$Test_ref == 'pT:10FCVal',]
+  meta_res_diff_pT$Method<-gsub(':.*','',meta_res_diff_pT$Test_targ)
+  meta_res_diff_pT$Group<-gsub('.*:','',meta_res_diff_pT$Test_targ)
+  
+  meta_res_diff_pT$Method<-factor(meta_res_diff_pT$Method, levels=unique(meta_res_diff_pT$Method))
+  meta_res_diff_pT$Group<-factor(meta_res_diff_pT$Group, levels=unique(meta_res_diff_pT$Group))
+  
+  meta_res_diff_pT$CrossVal_Diff_SE<-meta_res_diff_pT$CrossVal_Diff/meta_res_diff_pT$CrossVal_Diff_Z
+
+  Plots_CrossVal_diff[[Files[file]]] <- ggplot( meta_res_diff_pT, aes(x=Method, y=CrossVal_Diff, fill=Group)) +
+                    geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                    ylim(-0.12,0.065) +
+                    geom_errorbar(aes(ymin=CrossVal_Diff-CrossVal_Diff_SE, ymax=CrossVal_Diff+CrossVal_Diff_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
+                    labs(y="Mean difference (SE)", x='', title=Files_descrip[file]) +
+                    geom_hline(yintercept=0) +
+                    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  meta_res_diff_pT$IndepVal_Diff_SE<-meta_res_diff_pT$IndepVal_Diff/meta_res_diff_pT$IndepVal_Diff_Z
+
+  Plots_IndepVal_diff[[Files[file]]] <- ggplot( meta_res_diff_pT, aes(x=Method, y=IndepVal_Diff, fill=Group)) +
+                    geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                    ylim(-0.12,0.065) +
+                    geom_errorbar(aes(ymin=IndepVal_Diff-IndepVal_Diff_SE, ymax=IndepVal_Diff+IndepVal_Diff_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
+                    labs(y="Mean difference (SE)", x='', title=Files_descrip[file]) +
+                    geom_hline(yintercept=0) +
+          				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 }
 
-bitmap('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_CrossVal.png', units='px', res=300, width=3000, height=2000)
+png(paste0('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_meta_diff_CrossVal.png'), units='px', res=300, width=4000, height=4000)
+plot_grid(plotlist=Plots_CrossVal_diff_mat, ncol = 2)
+dev.off()
+  
+png(paste0('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_meta_diff_IndepVal.png'), units='px', res=300, width=4000, height=4000)
+plot_grid(plotlist=Plots_IndepVal_diff_mat, ncol = 2)
+dev.off()
+
+png('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_CrossVal.png', units='px', res=300, width=3000, height=2000)
 plot_grid(plotlist=Plots_CrossVal, ncol = 2)
 dev.off()
 
-bitmap('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_IndepVal.png', units='px', res=300, width=3000, height=2000)
+png('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_IndepVal.png', units='px', res=300, width=3000, height=2000)
 plot_grid(plotlist=Plots_IndepVal, ncol = 2)
 dev.off()
 
-bitmap('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_diff_CrossVal.png', units='px', res=300, width=3000, height=2000)
+png('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_diff_CrossVal.png', units='px', res=300, width=3000, height=2000)
 plot_grid(plotlist=Plots_CrossVal_diff, ncol = 2)
 dev.off()
 
-bitmap('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_diff_IndepVal.png', units='px', res=300, width=3000, height=2000)
+png('/scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_diff_IndepVal.png', units='px', res=300, width=3000, height=2000)
 plot_grid(plotlist=Plots_IndepVal_diff, ncol = 2)
 dev.off()
 
@@ -3793,6 +4272,10 @@ n
 </details>
 
 ```{bash, eval=T, echo=F}
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_meta_diff_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_meta_diff_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
 cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
 
 cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_Average_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
@@ -3803,7 +4286,7 @@ cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp
 
 ```
 
-<details><summary>Show average cross-validation results</summary>
+<details><summary>Show cross-validation results</summary>
 
 <center>
 
@@ -3811,7 +4294,7 @@ cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp
 
 </details>
 
-<details><summary>Show average test-validation results</summary>
+<details><summary>Show test-validation results</summary>
 
 ![Figure 14: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_Average_IndepVal.png)
 
@@ -3819,7 +4302,103 @@ cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp
 
 </details>
 
-<details><summary>Show average difference cross-validation results</summary>
+<details><summary>Show table: UKBB (1KG ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB_meta.csv")
+
+res[,!grepl("Test",names(res))]<-round(res[,!grepl("Test",names(res))], 3)
+
+res$Method<-gsub(':.*','',res$Test)
+res$Group<-gsub('.*:','',res$Test)
+
+res$CrossVal_R<-paste0(res$CrossVal_R," (",res$CrossVal_R_SE,")")
+res$IndepVal_R<-paste0(res$IndepVal_R," (",res$IndepVal_R_SE,")")
+
+res<-res[,c('Method','Group','CrossVal_R','IndepVal_R')]
+names(res)<-c("Method",'Group',"CrossVal R (SE)","IndepVal R (SE)")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average performance in UKBB with 1KG reference')
+
+```
+
+</details>
+
+<details><summary>Show table: UKBB (UKBB ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB.UKBB_ref_meta.csv")
+
+res[,!grepl("Test",names(res))]<-round(res[,!grepl("Test",names(res))], 3)
+
+res$Method<-gsub(':.*','',res$Test)
+res$Group<-gsub('.*:','',res$Test)
+
+res$CrossVal_R<-paste0(res$CrossVal_R," (",res$CrossVal_R_SE,")")
+res$IndepVal_R<-paste0(res$IndepVal_R," (",res$IndepVal_R_SE,")")
+
+res<-res[,c('Method','Group','CrossVal_R','IndepVal_R')]
+names(res)<-c("Method",'Group',"CrossVal R (SE)","IndepVal R (SE)")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average performance in UKBB with UKBB reference')
+
+```
+
+</details>
+
+<details><summary>Show table: TEDS (1KG ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS_meta.csv")
+
+res[,!grepl("Test",names(res))]<-round(res[,!grepl("Test",names(res))], 3)
+
+res$Method<-gsub(':.*','',res$Test)
+res$Group<-gsub('.*:','',res$Test)
+
+res$CrossVal_R<-paste0(res$CrossVal_R," (",res$CrossVal_R_SE,")")
+res$IndepVal_R<-paste0(res$IndepVal_R," (",res$IndepVal_R_SE,")")
+
+res<-res[,c('Method','Group','CrossVal_R','IndepVal_R')]
+names(res)<-c("Method",'Group',"CrossVal R (SE)","IndepVal R (SE)")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average performance in TEDS with 1KG reference')
+
+```
+
+</details>
+
+<details><summary>Show table: TEDS (UKBB ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS.UKBB_ref_meta.csv")
+
+res[,!grepl("Test",names(res))]<-round(res[,!grepl("Test",names(res))], 3)
+
+res$Method<-gsub(':.*','',res$Test)
+res$Group<-gsub('.*:','',res$Test)
+
+res$CrossVal_R<-paste0(res$CrossVal_R," (",res$CrossVal_R_SE,")")
+res$IndepVal_R<-paste0(res$IndepVal_R," (",res$IndepVal_R_SE,")")
+
+res<-res[,c('Method','Group','CrossVal_R','IndepVal_R')]
+names(res)<-c("Method",'Group',"CrossVal R (SE)","IndepVal R (SE)")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average performance in TEDS with UKBB reference')
+
+```
+
+</details>
+
+<br/>
+
+### Average performance relative to pT+clump
+
+<details><summary>Show cross-validation results</summary>
 
 <center>
 
@@ -3827,13 +4406,107 @@ cp /scratch/users/k1806347/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp
 
 </details>
 
-<details><summary>Show average difference test-validation results</summary>
+<details><summary>Show test-validation results</summary>
 
 ![Figure 16: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_Average_diff_IndepVal.png)
 
 \center
 
 </details>
+
+<br/>
+
+### Average performance difference across all methods
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Figure 15: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_meta_diff_CrossVal.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Figure 16: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_meta_diff_IndepVal.png)
+
+\center
+
+</details>
+
+<details><summary>Show table: UKBB (1KG ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB_meta_diff.csv")
+
+res$CrossVal_Diff_P<-format(res$CrossVal_Diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_Diff_P<-format(res$IndepVal_Diff_P, scientific = TRUE, digits = 3)
+res[,!grepl("Test_|_Diff_P",names(res))]<-round(res[,!grepl("Test_|_Diff_P",names(res))], 3)
+
+names(res)<-c("Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average difference between methods in UKBB with 1KG reference')
+
+```
+
+</details>
+
+<details><summary>Show table: UKBB (UKBB ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB.UKBB_ref_meta_diff.csv")
+
+res$CrossVal_Diff_P<-format(res$CrossVal_Diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_Diff_P<-format(res$IndepVal_Diff_P, scientific = TRUE, digits = 3)
+res[,!grepl("Test_|_Diff_P",names(res))]<-round(res[,!grepl("Test_|_Diff_P",names(res))], 3)
+
+names(res)<-c("Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average difference between methods in UKBB with UKBB reference')
+
+```
+
+</details>
+
+<details><summary>Show table: TEDS (1KG ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS_meta_diff.csv")
+
+res$CrossVal_Diff_P<-format(res$CrossVal_Diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_Diff_P<-format(res$IndepVal_Diff_P, scientific = TRUE, digits = 3)
+res[,!grepl("Test_|_Diff_P",names(res))]<-round(res[,!grepl("Test_|_Diff_P",names(res))], 3)
+
+names(res)<-c("Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average difference between methods in TEDS with 1KG reference')
+
+```
+
+</details>
+
+<details><summary>Show table: TEDS (UKBB ref)</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS.UKBB_ref_meta_diff.csv")
+
+res$CrossVal_Diff_P<-format(res$CrossVal_Diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_Diff_P<-format(res$IndepVal_Diff_P, scientific = TRUE, digits = 3)
+res[,!grepl("Test_|_Diff_P",names(res))]<-round(res[,!grepl("Test_|_Diff_P",names(res))], 3)
+
+names(res)<-c("Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average difference between methods in TEDS with UKBB reference')
+
+```
+
+</details>
+
+<br/>
 
 ***
 
