@@ -26,8 +26,12 @@ make_option("--gctb", action="store", default=NA, type='character',
     help="Path to GCTB binary [required]"),
 make_option("--munged", action="store", default=T, type='logical',
     help="Logical indicating whether the GWAS summary statistics are in munged format [required]"),
+make_option("--impute_N", action="store", default=T, type='logical',
+    help="Logical indicating whether per variant N should imputed based on SE. Ony possible when munged == F [optional]"),
 make_option("--auto_trunc", action="store", default=F, type='logical',
     help="Logical indicating whether optimal sample size truncation should be used. Default is 0.1*median. [required]"),
+make_option("--P_max", action="store", default=NA, type='numeric',
+    help="P-value threshold for filter variants [optional]"),
 make_option("--ld_matrix_chr", action="store", default=NA, type='character',
 		help="Path to per chromosome shrunk sparse LD matrix from GCTB [required]")
 )
@@ -68,9 +72,16 @@ sink()
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
 GWAS<-GWAS[complete.cases(GWAS),]
 
+# If unmunged convert OR to BETA, and do some basic QC
 if(opt$munged == F){
   if(!('BETA' %in% names(GWAS))){
     GWAS$BETA<-log(GWAS$OR)
+  }
+  if(('FREQ' %in% names(GWAS))){
+    GWAS<-GWAS[GWAS$FREQ>0.01 & GWAS$FREQ<0.99,]
+  }
+  if(('INFO' %in% names(GWAS))){
+    GWAS<-GWAS[GWAS$INFO>0.6,]
   }
 }
 
@@ -78,6 +89,7 @@ if(opt$munged == F){
   if(!('SE' %in% names(GWAS))){
     GWAS$Z<-abs(qnorm(GWAS$P/2))
     GWAS$SE<-abs(GWAS$BETA/GWAS$Z)
+    GWAS<-GWAS[!is.na(GWAS$SE) & GWAS$SE != 0,]
   }
 }
 
@@ -85,6 +97,18 @@ if(opt$munged == T){
   # Calculate P values (first change 0 z-scores to a small non-zero number, as otherwise calculating the beta and se leads to na)
   GWAS$Z[GWAS$Z == 0]<-1e-10
   GWAS$P<-2*pnorm(-abs(GWAS$Z))
+}
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('GWAS contains',dim(GWAS)[1],'variants.\n')
+sink()
+
+if(!is.na(opt$P_max)){
+  GWAS<-GWAS[GWAS$P < opt$P_max,]
+  
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('GWAS contains',dim(GWAS)[1],'variants after removing variants with P >=',opt$P_max,'\n')
+  sink()
 }
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -157,35 +181,27 @@ if(!('MAF' %in% names(GWAS_clean))){
   }
 }
 
-if(opt$munged == T){
-  # Transform Z score to beta and se using formula from https://www.ncbi.nlm.nih.gov/pubmed/27019110
-  # Note, we could use full sumstats rather than munged which would contain more accurate beta and se.
-  GWAS_clean$beta<-GWAS_clean$Z/sqrt((2*GWAS_clean$MAF)*(1-GWAS_clean$MAF)*(GWAS_clean$N+sqrt(abs(GWAS_clean$Z))))
-  GWAS_clean$se<-abs(GWAS_clean$beta)/abs(GWAS_clean$Z)
-  
-  GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','MAF','beta','se','P','N'),with=F]
-} else {
-  GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','MAF','BETA','SE','P','N'),with=F]
-}
-
 # Truncate the sample size distribution across variants
 if(length(unique(GWAS_clean$N)) == 1){
-
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
 	cat('GWAS sumstats do not include variant specific sample size info.\n')
 	sink()
+	
+	per_var_N<-F
 
 } else {
 
+  per_var_N<-T
+  
 	bitmap(paste(opt$output,'N_dist_preTrunc.png',sep=''), units='px', res=300, width=3000, height=5000)
 	hist(GWAS_clean$N)
 	dev.off()
 
 	med_N<-median(GWAS_clean$N)
-	
+
 	if(opt$auto_trunc == F){
 	  GWAS_clean<-GWAS_clean[GWAS_clean$N > (med_N-(med_N*0.10)) & GWAS_clean$N < (med_N+(med_N*0.10)),]
-
+	  
 	} else {
 	  N_sd<-NULL
 	  sd_dev<-seq(0,0.3,0.005)
@@ -213,6 +229,17 @@ if(length(unique(GWAS_clean$N)) == 1){
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
 	cat(dim(GWAS_clean)[1],'variants in GWAS sumstats after truncating sample size distribution.\n')
 	sink()
+}
+
+if(opt$munged == T){
+  # Transform Z score to beta and se using formula from https://www.ncbi.nlm.nih.gov/pubmed/27019110
+  # Note, we could use full sumstats rather than munged which would contain more accurate beta and se.
+  GWAS_clean$beta<-GWAS_clean$Z/sqrt((2*GWAS_clean$MAF)*(1-GWAS_clean$MAF)*(GWAS_clean$N+sqrt(abs(GWAS_clean$Z))))
+  GWAS_clean$se<-abs(GWAS_clean$beta)/abs(GWAS_clean$Z)
+  
+  GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','MAF','beta','se','P','N'),with=F]
+} else {
+  GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','MAF','BETA','SE','P','N'),with=F]
 }
 
 GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 0,]
@@ -243,8 +270,11 @@ CHROMS<-CHROMS[!is.na(CHROMS)]
 print(CHROMS)
 
 error<-foreach(i=CHROMS, .combine=rbind) %dopar% {
-  
-	log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+  if(per_var_N == F & opt$impute_N == T){
+    log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --impute-n --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+  } else {
+    log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+  }
   
 	if(sum(grepl("MCMC cycles completed", log) == T) == 1 & sum(grepl("Analysis finished", log) == T) == 1){
 	  error_log<-data.frame(chr=i, Log='Analysis converged')

@@ -1,0 +1,241 @@
+---
+title: "Estimating significance of prediction differences"
+output: 
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+    number_sections: true
+    toc_float: true
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This analysis was to compare different methods for estimating the statistical significance of prediction differences across polygenic scoring methods, and models in general.
+
+Here I simulate data with one continuous outcomes, and two correlated continuous outcomes. The correlation between the predictors and the outcome is varied, and the correlation between the predictors themselves is varied.
+
+As I do in my other analyses, I estimate the correlation between the predictors and the outcome to determine their predictive utility. Then I compare difference methods for comparing the outcome correlations for each predictor. These methods include:
+
+* Two-sample Z-test
+  * Compares estimates from two populations and does not account for the correlation between predictors
+* Permutation based
+  * Randomises the phenotype, retaining the correlation between predictors, and then estimates the number times the difference in correlation is larger than the observed difference.
+* Cox test
+  * Method for comparing non-nested models
+* Pearson and Filon’s (1898):
+  * Method for comparing correlations between variables that are correlated and measured in a single sample
+  * Implemented using cocor.dep.groups.overlap function in the cocor package
+  * Other methods implemented by this function are highly concordant 
+* Fisher r-to-z :
+  * Method for comparing correlations between variables that are independent and measures in different samples.
+  * Implemented using psych package
+  * Accounts for non-normal error of correlations
+* Williams test :
+  * Method for comparing correlations between variables that are dependent and measured in the same sample.
+  * Implemented using psych package
+  * Accounts for non-normal error of correlations
+
+We will simulate the following scenarios:
+
+* Estimates from two independent samples
+* Estimates from one sample, but predictors are uncorrelated
+* Estimates from one sample, and predictors are highly correlated
+
+### Estimates from two independent samples
+```{R, eval=T}
+library(data.table)
+
+set.seed(1)
+# Sample 1
+N<-200
+y1<-rnorm(N)
+x1<-scale(y1+rnorm(N,0,3))
+dat1<-data.table(y1,x1)
+cor(dat1)
+
+# Sample 2
+N<-200
+y2<-rnorm(N)
+x2<-scale(y2+rnorm(N,0,10))
+dat2<-data.table(y2,x2)
+cor(dat2)
+
+### Derive models using each predictor
+mod1<-lm(y1 ~ x1, data=dat1)
+mod2<-lm(y2 ~ x2, data=dat2)
+
+dat1$pred1<-predict(mod1, dat1)
+dat2$pred2<-predict(mod2, dat2)
+
+dat_cor<-data.frame(model1='x1',
+                    model2='x2',
+                    cor_x1_x2=NA,
+                    cor_y_x1=coef(summary(mod1))[2,1],
+                    cor_y_x1_se=coef(summary(mod1))[2,2],
+                    cor_y_x2=coef(summary(mod2))[2,1],
+                    cor_y_x2_se=coef(summary(mod2))[2,2],
+                    cor_diff=coef(summary(mod1))[2,1]-coef(summary(mod2))[2,1])
+
+### Test difference between predictors using a Z-test
+dat_cor$cor_diff_Ztest_P<-pnorm(-(dat_cor$cor_diff/sqrt((dat_cor$cor_y_x1_se^2)+(dat_cor$cor_y_x2_se^2)))) 
+
+### Test difference between predictors using a permutation test
+n_perm<-500
+diff<-NULL
+for(i in 1:n_perm){
+  y1_sample<-sample(y1)
+  y2_sample<-sample(y2)
+  mod1_i<-lm(y1_sample ~ x1, data=dat1)
+  mod2_i<-lm(y2_sample ~ x2, data=dat2)
+  
+  diff_i<-coef(summary(mod1_i))[2,1]-coef(summary(mod2_i))[2,1]
+  diff<-c(diff,diff_i)
+}
+
+dat_cor$cor_diff_perm_P<-sum(diff > dat_cor$cor_diff[1])/n_perm
+
+### Test difference between predictors using coxtest 
+# Not possible as different samples
+
+### Test difference between predictors using Fisher's Z transformation 
+library(cocor)
+dat_cor$cocor_fisherZ_P<-cocor.indep.groups(r1.jk=dat_cor$cor_y_x1, r2.hm=dat_cor$cor_y_x2, n1=N, n2=N, alternative='greater')@fisher1925$p.value
+
+library(psych)
+dat_cor$psych_fisherZ_P<-paired.r(xy=dat_cor$cor_y_x1, xz=dat_cor$cor_y_x2, n=N, n2=N, twotailed=F)$p
+
+dat_cor
+```
+
+The Fisher's r-to-z transformation is a commonly used approach for comparing correlations from different samples. The two-sample z-test does not account for the non-normal error distribution of Pearson correlations. Results indicate the fisher r-to-z method is concordant with the two-sample z-test. Ther permutation-based approach is more conservative than other methods.
+
+### Estimates from one sample, but predictors are uncorrelated
+
+```{R, eval=T}
+library(data.table)
+set.seed(1)
+N<-200
+y<-rnorm(N)
+x1<-as.numeric(scale(y+rnorm(N,0,3)))
+x2<-as.numeric(scale(y+rnorm(N,0,10)))
+dat<-data.table(y,x1,x2)
+cor(dat)
+
+### Derive models using each predictor
+mod1<-lm(y ~ x1, data=dat)
+mod2<-lm(y ~ x2, data=dat)
+
+dat$pred1<-predict(mod1, dat)
+dat$pred2<-predict(mod2, dat)
+
+dat_cor<-data.frame(model1='x1',
+                    model2='x2',
+                    cor_x1_x2=cor(dat$x1,dat$x2),
+                    cor_y_x1=coef(summary(mod1))[2,1],
+                    cor_y_x1_se=coef(summary(mod1))[2,2],
+                    cor_y_x2=coef(summary(mod2))[2,1],
+                    cor_y_x2_se=coef(summary(mod2))[2,2],
+                    cor_diff=coef(summary(mod1))[2,1]-coef(summary(mod2))[2,1])
+
+### Test difference between predictors using a Z-test
+dat_cor$cor_diff_Ztest_P<-pnorm(-(dat_cor$cor_diff/sqrt((dat_cor$cor_y_x1_se^2)+(dat_cor$cor_y_x2_se^2)))) 
+
+### Test difference between predictors using a permutation test
+n_perm<-500
+diff<-NULL
+for(i in 1:n_perm){
+  y_sample<-sample(y)
+  mod1_i<-lm(y_sample ~ x1, data=dat)
+  mod2_i<-lm(y_sample ~ x2, data=dat)
+  
+  diff_i<-coef(summary(mod1_i))[2,1]-coef(summary(mod2_i))[2,1]
+  diff<-c(diff,diff_i)
+}
+
+dat_cor$cor_diff_perm_P<-sum(diff > dat_cor$cor_diff[1])/n_perm
+
+### Test difference between predictors using coxtest 
+library(lmtest)
+dat_cor$cox_diff_P<-coxtest(mod1, mod2)$P[2]
+
+### Test difference between predictors using Pearson 
+library(cocor)
+dat_cor$pearson_diff_P<-cocor.dep.groups.overlap(dat_cor$cor_y_x1, dat_cor$cor_y_x2, dat_cor$cor_x1_x2, N,alternative='greater')@pearson1898$p.value
+
+### Test difference between predictors using Williams's Test
+library(psych)
+dat_cor$williams_diff_P<-paired.r(xy=dat_cor$cor_y_x1, xz=dat_cor$cor_y_x2, yz=dat_cor$cor_x1_x2, n=N, twotailed=F)$p
+
+dat_cor
+```
+
+Apart fromt the coxtest method, results are similar across methods, with pearson and williams methods being highly concordant.
+
+### Estimates from one sample, and predictors are highly correlated
+```{R, eval=T}
+library(data.table)
+set.seed(1)
+N<-200
+y<-rnorm(N)
+set.seed(2)
+x1<-as.numeric(scale(y+rnorm(N,0,3)))
+set.seed(3)
+x2<-as.numeric(scale(x1+rnorm(N,0,1)))
+dat<-data.table(y,x1,x2)
+cor(dat)
+
+### Derive models using each predictor
+mod1<-lm(y ~ x1, data=dat)
+mod2<-lm(y ~ x2, data=dat)
+
+dat$pred1<-predict(mod1, dat)
+dat$pred2<-predict(mod2, dat)
+
+dat_cor<-data.frame(model1='x1',
+                    model2='x2',
+                    cor_x1_x2=cor(dat$x1,dat$x2),
+                    cor_y_x1=coef(summary(mod1))[2,1],
+                    cor_y_x1_se=coef(summary(mod1))[2,2],
+                    cor_y_x2=coef(summary(mod2))[2,1],
+                    cor_y_x2_se=coef(summary(mod2))[2,2],
+                    cor_diff=coef(summary(mod1))[2,1]-coef(summary(mod2))[2,1])
+
+### Test difference between predictors using a Z-test
+dat_cor$cor_diff_Ztest_P<-pnorm(-(dat_cor$cor_diff/sqrt((dat_cor$cor_y_x1_se^2)+(dat_cor$cor_y_x2_se^2)))) 
+
+### Test difference between predictors using a permutation test
+n_perm<-500
+diff<-NULL
+for(i in 1:n_perm){
+  y_sample<-sample(y)
+  mod1_i<-lm(y_sample ~ x1, data=dat)
+  mod2_i<-lm(y_sample ~ x2, data=dat)
+  
+  diff_i<-coef(summary(mod1_i))[2,1]-coef(summary(mod2_i))[2,1]
+  diff<-c(diff,diff_i)
+}
+
+dat_cor$cor_diff_perm_P<-sum(diff > dat_cor$cor_diff[1])/n_perm
+
+### Test difference between predictors using coxtest 
+library(lmtest)
+dat_cor$cox_diff_P<-coxtest(mod1, mod2)$P[2]
+
+### Test difference between predictors using Pearson 
+library(cocor)
+dat_cor$pearson_diff_P<-cocor.dep.groups.overlap(dat_cor$cor_y_x1, dat_cor$cor_y_x2, dat_cor$cor_x1_x2, N,alternative='greater')@pearson1898$p.value
+
+### Test difference between predictors using Williams's Test
+library(psych)
+dat_cor$williams_diff_P<-paired.r(xy=dat_cor$cor_y_x1, xz=dat_cor$cor_y_x2, yz=dat_cor$cor_x1_x2, n=N, twotailed=F)$p
+
+dat_cor
+```
+
+Again the coxtest method is very different from other methods. The two-sample Z test is now deviating from the other methods because it doesn't account for the correlation between predictors. The results for the permutation, pearson and williams method are highly concordant.
+
+The psych package is a solid package and the Williams method is recommended by Steiger who worked alot in this area. It is also faster than the permutation based approach. From here on use the Williams test to test for significant differences between correlations between outcomes and correlated predictors.

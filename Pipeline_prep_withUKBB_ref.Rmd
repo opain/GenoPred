@@ -537,6 +537,7 @@ Now the LD reference is ready, we can calculate SBayesR shrunk GWAS summary stat
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
 # Create directory for the output
@@ -565,6 +566,62 @@ sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Softw
 --output ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/${gwas}/UKBB.noPheno.EUR.10K.w_hm3.${gwas} \
 --ref_pop_scale ${UKBB_output}/UKBB_ref/keep_files/keep_file.list
 n=$(($n+1))
+done
+
+# GCTB performance is highly variable. This is thought to be due to the quality of the GWAS summary statistics. The authors suggest that the method should not be included if it does not converge. My code checks for convergence errors and there aren't any reported but the heritability estimates look strange in some cases. The performance of SBayesR is affected by the assumption that sample size is constant across all variants. Per variant sample size isn't always available though. A solution is to impute the per variant sample size using the SE and MAF but this requires unmunged summary statistics to be used. The authors also suggest restricting the analysis to P<0.4.
+
+# Rerun GCTB using unmunged GWAS summary statistics, with GCTB impute-N option selected.
+> ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/todo_unmunged_impute_N.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/${gwas}_unmunged_impute_N/UKBB.noPheno.EUR.10K.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/todo_unmunged_impute_N.txt
+fi
+done
+
+# Run script for selected GWAS
+for gwas in $(cat ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/todo_unmunged_impute_N.txt);do
+sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+--ref_plink ${UKBB_output}/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.GW \
+--ref_keep ${UKBB_output}/UKBB_ref/keep_files/UKBB_noPheno_EUR_10K.keep \
+--ref_freq_chr ${UKBB_output}/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.chr \
+--sumstats ${gwas_rep_unmunged}/${gwas}.gz \
+--plink ${plink1_9} \
+--gctb ${gctb} \
+--ld_matrix_chr ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr \
+--memory 40000 \
+--n_cores 8 \
+--output ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/${gwas}_unmunged_impute_N/UKBB.noPheno.EUR.10K.w_hm3.${gwas} \
+--ref_pop_scale ${UKBB_output}/UKBB_ref/keep_files/keep_file.list \
+--munged F \
+--impute_N T
+n=$(($n+1))
+done
+
+# Rerun GCTB using unmunged GWAS summary statistics, with GCTB impute-N option selected and removing SNP with P > 0.4.
+> ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/todo_unmunged_impute_N_P4.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+if [ ! -f ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/${gwas}_unmunged_impute_N_P4/UKBB.noPheno.EUR.10K.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/todo_unmunged_impute_N_P4.txt
+fi
+done
+
+# Run script for selected GWAS
+for gwas in $(cat ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/todo_unmunged_impute_N_P4.txt);do
+sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+--ref_plink ${UKBB_output}/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.GW \
+--ref_keep ${UKBB_output}/UKBB_ref/keep_files/UKBB_noPheno_EUR_10K.keep \
+--ref_freq_chr ${UKBB_output}/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.chr \
+--sumstats ${gwas_rep_unmunged}/${gwas}.gz \
+--plink ${plink1_9} \
+--gctb ${gctb} \
+--ld_matrix_chr ${UKBB_output}/UKBB_ref/LD_matrix/EUR/UKBB.noPheno.EUR.10K.chr \
+--memory 40000 \
+--n_cores 8 \
+--output ${UKBB_output}/UKBB_ref/Score_files_for_polygenic_SBayesR/${gwas}_unmunged_impute_N_P4/UKBB.noPheno.EUR.10K.w_hm3.${gwas} \
+--ref_pop_scale ${UKBB_output}/UKBB_ref/keep_files/keep_file.list \
+--munged F \
+--impute_N T \
+--P_max 0.4
 done
 
 ```
