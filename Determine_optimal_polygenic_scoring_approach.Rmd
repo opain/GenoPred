@@ -55,6 +55,8 @@ In this study we compare a range of polygenic scoring approaches within a refere
 - UK Biobank
 - TEDS
 
+<br/>
+
 ## Outcomes
 
 * UK Biobank
@@ -74,9 +76,12 @@ In this study we compare a range of polygenic scoring approaches within a refere
   * Body mass index (BMI - continuous)
   * GCSE scores (continuous)
 
+<br/>
 
 ## Genotypic data
 Both target sample underwent stringent quality control prior to imputation using the HRC-reference. After imputation, genotypes were converted to PLINK hard-calls, and only HapMap3 SNPs were retained. Eureopean individuals within the target samples were identified and retained if they were within the 3SD of the 1KG European mean of the first 100 principal components.
+
+<br/>
 
 ## GWAS summary statistics
 For each target phenotype, the largest independent phenotype-matched GWAS was selected for calculating polygenic scores. More information can be found in the table below.
@@ -295,6 +300,8 @@ Polygenic scores were derived using the following methods:
   6. LDPred - Bayesian joint estimation method
 
 Polygenic scores were derived using a reference standardised pipeline. Two references were used for all methods, the European subset of the 1KG reference ([described here](https://opain.github.io/GenoPred/Pipeline_prep.html#4_polygenic_scoring)), and an independant subset of 10K European individuals from UK Biobank ([described here](https://opain.github.io/GenoPred/Pipeline_prep_withUKBB_ref.html#3_polygenic_scoring)). In brief, all scores were derived using HapMap3 SNPs only, modelling LD based on these references Any HapMap3 missing in the target sample are imputed using the reference estimated allele frequency.
+
+<br/>
 
 ### UK Biobank
 <details><summary>pT + clump: Sparse</summary>
@@ -1176,6 +1183,8 @@ First compare the three pT+clump approaches using just UKB and the 1KG reference
 
 Model building and evaluation was performed using an Rscript called Model_builder_V2.R (more information [here](https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder)).
 
+<br/>
+
 ### UK Biobank
 <details><summary>pT + clump comparison</summary>
 ```{bash, echo=T, eval=F}
@@ -1235,6 +1244,24 @@ sbatch --mem 10G -n 2 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript
     --assoc T \
     --outcome_pop_prev ${prev_i} \
     --predictors /users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups
+done
+
+# pT + clump (sparse and unmunged)
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+sbatch --mem 10G -n 2 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2.R \
+    --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
+    --keep /users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+    --out /users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs-unmunged \
+    --n_core 2 \
+    --compare_predictors T \
+    --assoc T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.w_hm3.${gwas_i}.EUR-PRSs-unmunged.predictor_groups
 done
 
 # pT + clump (dense)
@@ -1523,6 +1550,7 @@ R
 library(data.table)
 
 gwas<-c('DEPR06','COLL01','BODY03','HEIG03','DIAB05','COAD01','CROH01','SCLE02','RHEU01','EDUC03','ADHD04','BODY11')
+pheno<-c('DEPR06','COLL01','BODY03','HEIG03','DIAB05','COAD01','CROH01','SCLE02','RHEU01','EDUC03','ADHD04','BODY11')
 
 source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
 
@@ -1607,29 +1635,43 @@ GCTB_hsq_all$SBayesR_H2_est<-as.numeric(gsub(' .*','',GCTB_hsq_all$SBayesR_H2))
 GCTB_hsq_all$SBayesR_H2_se<-as.numeric(gsub("\\)",'',gsub(".*\\(SE=",'',GCTB_hsq_all$SBayesR_H2)))
 GCTB_hsq_all$SBayesR_H2<-NULL
 
-write.csv(GCTB_hsq_all, '/users/k1806347/brc_scratch/Analyses/PRS_comparison/SBayesR_H2_comp.csv', row.names=F, quote=F)
+# Change original GCTB Height estimate to NA as it did no complete.
+GCTB_hsq_all$SBayesR_H2_est[GCTB_hsq_all$Process == 'Original' & GCTB_hsq_all$GWAS == 'HEIG03' & GCTB_hsq_all$Ref == 'GCTB']<-NA
+GCTB_hsq_all$SBayesR_H2_se[GCTB_hsq_all$Process == 'Original' & GCTB_hsq_all$GWAS == 'HEIG03' & GCTB_hsq_all$Ref == 'GCTB']<-NA
+
+# Remove 'Impute N' results for GWAS with per variant samples size, and 
+GCTB_hsq_all$SBayesR_H2_est[GCTB_hsq_all$perVar == T & GCTB_hsq_all$Process == 'Impute N']<-NA
+GCTB_hsq_all$SBayesR_H2_se[GCTB_hsq_all$perVar == T & GCTB_hsq_all$Process == 'Impute N']<-NA
+GCTB_hsq_all<-GCTB_hsq_all[complete.cases(GCTB_hsq_all),]
+
+# Change Impute N & P<0.4 to just P<0.4 for GWAS where per variant samples size was available.
+GCTB_hsq_all$Process<-as.character(GCTB_hsq_all$Process)
+GCTB_hsq_all$Process[GCTB_hsq_all$perVar == T & GCTB_hsq_all$Process == 'Impute N & P<0.4']<-'P<0.4'
 
 GCTB_hsq_all_use<-NULL
 for(i in 1:length(gwas)){
   for(k in c('1KG','UKB','GCTB')){
     GCTB_hsq_all_i_k<-GCTB_hsq_all[GCTB_hsq_all$GWAS == gwas[i] & GCTB_hsq_all$Ref == k,]
     GCTB_hsq_all_i_k$Use<-F
-    if(GCTB_hsq_all_i_k$perVar[GCTB_hsq_all_i_k$Process == 'Original'] == F){
-      if(GCTB_hsq_all_i_k$SBayesR_H2_est[GCTB_hsq_all_i_k$Process == 'Impute N'] > 1){
+    if(GCTB_hsq_all_i_k$perVar[1] == F){
         GCTB_hsq_all_i_k$Use[GCTB_hsq_all_i_k$Process == "Impute N & P<0.4"]<-T
-      } else {
-        GCTB_hsq_all_i_k$Use[GCTB_hsq_all_i_k$Process == "Impute N"]<-T
-      }
     } else {
-      if(GCTB_hsq_all_i_k$SBayesR_H2_est[GCTB_hsq_all_i_k$Process == 'Original'] > 1){
-        GCTB_hsq_all_i_k$Use[GCTB_hsq_all_i_k$Process == "Impute N & P<0.4"]<-T
-      } else {
+      if(dim(GCTB_hsq_all_i_k[GCTB_hsq_all_i_k$Process == 'Original',])[1] == 1){
+        if(GCTB_hsq_all_i_k$SBayesR_H2_est[GCTB_hsq_all_i_k$Process == 'Original'] > 1){
+           GCTB_hsq_all_i_k$Use[GCTB_hsq_all_i_k$Process == "Impute N & P<0.4"]<-T
+        } else {
         GCTB_hsq_all_i_k$Use[GCTB_hsq_all_i_k$Process == "Original"]<-T
+        }
+      } else {
+          GCTB_hsq_all_i_k$Use[GCTB_hsq_all_i_k$Process == "Impute N & P<0.4"]<-T
       }
     }
     GCTB_hsq_all_use<-rbind(GCTB_hsq_all_use, GCTB_hsq_all_i_k)
   }
 }
+
+write.csv(GCTB_hsq_all_use, '/users/k1806347/brc_scratch/Analyses/PRS_comparison/SBayesR_H2_comp.csv', row.names=F, quote=F)
+
 q()
 n
 
@@ -1699,7 +1741,6 @@ group='SBayesR'))
       write.table(pred_file, paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.predictor_groups'), row.names=F, col.names=T, quote=F)
     } else {
       write.table(pred_file, paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.UKBB_ref.',gwas[i],'.EUR-PRSs.AllMethodComp.predictor_groups'), row.names=F, col.names=T, quote=F)
-
     }
   }
 }
@@ -1848,7 +1889,6 @@ done
 
 ```
 </details>
-
 
 <details><summary>SBayesR comparison</summary>
 ```{bash, eval=F, echo=T}
@@ -2246,7 +2286,7 @@ for(file in 1:length(Files)){
     res_eval<-NULL
     for(i in 1:length(pheno)){
       pT_clump<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs.pred_eval.txt'), header=T, stringsAsFactors=F)
-      pT_clump$Method<-"pT"
+      pT_clump$Method<-"pT+clump (sparse)"
       Param_tmp<-sort(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'.'),'',pT_clump$Model)))))
       pT_clump$Param<-as.character(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'.'),'',pT_clump$Model)))))
       pT_clump$Param[dim(pT_clump)[1]]<-'Multi-PRS'
@@ -2258,7 +2298,7 @@ for(file in 1:length(Files)){
       pT_clump<-pT_clump[!is.na(pT_clump$Group),]
     
       pT_clump_nn<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs_non_nested.pred_eval.txt'), header=T, stringsAsFactors=F)
-      pT_clump_nn$Method<-"pT (non-nested)"
+      pT_clump_nn$Method<-"pT+clump (non-nested)"
       pT_clump_nn$Param<-as.character(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'.'),'',pT_clump_nn$Model)))))
       for(j in (length(pT_clump_nn$Param)-1):1){
         if(j==1){
@@ -2275,7 +2315,7 @@ for(file in 1:length(Files)){
       pT_clump_nn<-pT_clump_nn[!is.na(pT_clump_nn$Group),]
     
       pT_clump_dense<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs-dense.pred_eval.txt'), header=T, stringsAsFactors=F)
-      pT_clump_dense$Method<-"pT (dense)"
+      pT_clump_dense$Method<-"pT+clump (dense)"
       Param_tmp<-sort(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'.'),'',pT_clump_dense$Model)))))
       pT_clump_dense$Param<-as.character(as.numeric(gsub('e.','e-',gsub('_group','',gsub(paste0(gwas[i],'.'),'',pT_clump_dense$Model)))))
       pT_clump_dense$Param[dim(pT_clump_dense)[1]]<-'Multi-PRS'
@@ -2332,11 +2372,11 @@ for(file in 1:length(Files)){
     
     # Identify best pT in 10FCVal
     res_eval_i_per_pT<-res_eval_i[grepl('pT.clump.PredFile', res_eval_i$Model),]
-    selected_models<-rbind(selected_models,data.frame(Test='pT.10FCVal', Label=
+    selected_models<-rbind(selected_models,data.frame(Test='pT+clump.10FCVal', Label=
     res_eval_i_per_pT[res_eval_i_per_pT$CrossVal_R == max(res_eval_i_per_pT$CrossVal_R),]$Model[1]))
   
     # Identify multi pT
-    selected_models<-rbind(selected_models,data.frame(Test='pT.MultiPRS', Label='pT.clump'))
+    selected_models<-rbind(selected_models,data.frame(Test='pT+clump.MultiPRS', Label='pT.clump'))
   
     ##
     # lassosum
@@ -2443,7 +2483,7 @@ for(file in 1:length(Files)){
     res_eval_i_select$Method<-gsub('\\..*','',res_eval_i_select$Test)
     res_eval_i_select$Model<-gsub('.*\\.','',res_eval_i_select$Test)
     
-    res_eval_i_select$Method<-factor(res_eval_i_select$Method, levels=c('pT','lassosum','PRScs','SBLUP','SBayesR','LDPred'))
+    res_eval_i_select$Method<-factor(res_eval_i_select$Method, levels=c('pT+clump','lassosum','PRScs','SBLUP','SBayesR','LDPred'))
     res_eval_i_select$Model<-factor(res_eval_i_select$Model, levels=c('10FCVal','MultiPRS','PseudoVal'))
     
     res_eval_plots_cross[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=CrossVal_R, fill=Model)) +
@@ -2464,7 +2504,7 @@ for(file in 1:length(Files)){
     # Create plot showing performance of each method compared to pT+clump
     ###
   
-    res_eval_i_select$CrossVal_R_diff<-res_eval_i_select$CrossVal_R-res_eval_i_select$CrossVal_R[res_eval_i_select$Test == 'pT.10FCVal']
+    res_eval_i_select$CrossVal_R_diff<-res_eval_i_select$CrossVal_R-res_eval_i_select$CrossVal_R[res_eval_i_select$Test == "pT+clump.10FCVal"]
     
     res_eval_diff_plots_cross[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=CrossVal_R_diff, fill=Model)) +
                           geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
@@ -2473,7 +2513,7 @@ for(file in 1:length(Files)){
                           coord_cartesian(ylim=c(min(res_eval_i_select$CrossVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$CrossVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
                 				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
     
-    res_eval_i_select$IndepVal_R_diff<-res_eval_i_select$IndepVal_R-res_eval_i_select$IndepVal_R[res_eval_i_select$Test == 'pT.10FCVal']
+    res_eval_i_select$IndepVal_R_diff<-res_eval_i_select$IndepVal_R-res_eval_i_select$IndepVal_R[res_eval_i_select$Test == "pT+clump.10FCVal"]
               				  
     res_eval_diff_plots_indep[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=IndepVal_R_diff, fill=Model)) +
                           geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
@@ -2579,7 +2619,7 @@ for(file in 1:length(Files)){
   res_eval$Model<-gsub('.*\\.','',res_eval$Test)
   
   res_eval$Phenotype<-factor(res_eval$Phenotype, level=unique(res_eval$Phenotype))
-  res_eval$Method<-factor(res_eval$Method, level=c('pT','lassosum','PRScs','SBLUP','SBayesR','LDPred'))
+  res_eval$Method<-factor(res_eval$Method, level=c("pT+clump",'lassosum','PRScs','SBLUP','SBayesR','LDPred'))
   res_eval$Model<-factor(res_eval$Model, level=c('10FCVal','MultiPRS','PseudoVal'))
   
   res_eval<-res_eval[order(res_eval$Phenotype, res_eval$Method, res_eval$Model),]
@@ -2648,6 +2688,15 @@ for(file in 1:length(Files)){
       res_comp_i_k<-res_comp[res_comp$Model_1_Test == i & res_comp$Model_2_Test == k,]
       
       # Calculate diff SE based on p-value
+      for(j in 1:dim(res_comp_i_k)[1]){
+        if(res_comp_i_k$Cross_R_diff_pval[j] == 1){
+          res_comp_i_k$Cross_R_diff_pval[j]<-1-0.001
+        }
+        if(res_comp_i_k$Indep_R_diff_pval[j] == 1){
+          res_comp_i_k$Indep_R_diff_pval[j]<-1-0.001
+        }
+      }
+
       res_comp_i_k$Cross_R_diff_z<-qnorm(res_comp_i_k$Cross_R_diff_pval/2)
       res_comp_i_k$Cross_R_diff_SE<-res_comp_i_k$Cross_R_diff/res_comp_i_k$Cross_R_diff_z
   
@@ -2701,40 +2750,10 @@ for(file in 1:length(Files)){
   # Create plot showing performance of each method
   ###
   
-  library(ggplot2)
-  library(cowplot)
-  
+    # To avoid unequal groups, insert NA for missing Model/Method pairs
   meta_res_eval$Method<-gsub('\\..*','',meta_res_eval$Test)
   meta_res_eval$Model<-gsub('.*\\.','',meta_res_eval$Test)
-  
-  meta_res_eval$Method<-factor(meta_res_eval$Method, levels=c('pT','lassosum','PRScs','SBLUP','SBayesR','LDPred'))
-  meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('10FCVal','MultiPRS','PseudoVal'))
 
-  meta_res_eval_plots_cross[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=CrossVal_R, fill=Model)) +
-                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
-                        geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
-                        labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
-              				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-  meta_res_eval_plots_indep[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=IndepVal_R, fill=Model)) +
-                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
-                        geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
-                        labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
-              				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  if(Samples[file] == 'UKBB'){
-    meta_res_eval_plots_cross[[Files[file]]]<-meta_res_eval_plots_cross[[Files[file]]] + coord_cartesian(ylim=c(0,0.25), clip="on")
-    meta_res_eval_plots_indep[[Files[file]]]<-meta_res_eval_plots_indep[[Files[file]]] + coord_cartesian(ylim=c(0,0.25), clip="on")
-  } else {
-    meta_res_eval_plots_cross[[Files[file]]]<-meta_res_eval_plots_cross[[Files[file]]] + coord_cartesian(ylim=c(0,0.375), clip="on")
-    meta_res_eval_plots_indep[[Files[file]]]<-meta_res_eval_plots_indep[[Files[file]]] + coord_cartesian(ylim=c(0,0.375), clip="on")
-  }           				  
-
-  ###
-  # Create plot showing performance of each method compared to pT+clump
-  ###
-  
-    # To avoid unequal groups, insert NA for missing Model/Method pairs
   for(i in unique(meta_res_eval$Method)){
     for(k in unique(meta_res_eval$Model)){
       if(dim(meta_res_eval[meta_res_eval$Method == i & meta_res_eval$Model == k,])[1] > 0){
@@ -2769,24 +2788,54 @@ for(file in 1:length(Files)){
       }
     }
   }
-    
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  meta_res_eval$Method<-factor(meta_res_eval$Method, levels=c("pT+clump",'lassosum','PRScs','SBLUP','SBayesR','LDPred'))
+  meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('10FCVal','MultiPRS','PseudoVal'))
+
+  meta_res_eval_plots_cross[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=CrossVal_R, fill=Model)) +
+                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                        geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                        labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
+              				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  meta_res_eval_plots_indep[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=IndepVal_R, fill=Model)) +
+                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                        geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                        labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
+              				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  if(Samples[file] == 'UKBB'){
+    meta_res_eval_plots_cross[[Files[file]]]<-meta_res_eval_plots_cross[[Files[file]]] + coord_cartesian(ylim=c(0,0.25), clip="on")
+    meta_res_eval_plots_indep[[Files[file]]]<-meta_res_eval_plots_indep[[Files[file]]] + coord_cartesian(ylim=c(0,0.25), clip="on")
+  } else {
+    meta_res_eval_plots_cross[[Files[file]]]<-meta_res_eval_plots_cross[[Files[file]]] + coord_cartesian(ylim=c(0,0.375), clip="on")
+    meta_res_eval_plots_indep[[Files[file]]]<-meta_res_eval_plots_indep[[Files[file]]] + coord_cartesian(ylim=c(0,0.375), clip="on")
+  }           				  
+
+  ###
+  # Create plot showing performance of each method compared to pT+clump
+  ###
+  
     # Calculate differences at the average and phenotype specific level
-    meta_res_eval$CrossVal_R_diff<-meta_res_eval$CrossVal_R-meta_res_eval$CrossVal_R[which(meta_res_eval$Test == 'pT.10FCVal')]
+    meta_res_eval$CrossVal_R_diff<-meta_res_eval$CrossVal_R-meta_res_eval$CrossVal_R[which(meta_res_eval$Test == "pT+clump.10FCVal")]
     
-    meta_res_eval$IndepVal_R_diff<-meta_res_eval$IndepVal_R-meta_res_eval$IndepVal_R[which(meta_res_eval$Test == 'pT.10FCVal')]
+    meta_res_eval$IndepVal_R_diff<-meta_res_eval$IndepVal_R-meta_res_eval$IndepVal_R[which(meta_res_eval$Test == "pT+clump.10FCVal")]
     
     res_eval$CrossVal_R_diff<-NA
     res_eval$IndepVal_R_diff<-NA
     for(i in pheno){
-        res_eval$CrossVal_R_diff[which(res_eval$Phenotype == i)]<-res_eval$CrossVal_R[which(res_eval$Phenotype == i)]-res_eval$CrossVal_R[which(res_eval$Test == 'pT.10FCVal' & res_eval$Phenotype == i)]
+        res_eval$CrossVal_R_diff[which(res_eval$Phenotype == i)]<-res_eval$CrossVal_R[which(res_eval$Phenotype == i)]-res_eval$CrossVal_R[which(res_eval$Test == "pT+clump.10FCVal" & res_eval$Phenotype == i)]
     
-        res_eval$IndepVal_R_diff[which(res_eval$Phenotype == i)]<-res_eval$IndepVal_R[which(res_eval$Phenotype == i)]-res_eval$IndepVal_R[which(res_eval$Test == 'pT.10FCVal' & res_eval$Phenotype == i)]
+        res_eval$IndepVal_R_diff[which(res_eval$Phenotype == i)]<-res_eval$IndepVal_R[which(res_eval$Phenotype == i)]-res_eval$IndepVal_R[which(res_eval$Test == "pT+clump.10FCVal" & res_eval$Phenotype == i)]
     }
 
     meta_res_eval_diff_plots_cross[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=CrossVal_R_diff, colour=Model)) +
                           geom_point(data=res_eval, mapping=aes(x=Method, y=CrossVal_R_diff, colour=Model), position=position_jitterdodge(jitter.width = 0.4, dodge.width = 0.7), alpha=0.3) +
                           geom_point(stat="identity", position=position_dodge(0.7), size=4, shape=18) +
-                        geom_errorbar(aes(ymin=CrossVal_R_diff-CrossVal_R_SE, ymax=CrossVal_R_diff+CrossVal_R_SE), width=0.9, position=position_dodge(width = 0.7)) +
+                        geom_errorbar(aes(ymin=CrossVal_R_diff-CrossVal_R_SE, ymax=CrossVal_R_diff+CrossVal_R_SE), width=0.7, position=position_dodge(width = 0.7)) +
                           labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
                 				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
                 				  geom_vline(xintercept = 1.5, linetype="dotted") +
@@ -2798,7 +2847,7 @@ for(file in 1:length(Files)){
     meta_res_eval_diff_plots_indep[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=IndepVal_R_diff, colour=Model)) +
                           geom_point(data=res_eval, mapping=aes(x=Method, y=IndepVal_R_diff, colour=Model), position=position_jitterdodge(jitter.width = 0.4, dodge.width = 1), alpha=0.3) +
                           geom_point(stat="identity", position=position_dodge(1), size=4, shape=18) +
-                        geom_errorbar(aes(ymin=IndepVal_R_diff-IndepVal_R_SE, ymax=IndepVal_R_diff+IndepVal_R_SE), width=0.9, position=position_dodge(width = 1)) +
+                        geom_errorbar(aes(ymin=IndepVal_R_diff-IndepVal_R_SE, ymax=IndepVal_R_diff+IndepVal_R_SE), width=0.7, position=position_dodge(width = 1)) +
                           labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
                 				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
                 				  geom_vline(xintercept = 1.5, linetype="dotted") +
@@ -2997,6 +3046,25 @@ kable(res, rownames = FALSE, caption='Correlation between PRS model predictions 
 
 </details>
 
+<details><summary>Show difference results table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB_diff.csv")
+
+res$Cross_R_diff_pval<-format(res$Cross_R_diff_pval, scientific = TRUE, digits = 3)
+res$Indep_R_diff_pval<-format(res$Indep_R_diff_pval, scientific = TRUE, digits = 3)
+
+res[,!grepl("Phenotype|_Test|_diff_pval",names(res))]<-round(res[,!grepl("Phenotype|_Test|_diff_pval",names(res))], 3)
+
+names(res)<-c("Phenotype","Model 1 Test","Model 2 Test","Model 1 CrossVal R","Model 2 CrossVal R","CrossVal R Diff","CrossVal R Diff P","Model 1 IndepVal R","Model 2 IndepVal R","IndepVal R Diff","IndepVal R Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in UKBB with 1KG reference')
+
+```
+
+</details>
+
 <details><summary>Show cross-validation differences between methods</summary>
 
 <center>
@@ -3104,6 +3172,25 @@ kable(res, rownames = FALSE, caption='Correlation between PRS model predictions 
 
 </details>
 
+<details><summary>Show difference results table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS_diff.csv")
+
+res$Cross_R_diff_pval<-format(res$Cross_R_diff_pval, scientific = TRUE, digits = 3)
+res$Indep_R_diff_pval<-format(res$Indep_R_diff_pval, scientific = TRUE, digits = 3)
+
+res[,!grepl("Phenotype|_Test|_diff_pval",names(res))]<-round(res[,!grepl("Phenotype|_Test|_diff_pval",names(res))], 3)
+
+names(res)<-c("Phenotype","Model 1 Test","Model 2 Test","Model 1 CrossVal R","Model 2 CrossVal R","CrossVal R Diff","CrossVal R Diff P","Model 1 IndepVal R","Model 2 IndepVal R","IndepVal R Diff","IndepVal R Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in TEDS with 1KG reference')
+
+```
+
+</details>
+
 <details><summary>Show cross-validation differences between methods</summary>
 
 <center>
@@ -3196,6 +3283,25 @@ kable(res, rownames = FALSE, caption='Correlation between PRS model predictions 
 
 </details>
 
+<details><summary>Show difference results table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/PRS_method_comp_UKBB.UKBB_ref_diff.csv")
+
+res$Cross_R_diff_pval<-format(res$Cross_R_diff_pval, scientific = TRUE, digits = 3)
+res$Indep_R_diff_pval<-format(res$Indep_R_diff_pval, scientific = TRUE, digits = 3)
+
+res[,!grepl("Phenotype|_Test|_diff_pval",names(res))]<-round(res[,!grepl("Phenotype|_Test|_diff_pval",names(res))], 3)
+
+names(res)<-c("Phenotype","Model 1 Test","Model 2 Test","Model 1 CrossVal R","Model 2 CrossVal R","CrossVal R Diff","CrossVal R Diff P","Model 1 IndepVal R","Model 2 IndepVal R","IndepVal R Diff","IndepVal R Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in UKB with UKB reference')
+
+```
+
+</details>
+
 <details><summary>Show cross-validation differences between methods</summary>
 
 <center>
@@ -3285,6 +3391,25 @@ kable(res, rownames = FALSE, caption='Correlation between PRS model predictions 
 
 </details>
 
+<details><summary>Show difference results table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/TEDS_outcomes_for_prediction/PRS_method_comp_TEDS.UKBB_ref_diff.csv")
+
+res$Cross_R_diff_pval<-format(res$Cross_R_diff_pval, scientific = TRUE, digits = 3)
+res$Indep_R_diff_pval<-format(res$Indep_R_diff_pval, scientific = TRUE, digits = 3)
+
+res[,!grepl("Phenotype|_Test|_diff_pval",names(res))]<-round(res[,!grepl("Phenotype|_Test|_diff_pval",names(res))], 3)
+
+names(res)<-c("Phenotype","Model 1 Test","Model 2 Test","Model 1 CrossVal R","Model 2 CrossVal R","CrossVal R Diff","CrossVal R Diff P","Model 1 IndepVal R","Model 2 IndepVal R","IndepVal R Diff","IndepVal R Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in TEDS with UKB reference')
+
+```
+
+</details>
+
 <details><summary>Show cross-validation differences between methods</summary>
 
 <center>
@@ -3304,6 +3429,22 @@ kable(res, rownames = FALSE, caption='Correlation between PRS model predictions 
 <br/>
 
 ## Further analysis of GCTB
+
+<details><summary>Show SBayesR approaches used</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/SBayesR_H2_comp.csv")
+
+res$h2<-paste0(res$SBayesR_H2_est, " (", res$SBayesR_H2_se, ")")
+res<-res[,c('GWAS','Ref','Process','h2','perVar','Use')]
+
+names(res)<-c('GWAS','Reference','Process',"h2 (SE)","perVariant","Used")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Information used to avoid convergence issues in SBayesR')
+```
+
+</details>
 
 <details><summary>Compare SBayesR results</summary>
 ```{r, echo=T, eval=F}
@@ -3326,17 +3467,18 @@ for(file in 1:length(Files)){
     }
 
   res<-NULL
-  res_eval_1KG_i<-NULL
-  res_eval_1KG_impN_i<-NULL
-  res_eval_1KG_impN_P4_i<-NULL
-  res_eval_UKBB_i<-NULL
-  res_eval_UKBB_impN_i<-NULL
-  res_eval_UKBB_impN_P4_i<-NULL
-  res_eval_GCTB_i<-NULL
-  res_eval_GCTB_impN_i<-NULL
-  res_eval_GCTB_impN_P4_i<-NULL
-  
+
   for(i in 1:length(pheno)){
+      res_eval_1KG_i<-NULL
+      res_eval_1KG_impN_i<-NULL
+      res_eval_1KG_impN_P4_i<-NULL
+      res_eval_UKBB_i<-NULL
+      res_eval_UKBB_impN_i<-NULL
+      res_eval_UKBB_impN_P4_i<-NULL
+      res_eval_GCTB_i<-NULL
+      res_eval_GCTB_impN_i<-NULL
+      res_eval_GCTB_impN_P4_i<-NULL
+
       # 1KG ref
       if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs_SBayesR.pred_eval.txt'))){
         res_eval_1KG_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
@@ -3412,10 +3554,27 @@ for(file in 1:length(Files)){
     
       res<-rbind(res, res_i)
   }
+  
+  # Set 'Impute N & P<0.4' to 'just P<0.4' where per variant sample size was available.
+  info<-read.csv('/users/k1806347/brc_scratch/Analyses/PRS_comparison/SBayesR_H2_comp.csv')
+  info<-info[!duplicated(info$GWAS),]
+  info<-info[match(gwas, info$GWAS),]
+    
+  # Set Height with 'Impute N & P<0.4 to just P<0.4, as per variant sample size was available, and remove the Impute_N only result
+  for(k in which(info$perVar == T)){
+      res$Model[res$Phenotype == pheno[k] & res$Model == 'Impute N & P<0.4']<-'P<0.4'
+      res$CrossVal_R[res$Phenotype == pheno[k] & res$Model == 'Impute N']<-NA
+      res$CrossVal_R_SE[res$Phenotype == pheno[k] & res$Model == 'Impute N']<-NA
+      res$IndepVal_R[res$Phenotype == pheno[k] & res$Model == 'Impute N']<-NA
+      res$IndepVal_R_SE[res$Phenotype == pheno[k] & res$Model == 'Impute N']<-NA
+  }
+  
+  res<-res[complete.cases(res),]
+
   write.csv(res, paste0('/scratch/users/k1806347/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/PRS_SBayesR_',Samples[file],'.csv'), row.names=F)
   
   res$Ref<-factor(res$Ref, levels=c('1KG','UKB','GCTB'))
-  res$Model<-factor(res$Model, levels=c('Original','Impute N','Impute N & P<0.4'))
+  res$Model<-factor(res$Model, levels=c('Original','Impute N','Impute N & P<0.4','P<0.4'))
   
   plots_CrossVal<-list()
   plots_IndepVal<-list()
@@ -3482,13 +3641,13 @@ cp /scratch/users/k1806347/Analyses/PRS_comparison/TEDS_outcomes_for_prediction/
 
 <center>
 
-![Figure 11: Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_CrossVal_TEDS.png)
+![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_CrossVal_TEDS.png)
 
 </details>
 
 <details><summary>Show TEDS test-validation results</summary>
 
-![Figure 12: Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_IndepVal_TEDS.png)
+![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_IndepVal_TEDS.png)
 
 \center
 
@@ -3738,7 +3897,7 @@ kable(res, rownames = FALSE, caption='Average difference between methods in TEDS
 ***
 
 # Conclusion
-Our results suggest the use of PRScs using only the pseudovalidated global shrinkage parameter, as this provides near optimal prediction whilst reducing computional burden and risk of overfitting.
+For optimal prediction, we recommend using a Multi-PRS model containing PRScs or lassosum polygenic scores based on a range of shrinkage paramters. For simplicity we recommend the pseudovalidated PRScs polygenic score as it provides near-optimal prediction and does not require a validation procedure.
 
 <br/>
 
