@@ -1,0 +1,237 @@
+---
+title: "Prediction within Ancestral Diversity"
+output: 
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+    number_sections: true
+    toc_float: true
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+p.caption {
+  font-size: 1.5em;
+}
+</style>
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+# Introduction
+
+Genotype-based prediction is more accurate within European populations due to European-based GWAS being larger in sample size, and the relatively low admixture within European populations compared to non-European populations. Apart from phenotypic heterogenity across populations, a key reason why European GWAS do not predict well in non-European populations is due to differences in LD and MAF. Although the underlying causal variant maybe the same across populations, the variant best tagging the causal variant in one population may not wel tag the causal variant in another population.
+
+Prediction in non-European populations by:
+
+* Performing larger GWAS in non-European populations
+* Combination of European-GWAS with existing non-European GWAS
+* Modelling differences in MAF and LD between populations
+
+Across the genome some regions will be more comparable across populations than others. Furthermore, within an individual there is often a mixture of haplotypes from different populations (admixture), meaning a European GWAS maybe predictive for an individual for certain regions only. Merely by removing loci that do not generalise across populations well may improve prediction by reducing noise.
+
+# Evaluate prediction across a range of ancestries
+
+Global ancestry is typically defined using reference-projected genotype-based principal components. Often individuals are said to be of a population if they are within N SD of the population mean. Alternatively principal component estimates can be used in a machine learning based approach such as k-means clustering. I have used an elastic net model to predict global ancestry.
+
+Estimate the predictive utility of polygenic scores within each super population. UKB contains individuals within each super population.
+
+## Calculate scores
+
+<details><summary>pT + clump: Sparse</summary>
+```{bash, echo=T, eval=F}
+# Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+# Calculate polygenic scores using 1KG reference
+for i in $(seq 1 9);do
+  for pop in $(echo AFR AMR EAS EUR SAS);do
+    pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+    gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  
+    sbatch --mem 10G -p brc,shared -J pT_clump /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+      --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+      --target_keep ${UKBB_output}/Projected_PCs/Ancestry_idenitfier/UKBB.w_hm3.AllAncestry.model_pred.${pop}.keep \
+      --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas_i}/1KGPhase3.w_hm3.${gwas_i} \
+      --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.${pop}.scale \
+      --ref_freq_chr ${Geno_1KG_dir}/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr \
+      --plink ${plink1_9} \
+      --pheno_name ${gwas_i} \
+      --output ${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}
+  done
+done
+
+```
+</details>
+
+## Evaluate scores
+
+<details><summary>pT + clump comparison</summary>
+```{bash, echo=T, eval=F}
+##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs
+done
+
+# Create a file listing the predictors files
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+for i in $(seq 1 9);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+for pop in $(echo AFR AMR EAS EUR SAS);do
+cat > /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups <<EOF
+predictors 
+${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.profiles
+EOF
+done
+done
+
+# Derive and evaluate models
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt UKBB.IBD.txt UKBB.MultiScler.txt UKBB.RheuArth.txt)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
+
+# pT + clump (sparse)
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+  for pop in $(echo AFR AMR EAS EUR SAS);do
+  sbatch --mem 10G -n 2 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2.R \
+      --pheno ${UKBB_output}/Phenotype/${pheno_i}/${pheno_file_i} \
+      --out /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs \
+      --n_core 2 \
+      --compare_predictors T \
+      --assoc T \
+      --outcome_pop_prev ${prev_i} \
+      --predictors /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups
+  done
+done
+
+```
+
+## Plot the results
+
+<details><summary>pT + clump comparison</summary>
+```{bash, echo=T, eval=F}
+module add apps/R
+R
+
+pop<-c('AFR','AMR','EAS','EUR','SAS')
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03','DIAB05','COAD01','CROH01','SCLE02','RHEU01')
+
+library(data.table)
+res<-list()
+for(i in 1:length(gwas)){
+  for(k in 1:length(pop)){
+    if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.',pop[k],'.w_hm3.',gwas[i],'.EUR-PRSs.pred_eval.txt'))){
+        tmp<-fread(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.',pop[k],'.w_hm3.',gwas[i],'.EUR-PRSs.pred_eval.txt'))
+        tmp2<-data.frame( Population=pop[k],
+                          Phenotype=pheno[i],
+                          )
+      res[[pop]]<-fread()
+    }
+  }
+}
+
+##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Make required directories
+for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs
+done
+
+# Create a file listing the predictors files
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+
+for i in $(seq 1 9);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+for pop in $(echo AFR AMR EAS EUR SAS);do
+cat > /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups <<EOF
+predictors 
+${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.profiles
+EOF
+done
+done
+
+# Derive and evaluate models
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt UKBB.IBD.txt UKBB.MultiScler.txt UKBB.RheuArth.txt)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
+
+# pT + clump (sparse)
+for i in $(seq 1 9);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+  for pop in $(echo AFR AMR EAS EUR SAS);do
+  sbatch --mem 10G -n 2 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2.R \
+      --pheno ${UKBB_output}/Phenotype/${pheno_i}/${pheno_file_i} \
+      --out /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs \
+      --n_core 2 \
+      --compare_predictors T \
+      --assoc T \
+      --outcome_pop_prev ${prev_i} \
+      --predictors /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups
+  done
+done
+
+```
+
+Transethnic colocalisation:
+transethnic genetic correlation: Estimates a genetic impact correlation by adjusting effect sizes based on allele frequency. Impact is larger if variant is common.
+
+We only have sumstats from one population but we want to see what they would look like in another. If we assume colocalisation.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -22,9 +22,11 @@ make_option("--covar", action="store", default=NA, type='character',
 		help="File containing covariates to be regressed from the scores [optional]"),
 make_option("--pTs", action="store", default='1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1', type='character',
 		help="List of p-value thresholds for scoring [optional]"),
-make_option("--dense", action="store", default=F, type='logical',
-		help="Specify as T for dense thresholding. pTs then interpretted as seq() command wih default 5e-8,1,5e-4 [optional]"),
-make_option("--extract", action="store", default=F, type='character',
+make_option("--munged", action="store", default=T, type='logical',
+    help="Logical indicating whether the GWAS summary statistics are in munged format [required]"),
+make_option("--Z_to_B", action="store", default=F, type='logical',
+    help="Logical indicating whether munged format Z scores should be converted to BETA based on MAF and N [required]"),
+make_option("--extract", action="store", default=NA, type='character',
 		help="File listing SNPs to extract for polygenic scoring [optional]"),
 make_option("--nested", action="store", default=T, type='logical',
 		help="Specify as F to use non-overlapping p-value intervals [optional]"),
@@ -84,8 +86,37 @@ sink()
 
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
 GWAS<-GWAS[complete.cases(GWAS),]
-GWAS$N<-NULL
-GWAS$P<-2*pnorm(-abs(GWAS$Z))
+
+# If unmunged convert OR to BETA, and do some basic QC
+if(opt$munged == F){
+  if(!('BETA' %in% names(GWAS))){
+    GWAS$BETA<-log(GWAS$OR)
+  }
+  if(('FREQ' %in% names(GWAS))){
+    GWAS<-GWAS[GWAS$FREQ>0.01 & GWAS$FREQ<0.99,]
+  }
+  if(('INFO' %in% names(GWAS))){
+    GWAS<-GWAS[GWAS$INFO>0.6,]
+  }
+  if(!('SE' %in% names(GWAS))){
+    GWAS$Z<-abs(qnorm(GWAS$P/2))
+    GWAS$SE<-abs(GWAS$BETA/GWAS$Z)
+    GWAS<-GWAS[!is.na(GWAS$SE) & GWAS$SE != 0,]
+  }
+  if(('N' %in% names(GWAS))){
+    GWAS<-GWAS[GWAS$N >= (quantile(GWAS$N, .9)/1.5),]
+  }
+  if(('P' %in% names(GWAS))){
+    GWAS<-GWAS[GWAS$P > 0 & GWAS$P <= 1,]
+  }
+}
+
+if(opt$munged == T){
+  # Calculate P values (first change 0 z-scores to a small non-zero number, as otherwise calculating the beta and se leads to na)
+  GWAS$Z[GWAS$Z == 0]<-1e-10
+  GWAS$P<-2*pnorm(-abs(GWAS$Z))
+  GWAS$BETA<-GWAS$Z
+}
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
@@ -115,8 +146,8 @@ for(i in 1:22){
 	GWAS_clean<-rbind(GWAS_clean,GWAS_clean_temp)
 }
 
-GWAS_clean<-GWAS_clean[,c('V2','A1','A2','Z','P')]
-names(GWAS_clean)<-c('SNP','A1','A2','Z','P')
+GWAS_clean<-GWAS_clean[,c('V2','A1','A2','BETA','P')]
+names(GWAS_clean)<-c('SNP','A1','A2','BETA','P')
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('After harmonisation with the reference,',dim(GWAS_clean)[1],'variants remain.\n')
@@ -201,7 +232,7 @@ for(i in 1:22){
 	clumped<-fread(paste0(opt$output_dir,'GWAS_sumstats_temp_clumped_chr',i,'.txt.clumped'))
 	clumped_SNPs<-clumped$SNP
 	GWAS_clumped_temp<-GWAS[(GWAS$SNP %in% clumped_SNPs),]
-	fwrite(GWAS_clumped_temp[,c('SNP','A1','Z')], paste0(opt$output,'.chr',i,'.score'), sep=' ', col.names=F)
+	fwrite(GWAS_clumped_temp[,c('SNP','A1','BETA')], paste0(opt$output,'.chr',i,'.score'), sep=' ', col.names=F)
 	fwrite(GWAS_clumped_temp[,c('SNP','P')], paste0(opt$output,'.chr',i,'.range_values'), sep=' ', col.names=F)
 	GWAS_clumped_all<-rbind(GWAS_clumped_all, GWAS_clumped_temp[,c('SNP','P')])
 }

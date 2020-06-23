@@ -120,6 +120,7 @@ The Fisher's r-to-z transformation is a commonly used approach for comparing cor
 ***
 
 # Estimates from one sample, but predictors are uncorrelated
+
 ```{R, eval=T}
 library(data.table)
 set.seed(1)
@@ -183,6 +184,7 @@ Apart fromt the coxtest method, results are similar across methods, with pearson
 ***
 
 # Estimates from one sample, and predictors are highly correlated
+
 ```{R, eval=T}
 library(data.table)
 set.seed(1)
@@ -240,11 +242,91 @@ dat_cor$pearson_diff_P<-cocor.dep.groups.overlap(dat_cor$cor_y_x1, dat_cor$cor_y
 library(psych)
 dat_cor$williams_diff_P<-paired.r(xy=dat_cor$cor_y_x1, xz=dat_cor$cor_y_x2, yz=dat_cor$cor_x1_x2, n=N, twotailed=F)$p
 
+### Test difference between predictors using ROC test
+library(pROC)
+mod1_roc<-roc(y ~ x1)
+mod2_roc<-roc(y ~ x2)
+
+dat_cor$mod1_auc<-mod1_roc$auc
+dat_cor$mod2_auc<-mod2_roc$auc
+
+dat_cor$roc_diff_P<-roc.test(mod1_roc,mod2_roc, paired=T, alternative='greater', method='bootstrap')$p.value
+
 dat_cor
 ```
 
 Again the coxtest method is very different from other methods. The two-sample Z test is now deviating from the other methods because it doesn't account for the correlation between predictors. The results for the permutation, pearson and williams method are highly concordant.
 
 The psych package is a solid package and the Williams method is recommended by Steiger who worked alot in this area. It is also faster than the permutation based approach. From here on use the Williams test to test for significant differences between correlations between outcomes and correlated predictors.
+
+***
+
+# Under development...
+
+Another method that is used to compare models is to compare AUC curves. Ths can be implemented using the pROC package in R. This test is only suitable for binary outcomes. For comparison, compare the AUC method to the permutation and wiliams methods.
+
+***
+
+## Estimates from one sample, and predictors are highly correlated
+```{R, eval=T}
+library(data.table)
+set.seed(1)
+N<-200
+y<-rbinom(n=N, size=1, prob=0.5)
+set.seed(2)
+x1<-as.numeric(scale(y+rnorm(N,0,2)))
+set.seed(3)
+x2<-as.numeric(scale(x1+rnorm(N,0,1)))
+dat<-data.table(y,x1,x2)
+cor(dat)
+
+### Derive models using each predictor
+mod1<-glm(y ~ x1, data=dat, family='binomial')
+mod2<-glm(y ~ x2, data=dat, family='binomial')
+
+dat$pred1<-predict(mod1, dat)
+dat$pred2<-predict(mod2, dat)
+
+dat_cor<-data.frame(model1='x1',
+                    model2='x2',
+                    cor_x1_x2=cor(dat$x1,dat$x2),
+                    cor_y_x1=coef(summary(mod1))[2,1],
+                    cor_y_x1_se=coef(summary(mod1))[2,2],
+                    cor_y_x2=coef(summary(mod2))[2,1],
+                    cor_y_x2_se=coef(summary(mod2))[2,2],
+                    cor_diff=coef(summary(mod1))[2,1]-coef(summary(mod2))[2,1])
+
+### Test difference between predictors using a permutation test
+n_perm<-500
+diff<-NULL
+for(i in 1:n_perm){
+  y_sample<-sample(y)
+  mod1_i<-glm(y_sample ~ x1, data=dat, family='binomial')
+  mod2_i<-glm(y_sample ~ x2, data=dat, family='binomial')
+  
+  diff_i<-coef(summary(mod1_i))[2,1]-coef(summary(mod2_i))[2,1]
+  diff<-c(diff,diff_i)
+}
+
+dat_cor$cor_diff_perm_P<-sum(diff > dat_cor$cor_diff[1])/n_perm
+
+### Test difference between predictors using Williams's Test
+library(psych)
+dat_cor$williams_diff_P<-paired.r(xy=dat_cor$cor_y_x1, xz=dat_cor$cor_y_x2, yz=dat_cor$cor_x1_x2, n=N, twotailed=F)$p
+
+### Test difference between predictors using ROC test
+library(pROC)
+mod1_roc<-roc(y ~ x1)
+mod2_roc<-roc(y ~ x2)
+
+dat_cor$mod1_auc<-mod1_roc$auc
+dat_cor$mod2_auc<-mod2_roc$auc
+
+dat_cor$roc_diff_P<-roc.test(mod1_roc,mod2_roc, paired=T, alternative='greater')$p.value
+
+dat_cor
+```
+
+This analysis raises some concerns about the validity of the William's test when the outcome is binary. We should check the false positive rate of the Williams test by testing how many <0.05 tests there are under the null.
 
 ***

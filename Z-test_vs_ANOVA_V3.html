@@ -624,16 +624,119 @@ dat_cor$pearson_diff_P&lt;-cocor.dep.groups.overlap(dat_cor$cor_y_x1, dat_cor$co
 library(psych)
 dat_cor$williams_diff_P&lt;-paired.r(xy=dat_cor$cor_y_x1, xz=dat_cor$cor_y_x2, yz=dat_cor$cor_x1_x2, n=N, twotailed=F)$p
 
-dat_cor</code></pre>
+### Test difference between predictors using ROC test
+library(pROC)</code></pre>
+<pre><code>## Type &#39;citation(&quot;pROC&quot;)&#39; for a citation.</code></pre>
+<pre><code>## 
+## Attaching package: &#39;pROC&#39;</code></pre>
+<pre><code>## The following objects are masked from &#39;package:stats&#39;:
+## 
+##     cov, smooth, var</code></pre>
+<pre class="r"><code>mod1_roc&lt;-roc(y ~ x1)</code></pre>
+<pre><code>## Warning in roc.default(response, predictors[, 1], ...): &#39;response&#39; has more
+## than two levels. Consider setting &#39;levels&#39; explicitly or using &#39;multiclass.roc&#39;
+## instead</code></pre>
+<pre><code>## Setting levels: control = -2.2146998871775, case = -1.98935169586337</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>mod2_roc&lt;-roc(y ~ x2)</code></pre>
+<pre><code>## Warning in roc.default(response, predictors[, 1], ...): &#39;response&#39; has more
+## than two levels. Consider setting &#39;levels&#39; explicitly or using &#39;multiclass.roc&#39;
+## instead</code></pre>
+<pre><code>## Setting levels: control = -2.2146998871775, case = -1.98935169586337
+## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>dat_cor$mod1_auc&lt;-mod1_roc$auc
+dat_cor$mod2_auc&lt;-mod2_roc$auc
+
+dat_cor$roc_diff_P&lt;-roc.test(mod1_roc,mod2_roc, paired=T, alternative=&#39;greater&#39;, method=&#39;bootstrap&#39;)$p.value</code></pre>
+<pre><code>## Warning in roc.test.roc(mod1_roc, mod2_roc, paired = T, alternative =
+## &quot;greater&quot;, : roc.test() of two ROC curves with AUC == 1 has always p.value = 1
+## and can be misleading.</code></pre>
+<pre class="r"><code>dat_cor</code></pre>
 <pre><code>##   model1 model2 cor_x1_x2  cor_y_x1 cor_y_x1_se  cor_y_x2 cor_y_x2_se
 ## 1     x1     x2 0.6928299 0.2614429  0.06336002 0.1792073  0.06478817
 ##     cor_diff cor_diff_Ztest_P cor_diff_perm_P   cox_diff_P pearson_diff_P
 ## 1 0.08223559        0.1820774           0.068 2.185878e-06     0.06303985
-##   williams_diff_P
-## 1      0.06448287</code></pre>
+##   williams_diff_P mod1_auc mod2_auc roc_diff_P
+## 1      0.06448287        1        1        0.5</code></pre>
 <p>Again the coxtest method is very different from other methods. The two-sample Z test is now deviating from the other methods because it doesn’t account for the correlation between predictors. The results for the permutation, pearson and williams method are highly concordant.</p>
 <p>The psych package is a solid package and the Williams method is recommended by Steiger who worked alot in this area. It is also faster than the permutation based approach. From here on use the Williams test to test for significant differences between correlations between outcomes and correlated predictors.</p>
 <hr />
+</div>
+<div id="under-development" class="section level1">
+<h1><span class="header-section-number">4</span> Under development…</h1>
+<p>Another method that is used to compare models is to compare AUC curves. Ths can be implemented using the pROC package in R. This test is only suitable for binary outcomes. For comparison, compare the AUC method to the permutation and wiliams methods.</p>
+<hr />
+<div id="estimates-from-one-sample-and-predictors-are-highly-correlated-1" class="section level2">
+<h2><span class="header-section-number">4.1</span> Estimates from one sample, and predictors are highly correlated</h2>
+<pre class="r"><code>library(data.table)
+set.seed(1)
+N&lt;-200
+y&lt;-rbinom(n=N, size=1, prob=0.5)
+set.seed(2)
+x1&lt;-as.numeric(scale(y+rnorm(N,0,2)))
+set.seed(3)
+x2&lt;-as.numeric(scale(x1+rnorm(N,0,1)))
+dat&lt;-data.table(y,x1,x2)
+cor(dat)</code></pre>
+<pre><code>##            y        x1        x2
+## y  1.0000000 0.1747443 0.1361085
+## x1 0.1747443 1.0000000 0.6951187
+## x2 0.1361085 0.6951187 1.0000000</code></pre>
+<pre class="r"><code>### Derive models using each predictor
+mod1&lt;-glm(y ~ x1, data=dat, family=&#39;binomial&#39;)
+mod2&lt;-glm(y ~ x2, data=dat, family=&#39;binomial&#39;)
+
+dat$pred1&lt;-predict(mod1, dat)
+dat$pred2&lt;-predict(mod2, dat)
+
+dat_cor&lt;-data.frame(model1=&#39;x1&#39;,
+                    model2=&#39;x2&#39;,
+                    cor_x1_x2=cor(dat$x1,dat$x2),
+                    cor_y_x1=coef(summary(mod1))[2,1],
+                    cor_y_x1_se=coef(summary(mod1))[2,2],
+                    cor_y_x2=coef(summary(mod2))[2,1],
+                    cor_y_x2_se=coef(summary(mod2))[2,2],
+                    cor_diff=coef(summary(mod1))[2,1]-coef(summary(mod2))[2,1])
+
+### Test difference between predictors using a permutation test
+n_perm&lt;-500
+diff&lt;-NULL
+for(i in 1:n_perm){
+  y_sample&lt;-sample(y)
+  mod1_i&lt;-glm(y_sample ~ x1, data=dat, family=&#39;binomial&#39;)
+  mod2_i&lt;-glm(y_sample ~ x2, data=dat, family=&#39;binomial&#39;)
+  
+  diff_i&lt;-coef(summary(mod1_i))[2,1]-coef(summary(mod2_i))[2,1]
+  diff&lt;-c(diff,diff_i)
+}
+
+dat_cor$cor_diff_perm_P&lt;-sum(diff &gt; dat_cor$cor_diff[1])/n_perm
+
+### Test difference between predictors using Williams&#39;s Test
+library(psych)
+dat_cor$williams_diff_P&lt;-paired.r(xy=dat_cor$cor_y_x1, xz=dat_cor$cor_y_x2, yz=dat_cor$cor_x1_x2, n=N, twotailed=F)$p
+
+### Test difference between predictors using ROC test
+library(pROC)
+mod1_roc&lt;-roc(y ~ x1)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>mod2_roc&lt;-roc(y ~ x2)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>dat_cor$mod1_auc&lt;-mod1_roc$auc
+dat_cor$mod2_auc&lt;-mod2_roc$auc
+
+dat_cor$roc_diff_P&lt;-roc.test(mod1_roc,mod2_roc, paired=T, alternative=&#39;greater&#39;)$p.value
+
+dat_cor</code></pre>
+<pre><code>##   model1 model2 cor_x1_x2 cor_y_x1 cor_y_x1_se  cor_y_x2 cor_y_x2_se  cor_diff
+## 1     x1     x2 0.6951187 0.359497   0.1473043 0.2777717   0.1455746 0.0817253
+##   cor_diff_perm_P williams_diff_P  mod1_auc  mod2_auc roc_diff_P
+## 1           0.216       0.0586538 0.5869348 0.5847339  0.4737637</code></pre>
+<p>This analysis raises some concerns about the validity of the William’s test when the outcome is binary. We should check the false positive rate of the Williams test by testing how many &lt;0.05 tests there are under the null.</p>
+<hr />
+</div>
 </div>
 
 
