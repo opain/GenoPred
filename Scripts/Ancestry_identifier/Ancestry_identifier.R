@@ -19,7 +19,9 @@ make_option("--output", action="store", default='./PC_projector_output/Output', 
 make_option("--ref_pop_scale", action="store", default=NA, type='character',
 		help="List of keep files ancestry specific scaling [optional]"),    
 make_option("--pop_data", action="store", default=NA, type='character',
-		help="Population data for the reference samples [optional]"),    
+    help="Population data for the reference samples [optional]"),    
+make_option("--model_method", action="store", default='glmnet', type='character',
+    help="Method used for generate prediction model [optional]"),    
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]")
 )
@@ -235,24 +237,16 @@ if(!is.na(opt$ref_pop_scale)){
 	rm(PCs_ref_scaled)
 	gc()
 	
-	# Build enet model
-	enet_model <- train(y=as.factor(PCs_ref_scaled_pop$pop), x=PCs_ref_scaled_pop[grepl('PC',names(PCs_ref_scaled_pop))], method="glmnet", metric='logLoss', trControl=trainControl(method="cv", number=5, classProbs= TRUE, savePredictions = 'final', summaryFunction = multiClassSummary),tuneGrid = expand.grid(alpha = 0,lambda = 0))
+	# Build model
+	model <- train(y=as.factor(PCs_ref_scaled_pop$pop), x=PCs_ref_scaled_pop[grepl('PC',names(PCs_ref_scaled_pop))], method="glmnet", metric='logLoss', trControl=trainControl(method="cv", number=5, classProbs= TRUE, savePredictions = 'final', summaryFunction = multiClassSummary))
 	
-	# Calculate the percentage of correctly individuals to each group		
-	enet_model_n_correct<-NULL
-	for(k in as.character(unique(enet_model$pred$obs))){
-		tmp<-enet_model$pred[enet_model$pred$obs == k,]
+	# Save performance information
+	sink(file = paste(opt$output,'.pop_model_prediction_details.txt',sep=''), append = F)
+	print(model)
+	print(table(model$pred$obs, model$pred$pred))
+	sink()
 	
-	n_correct_tmp<-data.frame(	Group=k,
-								N_obs=sum(tmp$obs == k),
-								prop_correct=round(sum(tmp$obs == k & tmp$pred == k)/sum(tmp$obs == k),3))
-	
-	enet_model_n_correct<-rbind(enet_model_n_correct,n_correct_tmp)
-	}
-	
-	write.table(enet_model_n_correct, paste0(opt$output,'.pop_enet_prediction_details.txt'), col.names=T, row.names=F, quote=F)
-
-	saveRDS(enet_model$finalModel, paste0(opt$output,'.pop_enet_model.rds'))
+	saveRDS(model$finalModel, paste0(opt$output,'.pop_model.rds'))
 	
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
 	cat('Done!\n')
@@ -269,6 +263,7 @@ system(paste0('rm ',opt$output_dir,'long_ld.exclude'))
 system(paste0('rm ',opt$output_dir,'target.chr*.lmiss'))
 system(paste0('rm ',opt$output_dir,'target.chr*.imiss'))
 system(paste0('rm ',opt$output_dir,'target.chr*.log'))
+system(paste0('rm ',opt$output_dir,'target.chr*.nosex'))
 system(paste0('rm ',opt$output_dir,'target_comp.snplist'))
 
 #####
@@ -288,7 +283,7 @@ for(i in 1:22){
 system(paste0('rm ',opt$output_dir,'score_file.snplist'))
 
 # Add up the scores across chromosomes
-scores<-fread(paste0('cut -f 1-2 ',opt$output_dir,'profiles.chr22.sscore'))
+scores<-fread(cmd=paste0('cut -f 1-2 ',opt$output_dir,'profiles.chr22.sscore'))
 names(scores)<-c('FID','IID')
 
 var_list<-fread(paste0(opt$output,'.eigenvec.var'))
@@ -417,7 +412,7 @@ for(i in 1:dim(pop_model_scale)[1]){
 }
 
 # Read in model
-pop_model<-readRDS(paste0(opt$output,'.pop_enet_model.rds'))
+pop_model<-readRDS(paste0(opt$output,'.pop_model.rds'))
 pop_model_pred<-predict(object = pop_model, newx = data.matrix(targ_PCs_scaled[grepl('PC',names(targ_PCs_scaled))]), type = "response", s=pop_model$lambdaOpt)
 pop_model_pred<-as.data.frame.table(pop_model_pred)
 pop_model_pred<-data.table(	FID=targ_PCs_scaled$FID,
@@ -482,4 +477,3 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Analysis finished at',as.character(end.time),'\n')
 cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
 sink()
-
