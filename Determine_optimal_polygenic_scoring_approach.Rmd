@@ -1539,13 +1539,10 @@ done
 Looking at the results, it shows that if per variant sample size is not available, the impute-n option and restriction to variants with P<0.4 is the best. Similarly, if there is poor convergence h2 > 1, the P<0.4 results should be used. Create a table of SBayesR information to identify which SBayesR score files should be used for each outcome with each reference.
 
 <details><summary>Tabulate SBayesR heritability and per-variant N info SBayesR</summary>
-```{bash, eval=F, echo=T}
+```{R, eval=F, echo=T}
 ####
 # Create a table comparing SBayesR analyses across LD references 
 ####
-
-module add apps/R/3.6.0
-R
 
 library(data.table)
 
@@ -1676,6 +1673,17 @@ q()
 n
 
 ```
+</details>
+
+<details><summary>Show SBayesR heritability and N info</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/SBayesR_H2_comp.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='SBayesR heritability and N info')
+```
+
 </details>
 
 <details><summary>Compare all methods</summary>
@@ -2247,11 +2255,79 @@ done
 # Results
 The pattern of results are consistent between 10-fold cross-validation and test set validation. Modelling multiple polygenic scores based on a range of parameters consistenly provides an improvement over the best single polygenic score idenitfied by cross-validation. This applies to all polygenic scoring methods. Using dense pTs or non-nested pTs doesn't improve upon use of standard sparse and nested pTs. Methods adjusting GWAS effect sizes consistantly perform better than the pT + clump approach, even when modelling multiple pTs using elastic net. The pseudovalidation approach within PRScs (AKA fully bayesian) was the best approach not requiring cross-validation to select the best parameter, providing near optimal prediction across outcomes, references and target samples.
 
+<details><summary>Create a sample size table</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+# Read in a log file for each phenotype and extracr the number of individuals
+# UKB
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
+gwas<-c('DEPR06','COLL01','BODY03','HEIG03','DIAB05','COAD01','CROH01','SCLE02','RHEU01')
+
+keep<-fread('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam')
+
+UKB_N_tab<-NULL
+for(i in 1:length(pheno)){
+  pheno_i<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',pheno[i],'.txt'))
+  names(pheno_i)<-c('FID','IID','pheno')
+  pheno_i_keep<-merge(pheno_i, keep, by.x=c('FID','IID'), by.y=c('V1','V2'))
+  
+  UKB_N_tab<-rbind(UKB_N_tab, data.frame(Phenotype=pheno[i],
+                                         N=dim(pheno_i_keep)[1],
+                                         Ncase=sum(pheno_i_keep$pheno == 0),
+                                         Ncont=sum(pheno_i_keep$pheno == 1)))
+}
+
+UKB_N_tab[UKB_N_tab == 0]<-NA
+
+write.csv(UKB_N_tab, '/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/UKB_N_table.csv', row.names=F, quote=F)
+
+# TEDS
+pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
+
+keep<-fread(paste0(TEDS_output_dir,'/Projected_PCs/Ancestry_idenitfier/TEDS.w_hm3.AllAncestry.EUR.keep'))
+
+TEDS_N_tab<-NULL
+for(i in 1:length(pheno)){
+  pheno_i<-fread(paste0('/users/k1806347/brc_scratch/Data/TEDS/Phenotypic/Derived_outcomes/TEDS_',pheno[i],'.txt'))
+  names(pheno_i)<-c('FID','IID','pheno')
+  pheno_i_keep<-merge(pheno_i, keep, by.x=c('FID','IID'), by.y=c('V1','V2'))
+  
+  TEDS_N_tab<-rbind(TEDS_N_tab, data.frame(Phenotype=pheno[i],
+                                         N=dim(pheno_i_keep)[1],
+                                         Ncase=sum(pheno_i_keep$pheno == 0),
+                                         Ncont=sum(pheno_i_keep$pheno == 1)))
+}
+
+TEDS_N_tab[TEDS_N_tab == 0]<-NA
+
+write.csv(TEDS_N_tab, '/users/k1806347/brc_scratch/Analyses/PRS_comparison/TEDS_outcomes_for_prediction/TEDS_N_table.csv', row.names=F, quote=F)
+
+```
+</details>
+
+<details><summary>Show sample size tables</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/UKB_N_table.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Sample size of UKB phenotypes after QC')
+
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/TEDS_outcomes_for_prediction/TEDS_N_table.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Sample size of TEDS phenotypes after QC')
+```
+
+</details>
+
 <details><summary>Summarise and plot the results</summary>
 
-```{bash, echo=T, eval=F}
-module add apps/R/3.6.0
-R
+```{R, echo=T, eval=F}
 
 Files<-c('UKBB','UKBB.UKBB_ref','TEDS','TEDS.UKBB_ref')
 Samples<-c('UKBB','UKBB','TEDS','TEDS')
@@ -2487,19 +2563,23 @@ for(file in 1:length(Files)){
     res_eval_i_select$Model<-factor(res_eval_i_select$Model, levels=c('10FCVal','MultiPRS','PseudoVal'))
     
     res_eval_plots_cross[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=CrossVal_R, fill=Model)) +
-                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
                           geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
                           labs(y="Correlation (SE)", x='', title=pheno[i]) +
                           coord_cartesian(ylim=c(min(res_eval_i_select$CrossVal_R[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$CrossVal_R[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
-                				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y')
                 				  
     res_eval_plots_indep[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=IndepVal_R, fill=Model)) +
-                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
                           geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
                           labs(y="Correlation (SE)", x='', title=pheno[i]) +
                           coord_cartesian(ylim=c(min(res_eval_i_select$IndepVal_R[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$IndepVal_R[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
-                				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y')
+
     ###
     # Create plot showing performance of each method compared to pT+clump
     ###
@@ -2507,20 +2587,24 @@ for(file in 1:length(Files)){
     res_eval_i_select$CrossVal_R_diff<-res_eval_i_select$CrossVal_R-res_eval_i_select$CrossVal_R[res_eval_i_select$Test == "pT+clump.10FCVal"]
     
     res_eval_diff_plots_cross[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=CrossVal_R_diff, fill=Model)) +
-                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
                           geom_errorbar(aes(ymin=CrossVal_R_diff-CrossVal_R_SE, ymax=CrossVal_R_diff+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
                           labs(y="Correlation (SE)", x='', title=pheno[i]) +
                           coord_cartesian(ylim=c(min(res_eval_i_select$CrossVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$CrossVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
-                				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y')
     
     res_eval_i_select$IndepVal_R_diff<-res_eval_i_select$IndepVal_R-res_eval_i_select$IndepVal_R[res_eval_i_select$Test == "pT+clump.10FCVal"]
               				  
     res_eval_diff_plots_indep[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=IndepVal_R_diff, fill=Model)) +
-                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
                           geom_errorbar(aes(ymin=IndepVal_R_diff-IndepVal_R_SE, ymax=IndepVal_R_diff+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
                           labs(y="Correlation (SE)", x='', title=pheno[i]) +
                           coord_cartesian(ylim=c(min(res_eval_i_select$IndepVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$IndepVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
-                				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y')
   
     ###
     # Create plot showing matrix of differences with significance
@@ -2568,9 +2652,9 @@ for(file in 1:length(Files)){
      theme(axis.text.x = element_text(angle = 45, vjust = 1, 
         size = 8, hjust = 1))+
      coord_fixed() +
-    geom_text(data=res_comp_i_select, aes(Model_1_Test, Model_2_Test, label = cross_star), color = "black", size = 4) +
+    geom_text(data=res_comp_i_select, aes(Model_1_Test, Model_2_Test, label = cross_star), color = "black", size = 4, angle = 90, vjust=0.8) +
     scale_fill_brewer(palette = "RdBu", drop=F)
-    
+
     res_eval_diff_matrix_indep[[pheno[i]]]<-ggplot(data = res_comp_i_select, aes(Model_1_Test, Model_2_Test, fill=Indep_R_diff_catagory))+
      geom_tile(color = "white")+
      labs(y='Reference', x='Test', title=pheno[i], fill='R difference') +
@@ -2578,9 +2662,8 @@ for(file in 1:length(Files)){
      theme(axis.text.x = element_text(angle = 45, vjust = 1, 
         size = 8, hjust = 1))+
      coord_fixed() +
-    geom_text(data=res_comp_i_select, aes(Model_1_Test, Model_2_Test, label = indep_star), color = "black", size = 4) +
+    geom_text(data=res_comp_i_select, aes(Model_1_Test, Model_2_Test, label = indep_star), color = "black", size = 4, angle = 90, vjust=0.8) +
     scale_fill_brewer(palette = "RdBu", drop=F)
-    
   }
   
   write.csv(res_eval, paste0('/scratch/users/k1806347/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/PRS_method_comp_',Files[file],'.csv'), row.names=F, quote=F)
@@ -2796,16 +2879,20 @@ for(file in 1:length(Files)){
   meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('10FCVal','MultiPRS','PseudoVal'))
 
   meta_res_eval_plots_cross[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=CrossVal_R, fill=Model)) +
-                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
                         geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
                         labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
-              				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+                        theme_half_open() +
+              				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                        background_grid(major = 'y', minor = 'y')
 
   meta_res_eval_plots_indep[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=IndepVal_R, fill=Model)) +
-                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
                         geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
                         labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
-              				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+                        theme_half_open() +
+              				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                        background_grid(major = 'y', minor = 'y')
   
   if(Samples[file] == 'UKBB'){
     meta_res_eval_plots_cross[[Files[file]]]<-meta_res_eval_plots_cross[[Files[file]]] + coord_cartesian(ylim=c(0,0.25), clip="on")
@@ -2836,34 +2923,31 @@ for(file in 1:length(Files)){
                           geom_point(data=res_eval, mapping=aes(x=Method, y=CrossVal_R_diff, colour=Model), position=position_jitterdodge(jitter.width = 0.4, dodge.width = 0.7), alpha=0.3) +
                           geom_point(stat="identity", position=position_dodge(0.7), size=4, shape=18) +
                         geom_errorbar(aes(ymin=CrossVal_R_diff-CrossVal_R_SE, ymax=CrossVal_R_diff+CrossVal_R_SE), width=0.7, position=position_dodge(width = 0.7)) +
-                          labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
+                          labs(y="Difference in\nCorrelations (SE)", x='', title=Files_descrip[file]) +
+                          theme_half_open() +
                 				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
                 				  geom_vline(xintercept = 1.5, linetype="dotted") +
                 				  geom_vline(xintercept = 2.5, linetype="dotted") + 
                 				  geom_vline(xintercept = 3.5, linetype="dotted") + 
                 				  geom_vline(xintercept = 4.5, linetype="dotted") + 
-                				  geom_vline(xintercept = 5.5, linetype="dotted")
+                				  geom_vline(xintercept = 5.5, linetype="dotted") +
+                          background_grid(major = 'y', minor = 'y') +
+                          ylim(c(-0.10,0.10))
               				  
     meta_res_eval_diff_plots_indep[[Files[file]]] <- ggplot( meta_res_eval, aes(x=Method, y=IndepVal_R_diff, colour=Model)) +
                           geom_point(data=res_eval, mapping=aes(x=Method, y=IndepVal_R_diff, colour=Model), position=position_jitterdodge(jitter.width = 0.4, dodge.width = 1), alpha=0.3) +
                           geom_point(stat="identity", position=position_dodge(1), size=4, shape=18) +
                         geom_errorbar(aes(ymin=IndepVal_R_diff-IndepVal_R_SE, ymax=IndepVal_R_diff+IndepVal_R_SE), width=0.7, position=position_dodge(width = 1)) +
-                          labs(y="Correlation (SE)", x='', title=Files_descrip[file]) +
+                          labs(y="Difference in\nCorrelations (SE)", x='', title=Files_descrip[file]) +
+                          theme_half_open() +
                 				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
                 				  geom_vline(xintercept = 1.5, linetype="dotted") +
                 				  geom_vline(xintercept = 2.5, linetype="dotted") + 
                 				  geom_vline(xintercept = 3.5, linetype="dotted") + 
                 				  geom_vline(xintercept = 4.5, linetype="dotted") + 
-                				  geom_vline(xintercept = 5.5, linetype="dotted")
-
-  
-  if(Samples[file] == 'UKBB'){
-    meta_res_eval_diff_plots_cross[[Files[file]]]<-meta_res_eval_diff_plots_cross[[Files[file]]] + coord_cartesian(ylim=c(-0.25,0.08), clip="on")
-    meta_res_eval_diff_plots_indep[[Files[file]]]<-meta_res_eval_diff_plots_indep[[Files[file]]] + coord_cartesian(ylim=c(-0.25,0.08), clip="on")
-  } else {
-    meta_res_eval_diff_plots_cross[[Files[file]]]<-meta_res_eval_diff_plots_cross[[Files[file]]] + coord_cartesian(ylim=c(-0.35,0.11), clip="on")
-    meta_res_eval_diff_plots_indep[[Files[file]]]<-meta_res_eval_diff_plots_indep[[Files[file]]] + coord_cartesian(ylim=c(-0.35,0.11), clip="on")
-  }           				  
+                				  geom_vline(xintercept = 5.5, linetype="dotted") +
+                          background_grid(major = 'y', minor = 'y') +
+                          ylim(c(-0.10,0.10))
 
   ###
   # Create plot showing matrix of differences with significance
@@ -2911,7 +2995,7 @@ for(file in 1:length(Files)){
    theme(axis.text.x = element_text(angle = 45, vjust = 1, 
       size = 8, hjust = 1)) +
    coord_fixed() +
-  geom_text(data=meta_res_diff, aes(Test_ref, Test_targ, label = cross_star), color = "black", size = 4) +
+  geom_text(data=meta_res_diff, aes(Test_ref, Test_targ, label = cross_star), color = "black", size = 4, angle = 90, vjust=0.8) +
   scale_fill_brewer(palette = "RdBu", drop=F)
 
   
@@ -2922,7 +3006,7 @@ for(file in 1:length(Files)){
    theme(axis.text.x = element_text(angle = 45, vjust = 1, 
       size = 8, hjust = 1))+
    coord_fixed() +
-  geom_text(data=meta_res_diff, aes(Test_ref, Test_targ, label = indep_star), color = "black", size = 4) +
+  geom_text(data=meta_res_diff, aes(Test_ref, Test_targ, label = indep_star), color = "black", size = 4, angle = 90, vjust=0.8) +
   scale_fill_brewer(palette = "RdBu", drop=F)
 
 }
@@ -3448,9 +3532,6 @@ kable(res, rownames = FALSE, caption='Information used to avoid convergence issu
 
 <details><summary>Compare SBayesR results</summary>
 ```{r, echo=T, eval=F}
-module add apps/R/3.6.0
-R
-
 # Create a table indicating whether per variant sample size is available
 Files<-c('UKBB','TEDS')
 Samples<-c('UKBB','TEDS')
@@ -3580,18 +3661,22 @@ for(file in 1:length(Files)){
   plots_IndepVal<-list()
   for(i in 1:length(pheno)){
     plots_CrossVal[[pheno[i]]] <- ggplot( res[res$Phenotype==pheno[i],], aes(x=Ref, y=CrossVal_R, fill=Model)) +
-                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
                           geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
                           labs(y="Correlation (SE)", x='', title=pheno[i]) +
                           coord_cartesian(ylim=c(min(res$CrossVal_R[res$Phenotype==pheno[i]])-0.05, max(res$CrossVal_R[res$Phenotype==pheno[i]])+0.05), clip="on") +
-                				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y')
     
     plots_IndepVal[[pheno[i]]] <- ggplot( res[res$Phenotype==pheno[i],], aes(x=Ref, y=IndepVal_R, fill=Model)) +
-                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour='black') +
+                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
                           geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
                           labs(y="Correlation (SE)", x='', title=pheno[i]) +
                           coord_cartesian(ylim=c(min(res$IndepVal_R[res$Phenotype==pheno[i]])-0.05, max(res$IndepVal_R[res$Phenotype==pheno[i]])+0.05), clip="on") +
-                				  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y')
   }
 
   png(paste0('/scratch/users/k1806347/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/PRS_SBayesR_CrossVal_',Samples[file],'.png'), units='px', res=300, width=2500, height=800*ceiling(length(pheno)/2))
@@ -3604,8 +3689,6 @@ for(file in 1:length(Files)){
 
 }
 
-q()
-n
 ```
 
 </details>
