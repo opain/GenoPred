@@ -1717,6 +1717,150 @@ sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k180
 sleep 3
 done
 
+########
+# Calculate GeRS using genes with tissue-specific effects 
+########
+
+###
+# First identify list of tissue specific features by comparing with blood panels
+###
+module add apps/R
+R
+
+library(data.table)
+
+# Read in expression data for all panels
+weights<-fread('/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt', header=F)$V1
+
+pos<-fread('/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/All_tissues.pos')
+pos$WGT_2<-gsub('.wgt.RDat','',gsub('.*/','',pos$WGT))
+pos$WGT_2<-gsub(":", ".", pos$WGT_2)
+pos$WGT_2<-gsub("-", ".", pos$WGT_2)
+
+# Seperate blood panels from other tissues
+blood_list<-list()
+for(i in weights[grepl('BLOOD|Blood', weights)]){
+  blood_list[[i]]<-fread(cmd=paste0('zcat /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/',i,'/1KGPhase3.w_hm3.FUSION.',i,'.predictions.gz'))
+}
+
+blood<-Reduce(function(...) merge(..., by=c('FID','IID'), all=T), blood_list)
+
+names(blood)<-gsub('-','.',names(blood))
+names(blood)<-gsub(':','.',names(blood))
+
+pos_blood<-pos[grepl('BLOOD|Blood', pos$PANEL)]
+
+# For each non-blood tissue, estimate feature correlations with blood
+# If correlation is < 0.1 or feature unavailable in blood, retain the gene
+pos_notBlood<-list()
+for(i in weights[!grepl('BLOOD|Blood', weights)]){
+    expr_i<-fread(cmd=paste0('zcat /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/',i,'/1KGPhase3.w_hm3.FUSION.',i,'.predictions.gz'))
+    
+    names(expr_i)<-gsub('-','.',names(expr_i))
+    names(expr_i)<-gsub(':','.',names(expr_i))
+
+    pos_i<-pos[pos$PANEL == i,]
+    
+    pos_i_inBlood<-pos_i[(pos_i$ID %in% pos_blood$ID),]
+    pos_i_NotinBlood<-pos_i[!(pos_i$ID %in% pos_blood$ID),]
+    pos_i_NotinBlood$corBlood<-NA
+    
+    for(k in pos_i_inBlood$WGT_2){
+      cor_all<-NULL
+      for(j in pos_blood$WGT_2[pos_blood$ID == pos_i_inBlood$ID[pos_i_inBlood$WGT_2 == k]]){
+        cor<-cor(expr_i[[k]], blood[[j]])
+        cor_all<-c(cor_all,cor)
+      }
+      tmp<-pos_i_inBlood[pos_i_inBlood$WGT_2 == k,]
+      tmp$corBlood<-max(abs(cor_all), na.rm=T)
+      
+      if(sum(abs(cor_all) > 0.1, na.rm=T) == 0){
+          pos_i_NotinBlood<-rbind(pos_i_NotinBlood,tmp)
+      }
+    }
+
+pos_notBlood[[i]]<-pos_i_NotinBlood
+}
+
+pos_notBlood_tab<-do.call(rbind, pos_notBlood)
+
+# Then identify blood features only available in blood
+pos_shared<-pos[!(pos$ID %in% pos_notBlood_tab$ID),]
+pos_blood_only<-pos_blood[!(pos_blood$ID %in% pos_shared$ID),]
+
+# Create a pos file for tissue specific features
+pos_notBlood_tab$corBlood<-NULL
+pos_specific<-rbind(pos_blood_only,pos_notBlood_tab)
+pos_specific$WGT_2<-NULL
+
+write.table(pos_specific, '/users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/Tissue_specific.pos', col.names=T, row.names=F, quote=F)
+
+q()
+n
+
+####
+# Subset TWAS results to only include tissue specific features
+####
+
+module add apps/R
+R
+
+library(data.table)
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+
+twas_list<-c('DEPR06','COLL01','HEIG03','BODY03','DIAB05','COAD01','CROH01','RHEU01','EDUC03','ADHD04','BODY11')
+
+pos_tissue_specific<-fread('/users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/Tissue_specific.pos')
+
+pos_tissue_specific$WGT<-sub(".*/", "", pos_tissue_specific$WGT)
+pos_tissue_specific$WGT<-sub(".wgt.RDat", "", pos_tissue_specific$WGT)
+
+for(i in twas_list){
+  twas_i<-fread(paste0(TWAS_rep,'/',i,'/',i,'_res_GW.txt'))
+  
+  twas_i$FILE2<-sub(".*/", "", twas_i$FILE)
+  twas_i$FILE2<-sub(".wgt.RDat", "", twas_i$FILE2)
+
+  twas_i<-twas_i[(twas_i$FILE2 %in% pos_tissue_specific$WGT),]
+  
+  twas_i$FILE2<-NULL
+  
+  write.table(twas_i, paste0(TWAS_rep,'/',i,'/',i,'_res_GW.TissueSpecific.txt'),col.names=T, row.names=F, quote=F)
+}
+
+q()
+n
+
+####
+# Now calculate scores based on these tissue specific features
+####
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 RHEU01 EDUC03 ADHD04 BODY11);do
+for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.TissueSpecific.${gwas}.${weights}.scale ]; then
+echo $gwas $weights >> ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt
+fi
+done
+done
+
+for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt | cut -d ' ' -f 1));do
+gwas=$(awk -v var="$i" 'NR == var {print $1}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt)
+weights=$(awk -v var="$i" 'NR == var {print $2}' ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt)
+
+sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ref_funtionally_informed_risk_scorer/ref_funtionally_informed_risk_scorer.R \
+  --twas_results ${TWAS_rep}/${gwas}/${gwas}_res_GW.TissueSpecific.txt \
+  --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
+  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.TissueSpecific.${gwas}.${weights} \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
+  --panel ${weights}
+
+sleep 1
+done
+
 ```
 </details>
 
