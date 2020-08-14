@@ -1473,6 +1473,7 @@ mv ukbEURu_hm3_chr${chr}_v3_50k_sparse.log ukbEURu_hm3_v3_50k_sparse_chr${chr}.l
 done
 </code></pre>
 </details>
+<p><br/></p>
 <p>Now the EUR 1KG Phase 3 LD reference is ready, we can calculate SBayesR shrunk GWAS summary statistics. This section uses an R script called ‘polygenic_score_file_creator_SBayes.R’. Further information the usage of this script can be found <a href="https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_SBayesR">here</a>.</p>
 <details>
 <p><summary>Show code</summary></p>
@@ -1953,6 +1954,150 @@ sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k180
 
 sleep 3
 done
+
+########
+# Calculate GeRS using genes with tissue-specific effects 
+########
+
+###
+# First identify list of tissue specific features by comparing with blood panels
+###
+module add apps/R
+R
+
+library(data.table)
+
+# Read in expression data for all panels
+weights&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt&#39;, header=F)$V1
+
+pos&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/All_tissues.pos&#39;)
+pos$WGT_2&lt;-gsub(&#39;.wgt.RDat&#39;,&#39;&#39;,gsub(&#39;.*/&#39;,&#39;&#39;,pos$WGT))
+pos$WGT_2&lt;-gsub(&quot;:&quot;, &quot;.&quot;, pos$WGT_2)
+pos$WGT_2&lt;-gsub(&quot;-&quot;, &quot;.&quot;, pos$WGT_2)
+
+# Seperate blood panels from other tissues
+blood_list&lt;-list()
+for(i in weights[grepl(&#39;BLOOD|Blood&#39;, weights)]){
+  blood_list[[i]]&lt;-fread(cmd=paste0(&#39;zcat /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/&#39;,i,&#39;/1KGPhase3.w_hm3.FUSION.&#39;,i,&#39;.predictions.gz&#39;))
+}
+
+blood&lt;-Reduce(function(...) merge(..., by=c(&#39;FID&#39;,&#39;IID&#39;), all=T), blood_list)
+
+names(blood)&lt;-gsub(&#39;-&#39;,&#39;.&#39;,names(blood))
+names(blood)&lt;-gsub(&#39;:&#39;,&#39;.&#39;,names(blood))
+
+pos_blood&lt;-pos[grepl(&#39;BLOOD|Blood&#39;, pos$PANEL)]
+
+# For each non-blood tissue, estimate feature correlations with blood
+# If correlation is &lt; 0.1 or feature unavailable in blood, retain the gene
+pos_notBlood&lt;-list()
+for(i in weights[!grepl(&#39;BLOOD|Blood&#39;, weights)]){
+    expr_i&lt;-fread(cmd=paste0(&#39;zcat /users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/FUSION/&#39;,i,&#39;/1KGPhase3.w_hm3.FUSION.&#39;,i,&#39;.predictions.gz&#39;))
+    
+    names(expr_i)&lt;-gsub(&#39;-&#39;,&#39;.&#39;,names(expr_i))
+    names(expr_i)&lt;-gsub(&#39;:&#39;,&#39;.&#39;,names(expr_i))
+
+    pos_i&lt;-pos[pos$PANEL == i,]
+    
+    pos_i_inBlood&lt;-pos_i[(pos_i$ID %in% pos_blood$ID),]
+    pos_i_NotinBlood&lt;-pos_i[!(pos_i$ID %in% pos_blood$ID),]
+    pos_i_NotinBlood$corBlood&lt;-NA
+    
+    for(k in pos_i_inBlood$WGT_2){
+      cor_all&lt;-NULL
+      for(j in pos_blood$WGT_2[pos_blood$ID == pos_i_inBlood$ID[pos_i_inBlood$WGT_2 == k]]){
+        cor&lt;-cor(expr_i[[k]], blood[[j]])
+        cor_all&lt;-c(cor_all,cor)
+      }
+      tmp&lt;-pos_i_inBlood[pos_i_inBlood$WGT_2 == k,]
+      tmp$corBlood&lt;-max(abs(cor_all), na.rm=T)
+      
+      if(sum(abs(cor_all) &gt; 0.1, na.rm=T) == 0){
+          pos_i_NotinBlood&lt;-rbind(pos_i_NotinBlood,tmp)
+      }
+    }
+
+pos_notBlood[[i]]&lt;-pos_i_NotinBlood
+}
+
+pos_notBlood_tab&lt;-do.call(rbind, pos_notBlood)
+
+# Then identify blood features only available in blood
+pos_shared&lt;-pos[!(pos$ID %in% pos_notBlood_tab$ID),]
+pos_blood_only&lt;-pos_blood[!(pos_blood$ID %in% pos_shared$ID),]
+
+# Create a pos file for tissue specific features
+pos_notBlood_tab$corBlood&lt;-NULL
+pos_specific&lt;-rbind(pos_blood_only,pos_notBlood_tab)
+pos_specific$WGT_2&lt;-NULL
+
+write.table(pos_specific, &#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/Tissue_specific.pos&#39;, col.names=T, row.names=F, quote=F)
+
+q()
+n
+
+####
+# Subset TWAS results to only include tissue specific features
+####
+
+module add apps/R
+R
+
+library(data.table)
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config&#39;)
+
+twas_list&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;HEIG03&#39;,&#39;BODY03&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;RHEU01&#39;,&#39;EDUC03&#39;,&#39;ADHD04&#39;,&#39;BODY11&#39;)
+
+pos_tissue_specific&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/Tissue_specific.pos&#39;)
+
+pos_tissue_specific$WGT&lt;-sub(&quot;.*/&quot;, &quot;&quot;, pos_tissue_specific$WGT)
+pos_tissue_specific$WGT&lt;-sub(&quot;.wgt.RDat&quot;, &quot;&quot;, pos_tissue_specific$WGT)
+
+for(i in twas_list){
+  twas_i&lt;-fread(paste0(TWAS_rep,&#39;/&#39;,i,&#39;/&#39;,i,&#39;_res_GW.txt&#39;))
+  
+  twas_i$FILE2&lt;-sub(&quot;.*/&quot;, &quot;&quot;, twas_i$FILE)
+  twas_i$FILE2&lt;-sub(&quot;.wgt.RDat&quot;, &quot;&quot;, twas_i$FILE2)
+
+  twas_i&lt;-twas_i[(twas_i$FILE2 %in% pos_tissue_specific$WGT),]
+  
+  twas_i$FILE2&lt;-NULL
+  
+  write.table(twas_i, paste0(TWAS_rep,&#39;/&#39;,i,&#39;/&#39;,i,&#39;_res_GW.TissueSpecific.txt&#39;),col.names=T, row.names=F, quote=F)
+}
+
+q()
+n
+
+####
+# Now calculate scores based on these tissue specific features
+####
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 RHEU01 EDUC03 ADHD04 BODY11);do
+for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.TissueSpecific.${gwas}.${weights}.scale ]; then
+echo $gwas $weights &gt;&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt
+fi
+done
+done
+
+for i in $(seq 1 $(wc -l ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt | cut -d &#39; &#39; -f 1));do
+gwas=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $1}&#39; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt)
+weights=$(awk -v var=&quot;$i&quot; &#39;NR == var {print $2}&#39; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt)
+
+sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ref_funtionally_informed_risk_scorer/ref_funtionally_informed_risk_scorer.R \
+  --twas_results ${TWAS_rep}/${gwas}/${gwas}_res_GW.TissueSpecific.txt \
+  --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
+  --output ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.TissueSpecific.${gwas}.${weights} \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
+  --panel ${weights}
+
+sleep 1
+done
 </code></pre>
 </details>
 <p><br/></p>
@@ -2055,42 +2200,42 @@ done
 ## BLAS/LAPACK: /usr/lib/x86_64-linux-gnu/libopenblasp-r0.3.5.so
 ## 
 ## locale:
-##  [1] LC_CTYPE=en_GB.UTF-8       LC_NUMERIC=C              
-##  [3] LC_TIME=en_GB.UTF-8        LC_COLLATE=en_GB.UTF-8    
-##  [5] LC_MONETARY=en_GB.UTF-8    LC_MESSAGES=C             
-##  [7] LC_PAPER=en_GB.UTF-8       LC_NAME=C                 
+##  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+##  [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+##  [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=C             
+##  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
 ##  [9] LC_ADDRESS=C               LC_TELEPHONE=C            
-## [11] LC_MEASUREMENT=en_GB.UTF-8 LC_IDENTIFICATION=C       
+## [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
 ## 
 ## attached base packages:
 ## [1] parallel  stats     graphics  grDevices utils     datasets  methods  
 ## [8] base     
 ## 
 ## other attached packages:
-## [1] cowplot_1.0.0     caret_6.0-85      ggplot2_3.2.1     lattice_0.20-38  
-## [5] optparse_1.6.4    doMC_1.3.6        iterators_1.0.12  foreach_1.4.8    
-## [9] data.table_1.12.8
+##  [1] cowplot_1.0.0     caret_6.0-85      ggplot2_3.2.1     lattice_0.20-38  
+##  [5] optparse_1.6.4    doMC_1.3.6        iterators_1.0.12  foreach_1.4.8    
+##  [9] data.table_1.12.8 knitr_1.28       
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] tidyselect_1.0.0     xfun_0.12            purrr_0.3.3         
-##  [4] reshape2_1.4.3       splines_3.6.2        colorspace_1.4-1    
-##  [7] generics_0.0.2       stats4_3.6.2         htmltools_0.4.0     
-## [10] getopt_1.20.3        yaml_2.2.1           survival_3.1-8      
-## [13] prodlim_2019.11.13   rlang_0.4.4          ModelMetrics_1.2.2.1
-## [16] pillar_1.4.3         glue_1.3.1           withr_2.1.2         
-## [19] lifecycle_0.1.0      plyr_1.8.5           lava_1.6.6          
-## [22] stringr_1.4.0        timeDate_3043.102    munsell_0.5.0       
-## [25] gtable_0.3.0         recipes_0.1.9        codetools_0.2-16    
-## [28] evaluate_0.14        knitr_1.28           class_7.3-15        
-## [31] Rcpp_1.0.3           scales_1.1.0         ipred_0.9-9         
-## [34] digest_0.6.25        stringi_1.4.6        dplyr_0.8.4         
-## [37] grid_3.6.2           tools_3.6.2          magrittr_1.5        
-## [40] lazyeval_0.2.2       tibble_2.1.3         crayon_1.3.4        
-## [43] pkgconfig_2.0.3      MASS_7.3-51.4        Matrix_1.2-18       
-## [46] pROC_1.16.1          lubridate_1.7.4      gower_0.2.1         
-## [49] assertthat_0.2.1     rmarkdown_2.1        R6_2.4.1            
-## [52] rpart_4.1-15         nnet_7.3-12          nlme_3.1-142        
-## [55] compiler_3.6.2</code></pre>
+##  [1] tidyselect_1.0.0     xfun_0.12            reshape2_1.4.3      
+##  [4] purrr_0.3.3          splines_3.6.2        colorspace_1.4-1    
+##  [7] vctrs_0.3.1          generics_0.0.2       stats4_3.6.2        
+## [10] htmltools_0.4.0      getopt_1.20.3        yaml_2.2.1          
+## [13] prodlim_2019.11.13   survival_3.1-8       rlang_0.4.6         
+## [16] ModelMetrics_1.2.2.1 pillar_1.4.3         glue_1.3.1          
+## [19] withr_2.1.2          lifecycle_0.2.0      plyr_1.8.5          
+## [22] lava_1.6.6           stringr_1.4.0        timeDate_3043.102   
+## [25] munsell_0.5.0        gtable_0.3.0         recipes_0.1.9       
+## [28] codetools_0.2-16     evaluate_0.14        class_7.3-15        
+## [31] highr_0.8            Rcpp_1.0.3           scales_1.1.0        
+## [34] ipred_0.9-9          digest_0.6.25        stringi_1.4.6       
+## [37] dplyr_0.8.4          grid_3.6.2           tools_3.6.2         
+## [40] magrittr_1.5         lazyeval_0.2.2       tibble_3.0.1        
+## [43] crayon_1.3.4         pkgconfig_2.0.3      ellipsis_0.3.0      
+## [46] MASS_7.3-51.4        Matrix_1.2-18        pROC_1.16.1         
+## [49] lubridate_1.7.4      gower_0.2.1          assertthat_0.2.1    
+## [52] rmarkdown_2.1        R6_2.4.1             rpart_4.1-15        
+## [55] nnet_7.3-12          nlme_3.1-142         compiler_3.6.2</code></pre>
 </details>
 <details>
 <p><summary>Software versions</summary></p>
