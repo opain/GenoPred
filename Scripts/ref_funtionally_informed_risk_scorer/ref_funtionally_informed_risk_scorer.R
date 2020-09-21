@@ -24,6 +24,8 @@ make_option("--panel", action="store", default=NA, type='character',
 		help="Panel from TWAS [optional]"),
 make_option("--coloc", action="store", default=F, type='logical',
     help="Specify T to filter associations by PP4 estimates. --pTs can be used to select PP4 thresholds [optional]"),
+make_option("--coloc_thresh", action="store", default=NA, type='numeric',
+    help="Specify to restrict score to feature with PP4 above value [optional]"),
 make_option("--ref_scale", action="store", default=NA, type='character',
 		help="Path to file for scaling feature predictions [required]"),
 make_option("--gene_weights", action="store", default=NA, type='character',
@@ -84,6 +86,13 @@ if(opt$coloc == T){
   TWAS<-TWAS[!is.na(TWAS$COLOC.PP4),]
   
   cat('After removing features without COLOC estimates,', dim(TWAS)[1],'genes remain.\n')
+}
+
+if(!is.na(opt$coloc_thresh)){
+  # Remove features with COLOC.PP4 < opt$coloc_thresh
+  TWAS<-TWAS[which(TWAS$COLOC.PP4 > opt$coloc_thresh),]
+  
+  cat('After extracting features with COLOC PP4 >', opt$coloc_thresh,',', dim(TWAS)[1],'genes remain.\n')
 }
 
 if(is.na(opt$gene_weights) == F){
