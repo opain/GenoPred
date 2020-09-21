@@ -5,11 +5,21 @@ suppressMessages(library("optparse"))
 
 option_list = list(
 make_option("--target_plink_chr", action="store", default=NA, type='character',
-		help="Path to per chromosome target PLINK files [required]"),
+    help="Path to per chromosome target PLINK files [required]"),
+make_option("--target_plink", action="store", default=NA, type='character',
+    help="Path to per chromosome target PLINK files [required]"),
 make_option("--ref_plink_chr", action="store", default=NA, type='character',
-		help="Path to per chromosome reference PLINK files [required]"),
+    help="Path to per chromosome reference PLINK files [required]"),
+make_option("--target_fam", action="store", default=NA, type='character',
+    help="Target sample fam file. [optional]"),
+make_option("--maf", action="store", default=NA, type='numeric',
+    help="Minor allele frequency threshold [optional]"),
+make_option("--geno", action="store", default=0.02, type='numeric',
+    help="Variant missingness threshold [optional]"),
+make_option("--hwe", action="store", default=NA, type='numeric',
+    help="Hardy Weinberg p-value threshold. [optional]"),
 make_option("--n_pcs", action="store", default=10, type='numeric',
-		help="Number of PCs [optional]"),
+		help="Number of PCs (min=4) [optional]"),
 make_option("--plink", action="store", default='plink', type='character',
 		help="Path PLINK software binary [required]"),
 make_option("--plink2", action="store", default='plink', type='character',
@@ -61,42 +71,74 @@ if(is.na(opt$ref_pop_scale)){
 }
 
 ###########
-# Identify list of SNPs genotyped in all individuals in the target sample
+# Perform QC of target sample genotypes
 ###########
 
-for(i in 1:22){
-	system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --threads 1 --missing --out ',opt$output_dir,'target.chr',i,' --memory ',floor(opt$memory*0.7)))
+if(is.na(opt$target_fam)){
+  if(is.na(opt$target_plink)){
+    for(i in 1:22){
+      system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+    }
+  } else {
+    system(paste0(opt$plink,' --bfile ',opt$target_plink,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+  }
+} else {
+  if(is.na(opt$target_plink)){
+    for(i in 1:22){
+      system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --fam ',opt$target_fam,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+    }
+  } else {
+      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+  }
 }
 
-lmiss_all<-NULL
-for(i in 1:22){
-	lmiss<-fread(paste0(opt$output_dir,'target.chr',i,'.lmiss'))
-	lmiss_all<-rbind(lmiss_all, lmiss)
+if(is.na(opt$target_plink)){
+  target_qc_snplist<-NULL
+  for(i in 1:22){
+    target_qc_snplist_i<-fread(paste0(opt$output_dir,'target.QC.chr',i,'.snplist'), header=F)
+    target_qc_snplist<-rbind(target_qc_snplist, target_qc_snplist_i)
+  }
+  
+  write.table(target_qc_snplist$V1, paste0(opt$output_dir,'target_QC.snplist'), row.names=F, col.names=F, quote=F)
+  
+  system(paste0('rm ',paste0(opt$output_dir,'target.QC.chr*')))
+  
+} else {
+  target_qc_snplist<-fread(paste0(opt$output_dir,'target.QC.snplist'), header=F)
+
+  write.table(target_qc_snplist$V1, paste0(opt$output_dir,'target_QC.snplist'), row.names=F, col.names=F, quote=F)
+  
+  system(paste0('rm ',paste0(opt$output_dir,'target.QC.*')))
 }
-
-comp_snp<-lmiss_all$SNP[lmiss_all$F_MISS < 0.02]
-
-write.table(comp_snp, paste0(opt$output_dir,'target_comp.snplist'), row.names=F, col.names=F, quote=F)
 
 ###
 # Merge the per chromosome reference genetic data, retaining only comp_snp
 ###
 
+# Extract intersect with target from the reference files which also meet QC
+for(i in 1:22){
+  system(paste0(opt$plink,' --bfile ', opt$ref_plink_chr,i,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --make-bed --extract ',opt$output_dir,'target_QC.snplist --out ',opt$output_dir,'ref_intersect_chr',i,' --memory ',floor(opt$memory*0.7)))
+}
+
+# Merge subset reference
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Merging per chromosome reference data...')
 sink()
 
 # Create merge list
-ref_merge_list<-paste0(opt$ref_plink_chr,1:22)
+ref_merge_list<-paste0(opt$output_dir,'ref_intersect_chr',1:22)
 
 write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
 
 # Merge
-system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --extract ',opt$output_dir,'target_comp.snplist --out ',opt$output_dir,'ref_merge --memory ',floor(opt$memory*0.7)))
+system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --out ',opt$output_dir,'ref_merge --memory ',floor(opt$memory*0.7)))
   
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
+
+# Delete temporary per chromosome reference files
+system(paste0('rm ',opt$output_dir,'ref_intersect_chr*'))
 
 ###
 # Create SNP list for LD pruning
@@ -238,12 +280,17 @@ if(!is.na(opt$ref_pop_scale)){
 	gc()
 	
 	# Build model
-	model <- train(y=as.factor(PCs_ref_scaled_pop$pop), x=PCs_ref_scaled_pop[grepl('PC',names(PCs_ref_scaled_pop))], method="glmnet", metric='logLoss', trControl=trainControl(method="cv", number=5, classProbs= TRUE, savePredictions = 'final', summaryFunction = multiClassSummary))
+	model <- train(y=as.factor(PCs_ref_scaled_pop$pop), x=PCs_ref_scaled_pop[grepl('PC',names(PCs_ref_scaled_pop))], method=opt$model_method, metric='logLoss', trControl=trainControl(method="cv", number=5, classProbs= TRUE, savePredictions = 'final', summaryFunction = multiClassSummary))
 	
 	# Save performance information
 	sink(file = paste(opt$output,'.pop_model_prediction_details.txt',sep=''), append = F)
 	print(model)
-	print(table(model$pred$obs, model$pred$pred))
+	cat('\n')
+	obs_pre_tab<-table(model$pred$obs, model$pred$pred)
+	dimnames(obs_pre_tab)<-list(paste('obs',dimnames(obs_pre_tab)[[1]]),paste('pred',dimnames(obs_pre_tab)[[2]]))
+	
+	cat('Confusion matrix:\n')
+	print(obs_pre_tab)
 	sink()
 	
 	saveRDS(model$finalModel, paste0(opt$output,'.pop_model.rds'))
@@ -260,11 +307,7 @@ if(!is.na(opt$ref_pop_scale)){
 system(paste0('mv ',opt$output_dir,'ref_merge_pruned.eigenvec.var ',opt$output,'.eigenvec.var'))
 system(paste0('rm ',opt$output_dir,'ref_merge*'))
 system(paste0('rm ',opt$output_dir,'long_ld.exclude'))
-system(paste0('rm ',opt$output_dir,'target.chr*.lmiss'))
-system(paste0('rm ',opt$output_dir,'target.chr*.imiss'))
-system(paste0('rm ',opt$output_dir,'target.chr*.log'))
-system(paste0('rm ',opt$output_dir,'target.chr*.nosex'))
-system(paste0('rm ',opt$output_dir,'target_comp.snplist'))
+system(paste0('rm ',opt$output_dir,'target_QC.snplist'))
 
 #####
 # Calculate PCs in target sample
@@ -276,34 +319,59 @@ sink()
 
 system(paste0('cut -f 2 ',opt$output,'.eigenvec.var | tail -n +2 > ',opt$output_dir,'score_file.snplist'))
 
-for(i in 1:22){
-	system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --extract ',opt$output_dir,'score_file.snplist --score ',opt$output,'.eigenvec.var header-read 2 3 no-mean-imputation --threads 1 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+if(is.na(opt$target_fam)){
+  if(is.na(opt$target_plink)){
+    for(i in 1:22){
+      system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --extract ',opt$output_dir,'score_file.snplist --score ',opt$output,'.eigenvec.var header-read 2 3 no-mean-imputation --threads 1 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+    }
+  } else {
+    system(paste0(opt$plink2, ' --bfile ',opt$target_plink,' --extract ',opt$output_dir,'score_file.snplist --score ',opt$output,'.eigenvec.var header-read 2 3 no-mean-imputation --threads 1 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'profiles',i,' --memory ',floor(opt$memory*0.9)))
+  }
+} else {
+  if(is.na(opt$target_plink)){
+    for(i in 1:22){
+      system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --fam ',opt$target_fam,' --extract ',opt$output_dir,'score_file.snplist --score ',opt$output,'.eigenvec.var header-read 2 3 no-mean-imputation --threads 1 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+    }
+  } else {
+    system(paste0(opt$plink2, ' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --extract ',opt$output_dir,'score_file.snplist --score ',opt$output,'.eigenvec.var header-read 2 3 no-mean-imputation --threads 1 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'profiles --memory ',floor(opt$memory*0.9)))
+  }
 }
 
 system(paste0('rm ',opt$output_dir,'score_file.snplist'))
 
-# Add up the scores across chromosomes
-scores<-fread(cmd=paste0('cut -f 1-2 ',opt$output_dir,'profiles.chr22.sscore'))
-names(scores)<-c('FID','IID')
+if(is.na(opt$target_plink)){
+  # Add up the scores across chromosomes
+  scores<-fread(cmd=paste0('cut -f 1-2 ',opt$output_dir,'profiles.chr22.sscore'))
+  names(scores)<-c('FID','IID')
+  
+  var_list<-fread(paste0(opt$output,'.eigenvec.var'))
+  nsnp_all<-0
+  for(i in 1:22){
+  	profile<-data.frame(fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore')))
+  	profile<-as.matrix(profile[,grepl('PC',names(profile))])
+  	bim<-fread(paste0(opt$target_plink_chr,i,'.bim'))
+  	nsnp<-sum(bim$V2 %in% var_list$ID)
+  	nsnp_all<-nsnp_all+nsnp
+  	profile<-profile*nsnp
+  	if(i == 1){
+  		profile_all<-profile
+  	} else {
+  		profile_all<-profile_all+profile	
+  	}
+  print(i)
+  }
+  
+  profile_all<-profile_all/nsnp_all
+} else {
+  # Add up the scores across chromosomes
+  scores<-fread(cmd=paste0('cut -f 1-2 ',opt$output_dir,'profiles.sscore'))
+  names(scores)<-c('FID','IID')
 
-var_list<-fread(paste0(opt$output,'.eigenvec.var'))
-nsnp_all<-0
-for(i in 1:22){
-	profile<-data.frame(fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore')))
-	profile<-as.matrix(profile[,5:dim(profile)[2]])
-	bim<-fread(paste0(opt$target_plink_chr,i,'.bim'))
-	nsnp<-sum(bim$V2 %in% var_list$ID)
-	nsnp_all<-nsnp_all+nsnp
-	profile<-profile*nsnp
-	if(i == 1){
-		profile_all<-profile
-	} else {
-		profile_all<-profile_all+profile	
-	}
-print(i)
+  profile_all<-data.frame(fread(paste0(opt$output_dir,'profiles.sscore')))
+
+  profile_all<-as.matrix(profile_all[,grepl('PC',names(profile_all))])
 }
 
-profile_all<-profile_all/nsnp_all
 profile_all<-data.table(profile_all)
 names(profile_all)<-paste0('PC',1:as.numeric(opt$n_pcs))
 scores<-cbind(scores, profile_all)
@@ -363,27 +431,13 @@ PC_3_4<-ggplot(ref_PCs_targ_PCs[ref_PCs_targ_PCs[[i]] != 'Target',], aes(x=PC3,y
 	geom_point(data=ref_PCs_targ_PCs[ref_PCs_targ_PCs[[i]] == 'Target',], aes(x=PC3,y=PC4), colour='black', shape=21) + 
   ggtitle("PCs 3 and 4") +
 	labs(colour="")
-PC_5_6<-ggplot(ref_PCs_targ_PCs[ref_PCs_targ_PCs[[i]] != 'Target',], aes(x=PC5,y=PC6, colour=get(i))) + 
-  geom_point() + 
-	geom_point(data=ref_PCs_targ_PCs[ref_PCs_targ_PCs[[i]] == 'Target',], aes(x=PC5,y=PC6), colour='black', shape=21) + 
-  ggtitle("PCs 5 and 6") +
-	labs(colour="")
-PC_7_8<-ggplot(ref_PCs_targ_PCs[ref_PCs_targ_PCs[[i]] != 'Target',], aes(x=PC7,y=PC8, colour=get(i))) + 
-  geom_point() + 
-	geom_point(data=ref_PCs_targ_PCs[ref_PCs_targ_PCs[[i]] == 'Target',], aes(x=PC7,y=PC8), colour='black', shape=21) + 
-  ggtitle("PCs 7 and 8") +
-	labs(colour="")
-PC_9_10<-ggplot(ref_PCs_targ_PCs[ref_PCs_targ_PCs[[i]] != 'Target',], aes(x=PC9,y=PC10, colour=get(i))) + 
-  geom_point() + 
-	geom_point(data=ref_PCs_targ_PCs[ref_PCs_targ_PCs[[i]] == 'Target',], aes(x=PC9,y=PC10), colour='black', shape=21) + 
-  ggtitle("PCs 9 and 10") +
-	labs(colour="")
+
 
 png(paste0(opt$output,'.PCs_plot_',i,'.png'), units='px', res=300, width=4000, height=2500)
-print(plot_grid(PC_1_2,PC_3_4,PC_5_6,PC_7_8,PC_9_10))
+print(plot_grid(PC_1_2,PC_3_4))
 dev.off()
 
-rm(PC_1_2,PC_3_4,PC_5_6,PC_7_8,PC_9_10)
+rm(PC_1_2,PC_3_4)
 gc()
 
 print(i)
@@ -419,7 +473,7 @@ pop_model_pred<-data.table(	FID=targ_PCs_scaled$FID,
 														IID=targ_PCs_scaled$IID,
 														pop=as.character(pop_model_pred$Var2),
 														prob=round(pop_model_pred$Freq,3))
-							
+		
 pop_model_pred<-dcast.data.table(pop_model_pred, formula=FID + IID~pop, value.var = "prob")
 
 fwrite(pop_model_pred, paste0(opt$output,'.model_pred'), sep='\t')
@@ -467,7 +521,7 @@ for(i in 1:length(pop_scale_for_keep)){
 	# Write the scaled PCs
 	fwrite(targ_PCs_scaled_i, paste0(opt$output,'.',pop_name,'.eigenvec'), sep='\t')
 	
-	rm(pop_name,pop_scale_for_keep_i,targ_PCs_scaled_i,targ_PCs_scaled_i)
+	rm(pop_name,pop_scale_for_keep_i,targ_PCs_scaled_i)
 	gc()
 }
 
