@@ -32,6 +32,10 @@ make_option("--pop_data", action="store", default=NA, type='character',
     help="Population data for the reference samples [optional]"),    
 make_option("--model_method", action="store", default='glmnet', type='character',
     help="Method used for generate prediction model [optional]"),    
+make_option("--SD_rule", action="store", default=F, type='logical',
+    help="Logical indicating whether the 3SD rule should be used to define ancestry, or the model-based approach [optional]"),    
+make_option("--prob_thresh", action="store", default='NA', type='numeric',
+    help="Indicates whether probability threshold should be used when defining ancestry [optional]"),    
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]")
 )
@@ -289,8 +293,22 @@ if(!is.na(opt$ref_pop_scale)){
 	obs_pre_tab<-table(model$pred$obs, model$pred$pred)
 	dimnames(obs_pre_tab)<-list(paste('obs',dimnames(obs_pre_tab)[[1]]),paste('pred',dimnames(obs_pre_tab)[[2]]))
 	
-	cat('Confusion matrix:\n')
+	# Show confusion matrix before and after applying probability threshold
+	cat('Confusion matrix without threshold:\n')
 	print(obs_pre_tab)
+	
+	if(!is.na(opt$prob_thresh)){
+	  model$pred$max_prob<-apply(model$pred[,unique(PCs_ref_scaled_pop$pop)], 1, max)
+	  model$pred<-model$pred[model$pred$max_prob > opt$prob_thresh,]
+	  
+	  obs_pre_tab_thresh<-table(model$pred$obs, model$pred$pred)
+	  dimnames(obs_pre_tab_thresh)<-list(paste('obs',dimnames(obs_pre_tab_thresh)[[1]]),paste('pred',dimnames(obs_pre_tab_thresh)[[2]]))
+	  
+  	cat('\n')
+  	cat(paste0('Confusion matrix with ',opt$prob_thresh,' threshold:\n'))
+  	print(obs_pre_tab_thresh)
+	}
+	
 	sink()
 	
 	saveRDS(model$finalModel, paste0(opt$output,'.pop_model.rds'))
@@ -479,16 +497,31 @@ pop_model_pred<-dcast.data.table(pop_model_pred, formula=FID + IID~pop, value.va
 fwrite(pop_model_pred, paste0(opt$output,'.model_pred'), sep='\t')
 
 # Create keep files based on the results
+if(!is.na(opt$prob_thresh)){
+  pop_model_pred$max_prob<-apply(pop_model_pred[,-1:-2], 1, max)
+  pop_model_pred<-pop_model_pred[pop_model_pred$max_prob > opt$prob_thresh,]
+  pop_model_pred$max_prob<-NULL
+}
+
+N_group<-NULL
 for(i in names(pop_model_pred[,-1:-2])){
 	tmp_keep<-pop_model_pred[apply(pop_model_pred[,-1:-2], 1, function(x) x[i] == max(x)),1:2]
+	N_group<-rbind(N_group, data.frame(Group=i, N=dim(tmp_keep)[1]))
 	fwrite(tmp_keep, paste0(opt$output,'.model_pred.',i,'.keep'), sep=' ', col.names=F)
 }
-	
+
 rm(targ_PCs_scaled,pop_model_pred)
 gc()
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
+sink()
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('----------\n')
+cat('N per group based on model:\n')
+print(N_group)
+cat('----------\n')
 sink()
 
 ###
@@ -499,6 +532,7 @@ targ_PCs<-targ_PCs[,grepl('FID|IID|PC',names(targ_PCs))]
 # Read in pop_scale_for_keep
 pop_scale_for_keep<-paste0(opt$output,'.',pop_keep_files$V1,'.scale')
 
+N_group<-NULL
 for(i in 1:length(pop_scale_for_keep)){
 	# Idenitfy name of population based on scale file
 	pop_name<-gsub('.scale','',substr(pop_scale_for_keep[i], nchar(pop_scale_for_keep[i])-9+1, nchar(pop_scale_for_keep[i])))
@@ -515,6 +549,8 @@ for(i in 1:length(pop_scale_for_keep)){
 	# Remove anyone with a PC value >3 or -3 (i.e. 3SD from the population mean
 	targ_PCs_scaled_i<-targ_PCs_scaled_i[!apply(targ_PCs_scaled_i[,-1:-2], 1, function(x) any(x > 3 | x < -3)),]
 	
+	N_group<-rbind(N_group, data.frame(Group=pop_name, N=dim(targ_PCs_scaled_i)[1]))
+	
 	# Save keep file of individuals that fit the population
 	fwrite(targ_PCs_scaled_i[,1:2], paste0(opt$output,'.',pop_name,'.keep'), col.names=F, sep='\t')
 	
@@ -524,6 +560,13 @@ for(i in 1:length(pop_scale_for_keep)){
 	rm(pop_name,pop_scale_for_keep_i,targ_PCs_scaled_i)
 	gc()
 }
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('----------\n')
+cat('N per group based on 3SD rule:\n')
+print(N_group)
+cat('----------\n')
+sink()
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
