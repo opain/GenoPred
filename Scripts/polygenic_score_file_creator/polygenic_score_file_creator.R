@@ -62,20 +62,6 @@ sink()
 
 opt$pTs<-as.numeric(unlist(strsplit(opt$pTs,',')))
 
-if(opt$dense == T){
-	if(opt$pTs == c(1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1)){
-		opt$pTs<-c(1e-8,0.5,5e-4)
-	}
-	
-	opt$pTs<-c(seq(opt$pTs[1],opt$pTs[2],opt$pTs[3]),0.5,1)
-	opt$pTs[opt$pTs >= 0.01]<-round(opt$pTs[opt$pTs >= 0.01],4)
-	  
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('Dense thresholding selected.\n')
-	cat(length(opt$pTs),'thresholds will be used.\n')
-	sink()
-}
-
 #####
 # Read in sumstats and insert p-values
 #####
