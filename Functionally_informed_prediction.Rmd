@@ -819,6 +819,44 @@ Polygenic scoring in target samples has been previously documented [here](https:
 
 <br/>
 
+### Derive pT+clump polygenic scores without retaining single variant in the MHC
+
+Only do this as a sensitivity analysis for Rheumatoid arthritis
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+
+# Generate scoring files
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+sbatch -p shared,brc --mem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep}/RHEU01.sumstats.gz \
+  --plink ${plink1_9} \
+  --memory 3000 \
+  --prune_hla F \
+  --output ${Geno_1KG_dir}/Score_files_for_poylygenic/RHEU01.noMHCClump/1KGPhase3.w_hm3.RHEU01.noMHCClump \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+
+# Calculate scores in UKB
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+sbatch --mem 10G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+    --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+    --target_keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.RheuArth.txt \
+    --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/RHEU01.noMHCClump/1KGPhase3.w_hm3.RHEU01.noMHCClump \
+    --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/RHEU01.noMHCClump/1KGPhase3.w_hm3.RHEU01.noMHCClump.EUR.scale \
+    --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+    --plink ${plink1_9} \
+    --pheno_name RHEU01 \
+    --output ${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump/RHEU01.noMHCClump/UKBB.subset.w_hm3.RHEU01.noMHCClump
+
+```
+</details>
+
+<br/>
+
 ## Estimating predictive ability
 Models containing a single predictor were derived using generalised linear model (GLM). Models containing multiple predictors were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. Nested cross validation was used to estimate the variance explained by models to avoid overfitting. This involves an outer loop, splitting the data into training and test datasets, deriving the model using 10-fold cross validation in the training dataset, saving model predictions for the test dataset, combining the test predictions for each outer loop and estimating the variance explained.
 
@@ -1323,13 +1361,22 @@ for i in $(seq 1 8);do
     echo ${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}.profiles PRS >> /users/k1806347/brc_scratch/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.EUR-GeRSs.EUR-PRSs.pt_clump.predictor_groups
 done
 
+# Run for no mhc clump rheumarth
+echo "predictors group" > /users/k1806347/brc_scratch/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/RheuArth/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.RHEU01.noMHCClump.EUR-GeRSs.EUR-PRSs.pt_clump.predictor_groups
+
+for weight in ${weights}; do
+  echo ${UKBB_output}/GeRS_for_comparison/1KG_ref/EUR/${weight}/UKBB.w_hm3.EUR.${weight}.RHEU01.fiprofile GeRS >> /users/k1806347/brc_scratch/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/RheuArth/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.RHEU01.noMHCClump.EUR-GeRSs.EUR-PRSs.pt_clump.predictor_groups
+done
+
+echo ${UKBB_output}/PRS_for_comparison/1KG_ref/pt_clump/RHEU01.noMHCClump/UKBB.subset.w_hm3.RHEU01.noMHCClump.profiles PRS >> /users/k1806347/brc_scratch/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/RheuArth/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.RHEU01.noMHCClump.EUR-GeRSs.EUR-PRSs.pt_clump.predictor_groups
+
 # Derive and evaluate models
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD RheuArth)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 RHEU01)
-prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD RheuArth RheuArth)
+gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 RHEU01 RHEU01.noMHCClump)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005 0.005)
 
 # 1KG reference
-for i in $(seq 1 8);do
+for i in $(seq 9 9);do
   pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
   pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
   gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
@@ -2962,7 +3009,7 @@ res$P[res$P < 1e-300]<-0
 res$P<-format(res$P, scientific = TRUE, digits = 1)
 res$P<-gsub('e-','*x*10^-',res$P)
 res$P[res$P == ' 0e+00']<-paste0("'<1'*x*10^-300")
-  
+
 res_plot<-list()
 for(i in 1:length(gwas)){
   # Extract result for 5 most predictive tissue
@@ -3003,9 +3050,54 @@ png('/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_predi
   plot_grid(plotlist=res_plot, ncol = 1, labels = paste0(pheno))
 dev.off()
 
+#######
+# Recreate plots using R on the y axis and full SNP-weight set names
+#######
+
+res_plot<-list()
+for(i in 1:length(gwas)){
+  # Extract result for 5 most predictive tissue
+  tmp<-res_best[res_best$Phenotype == pheno[i],]
+  tmp<-tmp[order(-tmp$R),]
+  tmp<-tmp[1:3,]
+  best_weights<-tmp$Weight
+  
+  res_tmp<-res[res$Phenotype == pheno[i] & (res$Weight %in% best_weights),]
+  ylim_max<-max(res_tmp$R)
+  ylim_max<-ylim_max+ylim_max*1.5
+  if(min(res_tmp$R) < 0){
+    ylim_min<-min(res_tmp$R)
+    ylim_min<-ylim_min-max(res_tmp$SE)
+  } else {
+    ylim_min<-NA
+  }
+
+  res_plot_tmp<-list()
+  for(weight in best_weights){
+    weights_index<-which(weights == weight)
+    print(weight)
+  res_plot_tmp[[as.character(weights[weights_index])]]<-ggplot(res[res$Phenotype == pheno[i] & res$Weight == weights[weights_index],], aes(x=Model, y=R)) +
+                                    geom_bar(stat="identity", position=position_dodge(), fill='#3399FF') +
+                                    geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(.9)) +
+                                    labs(y='Correlation', x='pT', title=paste0('\n\n',weights_clean[weights_index])) +
+                                    theme_half_open() +
+                                    ylim(ylim_min,ylim_max) +
+                                    geom_text(data=res[res$Phenotype == pheno[i] & res$Weight == weights[weights_index],], aes(x=Model, y=R+SE, label=P), vjust=0.3, hjust= -0.15, angle=90, size=4, parse=T) +
+                                    theme(axis.text.x = element_text(angle = 55, vjust = 1, hjust=1), plot.title = element_text(hjust = 0.4, size=12)) +
+                                    background_grid(major = 'y', minor = 'y') +
+                                    scale_x_discrete(labels = parse(text = as.character(res[res$Phenotype == pheno[i] & res$Weight == weights[weights_index],]$Model))) +
+                                    coord_cartesian(clip='off')
+
+  }
+  res_plot[[pheno[i]]]<-plot_grid(plotlist=res_plot_tmp, nrow = 1)
+}
+
+png('/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/GeRS_per_pT_UKBB_R.png', units='px', res=300, width=3000, height=7000)
+  plot_grid(plotlist=res_plot, ncol = 1, labels = paste0(pheno))
+dev.off()
+
 ```
 </details>
-
 
 <details><summary>Plot comparison results</summary>
 ```{R, echo=T, eval=F}
@@ -3051,22 +3143,24 @@ write.csv(res_table, '/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/UKBB_o
 # Organise the results
 res_plot<-list()
 for(i in 1:length(gwas)){
-tmp_res<-res[[pheno[i]]]
-
-tmp_res$R_diff_pval<-format(tmp_res$R_diff_pval, scientific = TRUE, digits = 2)
-tmp_res$R_diff_pval<-gsub('e-','*x*10^-',tmp_res$R_diff_pval)
-
-tmp_res_Model_1<-tmp_res[,grepl('Test|Model_1|R_diff',names(tmp_res))]
-names(tmp_res_Model_1)<-c('Test','Model','R','R_diff','R_diff_pval')
-tmp_res_Model_2<-tmp_res[,grepl('Test|Model_2|R_diff',names(tmp_res))]
-names(tmp_res_Model_2)<-c('Test','Model','R','R_diff','R_diff_pval')
-tmp_res_Model_2$R_diff<-NA
-tmp_res_Model_2$R_diff_pval<-NA
-
-tmp_res_plot<-rbind(tmp_res_Model_1,tmp_res_Model_2)
-tmp_res_plot$Phenotype<-pheno[i]
-
-res_plot[[pheno[i]]]<-tmp_res_plot
+  tmp_res<-res[[pheno[i]]]
+  
+  tmp_res$R_diff_pval_num<-tmp_res$R_diff_pval
+  
+  tmp_res$R_diff_pval<-format(tmp_res$R_diff_pval, scientific = TRUE, digits = 2)
+  tmp_res$R_diff_pval<-gsub('e-','*x*10^-',tmp_res$R_diff_pval)
+  
+  tmp_res_Model_1<-tmp_res[,grepl('Test|Model_1|R_diff',names(tmp_res))]
+  names(tmp_res_Model_1)<-c('Test','Model','R','R_diff','R_diff_pval','R_diff_pval_num')
+  tmp_res_Model_2<-tmp_res[,grepl('Test|Model_2|R_diff',names(tmp_res))]
+  names(tmp_res_Model_2)<-c('Test','Model','R','R_diff','R_diff_pval','R_diff_pval_num')
+  tmp_res_Model_2$R_diff<-NA
+  tmp_res_Model_2$R_diff_pval<-NA
+  
+  tmp_res_plot<-rbind(tmp_res_Model_1,tmp_res_Model_2)
+  tmp_res_plot$Phenotype<-pheno[i]
+  
+  res_plot[[pheno[i]]]<-tmp_res_plot
 }
 
 # Combine results for each phenotype and prepare for plotting
@@ -3108,7 +3202,7 @@ Plot_1<-ggplot(All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',], aes(x=Phenot
       	  geom_text(aes(y=R+0.04), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0) +
       	  geom_text(aes(y=R+0.04), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',]$Val_Label_2, parse=T, vjust=1, hjust=0) +
           labs(y='Correlation', x='') +
-		  ylim(NA,0.6) +
+		      ylim(NA,0.6) +
           theme_half_open() +
           theme(legend.title=element_blank(),legend.position="top") +
           background_grid(major = 'x', minor = 'x') +
@@ -3161,6 +3255,113 @@ Plot_5<-ggplot(All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',], aes(x=Pheno
 png('/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/GeRS_tests_summary_UKBB.png', units='px', res=300, width=3000, height=3500)
   plot_grid(Plot_1,Plot_2,Plot_3, Plot_5, labels = "AUTO")
 dev.off()
+
+####
+# Recreate plot with SE and higlighting significant results
+####
+# Note. I am not going to add error bars as this information is not output with the results files used here. This would either require the difficult job of pulling SE from the pred_eval file or editing the model_builder script and re-running all analyses. There is also quite a lot going on in this figure already as well.
+
+All_res_plot$Sig<-'NS'
+All_res_plot$Sig[All_res_plot$R_diff_pval_num < 0.05 & All_res_plot$R_diff > 0]<-'Pos'
+All_res_plot$Sig[All_res_plot$R_diff_pval_num < 0.05 & All_res_plot$R_diff < 0]<-'Neg'
+All_res_plot$Sig<-factor(All_res_plot$Sig, levels=c('NS','Pos','Neg'))
+
+scale_colour_op <- function(...){
+    ggplot2:::manual_scale(
+        'colour', 
+        values = setNames(c("#000000", "#009933","#FF0000"), c('NS', 'Pos', 'Neg')), 
+        ...
+    )
+}
+
+# Plot results
+Plot_1<-ggplot(All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.6) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+Plot_2<-ggplot(All_res_plot[All_res_plot$Test == 'GeRS_multi_tissue',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_tissue',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_tissue',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.6) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+Plot_3<-ggplot(All_res_plot[All_res_plot$Test == 'PRS_and_GeRS',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'PRS_and_GeRS',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'PRS_and_GeRS',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.6) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+Plot_4<-ggplot(All_res_plot[All_res_plot$Test == 'Strat_PRS',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'Strat_PRS',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'Strat_PRS',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.6) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+Plot_5<-ggplot(All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.6) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+png('/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/GeRS_tests_summary_UKBB.png', units='px', res=300, width=3000, height=3500)
+  plot_grid(Plot_1,Plot_2,Plot_3, Plot_5, labels = "AUTO")
+dev.off()
+
+```
+</details>
+
+<details><summary>Plot Rheumatoid Arthritis sensitivity analysis</summary>
+```{R, eval=F, echo=T}
+
+# Read in the pT+clump (with MHC clump) results
+res_3<-read.table('/users/k1806347/brc_scratch/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/RheuArth/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.RHEU01.EUR-GeRSs.EUR-PRSs.pt_clump.pred_comp.txt', header=T, stringsAsFactors=F)
+res_4<-read.table('/users/k1806347/brc_scratch/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/RheuArth/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.RHEU01.noMHCClump.EUR-GeRSs.EUR-PRSs.pt_clump.pred_comp.txt', header=T, stringsAsFactors=F)
+res_5<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/RheuArth/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.RHEU01.EUR-GeRSs.EUR-PRSs.PRScs.pred_comp.txt'), header=T, stringsAsFactors=F)
+
+res_table<-data.frame(Test=c('PRS_and_GeRS','PRS_noMHCClump_and_GeRS','PRScs_and_GeRS'),		
+        				do.call(rbind,list(	res_3[8,],
+                  									res_4[8,],
+                  									res_5[8,])))
+
+# Calculate percentage difference
+res_table$R_diff_perc<-res_table$R_diff/res_table$Model_1_R*100
+
+res_table$Phenotype<-'RheuArth'
+res_table<-res_table[,c('Phenotype',names(res_table)[-length(names(res_table))])]
+
+write.csv(res_table, '/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/GeRS_tests_RheuArth_withnoMHCClump.csv', row.names=F, quote=F)
 
 ```
 </details>
@@ -3498,7 +3699,7 @@ ggplot(res_table, aes(x=Phenotype, y=R, fill=Method)) +
           geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2,
                  position=position_dodge(0.9)) +
           labs(y="Correlation (SE)", x='') +
-		      ylim(0,0.25) +
+		      ylim(0,0.3) +
           theme_half_open() +
           theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="top", legend.justification = c(0.5, 0), legend.title=element_blank()) +
           guides(fill=guide_legend(title.hjust =0.5)) +
@@ -3782,13 +3983,17 @@ dev.off()
 mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Functionally_informed_prediction
 
 cp /scratch/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/GeRS_per_pT_UKBB.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Functionally_informed_prediction/
+
+cp /scratch/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/GeRS_per_pT_UKBB_R.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Functionally_informed_prediction/
 ```
 
 <details><summary>Show GeRS prediction across p-value thresholds</summary>
 
 <center>
 
-![Predictive utility](Images/Functionally_informed_prediction/GeRS_per_pT_UKBB.png)
+![Predictive utility: R2 y-axis](Images/Functionally_informed_prediction/GeRS_per_pT_UKBB.png)
+
+![Predictive utility: R y-axis](Images/Functionally_informed_prediction/GeRS_per_pT_UKBB_R.png)
 
 \center
 
@@ -3945,6 +4150,22 @@ res<-res[order(res$Test),]
 
 library(knitr)
 kable(res, rownames = FALSE, caption='Correlation between GeRS model predictions and observed values in UK Biobank')
+```
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction/GeRS_tests_RheuArth_withnoMHCClump.csv")
+
+res[,c("Model_1_R",  "Model_2_R", "R_diff")]<-round(res[,c("Model_1_R",  "Model_2_R", "R_diff")], 3)
+res$R_diff_perc<-paste0(round(res$R_diff_perc,1),'%')
+res$R_diff_pval<-format(res$R_diff_pval, scientific = TRUE, digits = 3)
+
+res<-res[,c("Phenotype","Test","Model_1","Model_2","Model_1_R","Model_2_R","R_diff",'R_diff_perc',"R_diff_pval")]
+names(res)<-c('Phenotype','Test',"Model 1","Model 2", 'Model 1 R','Model 2 R','R diff','R perc diff','R diff pval')
+
+res<-res[order(res$Test),]
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Sensitivity analysis for Rheumatoid Arthritis')
 ```
 
 </details>
@@ -4161,6 +4382,7 @@ cp /scratch/users/k1806347/Analyses/GeRS_comparison/UKBB_outcomes_for_prediction
 # Compare results across pTs for each phenotype
 #####
 pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+pheno_label<-c('Height', 'BMI', 'GCSE', 'ADHD')
 gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
 weights=read.table('/users/k1806347/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt', header=F)$V1
 
@@ -4261,7 +4483,53 @@ for(i in 1:length(gwas)){
 }
 
 png('/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/TEDS_outcomes_for_prediction/GeRS_per_pT_TEDS.png', units='px', res=300, width=3000, height=3750)
-  plot_grid(plotlist=res_plot, ncol = 1, labels = paste0(pheno))
+  plot_grid(plotlist=res_plot, ncol = 1, labels = paste0(pheno_label))
+dev.off()
+
+#######
+# Recreate plots using R on the y axis and full SNP-weight set names
+#######
+
+res_plot<-list()
+for(i in 1:length(gwas)){
+  # Extract result for 5 most predictive tissue
+  tmp<-res_best[res_best$Phenotype == pheno[i],]
+  tmp<-tmp[order(-tmp$R),]
+  tmp<-tmp[1:3,]
+  best_weights<-tmp$Weight
+  
+  res_tmp<-res[res$Phenotype == pheno[i] & (res$Weight %in% best_weights),]
+  ylim_max<-max(res_tmp$R)
+  ylim_max<-ylim_max+ylim_max*1.5
+  if(min(res_tmp$R) < 0){
+    ylim_min<-min(res_tmp$R)
+    ylim_min<-ylim_min-max(res_tmp$SE)
+  } else {
+    ylim_min<-NA
+  }
+
+  res_plot_tmp<-list()
+  for(weight in best_weights){
+    weights_index<-which(weights == weight)
+    print(weight)
+  res_plot_tmp[[as.character(weights[weights_index])]]<-ggplot(res[res$Phenotype == pheno[i] & res$Weight == weights[weights_index],], aes(x=Model, y=R)) +
+                                    geom_bar(stat="identity", position=position_dodge(), fill='#3399FF') +
+                                    geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(.9)) +
+                                    labs(y='Correlation', x='pT', title=paste0('\n\n',weights_clean[weights_index])) +
+                                    theme_half_open() +
+                                    ylim(ylim_min,ylim_max) +
+                                    geom_text(data=res[res$Phenotype == pheno[i] & res$Weight == weights[weights_index],], aes(x=Model, y=R+SE, label=P), vjust=0.3, hjust= -0.15, angle=90, size=4, parse=T) +
+                                    theme(axis.text.x = element_text(angle = 55, vjust = 1, hjust=1), plot.title = element_text(hjust = 0.4, size=12)) +
+                                    background_grid(major = 'y', minor = 'y') +
+                                    scale_x_discrete(labels = parse(text = as.character(res[res$Phenotype == pheno[i] & res$Weight == weights[weights_index],]$Model))) +
+                                    coord_cartesian(clip='off')
+
+  }
+  res_plot[[pheno[i]]]<-plot_grid(plotlist=res_plot_tmp, nrow = 1)
+}
+
+png('/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/TEDS_outcomes_for_prediction/GeRS_per_pT_TEDS_R.png', units='px', res=300, width=3000, height=3750)
+  plot_grid(plotlist=res_plot, ncol = 1, labels = paste0(pheno_label))
 dev.off()
 
 ```
@@ -4273,6 +4541,7 @@ dev.off()
 # Compare results from each approach
 #####
 pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+pheno_label<-c('Height', 'BMI', 'GCSE', 'ADHD')
 gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
 
 res<-list()
@@ -4311,22 +4580,24 @@ write.csv(res_table, '/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/TEDS_o
 # Organise the results
 res_plot<-list()
 for(i in 1:length(gwas)){
-tmp_res<-res[[pheno[i]]]
+  tmp_res<-res[[pheno[i]]]
 
-tmp_res$R_diff_pval<-format(tmp_res$R_diff_pval, scientific = TRUE, digits = 2)
-tmp_res$R_diff_pval<-gsub('e-','*x*10^-',tmp_res$R_diff_pval)
-
-tmp_res_Model_1<-tmp_res[,grepl('Test|Model_1|R_diff',names(tmp_res))]
-names(tmp_res_Model_1)<-c('Test','Model','R','R_diff','R_diff_pval')
-tmp_res_Model_2<-tmp_res[,grepl('Test|Model_2|R_diff',names(tmp_res))]
-names(tmp_res_Model_2)<-c('Test','Model','R','R_diff','R_diff_pval')
-tmp_res_Model_2$R_diff<-NA
-tmp_res_Model_2$R_diff_pval<-NA
-
-tmp_res_plot<-rbind(tmp_res_Model_1,tmp_res_Model_2)
-tmp_res_plot$Phenotype<-pheno[i]
-
-res_plot[[pheno[i]]]<-tmp_res_plot
+  tmp_res$R_diff_pval_num<-tmp_res$R_diff_pval
+  
+  tmp_res$R_diff_pval<-format(tmp_res$R_diff_pval, scientific = TRUE, digits = 2)
+  tmp_res$R_diff_pval<-gsub('e-','*x*10^-',tmp_res$R_diff_pval)
+  
+  tmp_res_Model_1<-tmp_res[,grepl('Test|Model_1|R_diff',names(tmp_res))]
+  names(tmp_res_Model_1)<-c('Test','Model','R','R_diff','R_diff_pval','R_diff_pval_num')
+  tmp_res_Model_2<-tmp_res[,grepl('Test|Model_2|R_diff',names(tmp_res))]
+  names(tmp_res_Model_2)<-c('Test','Model','R','R_diff','R_diff_pval','R_diff_pval_num')
+  tmp_res_Model_2$R_diff<-NA
+  tmp_res_Model_2$R_diff_pval<-NA
+  
+  tmp_res_plot<-rbind(tmp_res_Model_1,tmp_res_Model_2)
+  tmp_res_plot$Phenotype<-pheno_label[i]
+  
+  res_plot[[pheno[i]]]<-tmp_res_plot
 }
 
 # Combine results for each phenotype and prepare for plotting
@@ -4411,6 +4682,87 @@ Plot_5<-ggplot(All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',], aes(x=Pheno
           geom_bar(stat="identity", position=position_dodge()) +
       	  geom_text(aes(y=R+0.04), label=All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0) +
       	  geom_text(aes(y=R+0.04), label=All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',]$Val_Label_2, parse=T, vjust=1, hjust=0) +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.65) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+png('/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/TEDS_outcomes_for_prediction/GeRS_tests_summary_TEDS.png', units='px', res=300, width=3500, height=3000)
+  plot_grid(Plot_1,Plot_2,Plot_3, Plot_5, labels = "AUTO")
+dev.off()
+
+###
+# Recreate figure higlighting significant results
+###
+
+All_res_plot$Sig<-'NS'
+All_res_plot$Sig[All_res_plot$R_diff_pval_num < 0.05 & All_res_plot$R_diff > 0]<-'Pos'
+All_res_plot$Sig[All_res_plot$R_diff_pval_num < 0.05 & All_res_plot$R_diff < 0]<-'Neg'
+All_res_plot$Sig<-factor(All_res_plot$Sig, levels=c('NS','Pos','Neg'))
+
+scale_colour_op <- function(...){
+    ggplot2:::manual_scale(
+        'colour', 
+        values = setNames(c("#000000", "#009933","#FF0000"), c('NS', 'Pos', 'Neg')), 
+        ...
+    )
+}
+
+Plot_1<-ggplot(All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_pT',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		      ylim(NA,0.65) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+Plot_2<-ggplot(All_res_plot[All_res_plot$Test == 'GeRS_multi_tissue',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_tissue',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'GeRS_multi_tissue',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.65) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+Plot_3<-ggplot(All_res_plot[All_res_plot$Test == 'PRS_and_GeRS',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'PRS_and_GeRS',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'PRS_and_GeRS',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.65) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+Plot_4<-ggplot(All_res_plot[All_res_plot$Test == 'Strat_PRS',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'Strat_PRS',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'Strat_PRS',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
+          labs(y='Correlation', x='') +
+		  ylim(NA,0.65) +
+          theme_half_open() +
+          theme(legend.title=element_blank(),legend.position="top") +
+          background_grid(major = 'x', minor = 'x') +
+          coord_flip()
+
+Plot_5<-ggplot(All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',], aes(x=Phenotype, y=R, fill=Model)) +
+          geom_bar(stat="identity", position=position_dodge()) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',]$Val_Label_1, parse=T, vjust=-0.5, hjust=0,show.legend = FALSE) +
+      	  geom_text(aes(y=R+0.04, colour=Sig), label=All_res_plot[All_res_plot$Test == 'PRScs_and_GeRS',]$Val_Label_2, parse=T, vjust=1, hjust=0,show.legend = FALSE) +
+          scale_colour_op() +
           labs(y='Correlation', x='') +
 		  ylim(NA,0.65) +
           theme_half_open() +
@@ -4644,6 +4996,7 @@ dev.off()
 # Plot the results of the stratified PRS against Multi-tissue GeRS
 # And look at the variance exaplained by each tissue
 pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+pheno_label<-c('Height', 'BMI', 'GCSE', 'ADHD')
 gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
 
 res<-list()
@@ -4667,7 +5020,7 @@ res_GWPRS<-res_GWPRS[dim(res_GWPRS)[1],]
 
 res_all<-do.call(rbind, list(res_GeRS,res_GeRS_coloc, res_stratPRS, res_GWPRS))
 res_all$Method<-c('GeRS',"GeRS (coloc)",'PRS (Gene)','PRS')
-res_all$Phenotype<-pheno[i]
+res_all$Phenotype<-pheno_label[i]
 
 res_all<-res_all[,c('Model','R','SE','P','N','Method','Phenotype')]
 
@@ -4691,7 +5044,7 @@ ggplot(res_table, aes(x=Phenotype, y=R, fill=Method)) +
           geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2,
                  position=position_dodge(0.9)) +
           labs(y="Correlation (SE)", x='') +
-		      ylim(NA,0.5) +
+		      ylim(NA,0.41) +
           theme_half_open() +
           theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="top", legend.justification = c(0.5, 0), legend.title=element_blank()) +
           guides(fill=guide_legend(title.hjust =0.5)) +
@@ -4707,6 +5060,7 @@ dev.off()
 # Plot the results of the stratified PRS against Multi-tissue GeRS
 # And look at the variance exaplained by each tissue
 pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+pheno_label<-c('Height', 'BMI', 'GCSE', 'ADHD')
 gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
 
 res<-list()
@@ -4734,7 +5088,7 @@ res_GeRS_TS_best<-res_GeRS_TS[which(res_GeRS_TS$R == max(res_GeRS_TS$R)),]
 res_all<-do.call(rbind, list(res_GeRS_best,res_GeRS_all,res_GeRS_coloc_best,res_GeRS_coloc_all,res_GeRS_TS_best, res_GeRS_TS_all))
 res_all$Method<-c("GeRS (best)","GeRS (all)","GeRS coloc (best)","GeRS coloc (all)","GeRS TS (best)","GeRS TS (all)")
 
-res_all$Phenotype<-pheno[i]
+res_all$Phenotype<-pheno_label[i]
 
 res_all<-res_all[,c('Model','R','SE','P','N','Method','Phenotype')]
 
@@ -4775,6 +5129,7 @@ dev.off()
 ```{R,eval=F,echo=T}
 
 pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+pheno_label<-c('Height', 'BMI', 'GCSE', 'ADHD')
 gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
 
 crossTissue<-list()
@@ -4785,7 +5140,7 @@ res_GeRS<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/GeRS_compariso
 
 crossTissue_i<-res_GeRS
 
-crossTissue_i$Phenotype<-pheno[i]
+crossTissue_i$Phenotype<-pheno_label[i]
 
 crossTissue_i<-crossTissue_i[,c('Phenotype','Model','R','SE','P')]
 
@@ -4830,7 +5185,7 @@ plot_list[[pheno[i]]]<-ggplot(tmp, aes(x=Model_short, y=R, fill=Colour)) +
           geom_bar(stat="identity", position=position_dodge(0.9)) +
           geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2,
                  position=position_dodge(0.9)) +
-          labs(y="Correlation (SE)", x='', title=pheno[i]) +
+          labs(y="Correlation (SE)", x='', title=pheno_label[i]) +
           theme_half_open() +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5, size=10), legend.position = "none") +
           background_grid(major = 'y', minor = 'y')
@@ -4858,14 +5213,14 @@ crossTissue_table$R_resid<-resid(lm(R ~ N_feat, data=crossTissue_table))
 
 plot_list<-list()
 for(i in 1:length(gwas)){
-  crossTissue_table$R_resid[crossTissue_table$Phenotype == pheno[i]]<-scale(crossTissue_table$R_resid[crossTissue_table$Phenotype == pheno[i]])
-  tmp<-crossTissue_table[crossTissue_table$Phenotype == pheno[i],]
+  crossTissue_table$R_resid[crossTissue_table$Phenotype == pheno_label[i]]<-scale(crossTissue_table$R_resid[crossTissue_table$Phenotype == pheno_label[i]])
+  tmp<-crossTissue_table[crossTissue_table$Phenotype == pheno_label[i],]
   tmp$Model_short<-factor(tmp$Model_short, level=tmp$Model_short[rev(order(tmp$R_resid))])
   tmp$Colour<-ifelse(tmp$Model_short == 'All', 'All', 'Single')
 
 plot_list[[pheno[i]]]<-ggplot(tmp, aes(x=Model_short, y=R_resid, fill=Colour)) +
           geom_bar(stat="identity", position=position_dodge(0.9)) +
-          labs(y="Residual Correlation", x='', title=pheno[i]) +
+          labs(y="Residual Correlation", x='', title=pheno_label[i]) +
           theme_half_open() +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5, size=10), legend.position = "none") +
           background_grid(major = 'y', minor = 'y')
@@ -4892,6 +5247,7 @@ dev.off()
 ```{R,eval=F,echo=T}
 
 pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+pheno_label<-c('Height', 'BMI', 'GCSE', 'ADHD')
 gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
 
 crossTissue<-list()
@@ -4901,7 +5257,7 @@ res_GeRS<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/GeRS_compariso
 
 crossTissue_i<-res_GeRS
 
-crossTissue_i$Phenotype<-pheno[i]
+crossTissue_i$Phenotype<-pheno_label[i]
 
 crossTissue_i<-crossTissue_i[,c('Phenotype','Model','R','SE','P')]
 
@@ -4944,7 +5300,7 @@ plot_list[[pheno[i]]]<-ggplot(tmp, aes(x=Model_short, y=R, fill=Colour)) +
           geom_bar(stat="identity", position=position_dodge(0.9)) +
           geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2,
                  position=position_dodge(0.9)) +
-          labs(y="Correlation (SE)", x='', title=pheno[i]) +
+          labs(y="Correlation (SE)", x='', title=pheno_label[i]) +
           theme_half_open() +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5, size=10), legend.position = "none") +
           background_grid(major = 'y', minor = 'y')
@@ -4976,6 +5332,7 @@ crossTissue_table$R_resid<-resid(lm(R ~ N_feat + N_indiv, data=crossTissue_table
 ```{R,eval=F,echo=T}
 
 pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
+pheno_label<-c('Height', 'BMI', 'GCSE', 'ADHD')
 gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
 
 crossTissue<-list()
@@ -4985,7 +5342,7 @@ res_GeRS<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/GeRS_compariso
 
 crossTissue_i<-res_GeRS
 
-crossTissue_i$Phenotype<-pheno[i]
+crossTissue_i$Phenotype<-pheno_label[i]
 
 crossTissue_i<-crossTissue_i[,c('Phenotype','Model','R','SE','P')]
 
@@ -5027,7 +5384,7 @@ plot_list[[pheno[i]]]<-ggplot(tmp, aes(x=Model_short, y=R, fill=Colour)) +
           geom_bar(stat="identity", position=position_dodge(0.9)) +
           geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2,
                  position=position_dodge(0.9)) +
-          labs(y="Correlation (SE)", x='', title=pheno[i]) +
+          labs(y="Correlation (SE)", x='', title=pheno_label[i]) +
           theme_half_open() +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5, size=10), legend.position = "none") +
           background_grid(major = 'y', minor = 'y')
@@ -5044,13 +5401,17 @@ dev.off()
 mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Functionally_informed_prediction
 
 cp /scratch/users/k1806347/Analyses/GeRS_comparison/TEDS_outcomes_for_prediction/GeRS_per_pT_TEDS.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Functionally_informed_prediction/
+
+cp /scratch/users/k1806347/Analyses/GeRS_comparison/TEDS_outcomes_for_prediction/GeRS_per_pT_TEDS_R.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Functionally_informed_prediction/
 ```
 
 <details><summary>Show GeRS prediction across p-value thresholds</summary>
 
 <center>
 
-![Predictive utility](Images/Functionally_informed_prediction/GeRS_per_pT_TEDS.png)
+![Predictive utility: R2](Images/Functionally_informed_prediction/GeRS_per_pT_TEDS.png)
+
+![Predictive utility:R](Images/Functionally_informed_prediction/GeRS_per_pT_TEDS_R.png)
 
 \center
 
@@ -5147,7 +5508,10 @@ res_GeRS_coloc<-data.frame(res_diff[c('Phenotype','vg_est_clean_GeRS_coloc_est',
 names(res_GeRS_coloc)<-c('Phenotype','vg_est','vg_est_lowCI','vg_est_highCI','Prop_GE','Model')
 
 res_plot<-do.call(rbind, list(res_PRS, res_GeRS, res_GeRS_coloc))
-res_plot$Phenotype<-factor(res_plot$Phenotype, levels=c('Height21', 'BMI21', 'GCSE', 'ADHD'))
+res_plot$Phenotype<-as.character(res_plot$Phenotype)
+res_plot$Phenotype[res_plot$Phenotype == 'Height21']<-'Height'
+res_plot$Phenotype[res_plot$Phenotype == 'BMI21']<-'BMI'
+res_plot$Phenotype<-factor(res_plot$Phenotype, levels=c('Height', 'BMI', 'GCSE', 'ADHD'))
 
 png('/mnt/lustre/users/k1806347/Analyses/GeRS_comparison/TEDS_outcomes_for_prediction/PRS_GeRS_AVENGME_res_TEDS.png', units='px', res=300, width=2000, height=1000)
 ggplot(res_plot, aes(x=Phenotype, y=vg_est, fill=Model, label=Prop_GE)) +
@@ -5164,6 +5528,7 @@ ggplot(res_plot, aes(x=Phenotype, y=vg_est, fill=Model, label=Prop_GE)) +
 dev.off()
 
 ```
+
 ```{bash, eval=T, echo=F}
 mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Functionally_informed_prediction
 

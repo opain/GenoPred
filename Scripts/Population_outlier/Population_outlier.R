@@ -46,7 +46,7 @@ system(paste0('mkdir -p ',opt$output_dir))
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
-# Ancestry_identifier.R
+# Population_outlier.R
 # For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
 #################################################################
 Analysis started at',as.character(start.time),'

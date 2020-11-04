@@ -124,6 +124,76 @@ for(i in 1:22){
   system(paste0(opt$plink,' --bfile ', opt$ref_plink_chr,i,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --make-bed --extract ',opt$output_dir,'target_QC.snplist --out ',opt$output_dir,'ref_intersect_chr',i,' --memory ',floor(opt$memory*0.7)))
 }
 
+##
+# Check alleles match between reference and target
+##
+
+# This is important in instances when the target and reference have not already been harmonised
+ref_bim<-NULL
+for(i in 1:22){
+  ref_bim<-rbind(ref_bim, fread(paste0(opt$output_dir,'ref_intersect_chr',i,'.bim')))
+}
+
+ref_bim<-ref_bim[,c('V1','V2','V4','V5','V6')]
+names(ref_bim)<-c('CHR','SNP','BP','A1','A2')
+
+if(is.na(opt$target_plink)){
+  targ_bim<-NULL
+  for(i in 1:22){
+    targ_bim<-rbind(targ_bim, fread(paste0(opt$target_plink_chr,i,'.bim')))
+  }
+} else {
+  targ_bim<-fread(paste0(opt$target_plink,'.bim'))
+}
+
+targ_bim<-targ_bim[,c('V1','V2','V4','V5','V6')]
+names(targ_bim)<-c('CHR','SNP','BP','A1','A2')
+
+# Create IUPAC codes in target data
+targ_bim$IUPAC[targ_bim$A1 == 'A' & targ_bim$A2 =='T' | targ_bim$A1 == 'T' & targ_bim$A2 =='A']<-'W'
+targ_bim$IUPAC[targ_bim$A1 == 'C' & targ_bim$A2 =='G' | targ_bim$A1 == 'G' & targ_bim$A2 =='C']<-'S'
+targ_bim$IUPAC[targ_bim$A1 == 'A' & targ_bim$A2 =='G' | targ_bim$A1 == 'G' & targ_bim$A2 =='A']<-'R'
+targ_bim$IUPAC[targ_bim$A1 == 'C' & targ_bim$A2 =='T' | targ_bim$A1 == 'T' & targ_bim$A2 =='C']<-'Y'
+targ_bim$IUPAC[targ_bim$A1 == 'G' & targ_bim$A2 =='T' | targ_bim$A1 == 'T' & targ_bim$A2 =='G']<-'K'
+targ_bim$IUPAC[targ_bim$A1 == 'A' & targ_bim$A2 =='C' | targ_bim$A1 == 'C' & targ_bim$A2 =='A']<-'M'
+targ_bim$SNP_IUPAC<-paste0(targ_bim$SNP,':',targ_bim$IUPAC)
+
+# Create IUPAC codes in ref data
+ref_bim$IUPAC[ref_bim$A1 == 'A' & ref_bim$A2 =='T' | ref_bim$A1 == 'T' & ref_bim$A2 =='A']<-'W'
+ref_bim$IUPAC[ref_bim$A1 == 'C' & ref_bim$A2 =='G' | ref_bim$A1 == 'G' & ref_bim$A2 =='C']<-'S'
+ref_bim$IUPAC[ref_bim$A1 == 'A' & ref_bim$A2 =='G' | ref_bim$A1 == 'G' & ref_bim$A2 =='A']<-'R'
+ref_bim$IUPAC[ref_bim$A1 == 'C' & ref_bim$A2 =='T' | ref_bim$A1 == 'T' & ref_bim$A2 =='C']<-'Y'
+ref_bim$IUPAC[ref_bim$A1 == 'G' & ref_bim$A2 =='T' | ref_bim$A1 == 'T' & ref_bim$A2 =='G']<-'K'
+ref_bim$IUPAC[ref_bim$A1 == 'A' & ref_bim$A2 =='C' | ref_bim$A1 == 'C' & ref_bim$A2 =='A']<-'M'
+ref_bim$SNP_IUPAC<-paste0(ref_bim$SNP,':',ref_bim$IUPAC)
+
+# Merge target and reference based on SNP id
+ref_target<-merge(ref_bim, targ_bim, by='SNP')
+
+# Identify SNPs for which alleles need to be flipped
+flip_tmp<-ref_target[(ref_target$IUPAC.x == 'R' & ref_target$IUPAC.y == 'Y' | 
+                        ref_target$IUPAC.x == 'Y' & ref_target$IUPAC.y == 'R' | 
+                        ref_target$IUPAC.x == 'K' & ref_target$IUPAC.y == 'M' |
+                        ref_target$IUPAC.x == 'M' & ref_target$IUPAC.y == 'K'),]
+
+# Idenitfy SNPs which match the reference alleles
+incl<-ref_target[ ref_target$IUPAC.x == 'R' & ref_target$IUPAC.y == 'R' | 
+                    ref_target$IUPAC.x == 'Y' & ref_target$IUPAC.y == 'Y' | 
+                    ref_target$IUPAC.x == 'K' & ref_target$IUPAC.y == 'K' |
+                    ref_target$IUPAC.x == 'M' & ref_target$IUPAC.y == 'M' ]
+
+# If a SNP that needs to be flipped has a duplicate that is on the correct strand, remove it.
+flip<-flip_tmp[!(flip_tmp$SNP %in% incl$SNP)]
+
+# Combine SNPs that match and those that need to be flipped.
+incl<-rbind(incl,flip)
+
+if(dim(flip)[1] > 0){
+  write.table(flip$SNP, paste0(opt$output_dir,'ref_flip.snplist'), col.names=F, row.names=F, quote=F)
+}
+
+write.table(incl$SNP, paste0(opt$output_dir,'ref_allele_match.snplist'), col.names=F, row.names=F, quote=F)
+
 # Merge subset reference
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Merging per chromosome reference data...')
@@ -135,14 +205,21 @@ ref_merge_list<-paste0(opt$output_dir,'ref_intersect_chr',1:22)
 write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
 
 # Merge
-system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --out ',opt$output_dir,'ref_merge --memory ',floor(opt$memory*0.7)))
-  
+if(dim(flip)[1] > 0){
+  system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --extract ',opt$output_dir,'ref_allele_match.snplist --flip ',opt$output_dir,'ref_flip.snplist --threads 1 --make-bed --out ',opt$output_dir,'ref_merge --memory ',floor(opt$memory*0.7)))
+} else {
+  system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --extract ',opt$output_dir,'ref_allele_match.snplist --threads 1 --make-bed --out ',opt$output_dir,'ref_merge --memory ',floor(opt$memory*0.7)))
+}
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
 
 # Delete temporary per chromosome reference files
 system(paste0('rm ',opt$output_dir,'ref_intersect_chr*'))
+if(dim(flip)[1] > 0){
+  system(paste0('rm ',opt$output_dir,'ref_flip.snplist'))
+}
+system(paste0('rm ',opt$output_dir,'ref_allele_match.snplist'))
 
 ###
 # Create SNP list for LD pruning
@@ -343,7 +420,7 @@ if(is.na(opt$target_fam)){
       system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --extract ',opt$output_dir,'score_file.snplist --score ',opt$output,'.eigenvec.var header-read 2 3 no-mean-imputation --threads 1 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
     }
   } else {
-    system(paste0(opt$plink2, ' --bfile ',opt$target_plink,' --extract ',opt$output_dir,'score_file.snplist --score ',opt$output,'.eigenvec.var header-read 2 3 no-mean-imputation --threads 1 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'profiles',i,' --memory ',floor(opt$memory*0.9)))
+    system(paste0(opt$plink2, ' --bfile ',opt$target_plink,' --extract ',opt$output_dir,'score_file.snplist --score ',opt$output,'.eigenvec.var header-read 2 3 no-mean-imputation --threads 1 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'profiles --memory ',floor(opt$memory*0.9)))
   }
 } else {
   if(is.na(opt$target_plink)){
