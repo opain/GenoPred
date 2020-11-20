@@ -385,6 +385,7 @@ pre code, pre, code {
   word-wrap: initial !important;
 }
 </style>
+<hr />
 <div id="introduction" class="section level1">
 <h1><span class="header-section-number">1</span> Introduction</h1>
 <p>Genotype-based prediction is more accurate within European populations due to European-based GWAS being larger in sample size, and the relatively low admixture within European populations compared to non-European populations. Apart from phenotypic heterogenity across populations, a key reason why European GWAS do not predict well in non-European populations is due to differences in LD and MAF. Although the underlying causal variant maybe the same across populations, the variant best tagging the causal variant in one population may not wel tag the causal variant in another population.</p>
@@ -393,33 +394,118 @@ pre code, pre, code {
 <li>Performing larger GWAS in non-European populations</li>
 <li>Combination of European-GWAS with existing non-European GWAS</li>
 <li>Modelling differences in MAF and LD between populations</li>
+<li>Using gene-based scores</li>
 </ul>
 <p>Across the genome some regions will be more comparable across populations than others. Furthermore, within an individual there is often a mixture of haplotypes from different populations (admixture), meaning a European GWAS maybe predictive for an individual for certain regions only. Merely by removing loci that do not generalise across populations well may improve prediction by reducing noise.</p>
+<hr />
 </div>
 <div id="evaluate-prediction-across-a-range-of-ancestries" class="section level1">
 <h1><span class="header-section-number">2</span> Evaluate prediction across a range of ancestries</h1>
 <p>Global ancestry is typically defined using reference-projected genotype-based principal components. Often individuals are said to be of a population if they are within N SD of the population mean. Alternatively principal component estimates can be used in a machine learning based approach such as k-means clustering. I have used an elastic net model to predict global ancestry.</p>
 <p>Estimate the predictive utility of polygenic scores within each super population. UKB contains individuals within each super population.</p>
+<hr />
+<div id="prepare-phenotype-files" class="section level2">
+<h2><span class="header-section-number">2.1</span> Prepare phenotype files</h2>
+<details>
+<p><summary>Show code</summary></p>
+<pre class="r"><code># Read list of individuals surviving QC in each population
+# Read in fam to convert row number to application specific ID
+# Row numbers in pheno file cannot be trusted
+fam&lt;-fread(&#39;/scratch/groups/ukbiobank/ukb18177_glanville/genotyped/ukb18177_glanville_binary_pre_qc.fam&#39;)
+fam$V1&lt;-seq(1:dim(fam)[1])
+
+keep&lt;-list()
+for(pop in c(&#39;EUR&#39;,&#39;AFR&#39;,&#39;SAS&#39;,&#39;EAS&#39;,&#39;AMR&#39;)){
+  keep[[pop]]&lt;-fread(paste0(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/ReQC/PostQC/UKB.postQC.&#39;,pop,&#39;.keep&#39;))
+  keep[[pop]]&lt;-merge(keep[[pop]][,1], fam[,1:2], by=&#39;V1&#39;)
+  keep[[pop]]$V1&lt;-keep[[pop]]$V2
+  
+  # Save keep file with updated IDs
+  write.table(keep[[pop]], paste0(UKBB_output,&#39;/Phenotype/&#39;,pop,&#39;.QC.keep&#39;), col.names=F, row.names=F, quote=F)
+}
+
+# Read in phenotype data
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config&#39;)
+library(data.table)
+
+pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;,&#39;T2D&#39;,&#39;CAD&#39;,&#39;IBD&#39;,&#39;MultiScler&#39;,&#39;RheuArth&#39;)
+pheno_file&lt;-c(&#39;ever_depressed_pheno_final.UpdateIDs.txt&#39;,&#39;UKBB_Fluid.intelligence.score.UpdateIDs.pheno&#39;,&#39;UKBB_BMI.score.UpdateIDs.pheno&#39;,&#39;UKBB_Height.score.UpdateIDs.pheno&#39;,&#39;t2d_only_111119.UpdateIDs.txt&#39;,&#39;cad_only_111119.UpdateIDs.txt&#39;,&#39;UKBB.IBD.txt&#39;,&#39;UKBB.MultiScler.txt&#39;,&#39;UKBB.RheuArth.txt&#39;)
+
+pheno_list&lt;-list()
+for(i in 1:length(pheno)){
+  pheno_list[[pheno[i]]]&lt;-fread(paste0(UKBB_output,&#39;/Phenotype/&#39;,pheno[i],&#39;/&#39;,pheno_file[i]))
+}
+
+pheno_all&lt;-Reduce(function(...) merge(..., all=T, by=c(&#39;FID&#39;,&#39;IID&#39;)), pheno_list)
+names(pheno_all)&lt;-c(&#39;FID&#39;,&#39;IID&#39;,pheno)
+
+# Count number of non-missing values for phenotype in each population 
+pheno_dat_per_pop&lt;-NULL
+for(pop in c(&#39;EUR&#39;,&#39;AFR&#39;,&#39;SAS&#39;,&#39;EAS&#39;,&#39;AMR&#39;)){
+  pheno_all_pop&lt;-pheno_all[(pheno_all$IID %in% keep[[pop]]$V1),]
+  for(i in 1:length(pheno)){
+    if(length(na.omit(unique(pheno_all[[pheno[i]]]))) == 2){
+          pheno_dat_per_pop&lt;-rbind(pheno_dat_per_pop, data.frame(Pop=pop,
+                                                           Phenotype=pheno[i],
+                                                           N=sum(!is.na(pheno_all_pop[[pheno[i]]])),
+                                                           Ncase=sum(pheno_all_pop[[pheno[i]]] == 1, na.rm=T),
+                                                           Ncon=sum(pheno_all_pop[[pheno[i]]] == 0, na.rm=T)))
+
+    } else {
+          pheno_dat_per_pop&lt;-rbind(pheno_dat_per_pop, data.frame(Pop=pop,
+                                                           Phenotype=pheno[i],
+                                                           N=sum(!is.na(pheno_all_pop[[pheno[i]]])),
+                                                           Ncase=NA,
+                                                           Ncon=NA))
+
+    }
+  }
+}
+
+# Idenitfy phenotype with at least 1000 indidivuals and 50 cases with data
+pheno_dat_per_pop_retain&lt;-pheno_dat_per_pop[which((pheno_dat_per_pop$N &gt;=500 &amp; pheno_dat_per_pop$Ncase &gt;= 50) | (pheno_dat_per_pop$N &gt;=500 &amp; is.na(pheno_dat_per_pop$Ncase))),]
+
+# BMI and Height are the only phenotypes meeting these criteria. This is fine for a preliminary analysis, but other phenotypes that are more available across ancestries should be explored. Intelligence was also available in EUR, AFR, and SAS.
+
+# Save keep file with updated IDs for each phenotype, restricting the sample size to 50K
+# Read in fam file with ID to match
+system(paste0(&#39;mkdir &#39;,UKBB_output,&#39;/DiverseAncestry/Phenotype_subsets/&#39;))
+
+set.seed(1)
+for(pop in c(&#39;EUR&#39;,&#39;AFR&#39;,&#39;SAS&#39;,&#39;EAS&#39;,&#39;AMR&#39;)){
+  for(pheno_i in c(&#39;BMI&#39;,&#39;Height&#39;)){
+      pheno_all_pop&lt;-pheno_all[(pheno_all$IID %in% keep[[pop]]$V1),c(&#39;FID&#39;,&#39;IID&#39;,pheno_i), with=F]
+      pheno_all_pop&lt;-pheno_all_pop[complete.cases(pheno_all_pop),]
+      if(dim(pheno_all_pop)[1] &gt; 50000){
+        pheno_all_pop&lt;-pheno_all_pop[sample(1:50000),]
+      }
+      
+      write.table(pheno_all_pop[,1:2], paste0(UKBB_output,&#39;/DiverseAncestry/Phenotype_subsets/UKB.&#39;,pheno_i,&#39;.&#39;,pop,&#39;.QC.keep&#39;), col.names=F, row.names=F, quote=F)
+  }
+}</code></pre>
+</details>
+<hr />
+</div>
 <div id="calculate-scores" class="section level2">
-<h2><span class="header-section-number">2.1</span> Calculate scores</h2>
+<h2><span class="header-section-number">2.2</span> Calculate scores</h2>
 <details>
 <p><summary>pT + clump: Sparse</summary></p>
 <pre class="bash"><code># Set required variables
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
 # Create variable listing phenotypes and corresponding GWAS
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+pheno=$(echo BMI Height)
+gwas=$(echo BODY03 HEIG03)
 
 # Calculate polygenic scores using 1KG reference
-for i in $(seq 1 9);do
+for i in $(seq 1 2);do
   for pop in $(echo AFR AMR EAS EUR SAS);do
     pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
     gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
   
-    sbatch --mem 10G -p brc,shared -J pT_clump /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+    sbatch --mem 2G -p brc,shared -J pT_clump /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
       --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
-      --target_keep ${UKBB_output}/Projected_PCs/Ancestry_idenitfier/UKBB.w_hm3.AllAncestry.model_pred.${pop}.keep \
+      --target_keep ${UKBB_output}//DiverseAncestry/Phenotype_subsets/UKB.${pheno_i}.${pop}.QC.keep \
       --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas_i}/1KGPhase3.w_hm3.${gwas_i} \
       --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.${pop}.scale \
       --ref_freq_chr ${Geno_1KG_dir}/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr \
@@ -430,9 +516,10 @@ for i in $(seq 1 9);do
 done
 </code></pre>
 </details>
+<hr />
 </div>
 <div id="evaluate-scores" class="section level2">
-<h2><span class="header-section-number">2.2</span> Evaluate scores</h2>
+<h2><span class="header-section-number">2.3</span> Evaluate scores</h2>
 <details>
 <p><summary>pT + clump comparison</summary></p>
 <pre class="bash"><code>##############################
@@ -441,15 +528,15 @@ done
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
 # Make required directories
-for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth);do
+for pheno_i in $(echo BMI Height);do
 mkdir -p /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs
 done
 
 # Create a file listing the predictors files
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
+pheno=$(echo BMI Height)
+gwas=$(echo BODY03 HEIG03)
 
-for i in $(seq 1 9);do
+for i in $(seq 1 2);do
 pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
 gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
 for pop in $(echo AFR AMR EAS EUR SAS);do
@@ -461,23 +548,23 @@ done
 done
 
 # Derive and evaluate models
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt UKBB.IBD.txt UKBB.MultiScler.txt UKBB.RheuArth.txt)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
-prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
+pheno=$(echo BMI Height)
+pheno_file=$(echo UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo BODY03 HEIG03)
+prev=$(echo NA NA)
 
 # pT + clump (sparse)
-for i in $(seq 1 9);do
+for i in $(seq 1 2);do
   pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
   pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
   gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
   prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
 
   for pop in $(echo AFR AMR EAS EUR SAS);do
-  sbatch --mem 10G -n 2 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2.R \
+  sbatch --mem 10G -n 1 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R \
       --pheno ${UKBB_output}/Phenotype/${pheno_i}/${pheno_file_i} \
       --out /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs \
-      --n_core 2 \
+      --n_core 1 \
       --compare_predictors T \
       --assoc T \
       --outcome_pop_prev ${prev_i} \
@@ -485,84 +572,63 @@ for i in $(seq 1 9);do
   done
 done
 </code></pre>
+</details>
+<hr />
 </div>
 <div id="plot-the-results" class="section level2">
-<h2><span class="header-section-number">2.3</span> Plot the results</h2>
+<h2><span class="header-section-number">2.4</span> Plot the results</h2>
 <details>
 <p><summary>pT + clump comparison</summary></p>
-<pre class="bash"><code>module add apps/R
-R
-
-pop&lt;-c(&#39;AFR&#39;,&#39;AMR&#39;,&#39;EAS&#39;,&#39;EUR&#39;,&#39;SAS&#39;)
-pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;,&#39;T2D&#39;,&#39;CAD&#39;,&#39;IBD&#39;,&#39;MultiScler&#39;,&#39;RheuArth&#39;)
-gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;BODY03&#39;,&#39;HEIG03&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;SCLE02&#39;,&#39;RHEU01&#39;)
+<pre class="r"><code>pop&lt;-c(&#39;AFR&#39;,&#39;AMR&#39;,&#39;EAS&#39;,&#39;EUR&#39;,&#39;SAS&#39;)
+pheno&lt;-c(&#39;BMI&#39;,&#39;Height&#39;)
+gwas&lt;-c(&#39;BODY03&#39;,&#39;HEIG03&#39;)
 
 library(data.table)
 res&lt;-list()
 for(i in 1:length(gwas)){
+  res_pheno&lt;-NULL
   for(k in 1:length(pop)){
-    if(file.exists(paste0(&#39;/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/UKBB.&#39;,pop[k],&#39;.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs.pred_eval.txt&#39;))){
-        tmp&lt;-fread(paste0(&#39;/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/UKBB.&#39;,pop[k],&#39;.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs.pred_eval.txt&#39;))
-        tmp2&lt;-data.frame( Population=pop[k],
-                          Phenotype=pheno[i],
-                          )
-      res[[pop]]&lt;-fread()
-    }
+    tmp&lt;-fread(paste0(&#39;/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/&#39;,pheno[i],&#39;/Association_withPRSs/UKBB.&#39;,pop[k],&#39;.w_hm3.&#39;,gwas[i],&#39;.EUR-PRSs.pred_eval.txt&#39;))
+    tmp2&lt;-data.frame( Population=pop[k],
+                      Phenotype=pheno[i],
+                      tmp)
+    
+    res_pheno&lt;-rbind(res_pheno, tmp2)
   }
+
+  res_pheno$Model&lt;-gsub(&#39;e.&#39;,&#39;e-&#39;,gsub(&#39;_.*&#39;,&#39;&#39;,gsub(paste0(gwas[i],&#39;.&#39;),&#39;&#39;,res_pheno$Model)))
+  res_pheno$Model&lt;-factor(res_pheno$Model, levels=unique(res_pheno$Model))
+  res[[pheno[i]]]&lt;-res_pheno
 }
 
-##############################
-# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
-##############################
-. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+library(ggplot2)
+library(cowplot)
 
-# Make required directories
-for pheno_i in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth);do
-mkdir -p /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs
-done
+plot_list&lt;-NULL
+for(i in 1:length(gwas)){
+  plot_list[[pheno[i]]]&lt;-ggplot(res[[pheno[i]]], aes(x=factor(Model), y=R, colour=Population)) +
+                            geom_point(stat=&quot;identity&quot;, position=position_dodge( width=.25)) +
+                            geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(.25)) +
+                            theme_half_open() +
+                            theme(axis.text.x = element_text(angle = 55, vjust = 1, hjust=1), plot.title = element_text(hjust = 0.4, size=12)) +
+                            background_grid(major = &#39;y&#39;, minor = &#39;y&#39;) +
+                            labs(x=&#39;pT&#39;,y=&#39;Predicted-Observed Correlation&#39;, title=pheno[i])
+}
 
-# Create a file listing the predictors files
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
-
-for i in $(seq 1 9);do
-pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
-gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
-for pop in $(echo AFR AMR EAS EUR SAS);do
-cat &gt; /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups &lt;&lt;EOF
-predictors 
-${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.profiles
-EOF
-done
-done
-
-# Derive and evaluate models
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
-pheno_file=$(echo ever_depressed_pheno_final.UpdateIDs.txt UKBB_Fluid.intelligence.score.UpdateIDs.pheno UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno t2d_only_111119.UpdateIDs.txt cad_only_111119.UpdateIDs.txt UKBB.IBD.txt UKBB.MultiScler.txt UKBB.RheuArth.txt)
-gwas=$(echo DEPR06 COLL01 BODY03 HEIG03 DIAB05 COAD01 CROH01 SCLE02 RHEU01)
-prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
-
-# pT + clump (sparse)
-for i in $(seq 1 9);do
-  pheno_i=$(echo ${pheno} | cut -f ${i} -d &#39; &#39;)
-  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d &#39; &#39;)
-  gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
-  prev_i=$(echo ${prev} | cut -f ${i} -d &#39; &#39;)
-
-  for pop in $(echo AFR AMR EAS EUR SAS);do
-  sbatch --mem 10G -n 2 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2.R \
-      --pheno ${UKBB_output}/Phenotype/${pheno_i}/${pheno_file_i} \
-      --out /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs \
-      --n_core 2 \
-      --compare_predictors T \
-      --assoc T \
-      --outcome_pop_prev ${prev_i} \
-      --predictors /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs.predictor_groups
-  done
-done
-</code></pre>
-<p>Transethnic colocalisation: transethnic genetic correlation: Estimates a genetic impact correlation by adjusting effect sizes based on allele frequency. Impact is larger if variant is common.</p>
-<p>We only have sumstats from one population but we want to see what they would look like in another. If we assume colocalisation.</p>
+png(&#39;/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/UKB.Diverse.pTclump_per_pT.png&#39;, units=&#39;px&#39;, res=300, width=2000, height=3000)
+  plot_grid(plotlist=plot_list, ncol = 1)
+dev.off()</code></pre>
+</details>
+<hr />
+<details>
+<p><summary>Show pT+clump prediction across populations</summary></p>
+<div class="figure">
+<img src="Images/UKB.Diverse.pTclump_per_pT.png" alt="pT+clump prediction across populations" />
+<p class="caption">pT+clump prediction across populations</p>
+</div>
+</details>
+<hr />
+<p>To do: * Run with more phenotypes * Run for other PRS methods * Run using GeRS method * Compare methods that improve portability of EUR GWAS</p>
 </div>
 </div>
 
