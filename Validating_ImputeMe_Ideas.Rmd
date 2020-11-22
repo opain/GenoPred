@@ -1,5 +1,5 @@
 ---
-title: "Converting Polygenic Scores into Estimates of Absolute Risk"
+title: "Improving communication of polygenic scores"
 runtime: shiny
 output:
   html_document:
@@ -34,19 +34,155 @@ pre code, pre, code {
 
 ***
 
-This page is a sandbox for validating summary statistic based approaches for presenting polygenic scores results to the individual, as is done on the Impute.Me website. First, a polygenic scores for UK Biobank phenotypes are derived and evaluated, using a 10-fold cross validation procedure to avoid sample overlap. Then we experiment with methods for estimating the AUC or R2 of a polygenic score from summary statistics only. Then we compare predicted and observed estimates of absolute risk for binary outcomes and absolute quantitative trait prediction. If this, approach is deemed valid, it will provide a way of interpreting an individuals polygenic score, whilst considering the distribution of the outcome, and the predictive utility of the polygenic score. This will help to avoid misinterpretation of polygenic scores.
+This page describes a project investigatin approaches for converting polygenic scores into interpretable information.
 
-Thank you Alex Gillett for writing function for estimating proportion of cases within PRS quantiles.
+Aims:
+
+* Develop scalable method for converting polygenic Z-scores into absolute estimates
+* Develop figures to represent absolute risk
 
 ***
 
-# Create training and test sample for several phenotypes in UKB
+# Converting polygenic Z-scores to absolute estimates
+
+To enable correct intepretation of a polygenic score, the variance explained by the polygenic score must be considered. Furthermore, for binary outcomes the population prevelance must be considered, and for continuous outcomes the population mean and SD must be considered. It is possible to convert relative genetic risk into absolute esimates of an outcome when observed data is available, as 23andMe do, by splitting participants into genetic risk quantiles, and then estimating the mean outcome within each quantile. Here, we use an alternative approach based on summary statistics only alone.
+
+***
+
+## Describe conversion
+
+***
+
+### Binary outcomes
+
+To convert a polygenic Z-score into an absolute estimate of risk, we must know the predicitve utility of the polygenic score (AUC), and the prevelance of the outcome in the general population. Then it is possible to estimate the proportion of cases within each polygenic score quantile using bivariate-normal distribution.
+
+<details><summary>Show code</summary>
+```{R, echo=T, eval=F}
+# Thank you for Alex Gillet for her work developing this code.
+ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
+  
+    # Convert AUC into cohen's d
+    d <- sqrt(2)*qnorm(PRS_auc)
+    
+    # Set mean difference between cases and control polygenic scores
+    mu_case <- d
+    mu_control <- 0
+    
+    # Estimate mean and variance of polygenic scores across case and control
+    varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
+    E_PRS <- d*prev
+    
+    # Estimate polygenic score quantiles
+    by_quant<-1/n_quantile
+    p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
+    quant_vals_PRS <- rep(0, length(p_quant))
+    quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
+    for(i in 1:length(p_quant)){
+        quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
+    }
+    
+    # Create a table for output
+    ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
+    ul_qv_PRS[1,1] <- -Inf
+    ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
+    ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
+    ul_qv_PRS[n_quantile,2] <- Inf
+    
+    ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
+    
+    # Estimate case control proportion for each quantile
+    prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
+    prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
+    p_case_quantile <- (prob_quantile_case*prev)/by_quant
+    p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
+    
+    # Estimate OR comparing each quantile to bottom quantile
+    OR <- p_case_quantile/p_cont_quantile
+    OR <- OR/OR[1]
+    
+    # Return output
+    out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
+    row.names(out) <- 1:n_quantile
+    colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
+    
+    data.frame(out)
+}
+```
+</details>
+
+***
+
+### Continuous outcomes
+To convert a polygenic Z-score into an absolute estimate for a trait, we must know the predicitve utility of the polygenic score (R2), and the mean and SD of the outcome in the general population. Then it is possible to estimate the mean and SD of the trait within each polygenic score quantile using a truncated norm model (currently not theory based).
+
+<details><summary>Show code</summary>
+```{R, echo=T, eval=F}
+# Thank you for Alex Gillet for her work developing this code.
+PRS_abs_quant2<-function(n=100000, PRS_R2=0.3, Outcome_mean=1, Outcome_sd=1, n_quantile=20, seed=1){
+    
+    # Simulate height and prs relationship
+    set.seed(seed)
+    
+    Outcome<-rnorm(n, Outcome_mean, Outcome_sd)
+    PRS <- as.numeric(scale(Outcome + rnorm(n,mean=0, sd=sqrt(var(Outcome)*(1-PRS_R2)/(PRS_R2)))))
+    
+    sim_dat<-data.frame(y=Outcome, x=PRS)
+    
+    # Calculate simulated R2
+    cor(sim_dat$x, sim_dat$y)^2
+    
+    # Split individuals into quantiles
+    by_quant<-1/n_quantile
+    perc<-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
+    sim_dat<-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5), include.lowest=TRUE))
+    
+    # Calculate mean and sd of individuals within in each quantile
+    outcome_per_bin<-NULL
+    for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
+        PRS_bin_temp<-sim_dat$y[which(as.numeric(sim_dat$quantile) == i)]
+        temp<-data.frame(q=i, 
+                         q_min=as.numeric(gsub(',.*','',gsub("\\[",'',gsub("\\(",'',levels(sim_dat$quantile)[i])))), 
+                         q_max=as.numeric(gsub("\\]",'',gsub(".*,",'',levels(sim_dat$quantile)[i]))), 
+                         x_mean=mean(PRS_bin_temp),
+                         x_sd=sd(PRS_bin_temp)) 
+        
+        outcome_per_bin<-rbind(outcome_per_bin,temp)
+    }
+    
+    outcome_per_bin$q_min[1]<--Inf
+    outcome_per_bin$q_max[length(outcome_per_bin$q_max)]<-Inf
+    
+    outcome_per_bin
+}
+```
+</details>
+
+***
+
+Both these conversions require estimates of variance explained by the polygenic score. However, this information is often not known for a given polygenic score so approaches to estimate the variance explained by a polygenic scores using summary statistics is required.
+
+***
+
+## Validate method for estimating polygenic score variance explained
+
+Here we will use an approach using LD-score regression to estimate the SNP-based heritability of the GWAS phenotype, and subsequent use of AVENGEME to estimate the variance explained by the polygenic score given the heritability of the phenotype and the sample size of the GWAS.
+
+We validate this method by comparison to observed variance explained measurements in UK Biobank. We use two approaches to generate the polygenic scores:
+
+* Using a 10-fold cross-validation GWAS-polygenic scoring procedure to avoid overfitting. This approach ensure the genetic correlation between training and target samples is 1.
+
+* Using external GWAS summary statistics to generate polygenic scores. This approach is more realistic.
+
+***
+
+### Cross-validation approach
 
 Use the same phenotypes as other GenoPred projects. To maximise power, lets use a 10-fold cross validation procedure, whereby we split the cases and controls for each outcome into 10 parts, then perform a GWAS within each fold. Then we create GWAS sumstats using 9 of 10 subsets, and calculate polygenic scores from the results for the remaining part of the sample. I have already written code for a similar process when playing with the BWAS project.
 
 ***
 
-## Split UKB into 10 roughly equal parts
+#### Split UKB into 10 roughly equal parts
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo =T}
@@ -72,7 +208,7 @@ for(i in 1:length(subsets)){
 
 ***
 
-## Prepare covariates file
+#### Prepare covariates file
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo =T}
@@ -105,7 +241,7 @@ Note. Running a regression with all covariates does not work due to multicolinea
 
 ***
 
-## Calculate phenotype residuals
+#### Calculate phenotype residuals
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
@@ -186,7 +322,7 @@ for(i in 1:length(pheno)){
 
 ***
 
-## Run GWAS within each subset for each phenotype
+#### Run GWAS within each subset for each phenotype
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 
@@ -217,11 +353,11 @@ done
 
 ***
 
-## Meta-analyse LOO results
+#### Meta-analyse LOO results
 
 ***
 
-### Prepare sumstats for METAL
+##### Prepare sumstats for METAL
 
 <details><summary>Show code</summary>
 ```{R, echo=T, eval=F}
@@ -258,7 +394,7 @@ for(subset_i in 1:10){
 
 ***
 
-### Run meta-analysis leaving one subset out each time
+##### Run meta-analysis leaving one subset out each time
 
 <details><summary>Show code</summary>
 ```{bash, echo=T, eval=F}
@@ -315,7 +451,8 @@ rm /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/*sh
 
 ***
 
-## Create a file listing the sample size for each variant and all phenotype
+#### Create a file listing the sample size for each variant and all phenotype
+
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 library(data.table)
@@ -344,13 +481,13 @@ for(pheno_i in pheno[1]){
 
 ***
 
-## Polygenic scoring
+#### Polygenic scoring
 
 Now we calculate polygenic scores for these phenotypes in UK Biobank, using the independent summary statistics. Lets use the standard PRScs method (best) and pT+clump method (traditional).
 
 ***
 
-### Format the LOO-meta-analysis and full meta-analysis results for polygenic scoring
+##### Format the LOO-meta-analysis and full meta-analysis results for polygenic scoring
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
@@ -383,7 +520,7 @@ for(subset_i in 1:10){
 
 ***
 
-### Compress the sumstats
+##### Compress the sumstats
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
@@ -397,11 +534,11 @@ done
 
 ***
 
-### PRScs
+##### PRScs
 
 ***
 
-#### Run PRScs
+###### Run PRScs
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
@@ -447,7 +584,7 @@ done
 
 ***
 
-#### Evaluate predictive utility of PRS 
+###### Evaluate predictive utility of PRS 
 
 <details><summary>Show code</summary>
 ```{bash, echo=T, eval=F}
@@ -586,11 +723,11 @@ write.csv(pheno_res, '/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/Poly
 
 ***
 
-### pT+clump
+##### pT+clump
 
 ***
 
-#### Run pT+clump
+###### Run pT+clump
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
@@ -630,7 +767,7 @@ done
 
 ***
 
-#### Evaluate predictive utility of PRS 
+###### Evaluate predictive utility of PRS 
 
 <details><summary>Show code</summary>
 ```{bash, echo=T, eval=F}
@@ -785,198 +922,19 @@ write.csv(pheno_res,paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationAren
 ```
 </details>
 
-<br/>
+***
+
+### External GWAS sumstat approach
 
 ***
 
-# Compare PRS AUC values to those derived using G-WIZ
-
-We will calculate the AUC using GWIZ using the leave one out meta-analysis summary statistics, and then average the AUC results. This will hopefully tell us how much variance GWAS expects the LOO sumstats to explain in the left out subset.
-
-***
-
-## Compute allele frequencies
-
-<details><summary>Show code</summary>
-```{bash, eval=F, echo=T}
-for chr in $(seq 1 22); do
-    sbatch -p brc,shared --mem 5G -t 00:10:00 /users/k1806347/brc_scratch/Software/plink1.9.sh \
-      --bfile /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
-      --keep /users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
-      --maf 0.01 \
-      --geno 0.05 \
-      --freq \
-      --allow-no-sex \
-      --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/allele_freq_chr${chr}
-done
-
-```
-</details>
-
-***
-
-## Format GWAS summary statistics 
-
-<details><summary>Show code</summary>
-```{R, echo=T, eval=F}
-
-library(data.table)
-
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
-
-# Read in covariate data
-geno_covar<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/ukb18177_glanville_covariates.UpdateIDs.txt')
-sex<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Sex.pheno')
-age<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Age.pheno')
-
-covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(geno_covar, sex, age))
-
-# Convert catagorical variables into factors so they are dummy coded in the regression
-covs$batch<-factor(covs$batch)
-covs$assessment_centre<-factor(covs$assessment_centre)
-
-# Read in list of individuals passing QC
-QC<-fread('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam')
-names(QC)<-c('FID','IID')
-
-# Merge all data
-covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(covs, QC))
-
-# Read in allele frequency per variant
-freq<-NULL
-for(chr in 1:22){
-  freq<-rbind(freq, fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/allele_freq_chr',chr,'.frq')))
-}
-
-freq$A1<-tolower(freq$A1)
-freq$A2<-tolower(freq$A2)
-
-for(i in c(5)){
-  # Read in pheno file to determine number of cases and controls
-  pheno_i<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/',pheno[i],'/',pheno_file[i]))
-  names(pheno_i)[3]<-'pheno'
-  
-  # Merge pheno and covar data
-  pheno_i_covs<-merge(pheno_i, covs, by=c('FID','IID'), all=T)
-  pheno_i_covs<-pheno_i_covs[complete.cases(pheno_i_covs),]
-  
-  # Identify proportion of cases and controls which can be used to estimate the number of cases and controls in each LOO meta-analysis.
-  sample_prev<-mean(pheno_i_covs$pheno)
-  
-  for(subset_i in 1:10){
-    # Read in meta-analysis GWAS sumstats
-    gwas<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno[i],'1.tbl'))
-    names(gwas)<-c('SNP','A1','A2','BETA','SE','P','Direction')
-    gwas$OR<-exp(gwas$BETA)
-    gwas$phenotype<-'n/a'
-    gwas$dataset<-'n/a'
-    gwas$model<-'additive'
-    
-    # Read sample size per variant
-    N_tab<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/N_table_',pheno[i],'.txt'))
-    
-    N_tab$excl_subset<-rowSums(N_tab[,names(N_tab)[!grepl(paste0('SNP|Subset_',subset_i,'_N'), names(N_tab))],with=F])
-  
-    N_tab$control_size<-round(N_tab$excl_subset*(1-sample_prev))
-    N_tab$case_size<-round(N_tab$excl_subset*(sample_prev))
-      
-    gwas<-merge(gwas, N_tab[,c('SNP','control_size','case_size'), with=F], by='SNP')
-    
-    # Merge frequency data
-    gwas_same<-merge(gwas, freq[,c('SNP','A1','A2','MAF')], by=c('SNP','A1','A2'))
-    gwas_flip<-merge(gwas, freq[,c('SNP','A1','A2','MAF')], by.x=c('SNP','A1','A2'),by.y=c('SNP','A2','A1'))
-    gwas_flip$MAF<-1-gwas_flip$MAF
-    gwas<-rbind(gwas_same, gwas_flip)
-    
-    # OR and MAFs to all be corresponding to the risk allele
-    gwas$MAF[gwas$OR < 1]<-1-gwas$MAF[gwas$OR < 1]
-    names(gwas)[names(gwas) == 'MAF']<-'risk_allele_freq'
-    gwas$OR[gwas$OR < 1]<-exp(-gwas$BETA[gwas$OR < 1])
-    
-    # Extract LD independent variants
-    ld_indep<-NULL
-    for(chr in 1:22){
-      ld_indep<-rbind(ld_indep, fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/pTclump/',pheno[i],'/excl_Subset_',subset_i,'/pTclump_excl_Subset_',subset_i,'_',pheno[i],'.chr',chr,'.range_values')))
-    }
-    
-    ld_indep_sig<-ld_indep
-
-    # Extract variant with p < 1e-8
-    gwas<-gwas[(gwas$SNP %in% ld_indep_sig$V1),]
-
-    gwas<-gwas[,c('phenotype','dataset','SNP','control_size','case_size','risk_allele_freq','OR','model'),with=F]
-    names(gwas)[names(gwas) == 'SNP']<-'accession'
-    
-    gwas$model<-rep(c('recessive','dominant'),dim(gwas)[1])[1:dim(gwas)[1]]
-    
-      fwrite(gwas, paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/metal_excl_Subset_',subset_i,'_',pheno[i],'.GWIZ.csv'), sep=',', na='NA', quote=F)
-  }
-}
-
-```
-</details>
-
-***
-
-## Run GWIZ
-
-GWIZ is an R script. It needs to modification:
-- It doesn't allow input files, software and output to be in different directories
-- It uses the png function which does't work on Rosalind
-- It prints the contents of the GWAS sumstats repeatedly and 
-GWIZ is an Rscript that must be modified to allow for different input and output files. I have the script slightly so all files don't have be stored in the same directory.
-
-<details><summary>Show code</summary>
-```{R, eval=F, echo=T}
-
-sumstat_dir<-'/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/'
-software_dir<-'/mnt/lustre/users/k1806347/Software/GWIZ-Rscript-master'
-out_dir<-'/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/'
-
-folderPath <- paste0(sumstat_dir,"Data/")
-filename = "resampled Data"
-resultsfilename = "results Data"
-dir.create(folderPath)
-dir.create(paste0(out_dir,filename))
-dir.create(paste0(out_dir,resultsfilename))
-folderOut <- paste0(out_dir,filename)
-
-setwd(software_dir)
-
-files <- list.files(sumstat_dir)
-files <- files[grep(".csv", files)]
-aucout <- matrix(NA, nrow=length(files), ncol=2)
-for (j in 1:1){
-    source("./modeling/GWAS_functions.0,1,2genotype (attempt 4).R")
-    genereteBatch(sumstat_dir, folderOut, files[[j]])
-    studies <- dir(paste0(folderOut,'/out'))
-    studies <- studies[grep(".csv", studies)]
-    source("./modeling/_modelingFunctions_lda.R")
-    batchAnalysis(paste(folderOut, "/out", sep=""), resultsfilename, studies[[j]], verbose = FALSE, outerFolds = 3L, outerRep = 2L)#, classifier = "classif.logreg") 
-    studyname = substring(files[[j]], 1, 13)
-    aucout[j,] <- c(studyname, aucanalysis)
-    colnames(aucout) <- c("Study", "Simulated AUC")
-}
-
-# This code is working for T2D (Subset 1 only: p<1-e4 with AUC=0.5433973. Observed value in UKB is AUC=0.5647935). However, the analysis is very slow when including more relaxed p-value thresholds. I just tried to run using all variants and the session was killed with 10G memory.
-
-```
-</details>
-
-<br/>
-
-<br/>
-
-***
-
-# Compare PRS AUC values to those derived using AVENGEME and LDSC
+## Compare observed variance explained measurements to those derived using AVENGEME and LDSC
 
 AVENGEME can estimate the R2 you would expect to see from a polygenic scores given an estimate of heritability and sample size. To estimate heritability and polygenicity, we could use GCTB.
 
 ***
 
-## Estimate the SNP-based heritability using LDSC
+### Estimate the SNP-based heritability using LDSC
 
 <details><summary>Show code</summary>
 ```{R, echo=T, eval =F}
@@ -1068,7 +1026,7 @@ write.csv(meta_h2, '/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_G
 
 ***
 
-## Estimate AUC using AVENGEME
+### Estimate AUC using AVENGEME
 
 <details><summary>Show code</summary>
 ```{R, echo=T, eval =F}
@@ -1260,6 +1218,8 @@ cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Estimat
 
 ```
 
+***
+
 <details><summary>Show predicted and observed AUC values</summary>
 
 <center>
@@ -1284,7 +1244,11 @@ cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Estimat
 
 ***
 
-# Compare observed and estimated absolute risk estimates
+# Compare observed and estimated absolute estimates
+
+***
+
+## Binary outcomes
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
@@ -1499,7 +1463,7 @@ done
 
 ***
 
-# Compare observed and expected mean and SD of quantitative traits within expected quantiles
+## Continuous outcomes
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
@@ -1693,7 +1657,6 @@ for(i in c(2,3)){
 ```
 </details>
 
-
 ```{bash, eval=T, echo=F}
 
 mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
@@ -1739,357 +1702,19 @@ done
 
 ***
 
-# Plots for interpreting individual PRS
+# Plots for interpreting individual polygenic scores
 
 ***
 
 ## Binary outcomes
 
-***
-
-### Example shiny app
-
-```{R, echo=F}
-
-library(shiny)
-library(ggplot2)
-library(reshape2)
-library(cowplot)
-library(ggimage)
-library(scales)
-library(ggchicklet)
-
-# Create function for z-score to absolute risk
-ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
-    d <- sqrt(2)*qnorm(PRS_auc)
-    mu_case <- d
-    mu_control <- 0
-    
-    varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
-    E_PRS <- d*prev
-    
-    by_quant<-1/n_quantile
-    p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
-    quant_vals_PRS <- rep(0, length(p_quant))
-    quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
-    for(i in 1:length(p_quant)){
-        quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
-    }
-    
-    ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
-    ul_qv_PRS[1,1] <- -Inf
-    ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
-    ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
-    ul_qv_PRS[n_quantile,2] <- Inf
-    
-    ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
-    
-    prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
-    prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
-    p_case_quantile <- (prob_quantile_case*prev)/by_quant
-    p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
-    
-    OR <- p_case_quantile/p_cont_quantile
-    OR <- OR/OR[1]
-    out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
-    row.names(out) <- 1:n_quantile
-    colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
-    
-    data.frame(out)
-}
-
-# Define UI for application
-ui <- fluidPage(
-    
-    # Application title
-    titlePanel("Polygenic Score"),
-    
-    # Sidebar with a slider input for PRS z-score
-    sidebarLayout(
-        sidebarPanel(
-            sliderInput("z_score",
-                        "Polygenic Z-score:",
-                        min = -4,
-                        max = 4,
-                        value = 0,
-                        step=0.01),
-            
-            sliderInput("prev",
-                        "Prevelance (%):",
-                        min = 0.1,
-                        max = 99.9,
-                        value = 50,
-                        step=0.1),
-            
-            br(),
-            
-            sliderInput("auc",
-                        "AUC:",
-                        min = 0.51,
-                        max = 0.99,
-                        value = 0.75,
-                        step=0.01)
-        ),
-        
-        # Show plot
-        mainPanel(
-            plotOutput("Plot", height = "1000px", width = "500px")
-        )
-    )
-)
-
-# Define server logic required to draw a histogram
-server <- function(input, output) {
-    
-    output$Plot <- renderPlot({
-        # Define parameters
-        trait<-'trait'
-        PRS_z_score<-input$z_score
-        prev<-input$prev/100
-        AUC=input$auc
-        
-        risk_quantiles<-ccprobs.f(PRS_auc=AUC, prev=prev, n_quantile=1000)
-        
-        indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score < risk_quantiles$q_max,]
-        indiv_result<-indiv_result_all[, c('p_case', 'p_control')]
-        
-        indiv_result<-melt(indiv_result)
-        indiv_result$variable<-c('Case','Control')
-        indiv_result$variable<-factor(indiv_result$variable,levels = c('Control','Case'))
-        
-        
-        # Create a grid of dots, some red and some blue
-        n_case<-round(indiv_result$value*100)[1]
-        n_control<-round(indiv_result$value*100)[2]
-        
-        plot_dat<-(matrix(c(rep('Case',n_case),rep('Control',n_control)),nrow=10, ncol=10))
-        plot_dat<-data.frame(melt(plot_dat))
-        plot_dat$value<-factor(plot_dat$value, levels = c('Control','Case'))
-        
-        prs_dist<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
-            stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) + ylab("") +
-            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
-                          geom = "area", fill = "#84CA72", alpha = .4) +
-            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
-                          geom = "area", fill = "#0066CC", alpha = .4) +
-            geom_vline(xintercept=PRS_z_score, linetype='dashed') +
-            geom_text(label=paste0(round(pnorm(PRS_z_score)*100),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#84CA72', hjust='right', vjust=0.8, size=5) +
-            geom_text(label=paste0(100-round(pnorm(PRS_z_score)*100),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#0066CC', hjust='left', vjust=0.8, size=5) +
-            scale_y_continuous(breaks = NULL) +
-            theme_half_open() +
-            xlim(-5,5) +
-            labs(y='Number of people', x='Polygenic Score', title='Distribution of polygenic scores') +
-            theme(plot.title = element_text(hjust = 0.5))
-        
-        bar_chart<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
-            geom_chicklet(radius = grid::unit(1, 'mm'), data=indiv_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
-            scale_fill_manual(values=c("#84CA72","#0066CC")) +
-            geom_text(label=paste0(100-n_case,"% don't have ",trait), mapping=aes(x=1.5, y=((((100-n_case)/2))+n_case)/100), colour='#84CA72', hjust=0, size=6) +
-            geom_text(label=paste0(n_case,'% have ',trait), mapping=aes(x=1.5, y=((n_case/2))/100), colour='#0066CC', hjust=0, size=6) +
-            ylim(-0.1,1.05) +
-            theme_half_open() +
-            labs(title='Of people with your genetics,') +
-            xlim(0.25,2.5) +
-            theme(axis.line=element_blank(),axis.text.x=element_blank(),
-                  axis.text.y=element_blank(),axis.ticks=element_blank(),
-                  axis.title.x=element_blank(),
-                  axis.title.y=element_blank(),
-                  panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
-                  panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
-        
-        person_plot<-
-            ggplot(plot_dat, aes(x=Var1, y=Var2, colour=value)) +
-            geom_point(mapping=aes(x=Var1, y=Var2, colour=value), size=4) +
-            geom_point(mapping=aes(x=Var1, y=Var2-0.4, colour=value), size=7) +
-            scale_colour_manual(values=c("#84CA72","#0066CC")) +
-            geom_text(label=paste0(n_case,"% have ",trait), mapping=aes(x=12, y=((n_case/2))/10), colour='#0066CC', hjust=0, size=6) +
-            geom_text(label=paste0(100-n_case,"% don't have ",trait), mapping=aes(x=12, y=(((100-n_case)/2)+n_case)/10), colour='#84CA72', hjust=0, size=6) +
-            xlim(0.5,20) +
-            theme_half_open() +
-            labs(title='Of people with your genetics,') +
-            theme(axis.line=element_blank(),axis.text.x=element_blank(),
-                  axis.text.y=element_blank(),axis.ticks=element_blank(),
-                  axis.title.x=element_blank(),
-                  axis.title.y=element_blank(),
-                  panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
-                  panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
-        
-        
-        plot_grid(prs_dist, bar_chart, person_plot, ncol = 1)
-        
-    })
-}
-
-# Run the application 
-shinyApp(ui = ui, server = server,options = list(height = 1200))
-
-```
+<iframe height="1200" width="100%" frameborder="no" src="https://opain.shinyapps.io/risk_visualiser/"> </iframe>
 
 ***
 
 ## Quantitative outcomes
 
-***
-
-### Example shiny app
-
-```{R, echo=F}
-
-library(shiny)
-library(ggplot2)
-library(cowplot)
-
-# Create function
-PRS_abs_quant2<-function(n=100000, PRS_R2=0.3, Outcome_mean=1, Outcome_sd=1, n_quantile=20, seed=1){
-    
-    # Simulate height and prs relationship
-    set.seed(seed)
-    
-    Outcome<-rnorm(n, Outcome_mean, Outcome_sd)
-    PRS <- as.numeric(scale(Outcome + rnorm(n,mean=0, sd=sqrt(var(Outcome)*(1-PRS_R2)/(PRS_R2)))))
-    
-    sim_dat<-data.frame(y=Outcome, x=PRS)
-    
-    # Calculate simulated R2
-    cor(sim_dat$x, sim_dat$y)^2
-    
-    # Split individuals into quantiles
-    by_quant<-1/n_quantile
-    perc<-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
-    sim_dat<-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5), include.lowest=TRUE))
-    
-    # Calculate mean and sd of individuals within in each quantile
-    outcome_per_bin<-NULL
-    for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
-        PRS_bin_temp<-sim_dat$y[which(as.numeric(sim_dat$quantile) == i)]
-        temp<-data.frame(q=i, 
-                         q_min=as.numeric(gsub(',.*','',gsub("\\[",'',gsub("\\(",'',levels(sim_dat$quantile)[i])))), 
-                         q_max=as.numeric(gsub("\\]",'',gsub(".*,",'',levels(sim_dat$quantile)[i]))), 
-                         x_mean=mean(PRS_bin_temp),
-                         x_sd=sd(PRS_bin_temp)) 
-        
-        outcome_per_bin<-rbind(outcome_per_bin,temp)
-    }
-    
-    outcome_per_bin$q_min[1]<--Inf
-    outcome_per_bin$q_max[length(outcome_per_bin$q_max)]<-Inf
-    
-    outcome_per_bin
-}
-
-# Define UI for application
-ui <- fluidPage(
-    
-    # Application title
-    titlePanel("Polygenic Score"),
-    
-    # Sidebar with a slider input for PRS z-score
-    sidebarLayout(
-        sidebarPanel(
-            sliderInput("z_score",
-                        "Polygenic Z-score:",
-                        min = -4,
-                        max = 4,
-                        value = 0,
-                        step=0.01),
-
-            sliderInput("r2",
-                        "Variance explained by polygenic score (%):",
-                        min = 0.1,
-                        max = 99.9,
-                        value = 35,
-                        step=0.1),
-            
-            numericInput("pop_mean", label = "Population mean of trait:", value = 175),
-
-            numericInput("pop_sd", label = "Population standard deviation of trait:", value = 7),
-            
-            sliderInput("ci",
-                        "Prediction confidence interval (%):",
-                        min = 50,
-                        max = 100,
-                        value = 95,
-                        step=0.1)
-            
-        ),
-        
-        # Show plot
-        mainPanel(
-            plotOutput("Plot", height = "600px", width = "500px")
-        )
-    )
-)
-
-# Define server logic required to draw a histogram
-server <- function(input, output) {
-    
-    output$Plot <- renderPlot({
-        # Define parameters
-        trait<-'trait'
-        PRS_z_score<-input$z_score
-        PRS_R2=input$r2/100
-        Outcome_mean=input$pop_mean
-        Outcome_sd=input$pop_sd
-        conf_int=input$ci/100
-
-        # Run analysis
-        risk_quantiles<-PRS_abs_quant2(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n=100000, n_quantile=100)
-        indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
-        
-        ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-        ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
-                             y=ref,
-                             Group='General public')
-        
-        indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-        indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
-                               y=indiv,
-                               Group='People like you')
-        
-        plot_dat<-rbind(ref_plot, indiv_plot)
-        plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
-        
-        # Calculate 95CI for target individual
-        lowCI<-qnorm(1-conf_int,indiv_result_all$x_mean,indiv_result_all$x_sd)
-        highCI<-qnorm(conf_int,indiv_result_all$x_mean,indiv_result_all$x_sd)
-        
-        prs_dist<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
-            stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) +
-            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
-                          geom = "area", fill = "#84CA72", alpha = .4) +
-            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
-                          geom = "area", fill = "#0066CC", alpha = .4) +
-            geom_vline(xintercept=PRS_z_score, linetype='dashed') +
-            geom_text(label=paste0(round(pnorm(PRS_z_score)*100),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#84CA72', hjust='right', vjust=0.8, size=5) +
-            geom_text(label=paste0(100-round(pnorm(PRS_z_score)*100),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#0066CC', hjust='left', vjust=0.8, size=5) +
-            scale_y_continuous(breaks = NULL) +
-            theme_half_open() +
-            xlim(-5,5) +
-            labs(y='Number of people', x='Polygenic Score', title='Distribution of polygenic scores') +
-            theme(plot.title = element_text(hjust = 0.5))
-        
-        abs_dist<-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
-            geom_area(alpha=0.4, colour='black') +
-            scale_fill_manual(values=c("#84CA72","#0066CC")) +
-            labs(y='Number of people', x='Trait', title='You compared to general population') +
-            geom_segment(aes(x = indiv_result_all$x_mean , y = 0, xend = indiv_result_all$x_mean, yend = 0.4), color="black") +
-            geom_segment(aes(x = lowCI , y = 0, xend = lowCI, yend = 0.38), color="#0066CC", linetype="dashed") +
-            geom_segment(aes(x = highCI , y = 0, xend = highCI, yend = 0.38), color="#0066CC", linetype="dashed") +
-            geom_text(label=paste0('Estimate = ',round(indiv_result_all$x_mean,1)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='black', hjust='left', vjust=0.8, size=5, check_overlap = TRUE) +
-            geom_text(label=paste0(conf_int*100,'% CI = ',round(lowCI,1),'-',round(highCI,1)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='#0066CC', hjust='left', vjust=2.5, size=5, check_overlap = TRUE) +
-            scale_y_continuous(breaks = NULL) +
-            theme_half_open() +
-            theme(plot.title = element_text(hjust = 0.5))
-        
-        plot_grid(prs_dist, abs_dist, ncol = 1)
-        
-    })
-}
-
-# Run the application 
-shinyApp(ui = ui, server = server,options = list(height = 800))
-
-```
+<iframe height="800" width="100%" frameborder="no" src="https://opain.shinyapps.io/trait_visualiser/"> </iframe>
 
 ***
 

@@ -11,7 +11,7 @@
 
 
 
-<title>Converting Polygenic Scores into Estimates of Absolute Risk</title>
+<title>Improving communication of polygenic scores</title>
 
 <script src="site_libs/jquery-1.11.3/jquery.min.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -367,7 +367,7 @@ div.tocify {
 
 
 
-<h1 class="title toc-ignore">Converting Polygenic Scores into Estimates of Absolute Risk</h1>
+<h1 class="title toc-ignore">Improving communication of polygenic scores</h1>
 
 </div>
 
@@ -387,15 +387,140 @@ pre code, pre, code {
 </style>
 <p><br/></p>
 <hr />
-<p>This page is a sandbox for validating summary statistic based approaches for presenting polygenic scores results to the individual, as is done on the Impute.Me website. First, a polygenic scores for UK Biobank phenotypes are derived and evaluated, using a 10-fold cross validation procedure to avoid sample overlap. Then we experiment with methods for estimating the AUC or R2 of a polygenic score from summary statistics only. Then we compare predicted and observed estimates of absolute risk for binary outcomes and absolute quantitative trait prediction. If this, approach is deemed valid, it will provide a way of interpreting an individuals polygenic score, whilst considering the distribution of the outcome, and the predictive utility of the polygenic score. This will help to avoid misinterpretation of polygenic scores.</p>
-<p>Thank you Alex Gillett for writing function for estimating proportion of cases within PRS quantiles.</p>
+<p>This page describes a project investigatin approaches for converting polygenic scores into interpretable information.</p>
+<p>Aims:</p>
+<ul>
+<li>Develop scalable method for converting polygenic Z-scores into absolute estimates</li>
+<li>Develop figures to represent absolute risk</li>
+</ul>
 <hr />
-<div id="section-create-training-and-test-sample-for-several-phenotypes-in-ukb" class="section level1">
-<h1><span class="header-section-number">1</span> Create training and test sample for several phenotypes in UKB</h1>
+<div id="section-converting-polygenic-z-scores-to-absolute-estimates" class="section level1">
+<h1><span class="header-section-number">1</span> Converting polygenic Z-scores to absolute estimates</h1>
+<p>To enable correct intepretation of a polygenic score, the variance explained by the polygenic score must be considered. Furthermore, for binary outcomes the population prevelance must be considered, and for continuous outcomes the population mean and SD must be considered. It is possible to convert relative genetic risk into absolute esimates of an outcome when observed data is available, as 23andMe do, by splitting participants into genetic risk quantiles, and then estimating the mean outcome within each quantile. Here, we use an alternative approach based on summary statistics only alone.</p>
+<hr />
+<div id="section-describe-conversion" class="section level2">
+<h2><span class="header-section-number">1.1</span> Describe conversion</h2>
+<hr />
+<div id="section-binary-outcomes" class="section level3">
+<h3><span class="header-section-number">1.1.1</span> Binary outcomes</h3>
+<p>To convert a polygenic Z-score into an absolute estimate of risk, we must know the predicitve utility of the polygenic score (AUC), and the prevelance of the outcome in the general population. Then it is possible to estimate the proportion of cases within each polygenic score quantile using bivariate-normal distribution.</p>
+<details>
+<p><summary>Show code</summary></p>
+<pre class="r"><code># Thank you for Alex Gillet for her work developing this code.
+ccprobs.f &lt;- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
+  
+    # Convert AUC into cohen&#39;s d
+    d &lt;- sqrt(2)*qnorm(PRS_auc)
+    
+    # Set mean difference between cases and control polygenic scores
+    mu_case &lt;- d
+    mu_control &lt;- 0
+    
+    # Estimate mean and variance of polygenic scores across case and control
+    varPRS &lt;- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
+    E_PRS &lt;- d*prev
+    
+    # Estimate polygenic score quantiles
+    by_quant&lt;-1/n_quantile
+    p_quant &lt;- seq(by_quant, 1-by_quant, by=by_quant)
+    quant_vals_PRS &lt;- rep(0, length(p_quant))
+    quant_f_solve &lt;- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
+    for(i in 1:length(p_quant)){
+        quant_vals_PRS[i] &lt;- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = &quot;yes&quot;, tol=6e-12)$root)
+    }
+    
+    # Create a table for output
+    ul_qv_PRS &lt;- matrix(0, ncol=2, nrow=n_quantile)
+    ul_qv_PRS[1,1] &lt;- -Inf
+    ul_qv_PRS[2:n_quantile,1] &lt;- quant_vals_PRS
+    ul_qv_PRS[1:(n_quantile-1),2] &lt;- quant_vals_PRS
+    ul_qv_PRS[n_quantile,2] &lt;- Inf
+    
+    ul_qv_PRS&lt;-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
+    
+    # Estimate case control proportion for each quantile
+    prob_quantile_case &lt;- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
+    prob_quantile_control &lt;- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
+    p_case_quantile &lt;- (prob_quantile_case*prev)/by_quant
+    p_cont_quantile &lt;- (prob_quantile_control*(1-prev))/by_quant
+    
+    # Estimate OR comparing each quantile to bottom quantile
+    OR &lt;- p_case_quantile/p_cont_quantile
+    OR &lt;- OR/OR[1]
+    
+    # Return output
+    out &lt;- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
+    row.names(out) &lt;- 1:n_quantile
+    colnames(out) &lt;- c(&quot;q_min&quot;, &quot;q_max&quot;,&quot;p_control&quot;, &quot;p_case&quot;, &quot;OR&quot;)
+    
+    data.frame(out)
+}</code></pre>
+</details>
+<hr />
+</div>
+<div id="section-continuous-outcomes" class="section level3">
+<h3><span class="header-section-number">1.1.2</span> Continuous outcomes</h3>
+<p>To convert a polygenic Z-score into an absolute estimate for a trait, we must know the predicitve utility of the polygenic score (R2), and the mean and SD of the outcome in the general population. Then it is possible to estimate the mean and SD of the trait within each polygenic score quantile using a truncated norm model (currently not theory based).</p>
+<details>
+<p><summary>Show code</summary></p>
+<pre class="r"><code># Thank you for Alex Gillet for her work developing this code.
+PRS_abs_quant2&lt;-function(n=100000, PRS_R2=0.3, Outcome_mean=1, Outcome_sd=1, n_quantile=20, seed=1){
+    
+    # Simulate height and prs relationship
+    set.seed(seed)
+    
+    Outcome&lt;-rnorm(n, Outcome_mean, Outcome_sd)
+    PRS &lt;- as.numeric(scale(Outcome + rnorm(n,mean=0, sd=sqrt(var(Outcome)*(1-PRS_R2)/(PRS_R2)))))
+    
+    sim_dat&lt;-data.frame(y=Outcome, x=PRS)
+    
+    # Calculate simulated R2
+    cor(sim_dat$x, sim_dat$y)^2
+    
+    # Split individuals into quantiles
+    by_quant&lt;-1/n_quantile
+    perc&lt;-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
+    sim_dat&lt;-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5), include.lowest=TRUE))
+    
+    # Calculate mean and sd of individuals within in each quantile
+    outcome_per_bin&lt;-NULL
+    for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
+        PRS_bin_temp&lt;-sim_dat$y[which(as.numeric(sim_dat$quantile) == i)]
+        temp&lt;-data.frame(q=i, 
+                         q_min=as.numeric(gsub(&#39;,.*&#39;,&#39;&#39;,gsub(&quot;\\[&quot;,&#39;&#39;,gsub(&quot;\\(&quot;,&#39;&#39;,levels(sim_dat$quantile)[i])))), 
+                         q_max=as.numeric(gsub(&quot;\\]&quot;,&#39;&#39;,gsub(&quot;.*,&quot;,&#39;&#39;,levels(sim_dat$quantile)[i]))), 
+                         x_mean=mean(PRS_bin_temp),
+                         x_sd=sd(PRS_bin_temp)) 
+        
+        outcome_per_bin&lt;-rbind(outcome_per_bin,temp)
+    }
+    
+    outcome_per_bin$q_min[1]&lt;--Inf
+    outcome_per_bin$q_max[length(outcome_per_bin$q_max)]&lt;-Inf
+    
+    outcome_per_bin
+}</code></pre>
+</details>
+<hr />
+<p>Both these conversions require estimates of variance explained by the polygenic score. However, this information is often not known for a given polygenic score so approaches to estimate the variance explained by a polygenic scores using summary statistics is required.</p>
+<hr />
+</div>
+</div>
+<div id="section-validate-method-for-estimating-polygenic-score-variance-explained" class="section level2">
+<h2><span class="header-section-number">1.2</span> Validate method for estimating polygenic score variance explained</h2>
+<p>Here we will use an approach using LD-score regression to estimate the SNP-based heritability of the GWAS phenotype, and subsequent use of AVENGEME to estimate the variance explained by the polygenic score given the heritability of the phenotype and the sample size of the GWAS.</p>
+<p>We validate this method by comparison to observed variance explained measurements in UK Biobank. We use two approaches to generate the polygenic scores:</p>
+<ul>
+<li><p>Using a 10-fold cross-validation GWAS-polygenic scoring procedure to avoid overfitting. This approach ensure the genetic correlation between training and target samples is 1.</p></li>
+<li><p>Using external GWAS summary statistics to generate polygenic scores. This approach is more realistic.</p></li>
+</ul>
+<hr />
+<div id="section-cross-validation-approach" class="section level3">
+<h3><span class="header-section-number">1.2.1</span> Cross-validation approach</h3>
 <p>Use the same phenotypes as other GenoPred projects. To maximise power, lets use a 10-fold cross validation procedure, whereby we split the cases and controls for each outcome into 10 parts, then perform a GWAS within each fold. Then we create GWAS sumstats using 9 of 10 subsets, and calculate polygenic scores from the results for the remaining part of the sample. I have already written code for a similar process when playing with the BWAS project.</p>
 <hr />
-<div id="section-split-ukb-into-10-roughly-equal-parts" class="section level2">
-<h2><span class="header-section-number">1.1</span> Split UKB into 10 roughly equal parts</h2>
+<div id="section-split-ukb-into-10-roughly-equal-parts" class="section level4">
+<h4><span class="header-section-number">1.2.1.1</span> Split UKB into 10 roughly equal parts</h4>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code>system(&#39;mkdir -p /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS&#39;)
@@ -417,8 +542,8 @@ for(i in 1:length(subsets)){
 </details>
 <hr />
 </div>
-<div id="section-prepare-covariates-file" class="section level2">
-<h2><span class="header-section-number">1.2</span> Prepare covariates file</h2>
+<div id="section-prepare-covariates-file" class="section level4">
+<h4><span class="header-section-number">1.2.1.2</span> Prepare covariates file</h4>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>
@@ -447,8 +572,8 @@ write.table(covs, &#39;/users/k1806347/brc_scratch/Data/UKBB/Phenotype/ukb18177_
 <p>Note. Running a regression with all covariates does not work due to multicolinearity. It also takes a very long time to run the GWAS. An alternative approach which seems to work well is regressing covariates out in advance, and then using the residuals in a chi-square test.</p>
 <hr />
 </div>
-<div id="section-calculate-phenotype-residuals" class="section level2">
-<h2><span class="header-section-number">1.3</span> Calculate phenotype residuals</h2>
+<div id="section-calculate-phenotype-residuals" class="section level4">
+<h4><span class="header-section-number">1.2.1.3</span> Calculate phenotype residuals</h4>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code>library(data.table)
@@ -524,8 +649,8 @@ for(i in 1:length(pheno)){
 </details>
 <hr />
 </div>
-<div id="section-run-gwas-within-each-subset-for-each-phenotype" class="section level2">
-<h2><span class="header-section-number">1.4</span> Run GWAS within each subset for each phenotype</h2>
+<div id="section-run-gwas-within-each-subset-for-each-phenotype" class="section level4">
+<h4><span class="header-section-number">1.2.1.4</span> Run GWAS within each subset for each phenotype</h4>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>
@@ -554,11 +679,11 @@ done
 </details>
 <hr />
 </div>
-<div id="section-meta-analyse-loo-results" class="section level2">
-<h2><span class="header-section-number">1.5</span> Meta-analyse LOO results</h2>
+<div id="section-meta-analyse-loo-results" class="section level4">
+<h4><span class="header-section-number">1.2.1.5</span> Meta-analyse LOO results</h4>
 <hr />
-<div id="section-prepare-sumstats-for-metal" class="section level3">
-<h3><span class="header-section-number">1.5.1</span> Prepare sumstats for METAL</h3>
+<div id="section-prepare-sumstats-for-metal" class="section level5">
+<h5><span class="header-section-number">1.2.1.5.1</span> Prepare sumstats for METAL</h5>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code># Format results for use in METAL
@@ -591,8 +716,8 @@ for(subset_i in 1:10){
 </details>
 <hr />
 </div>
-<div id="section-run-meta-analysis-leaving-one-subset-out-each-time" class="section level3">
-<h3><span class="header-section-number">1.5.2</span> Run meta-analysis leaving one subset out each time</h3>
+<div id="section-run-meta-analysis-leaving-one-subset-out-each-time" class="section level5">
+<h5><span class="header-section-number">1.2.1.5.2</span> Run meta-analysis leaving one subset out each time</h5>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>
@@ -647,8 +772,8 @@ rm /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/*sh
 <hr />
 </div>
 </div>
-<div id="section-create-a-file-listing-the-sample-size-for-each-variant-and-all-phenotype" class="section level2">
-<h2><span class="header-section-number">1.6</span> Create a file listing the sample size for each variant and all phenotype</h2>
+<div id="section-create-a-file-listing-the-sample-size-for-each-variant-and-all-phenotype" class="section level4">
+<h4><span class="header-section-number">1.2.1.6</span> Create a file listing the sample size for each variant and all phenotype</h4>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code>library(data.table)
@@ -674,12 +799,12 @@ for(pheno_i in pheno[1]){
 </details>
 <hr />
 </div>
-<div id="section-polygenic-scoring" class="section level2">
-<h2><span class="header-section-number">1.7</span> Polygenic scoring</h2>
+<div id="section-polygenic-scoring" class="section level4">
+<h4><span class="header-section-number">1.2.1.7</span> Polygenic scoring</h4>
 <p>Now we calculate polygenic scores for these phenotypes in UK Biobank, using the independent summary statistics. Lets use the standard PRScs method (best) and pT+clump method (traditional).</p>
 <hr />
-<div id="section-format-the-loo-meta-analysis-and-full-meta-analysis-results-for-polygenic-scoring" class="section level3">
-<h3><span class="header-section-number">1.7.1</span> Format the LOO-meta-analysis and full meta-analysis results for polygenic scoring</h3>
+<div id="section-format-the-loo-meta-analysis-and-full-meta-analysis-results-for-polygenic-scoring" class="section level5">
+<h5><span class="header-section-number">1.2.1.7.1</span> Format the LOO-meta-analysis and full meta-analysis results for polygenic scoring</h5>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code>library(data.table)
@@ -709,8 +834,8 @@ for(subset_i in 1:10){
 </details>
 <hr />
 </div>
-<div id="section-compress-the-sumstats" class="section level3">
-<h3><span class="header-section-number">1.7.2</span> Compress the sumstats</h3>
+<div id="section-compress-the-sumstats" class="section level5">
+<h5><span class="header-section-number">1.2.1.7.2</span> Compress the sumstats</h5>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>for pheno in $(echo Intelligence); do
@@ -721,11 +846,11 @@ done</code></pre>
 </details>
 <hr />
 </div>
-<div id="section-prscs" class="section level3">
-<h3><span class="header-section-number">1.7.3</span> PRScs</h3>
+<div id="section-prscs" class="section level5">
+<h5><span class="header-section-number">1.2.1.7.3</span> PRScs</h5>
 <hr />
-<div id="section-run-prscs" class="section level4">
-<h4><span class="header-section-number">1.7.3.1</span> Run PRScs</h4>
+<div id="section-run-prscs" class="section level6">
+<h6><span class="header-section-number">1.2.1.7.3.1</span> Run PRScs</h6>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>
@@ -768,8 +893,8 @@ done
 </details>
 <hr />
 </div>
-<div id="section-evaluate-predictive-utility-of-prs" class="section level4">
-<h4><span class="header-section-number">1.7.3.2</span> Evaluate predictive utility of PRS</h4>
+<div id="section-evaluate-predictive-utility-of-prs" class="section level6">
+<h6><span class="header-section-number">1.2.1.7.3.2</span> Evaluate predictive utility of PRS</h6>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code># Combine the polygenic scores for each subset
@@ -906,11 +1031,11 @@ write.csv(pheno_res, &#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/
 <hr />
 </div>
 </div>
-<div id="section-ptclump" class="section level3">
-<h3><span class="header-section-number">1.7.4</span> pT+clump</h3>
+<div id="section-ptclump" class="section level5">
+<h5><span class="header-section-number">1.2.1.7.4</span> pT+clump</h5>
 <hr />
-<div id="section-run-ptclump" class="section level4">
-<h4><span class="header-section-number">1.7.4.1</span> Run pT+clump</h4>
+<div id="section-run-ptclump" class="section level6">
+<h6><span class="header-section-number">1.2.1.7.4.1</span> Run pT+clump</h6>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>for pheno in $(echo Intelligence); do
@@ -947,8 +1072,8 @@ done</code></pre>
 </details>
 <hr />
 </div>
-<div id="section-evaluate-predictive-utility-of-prs-1" class="section level4">
-<h4><span class="header-section-number">1.7.4.2</span> Evaluate predictive utility of PRS</h4>
+<div id="section-evaluate-predictive-utility-of-prs-1" class="section level6">
+<h6><span class="header-section-number">1.2.1.7.4.2</span> Evaluate predictive utility of PRS</h6>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code># Combine the polygenic scores for each subset
@@ -1100,181 +1225,22 @@ write.csv(pheno_res,paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/Validation
 }
 </code></pre>
 </details>
-<p><br/></p>
 <hr />
 </div>
 </div>
 </div>
 </div>
-<div id="section-compare-prs-auc-values-to-those-derived-using-g-wiz" class="section level1">
-<h1><span class="header-section-number">2</span> Compare PRS AUC values to those derived using G-WIZ</h1>
-<p>We will calculate the AUC using GWIZ using the leave one out meta-analysis summary statistics, and then average the AUC results. This will hopefully tell us how much variance GWAS expects the LOO sumstats to explain in the left out subset.</p>
-<hr />
-<div id="section-compute-allele-frequencies" class="section level2">
-<h2><span class="header-section-number">2.1</span> Compute allele frequencies</h2>
-<details>
-<p><summary>Show code</summary></p>
-<pre class="bash"><code>for chr in $(seq 1 22); do
-    sbatch -p brc,shared --mem 5G -t 00:10:00 /users/k1806347/brc_scratch/Software/plink1.9.sh \
-      --bfile /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
-      --keep /users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
-      --maf 0.01 \
-      --geno 0.05 \
-      --freq \
-      --allow-no-sex \
-      --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/allele_freq_chr${chr}
-done
-</code></pre>
-</details>
-<hr />
-</div>
-<div id="section-format-gwas-summary-statistics" class="section level2">
-<h2><span class="header-section-number">2.2</span> Format GWAS summary statistics</h2>
-<details>
-<p><summary>Show code</summary></p>
-<pre class="r"><code>library(data.table)
-
-pheno&lt;-c(&#39;Depression&#39;,&#39;Intelligence&#39;,&#39;BMI&#39;,&#39;Height&#39;,&#39;T2D&#39;,&#39;CAD&#39;,&#39;IBD&#39;,&#39;MultiScler&#39;,&#39;RheuArth&#39;)
-pheno_file&lt;-c(&#39;ever_depressed_pheno_final.UpdateIDs.txt&#39;,&#39;UKBB_Fluid.intelligence.score.UpdateIDs.pheno&#39;,&#39;UKBB_BMI.score.UpdateIDs.pheno&#39;,&#39;UKBB_Height.score.UpdateIDs.pheno&#39;,&#39;t2d_only_111119.UpdateIDs.txt&#39;,&#39;cad_only_111119.UpdateIDs.txt&#39;,&#39;UKBB.IBD.txt&#39;,&#39;UKBB.MultiScler.txt&#39;,&#39;UKBB.RheuArth.txt&#39;)
-
-# Read in covariate data
-geno_covar&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/UKBB/Phenotype/ukb18177_glanville_covariates.UpdateIDs.txt&#39;)
-sex&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Sex.pheno&#39;)
-age&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Age.pheno&#39;)
-
-covs&lt;-Reduce(function(...) merge(..., all=F, by=c(&#39;FID&#39;,&#39;IID&#39;)), list(geno_covar, sex, age))
-
-# Convert catagorical variables into factors so they are dummy coded in the regression
-covs$batch&lt;-factor(covs$batch)
-covs$assessment_centre&lt;-factor(covs$assessment_centre)
-
-# Read in list of individuals passing QC
-QC&lt;-fread(&#39;/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam&#39;)
-names(QC)&lt;-c(&#39;FID&#39;,&#39;IID&#39;)
-
-# Merge all data
-covs&lt;-Reduce(function(...) merge(..., all=F, by=c(&#39;FID&#39;,&#39;IID&#39;)), list(covs, QC))
-
-# Read in allele frequency per variant
-freq&lt;-NULL
-for(chr in 1:22){
-  freq&lt;-rbind(freq, fread(paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/allele_freq_chr&#39;,chr,&#39;.frq&#39;)))
-}
-
-freq$A1&lt;-tolower(freq$A1)
-freq$A2&lt;-tolower(freq$A2)
-
-for(i in c(5)){
-  # Read in pheno file to determine number of cases and controls
-  pheno_i&lt;-fread(paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/Phenotype/&#39;,pheno[i],&#39;/&#39;,pheno_file[i]))
-  names(pheno_i)[3]&lt;-&#39;pheno&#39;
-  
-  # Merge pheno and covar data
-  pheno_i_covs&lt;-merge(pheno_i, covs, by=c(&#39;FID&#39;,&#39;IID&#39;), all=T)
-  pheno_i_covs&lt;-pheno_i_covs[complete.cases(pheno_i_covs),]
-  
-  # Identify proportion of cases and controls which can be used to estimate the number of cases and controls in each LOO meta-analysis.
-  sample_prev&lt;-mean(pheno_i_covs$pheno)
-  
-  for(subset_i in 1:10){
-    # Read in meta-analysis GWAS sumstats
-    gwas&lt;-fread(paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_&#39;,subset_i,&#39;_&#39;,pheno[i],&#39;1.tbl&#39;))
-    names(gwas)&lt;-c(&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;,&#39;BETA&#39;,&#39;SE&#39;,&#39;P&#39;,&#39;Direction&#39;)
-    gwas$OR&lt;-exp(gwas$BETA)
-    gwas$phenotype&lt;-&#39;n/a&#39;
-    gwas$dataset&lt;-&#39;n/a&#39;
-    gwas$model&lt;-&#39;additive&#39;
-    
-    # Read sample size per variant
-    N_tab&lt;-fread(paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/N_table_&#39;,pheno[i],&#39;.txt&#39;))
-    
-    N_tab$excl_subset&lt;-rowSums(N_tab[,names(N_tab)[!grepl(paste0(&#39;SNP|Subset_&#39;,subset_i,&#39;_N&#39;), names(N_tab))],with=F])
-  
-    N_tab$control_size&lt;-round(N_tab$excl_subset*(1-sample_prev))
-    N_tab$case_size&lt;-round(N_tab$excl_subset*(sample_prev))
-      
-    gwas&lt;-merge(gwas, N_tab[,c(&#39;SNP&#39;,&#39;control_size&#39;,&#39;case_size&#39;), with=F], by=&#39;SNP&#39;)
-    
-    # Merge frequency data
-    gwas_same&lt;-merge(gwas, freq[,c(&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;,&#39;MAF&#39;)], by=c(&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;))
-    gwas_flip&lt;-merge(gwas, freq[,c(&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;,&#39;MAF&#39;)], by.x=c(&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;),by.y=c(&#39;SNP&#39;,&#39;A2&#39;,&#39;A1&#39;))
-    gwas_flip$MAF&lt;-1-gwas_flip$MAF
-    gwas&lt;-rbind(gwas_same, gwas_flip)
-    
-    # OR and MAFs to all be corresponding to the risk allele
-    gwas$MAF[gwas$OR &lt; 1]&lt;-1-gwas$MAF[gwas$OR &lt; 1]
-    names(gwas)[names(gwas) == &#39;MAF&#39;]&lt;-&#39;risk_allele_freq&#39;
-    gwas$OR[gwas$OR &lt; 1]&lt;-exp(-gwas$BETA[gwas$OR &lt; 1])
-    
-    # Extract LD independent variants
-    ld_indep&lt;-NULL
-    for(chr in 1:22){
-      ld_indep&lt;-rbind(ld_indep, fread(paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/pTclump/&#39;,pheno[i],&#39;/excl_Subset_&#39;,subset_i,&#39;/pTclump_excl_Subset_&#39;,subset_i,&#39;_&#39;,pheno[i],&#39;.chr&#39;,chr,&#39;.range_values&#39;)))
-    }
-    
-    ld_indep_sig&lt;-ld_indep
-
-    # Extract variant with p &lt; 1e-8
-    gwas&lt;-gwas[(gwas$SNP %in% ld_indep_sig$V1),]
-
-    gwas&lt;-gwas[,c(&#39;phenotype&#39;,&#39;dataset&#39;,&#39;SNP&#39;,&#39;control_size&#39;,&#39;case_size&#39;,&#39;risk_allele_freq&#39;,&#39;OR&#39;,&#39;model&#39;),with=F]
-    names(gwas)[names(gwas) == &#39;SNP&#39;]&lt;-&#39;accession&#39;
-    
-    gwas$model&lt;-rep(c(&#39;recessive&#39;,&#39;dominant&#39;),dim(gwas)[1])[1:dim(gwas)[1]]
-    
-      fwrite(gwas, paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/metal_excl_Subset_&#39;,subset_i,&#39;_&#39;,pheno[i],&#39;.GWIZ.csv&#39;), sep=&#39;,&#39;, na=&#39;NA&#39;, quote=F)
-  }
-}</code></pre>
-</details>
-<hr />
-</div>
-<div id="section-run-gwiz" class="section level2">
-<h2><span class="header-section-number">2.3</span> Run GWIZ</h2>
-<p>GWIZ is an R script. It needs to modification: - It doesn’t allow input files, software and output to be in different directories - It uses the png function which does’t work on Rosalind - It prints the contents of the GWAS sumstats repeatedly and GWIZ is an Rscript that must be modified to allow for different input and output files. I have the script slightly so all files don’t have be stored in the same directory.</p>
-<details>
-<p><summary>Show code</summary></p>
-<pre class="r"><code>sumstat_dir&lt;-&#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/&#39;
-software_dir&lt;-&#39;/mnt/lustre/users/k1806347/Software/GWIZ-Rscript-master&#39;
-out_dir&lt;-&#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/&#39;
-
-folderPath &lt;- paste0(sumstat_dir,&quot;Data/&quot;)
-filename = &quot;resampled Data&quot;
-resultsfilename = &quot;results Data&quot;
-dir.create(folderPath)
-dir.create(paste0(out_dir,filename))
-dir.create(paste0(out_dir,resultsfilename))
-folderOut &lt;- paste0(out_dir,filename)
-
-setwd(software_dir)
-
-files &lt;- list.files(sumstat_dir)
-files &lt;- files[grep(&quot;.csv&quot;, files)]
-aucout &lt;- matrix(NA, nrow=length(files), ncol=2)
-for (j in 1:1){
-    source(&quot;./modeling/GWAS_functions.0,1,2genotype (attempt 4).R&quot;)
-    genereteBatch(sumstat_dir, folderOut, files[[j]])
-    studies &lt;- dir(paste0(folderOut,&#39;/out&#39;))
-    studies &lt;- studies[grep(&quot;.csv&quot;, studies)]
-    source(&quot;./modeling/_modelingFunctions_lda.R&quot;)
-    batchAnalysis(paste(folderOut, &quot;/out&quot;, sep=&quot;&quot;), resultsfilename, studies[[j]], verbose = FALSE, outerFolds = 3L, outerRep = 2L)#, classifier = &quot;classif.logreg&quot;) 
-    studyname = substring(files[[j]], 1, 13)
-    aucout[j,] &lt;- c(studyname, aucanalysis)
-    colnames(aucout) &lt;- c(&quot;Study&quot;, &quot;Simulated AUC&quot;)
-}
-
-# This code is working for T2D (Subset 1 only: p&lt;1-e4 with AUC=0.5433973. Observed value in UKB is AUC=0.5647935). However, the analysis is very slow when including more relaxed p-value thresholds. I just tried to run using all variants and the session was killed with 10G memory.</code></pre>
-</details>
-<p><br/></p>
-<p><br/></p>
+<div id="section-external-gwas-sumstat-approach" class="section level3">
+<h3><span class="header-section-number">1.2.2</span> External GWAS sumstat approach</h3>
 <hr />
 </div>
 </div>
-<div id="section-compare-prs-auc-values-to-those-derived-using-avengeme-and-ldsc" class="section level1">
-<h1><span class="header-section-number">3</span> Compare PRS AUC values to those derived using AVENGEME and LDSC</h1>
+<div id="section-compare-observed-variance-explained-measurements-to-those-derived-using-avengeme-and-ldsc" class="section level2">
+<h2><span class="header-section-number">1.3</span> Compare observed variance explained measurements to those derived using AVENGEME and LDSC</h2>
 <p>AVENGEME can estimate the R2 you would expect to see from a polygenic scores given an estimate of heritability and sample size. To estimate heritability and polygenicity, we could use GCTB.</p>
 <hr />
-<div id="section-estimate-the-snp-based-heritability-using-ldsc" class="section level2">
-<h2><span class="header-section-number">3.1</span> Estimate the SNP-based heritability using LDSC</h2>
+<div id="section-estimate-the-snp-based-heritability-using-ldsc" class="section level3">
+<h3><span class="header-section-number">1.3.1</span> Estimate the SNP-based heritability using LDSC</h3>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code>dir.create(&#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC&#39;)
@@ -1361,8 +1327,8 @@ write.csv(meta_h2, &#39;/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10
 </details>
 <hr />
 </div>
-<div id="section-estimate-auc-using-avengeme" class="section level2">
-<h2><span class="header-section-number">3.2</span> Estimate AUC using AVENGEME</h2>
+<div id="section-estimate-auc-using-avengeme" class="section level3">
+<h3><span class="header-section-number">1.3.2</span> Estimate AUC using AVENGEME</h3>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code>library(avengeme)
@@ -1540,6 +1506,7 @@ print(ggplot(R2_comp_plot, aes(x=Phenotype, y=R2, colour=Method, group=Method)) 
   labs(title=&quot;AVENGEME vs. observed pT+clump (pT=1)&quot;)
 dev.off()</code></pre>
 </details>
+<hr />
 <details>
 <p><summary>Show predicted and observed AUC values</summary></p>
 <center>
@@ -1562,8 +1529,12 @@ dev.off()</code></pre>
 <hr />
 </div>
 </div>
-<div id="section-compare-observed-and-estimated-absolute-risk-estimates" class="section level1">
-<h1><span class="header-section-number">4</span> Compare observed and estimated absolute risk estimates</h1>
+</div>
+<div id="section-compare-observed-and-estimated-absolute-estimates" class="section level1">
+<h1><span class="header-section-number">2</span> Compare observed and estimated absolute estimates</h1>
+<hr />
+<div id="section-binary-outcomes-1" class="section level2">
+<h2><span class="header-section-number">2.1</span> Binary outcomes</h2>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code>library(data.table)
@@ -1751,8 +1722,8 @@ for(i in c(1,5,6)){
 <p><br/></p>
 <hr />
 </div>
-<div id="section-compare-observed-and-expected-mean-and-sd-of-quantitative-traits-within-expected-quantiles" class="section level1">
-<h1><span class="header-section-number">5</span> Compare observed and expected mean and SD of quantitative traits within expected quantiles</h1>
+<div id="section-continuous-outcomes-1" class="section level2">
+<h2><span class="header-section-number">2.2</span> Continuous outcomes</h2>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="r"><code>library(data.table)
@@ -1969,36 +1940,21 @@ for(i in c(2,3)){
 </details>
 <hr />
 </div>
-<div id="section-plots-for-interpreting-individual-prs" class="section level1">
-<h1><span class="header-section-number">6</span> Plots for interpreting individual PRS</h1>
-<hr />
-<div id="section-binary-outcomes" class="section level2">
-<h2><span class="header-section-number">6.1</span> Binary outcomes</h2>
-<hr />
-<div id="section-example-shiny-app" class="section level3">
-<h3><span class="header-section-number">6.1.1</span> Example shiny app</h3>
-<pre><code>## 
-## Attaching package: &#39;reshape2&#39;</code></pre>
-<pre><code>## The following objects are masked from &#39;package:data.table&#39;:
-## 
-##     dcast, melt</code></pre>
-<pre><code>## 
-## Attaching package: &#39;ggimage&#39;</code></pre>
-<pre><code>## The following object is masked from &#39;package:cowplot&#39;:
-## 
-##     theme_nothing</code></pre>
-<iframe data-deferred-src="appbab1f98e890071e1ff66d4f6541a15c2/?w=&amp;__subapp__=1" width="100%" height="1200" class="shiny-frame shiny-frame-deferred"></iframe>
-<hr />
 </div>
+<div id="section-plots-for-interpreting-individual-polygenic-scores" class="section level1">
+<h1><span class="header-section-number">3</span> Plots for interpreting individual polygenic scores</h1>
+<hr />
+<div id="section-binary-outcomes-2" class="section level2">
+<h2><span class="header-section-number">3.1</span> Binary outcomes</h2>
+<iframe height="1200" width="100%" frameborder="no" src="https://opain.shinyapps.io/risk_visualiser/">
+</iframe>
+<hr />
 </div>
 <div id="section-quantitative-outcomes" class="section level2">
-<h2><span class="header-section-number">6.2</span> Quantitative outcomes</h2>
+<h2><span class="header-section-number">3.2</span> Quantitative outcomes</h2>
+<iframe height="800" width="100%" frameborder="no" src="https://opain.shinyapps.io/trait_visualiser/">
+</iframe>
 <hr />
-<div id="section-example-shiny-app-1" class="section level3">
-<h3><span class="header-section-number">6.2.1</span> Example shiny app</h3>
-<iframe data-deferred-src="app84e6013cc2e53cfc08c57e3800104efb/?w=&amp;__subapp__=1" width="100%" height="800" class="shiny-frame shiny-frame-deferred"></iframe>
-<hr />
-</div>
 </div>
 </div>
 
