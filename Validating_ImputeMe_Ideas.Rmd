@@ -1,6 +1,7 @@
 ---
 title: "Converting Polygenic Scores into Estimates of Absolute Risk"
-output: 
+runtime: shiny
+output:
   html_document:
     toc: true
     theme: united
@@ -1746,269 +1747,183 @@ done
 
 ***
 
-### Example with low AUC
+### Example shiny app
 
-<details><summary>Show code</summary>
-```{R, eval=F, echo=T}
+```{R, echo=F}
 
-# Alex gillet has kindly written a function which calculates the number of cases and controls across PRS quantiles based on the prevelance of the outcome and the AUC of the PRS.
+library(shiny)
+library(ggplot2)
+library(reshape2)
+library(cowplot)
+library(ggimage)
+library(scales)
+library(ggchicklet)
 
-# Write the function here
+# Create function for z-score to absolute risk
 ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
-  d <- sqrt(2)*qnorm(PRS_auc)
-  mu_case <- d
-  mu_control <- 0
-  
-  varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
-  E_PRS <- d*prev
-  
-  by_quant<-1/n_quantile
-  p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
-  quant_vals_PRS <- rep(0, length(p_quant))
-  quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
-  for(i in 1:length(p_quant)){
-    quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
-  }
-  
-  ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
-  ul_qv_PRS[1,1] <- -Inf
-  ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
-  ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
-  ul_qv_PRS[n_quantile,2] <- Inf
-  
-  ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
-
-  prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
-  prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
-  p_case_quantile <- (prob_quantile_case*prev)/by_quant
-  p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
-
-  OR <- p_case_quantile/p_cont_quantile
-  OR <- OR/OR[1]
-  out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
-  row.names(out) <- 1:n_quantile
-  colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
-  
-  data.frame(out)
+    d <- sqrt(2)*qnorm(PRS_auc)
+    mu_case <- d
+    mu_control <- 0
+    
+    varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
+    E_PRS <- d*prev
+    
+    by_quant<-1/n_quantile
+    p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
+    quant_vals_PRS <- rep(0, length(p_quant))
+    quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
+    for(i in 1:length(p_quant)){
+        quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
+    }
+    
+    ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
+    ul_qv_PRS[1,1] <- -Inf
+    ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
+    ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
+    ul_qv_PRS[n_quantile,2] <- Inf
+    
+    ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
+    
+    prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
+    prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
+    p_case_quantile <- (prob_quantile_case*prev)/by_quant
+    p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
+    
+    OR <- p_case_quantile/p_cont_quantile
+    OR <- OR/OR[1]
+    out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
+    row.names(out) <- 1:n_quantile
+    colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
+    
+    data.frame(out)
 }
 
-####
-# Predict the probability an individual is a case
-####
+# Define UI for application
+ui <- fluidPage(
+    
+    # Application title
+    titlePanel("Polygenic Score"),
+    
+    # Sidebar with a slider input for PRS z-score
+    sidebarLayout(
+        sidebarPanel(
+            sliderInput("z_score",
+                        "Polygenic Z-score:",
+                        min = -4,
+                        max = 4,
+                        value = 0,
+                        step=0.01),
+            
+            sliderInput("prev",
+                        "Prevelance (%):",
+                        min = 0.1,
+                        max = 99.9,
+                        value = 50,
+                        step=0.1),
+            
+            br(),
+            
+            sliderInput("auc",
+                        "AUC:",
+                        min = 0.51,
+                        max = 0.99,
+                        value = 0.75,
+                        step=0.01)
+        ),
+        
+        # Show plot
+        mainPanel(
+            plotOutput("Plot", height = "1000px", width = "500px")
+        )
+    )
+)
 
-PRS_z_score<-1.2
-prev=0.03
-AUC=0.58
-
-risk_quantiles<-ccprobs.f(PRS_auc=AUC, prev=prev, n_quantile=100)
-
-indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score < risk_quantiles$q_max,]
-indiv_result<-indiv_result_all[, c('p_case', 'p_control')]
-
-library(reshape2)
-library(ggplot2)
-library(cowplot)
-indiv_result<-melt(indiv_result)
-indiv_result$variable<-c('Case','Control')
-indiv_result$value<-indiv_result$value
-  
-# Shows probability of being a case or a control
-bar_plot<-ggplot(indiv_result, aes(x=variable, y=value*100, fill=variable)) +
-  geom_bar(stat="identity") +
-  ylim(0,NA) +
-  labs(x='', y='Percentage Case/Control', title='Percentage of People Like you with the Outcome') +
-  theme_minimal_hgrid(12)
-
-# Create a grid of dots, some red and some blue
-n_case<-round(indiv_result$value*100)[1]
-n_control<-round(indiv_result$value*100)[2]
-
-plot_dat<-(matrix(c(rep('Control',n_control),rep('Case',n_case)),nrow=10, ncol=10))
-plot_dat<-data.frame(melt(plot_dat))
-plot_dat$image<-'person_symbol.png'
-
-library(ggplot2)
-library(ggimage)
-
-# Plot2
-person_plot<-ggplot(plot_dat, aes(x=Var1, y=Var2, colour=value)) +
-  geom_image(aes(image=image), size=.05) +
-  labs(colour='Status', title=paste0(n_case,'% of people like you have the outcome')) +
-  theme(axis.line=element_blank(),axis.text.x=element_blank(),
-        axis.text.y=element_blank(),axis.ticks=element_blank(),
-        axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5))
-
-# Plot 3
-text_plot<-ggplot(data.frame(x=0,y=0), aes(x=x, y=y)) +
-  xlim(0,5) +
-  geom_text(label=paste('Outcome: T2D
-Prevelance: 0.03
-PRS AUC: 0.58
-
-Your PRS: ', PRS_z_score,'
-Your PRS percentile: ',as.numeric(row.names(indiv_result_all)),'th
-Your absolute risk: ',n_case,'
-
-Out of 100 people like you, ',n_case,' have a diagnosis of T2D'), hjust=0) +
-  theme(axis.line=element_blank(),axis.text.x=element_blank(),
-        axis.text.y=element_blank(),axis.ticks=element_blank(),
-        axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5))
-
-png('Images/Validating_ImputeMe_Ideas/Plotting_binary_outcome.png', res=300, unit='px', width=6000, height=1750)
-plot_grid(text_plot, bar_plot, person_plot, labels = "AUTO", ncol = 3)
-dev.off()
-
-```
-</details>
-
-<details><summary>Show individual risk of outcome</summary>
-
-<center>
-
-![Individual risk plot](Images/Validating_ImputeMe_Ideas/Plotting_binary_outcome.png)
-
-\center
-
-</details>
-
-***
-
-### Example with high AUC
-
-<details><summary>Show code</summary>
-```{R, eval=T, echo=T}
-
-# Alex gillet has kindly written a function which calculates the number of cases and controls across PRS quantiles based on the prevelance of the outcome and the AUC of the PRS.
-
-# Write the function here
-ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
-  d <- sqrt(2)*qnorm(PRS_auc)
-  mu_case <- d
-  mu_control <- 0
-  
-  varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
-  E_PRS <- d*prev
-  
-  by_quant<-1/n_quantile
-  p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
-  quant_vals_PRS <- rep(0, length(p_quant))
-  quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
-  for(i in 1:length(p_quant)){
-    quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
-  }
-  
-  ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
-  ul_qv_PRS[1,1] <- -Inf
-  ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
-  ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
-  ul_qv_PRS[n_quantile,2] <- Inf
-  
-  ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
-
-  prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
-  prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
-  p_case_quantile <- (prob_quantile_case*prev)/by_quant
-  p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
-
-  OR <- p_case_quantile/p_cont_quantile
-  OR <- OR/OR[1]
-  out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
-  row.names(out) <- 1:n_quantile
-  colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
-  
-  data.frame(out)
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+    
+    output$Plot <- renderPlot({
+        # Define parameters
+        trait<-'trait'
+        PRS_z_score<-input$z_score
+        prev<-input$prev/100
+        AUC=input$auc
+        
+        risk_quantiles<-ccprobs.f(PRS_auc=AUC, prev=prev, n_quantile=1000)
+        
+        indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score < risk_quantiles$q_max,]
+        indiv_result<-indiv_result_all[, c('p_case', 'p_control')]
+        
+        indiv_result<-melt(indiv_result)
+        indiv_result$variable<-c('Case','Control')
+        indiv_result$variable<-factor(indiv_result$variable,levels = c('Control','Case'))
+        
+        
+        # Create a grid of dots, some red and some blue
+        n_case<-round(indiv_result$value*100)[1]
+        n_control<-round(indiv_result$value*100)[2]
+        
+        plot_dat<-(matrix(c(rep('Case',n_case),rep('Control',n_control)),nrow=10, ncol=10))
+        plot_dat<-data.frame(melt(plot_dat))
+        plot_dat$value<-factor(plot_dat$value, levels = c('Control','Case'))
+        
+        prs_dist<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
+            stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) + ylab("") +
+            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
+                          geom = "area", fill = "#84CA72", alpha = .4) +
+            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
+                          geom = "area", fill = "#0066CC", alpha = .4) +
+            geom_vline(xintercept=PRS_z_score, linetype='dashed') +
+            geom_text(label=paste0(round(pnorm(PRS_z_score)*100),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#84CA72', hjust='right', vjust=0.8, size=5) +
+            geom_text(label=paste0(100-round(pnorm(PRS_z_score)*100),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#0066CC', hjust='left', vjust=0.8, size=5) +
+            scale_y_continuous(breaks = NULL) +
+            theme_half_open() +
+            xlim(-5,5) +
+            labs(y='Number of people', x='Polygenic Score', title='Distribution of polygenic scores') +
+            theme(plot.title = element_text(hjust = 0.5))
+        
+        bar_chart<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
+            geom_chicklet(radius = grid::unit(1, 'mm'), data=indiv_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
+            scale_fill_manual(values=c("#84CA72","#0066CC")) +
+            geom_text(label=paste0(100-n_case,"% don't have ",trait), mapping=aes(x=1.5, y=((((100-n_case)/2))+n_case)/100), colour='#84CA72', hjust=0, size=6) +
+            geom_text(label=paste0(n_case,'% have ',trait), mapping=aes(x=1.5, y=((n_case/2))/100), colour='#0066CC', hjust=0, size=6) +
+            ylim(-0.1,1.05) +
+            theme_half_open() +
+            labs(title='Of people with your genetics,') +
+            xlim(0.25,2.5) +
+            theme(axis.line=element_blank(),axis.text.x=element_blank(),
+                  axis.text.y=element_blank(),axis.ticks=element_blank(),
+                  axis.title.x=element_blank(),
+                  axis.title.y=element_blank(),
+                  panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+                  panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
+        
+        person_plot<-
+            ggplot(plot_dat, aes(x=Var1, y=Var2, colour=value)) +
+            geom_point(mapping=aes(x=Var1, y=Var2, colour=value), size=4) +
+            geom_point(mapping=aes(x=Var1, y=Var2-0.4, colour=value), size=7) +
+            scale_colour_manual(values=c("#84CA72","#0066CC")) +
+            geom_text(label=paste0(n_case,"% have ",trait), mapping=aes(x=12, y=((n_case/2))/10), colour='#0066CC', hjust=0, size=6) +
+            geom_text(label=paste0(100-n_case,"% don't have ",trait), mapping=aes(x=12, y=(((100-n_case)/2)+n_case)/10), colour='#84CA72', hjust=0, size=6) +
+            xlim(0.5,20) +
+            theme_half_open() +
+            labs(title='Of people with your genetics,') +
+            theme(axis.line=element_blank(),axis.text.x=element_blank(),
+                  axis.text.y=element_blank(),axis.ticks=element_blank(),
+                  axis.title.x=element_blank(),
+                  axis.title.y=element_blank(),
+                  panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+                  panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
+        
+        
+        plot_grid(prs_dist, bar_chart, person_plot, ncol = 1)
+        
+    })
 }
 
-####
-# Predict the probability an individual is a case
-####
-
-PRS_z_score<-1.2
-prev=0.03
-AUC=0.9
-
-risk_quantiles<-ccprobs.f(PRS_auc=AUC, prev=prev, n_quantile=100)
-
-indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score < risk_quantiles$q_max,]
-indiv_result<-indiv_result_all[, c('p_case', 'p_control')]
-
-library(reshape2)
-library(ggplot2)
-library(cowplot)
-indiv_result<-melt(indiv_result)
-indiv_result$variable<-c('Case','Control')
-indiv_result$value<-indiv_result$value
-  
-# Shows probability of being a case or a control
-bar_plot<-ggplot(indiv_result, aes(x=variable, y=value*100, fill=variable)) +
-  geom_bar(stat="identity") +
-  ylim(0,NA) +
-  labs(x='', y='Percentage Case/Control', title='Percentage of People Like you with the Outcome') +
-  theme_minimal_hgrid(12)
-
-# Create a grid of dots, some red and some blue
-n_case<-round(indiv_result$value*100)[1]
-n_control<-round(indiv_result$value*100)[2]
-
-plot_dat<-(matrix(c(rep('Control',n_control),rep('Case',n_case)),nrow=10, ncol=10))
-plot_dat<-data.frame(melt(plot_dat))
-plot_dat$image<-'person_symbol.png'
-
-library(ggplot2)
-library(ggimage)
-
-# Plot2
-person_plot<-ggplot(plot_dat, aes(x=Var1, y=Var2, colour=value)) +
-  geom_image(aes(image=image), size=.05) +
-  labs(colour='Status', title=paste0(n_case,'% of people like you have the outcome')) +
-  theme(axis.line=element_blank(),axis.text.x=element_blank(),
-        axis.text.y=element_blank(),axis.ticks=element_blank(),
-        axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5))
-
-# Plot 3
-text_plot<-ggplot(data.frame(x=0,y=0), aes(x=x, y=y)) +
-  xlim(0,5) +
-  geom_text(label=paste('Outcome: T2D
-Prevelance: 0.03
-PRS AUC: 0.9
-
-Your PRS: ', PRS_z_score,'
-Your PRS percentile: ',as.numeric(row.names(indiv_result_all)),'th
-Your absolute risk: ',n_case,'
-
-Out of 100 people like you, ',n_case,' have a diagnosis of T2D'), hjust=0) +
-  theme(axis.line=element_blank(),axis.text.x=element_blank(),
-        axis.text.y=element_blank(),axis.ticks=element_blank(),
-        axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5))
-
-png('Images/Validating_ImputeMe_Ideas/Plotting_binary_outcome_highAUC.png', res=300, unit='px', width=6000, height=1750)
-plot_grid(text_plot, bar_plot, person_plot, labels = "AUTO", ncol = 3)
-dev.off()
+# Run the application 
+shinyApp(ui = ui, server = server,options = list(height = 1200))
 
 ```
-</details>
-
-<details><summary>Show individual risk of outcome</summary>
-
-<center>
-
-![Individual risk plot](Images/Validating_ImputeMe_Ideas/Plotting_binary_outcome_highAUC.png)
-
-\center
-
-</details>
 
 ***
 
@@ -2016,202 +1931,165 @@ dev.off()
 
 ***
 
-### Example with low R2
+### Example shiny app
 
-<details><summary>Show code</summary>
-```{R, eval=F, echo=T}
-# Create function 
-PRS_abs_quant2<-function(n=10000, PRS_R2=0.3, Outcome_mean=1, Outcome_sd=1, n_quantile=20, seed=1){
+```{R, echo=F}
 
-  # Simulate height and prs relationship
-  set.seed(seed)
-  
-  Outcome<-rnorm(n, Outcome_mean, Outcome_sd)
-  PRS <- as.numeric(scale(Outcome + rnorm(n,mean=0, sd=sqrt(var(Outcome)*(1-PRS_R2)/(PRS_R2)))))
-  
-  sim_dat<-data.frame(y=Outcome, x=PRS)
-  
-  # Calculate simulated R2
-  cor(sim_dat$x, sim_dat$y)^2
-  
-  # Split individuals into quantiles
-  by_quant<-1/n_quantile
-  perc<-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
-  sim_dat<-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5), include.lowest=TRUE))
-  
-  # Calculate mean and sd of individuals within in each quantile
-  outcome_per_bin<-NULL
-  for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
-    PRS_bin_temp<-sim_dat$y[which(as.numeric(sim_dat$quantile) == i)]
-    temp<-data.frame(q=i, 
-                     q_min=as.numeric(gsub(',.*','',gsub("\\[",'',gsub("\\(",'',levels(sim_dat$quantile)[i])))), 
-                     q_max=as.numeric(gsub("\\]",'',gsub(".*,",'',levels(sim_dat$quantile)[i]))), 
-                     x_mean=mean(PRS_bin_temp),
-                     x_sd=sd(PRS_bin_temp)) 
-                     
-    outcome_per_bin<-rbind(outcome_per_bin,temp)
-  }
-  
-  outcome_per_bin$q_min[1]<--Inf
-  outcome_per_bin$q_max[length(outcome_per_bin$q_max)]<-Inf
-  
-  outcome_per_bin
-}
-
-# Create a plot showing an individuals BMI prediction against the UKB sample
-PRS_z_score<--1.7
-Outcome_mean<-27.20312
-Outcome_sd<-4.361187
-PRS_R2<-0.07
-
-risk_quantiles<-PRS_abs_quant2(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n=100000, n_quantile=100)
-indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
-
-ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
-                     y=ref,
-                     Group='General public')
-
-indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
-                     y=indiv,
-                     Group='People like you')
-
-plot_dat<-rbind(ref_plot, indiv_plot)
-plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
-
-# Calculate 95CI for target individual
-lowCI<-qnorm(0.05,indiv_result_all$x_mean,indiv_result_all$x_sd)
-highCI<-qnorm(0.95,indiv_result_all$x_mean,indiv_result_all$x_sd)
-
+library(shiny)
 library(ggplot2)
 library(cowplot)
 
-png('Images/Validating_ImputeMe_Ideas/Plotting_continuous_outcome.png', res=300, unit='px', width=1750, height=1250)
-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
-  geom_area(alpha=0.8) +
-  annotate("text",  x=Inf, y = Inf, label = paste0('Estimate = ',round(indiv_result_all$x_mean,1)), vjust=1, hjust=1) +
-  labs(x='BMI', y='Density', title='Your BMI compared to general population') +
-  geom_vline(aes(xintercept=indiv_result_all$x_mean), size=1) +
-  geom_vline(aes(xintercept=lowCI), color="blue", linetype="dashed", size=1) +
-  geom_vline(aes(xintercept=highCI), color="blue", linetype="dashed", size=1) +
-  annotate("text",  x=Inf, y = Inf, label = paste0('95% CI = ',round(lowCI,1),'-',round(highCI,1)), colour = 'blue', vjust=3, hjust=1) +
-  theme_minimal(12) +
-  theme(plot.title = element_text(hjust = 0.5))
-dev.off()
-
-```
-</details>
-
-
-<details><summary>Show individual prediction of outcome</summary>
-
-<center>
-
-![Individual risk plot](Images/Validating_ImputeMe_Ideas/Plotting_continuous_outcome.png)
-
-\center
-
-</details>
-
-***
-
-### Example with high R2
-
-<details><summary>Show code</summary>
-```{R, eval=T, echo=T}
-# Create function 
-PRS_abs_quant2<-function(n=10000, PRS_R2=0.3, Outcome_mean=1, Outcome_sd=1, n_quantile=20, seed=1){
-
-  # Simulate height and prs relationship
-  set.seed(seed)
-  
-  Outcome<-rnorm(n, Outcome_mean, Outcome_sd)
-  PRS <- as.numeric(scale(Outcome + rnorm(n,mean=0, sd=sqrt(var(Outcome)*(1-PRS_R2)/(PRS_R2)))))
-  
-  sim_dat<-data.frame(y=Outcome, x=PRS)
-  
-  # Calculate simulated R2
-  cor(sim_dat$x, sim_dat$y)^2
-  
-  # Split individuals into quantiles
-  by_quant<-1/n_quantile
-  perc<-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
-  sim_dat<-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5), include.lowest=TRUE))
-  
-  # Calculate mean and sd of individuals within in each quantile
-  outcome_per_bin<-NULL
-  for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
-    PRS_bin_temp<-sim_dat$y[which(as.numeric(sim_dat$quantile) == i)]
-    temp<-data.frame(q=i, 
-                     q_min=as.numeric(gsub(',.*','',gsub("\\[",'',gsub("\\(",'',levels(sim_dat$quantile)[i])))), 
-                     q_max=as.numeric(gsub("\\]",'',gsub(".*,",'',levels(sim_dat$quantile)[i]))), 
-                     x_mean=mean(PRS_bin_temp),
-                     x_sd=sd(PRS_bin_temp)) 
-                     
-    outcome_per_bin<-rbind(outcome_per_bin,temp)
-  }
-  
-  outcome_per_bin$q_min[1]<--Inf
-  outcome_per_bin$q_max[length(outcome_per_bin$q_max)]<-Inf
-  
-  outcome_per_bin
+# Create function
+PRS_abs_quant2<-function(n=100000, PRS_R2=0.3, Outcome_mean=1, Outcome_sd=1, n_quantile=20, seed=1){
+    
+    # Simulate height and prs relationship
+    set.seed(seed)
+    
+    Outcome<-rnorm(n, Outcome_mean, Outcome_sd)
+    PRS <- as.numeric(scale(Outcome + rnorm(n,mean=0, sd=sqrt(var(Outcome)*(1-PRS_R2)/(PRS_R2)))))
+    
+    sim_dat<-data.frame(y=Outcome, x=PRS)
+    
+    # Calculate simulated R2
+    cor(sim_dat$x, sim_dat$y)^2
+    
+    # Split individuals into quantiles
+    by_quant<-1/n_quantile
+    perc<-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
+    sim_dat<-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5), include.lowest=TRUE))
+    
+    # Calculate mean and sd of individuals within in each quantile
+    outcome_per_bin<-NULL
+    for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
+        PRS_bin_temp<-sim_dat$y[which(as.numeric(sim_dat$quantile) == i)]
+        temp<-data.frame(q=i, 
+                         q_min=as.numeric(gsub(',.*','',gsub("\\[",'',gsub("\\(",'',levels(sim_dat$quantile)[i])))), 
+                         q_max=as.numeric(gsub("\\]",'',gsub(".*,",'',levels(sim_dat$quantile)[i]))), 
+                         x_mean=mean(PRS_bin_temp),
+                         x_sd=sd(PRS_bin_temp)) 
+        
+        outcome_per_bin<-rbind(outcome_per_bin,temp)
+    }
+    
+    outcome_per_bin$q_min[1]<--Inf
+    outcome_per_bin$q_max[length(outcome_per_bin$q_max)]<-Inf
+    
+    outcome_per_bin
 }
 
-# Create a plot showing an individuals BMI prediction against the UKB sample
-PRS_z_score<--1.7
-Outcome_mean<-27.20312
-Outcome_sd<-4.361187
-PRS_R2<-0.7
+# Define UI for application
+ui <- fluidPage(
+    
+    # Application title
+    titlePanel("Polygenic Score"),
+    
+    # Sidebar with a slider input for PRS z-score
+    sidebarLayout(
+        sidebarPanel(
+            sliderInput("z_score",
+                        "Polygenic Z-score:",
+                        min = -4,
+                        max = 4,
+                        value = 0,
+                        step=0.01),
 
-risk_quantiles<-PRS_abs_quant2(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n=100000, n_quantile=100)
-indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
+            sliderInput("r2",
+                        "Variance explained by polygenic score (%):",
+                        min = 0.1,
+                        max = 99.9,
+                        value = 35,
+                        step=0.1),
+            
+            numericInput("pop_mean", label = "Population mean of trait:", value = 175),
 
-ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
-                     y=ref,
-                     Group='General public')
+            numericInput("pop_sd", label = "Population standard deviation of trait:", value = 7),
+            
+            sliderInput("ci",
+                        "Prediction confidence interval (%):",
+                        min = 50,
+                        max = 100,
+                        value = 95,
+                        step=0.1)
+            
+        ),
+        
+        # Show plot
+        mainPanel(
+            plotOutput("Plot", height = "600px", width = "500px")
+        )
+    )
+)
 
-indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
-                     y=indiv,
-                     Group='People like you')
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+    
+    output$Plot <- renderPlot({
+        # Define parameters
+        trait<-'trait'
+        PRS_z_score<-input$z_score
+        PRS_R2=input$r2/100
+        Outcome_mean=input$pop_mean
+        Outcome_sd=input$pop_sd
+        conf_int=input$ci/100
 
-plot_dat<-rbind(ref_plot, indiv_plot)
-plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
+        # Run analysis
+        risk_quantiles<-PRS_abs_quant2(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n=100000, n_quantile=100)
+        indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
+        
+        ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
+        ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
+                             y=ref,
+                             Group='General public')
+        
+        indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
+        indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
+                               y=indiv,
+                               Group='People like you')
+        
+        plot_dat<-rbind(ref_plot, indiv_plot)
+        plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
+        
+        # Calculate 95CI for target individual
+        lowCI<-qnorm(1-conf_int,indiv_result_all$x_mean,indiv_result_all$x_sd)
+        highCI<-qnorm(conf_int,indiv_result_all$x_mean,indiv_result_all$x_sd)
+        
+        prs_dist<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
+            stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) +
+            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
+                          geom = "area", fill = "#84CA72", alpha = .4) +
+            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
+                          geom = "area", fill = "#0066CC", alpha = .4) +
+            geom_vline(xintercept=PRS_z_score, linetype='dashed') +
+            geom_text(label=paste0(round(pnorm(PRS_z_score)*100),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#84CA72', hjust='right', vjust=0.8, size=5) +
+            geom_text(label=paste0(100-round(pnorm(PRS_z_score)*100),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#0066CC', hjust='left', vjust=0.8, size=5) +
+            scale_y_continuous(breaks = NULL) +
+            theme_half_open() +
+            xlim(-5,5) +
+            labs(y='Number of people', x='Polygenic Score', title='Distribution of polygenic scores') +
+            theme(plot.title = element_text(hjust = 0.5))
+        
+        abs_dist<-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
+            geom_area(alpha=0.4, colour='black') +
+            scale_fill_manual(values=c("#84CA72","#0066CC")) +
+            labs(y='Number of people', x='Trait', title='You compared to general population') +
+            geom_segment(aes(x = indiv_result_all$x_mean , y = 0, xend = indiv_result_all$x_mean, yend = 0.4), color="black") +
+            geom_segment(aes(x = lowCI , y = 0, xend = lowCI, yend = 0.38), color="#0066CC", linetype="dashed") +
+            geom_segment(aes(x = highCI , y = 0, xend = highCI, yend = 0.38), color="#0066CC", linetype="dashed") +
+            geom_text(label=paste0('Estimate = ',round(indiv_result_all$x_mean,1)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='black', hjust='left', vjust=0.8, size=5, check_overlap = TRUE) +
+            geom_text(label=paste0(conf_int*100,'% CI = ',round(lowCI,1),'-',round(highCI,1)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='#0066CC', hjust='left', vjust=2.5, size=5, check_overlap = TRUE) +
+            scale_y_continuous(breaks = NULL) +
+            theme_half_open() +
+            theme(plot.title = element_text(hjust = 0.5))
+        
+        plot_grid(prs_dist, abs_dist, ncol = 1)
+        
+    })
+}
 
-# Calculate 95CI for target individual
-lowCI<-qnorm(0.05,indiv_result_all$x_mean,indiv_result_all$x_sd)
-highCI<-qnorm(0.95,indiv_result_all$x_mean,indiv_result_all$x_sd)
-
-library(ggplot2)
-library(cowplot)
-
-png('Images/Validating_ImputeMe_Ideas/Plotting_continuous_outcome_highR2.png', res=300, unit='px', width=1750, height=1250)
-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
-  geom_area(alpha=0.8) +
-  annotate("text",  x=Inf, y = Inf, label = paste0('Estimate = ',round(indiv_result_all$x_mean,1)), vjust=1, hjust=1) +
-  labs(x='BMI', y='Density', title='Your BMI compared to general population') +
-  geom_vline(aes(xintercept=indiv_result_all$x_mean), size=1) +
-  geom_vline(aes(xintercept=lowCI), color="blue", linetype="dashed", size=1) +
-  geom_vline(aes(xintercept=highCI), color="blue", linetype="dashed", size=1) +
-  annotate("text",  x=Inf, y = Inf, label = paste0('95% CI = ',round(lowCI,1),'-',round(highCI,1)), colour = 'blue', vjust=3, hjust=1) +
-  theme_minimal(12) +
-  theme(plot.title = element_text(hjust = 0.5))
-dev.off()
+# Run the application 
+shinyApp(ui = ui, server = server,options = list(height = 800))
 
 ```
-</details>
-
-
-<details><summary>Show individual prediction of outcome</summary>
-
-<center>
-
-![Individual risk plot](Images/Validating_ImputeMe_Ideas/Plotting_continuous_outcome_highR2.png)
-
-\center
-
-</details>
 
 ***
+
