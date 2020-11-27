@@ -1362,30 +1362,51 @@ done
 <pre class="bash"><code># Set required variables
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
 
+for pop in $(echo AFR AMR EAS EUR SAS);do
 # Create file listing weights that haven&#39;t been predicted in the reference.
-&gt; ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt
+mkdir ${UKBB_output}/Predicted_expression/FUSION/${pop}
+&gt; ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt
 for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
-if [ ! -f ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz ]; then
-echo $weights &gt;&gt; ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt
+if [ ! -f ${UKBB_output}/Predicted_expression/FUSION/${pop}/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz ]; then
+echo $weights &gt;&gt; ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt
 fi
 done
+done
 
-n=0
-for weights in $(cat ${UKBB_output}/Predicted_expression/FUSION/EUR/todo.txt);do
-qsub -N $(echo Predjob_$(($n+1))) -hold_jid $(echo Predjob_$(($n+0))) -pe smp 5 -l h_vmem=15G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/FUSION_targ_scorer/FUSION_targ_scorer.R \
-  --targ_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
-  --targ_keep ${UKBB_output}/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep \
-  --weights ${FUSION_dir}/SNP-weights/${weights}/${weights}.pos \
-  --plink ${plink1_9} \
+for pop in $(echo AFR AMR EAS EUR SAS);do
+mkdir ${UKBB_output}/Predicted_expression/FUSION/${pop}
+cat &lt;&lt;EOF &gt;${UKBB_output}/Predicted_expression/FUSION/${pop}/todo_array.sh
+#!/bin/bash
+#SBATCH -p shared,brc
+#SBATCH --mem 40G
+#SBATCH -n 5
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+weights=\$(awk -v myvar=\${SLURM_ARRAY_TASK_ID} &#39;NR == myvar {print}&#39; ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt)
+echo \${SLURM_ARRAY_TASK_ID}
+echo \$weights
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/FUSION_targ_scorer/FUSION_targ_scorer.R \
+  --targ_plink_chr \${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --targ_keep \${UKBB_output}/Phenotype/${pop}.QC.UpdateIDs.keep \
+  --weights \${FUSION_dir}/SNP-weights/\${weights}/\${weights}.pos \
+  --plink \${plink1_9} \
   --n_cores 5 \
   --memory 40000 \
-  --score_files ${FUSION_dir}/SCORE_FILES \
-  --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
-  --pigz ${pigz_binary} \
-  --output ${UKBB_output}/Predicted_expression/FUSION/EUR/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights} \
-  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr
-n=$(($n+1))
-done</code></pre>
+  --score_files \${FUSION_dir}/SCORE_FILES \
+  --ref_scale \${Geno_1KG_dir}/Predicted_expression/FUSION/\${weights}/1KGPhase3.w_hm3.FUSION.\${weights}.${pop}.scale \
+  --pigz \${pigz_binary} \
+  --output \${UKBB_output}/Predicted_expression/FUSION/${pop}/\${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.\${weights} \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr
+
+EOF
+done
+
+for pop in $(echo AMR);do
+sbatch --array=1-$(wc -l ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt | cut -d &#39; &#39; -f 1)%5 ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo_array.sh
+done
+</code></pre>
 </details>
 <p><br/></p>
 </div>

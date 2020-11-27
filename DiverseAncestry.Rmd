@@ -54,15 +54,26 @@ Estimate the predictive utility of polygenic scores within each super population
 
 ***
 
+## Defining ancestry and QC
+
+Further information can be found here: https://opain.github.io/UKB-GenoPrep/ 
+
 ## Prepare phenotype files
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
+library(data.table)
+
 # Read list of individuals surviving QC in each population
 # Read in fam to convert row number to application specific ID
 # Row numbers in pheno file cannot be trusted
 fam<-fread('/scratch/groups/ukbiobank/ukb18177_glanville/genotyped/ukb18177_glanville_binary_pre_qc.fam')
 fam$V1<-seq(1:dim(fam)[1])
+
+fam_2<-fread(paste0(UKBB_output,'/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr22.fam'))
+
+fam_merged<-merge(fam, fam_2, by='V2')
 
 keep<-list()
 for(pop in c('EUR','AFR','SAS','EAS','AMR')){
@@ -70,14 +81,16 @@ for(pop in c('EUR','AFR','SAS','EAS','AMR')){
   keep[[pop]]<-merge(keep[[pop]][,1], fam[,1:2], by='V1')
   keep[[pop]]$V1<-keep[[pop]]$V2
   
-  # Save keep file with updated IDs
+  keep_tmp<-fread(paste0('/scratch/groups/ukbiobank/usr/ollie_pain/ReQC/PostQC/UKB.postQC.',pop,'.keep'))
+  keep_tmp<-merge(keep_tmp[,1], fam_merged, by.x='V1', by.y='V1.x')
+  keep_tmp<-keep_tmp[,c('V1.y','V2'),with=F]
+
+    # Save keep file with updated IDs
   write.table(keep[[pop]], paste0(UKBB_output,'/Phenotype/',pop,'.QC.keep'), col.names=F, row.names=F, quote=F)
+  write.table(keep_tmp, paste0(UKBB_output,'/Phenotype/',pop,'.QC.UpdateIDs.keep'), col.names=F, row.names=F, quote=F)
 }
 
 # Read in phenotype data
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
-library(data.table)
-
 pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
 pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
 
@@ -158,7 +171,7 @@ for i in $(seq 1 2);do
   
     sbatch --mem 2G -p brc,shared -J pT_clump /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
       --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
-      --target_keep ${UKBB_output}//DiverseAncestry/Phenotype_subsets/UKB.${pheno_i}.${pop}.QC.keep \
+      --target_keep ${UKBB_output}/DiverseAncestry/Phenotype_subsets/UKB.${pheno_i}.${pop}.QC.keep \
       --ref_score ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas_i}/1KGPhase3.w_hm3.${gwas_i} \
       --ref_scale ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.${pop}.scale \
       --ref_freq_chr ${Geno_1KG_dir}/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr \
@@ -170,6 +183,62 @@ done
 
 ```
 </details>
+
+<details><summary>GeRS</summary>
+```{bash, echo=T, eval=F}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo BMI Height)
+gwas=$(echo BODY03 HEIG03)
+
+# Calculate polygenic scores using 1KG reference
+for pop in $(echo AFR AMR EAS EUR SAS);do
+  mkdir -p ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}
+  > ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/todo.txt
+  for i in $(seq 1 2);do
+    pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+    gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+    
+    for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+      if [ ! -f ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/${weights}/UKBB.w_hm3.EUR.${weights}.${gwas_i}.fiprofile ]; then
+        echo $gwas_i $pheno_i $weights >> ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/todo.txt
+      fi
+    done
+  done
+cat <<EOF >${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/todo_array.sh
+#!/bin/bash
+#SBATCH -p shared,brc
+#SBATCH --mem 10G
+#SBATCH -n 1
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+gwas=\$(awk -v var=\${SLURM_ARRAY_TASK_ID} 'NR == var {print \$1}' ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/todo.txt)
+pheno=\$(awk -v var=\${SLURM_ARRAY_TASK_ID} 'NR == var {print \$2}' ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/todo.txt)
+weights=\$(awk -v var=\${SLURM_ARRAY_TASK_ID} 'NR == var {print \$3}' ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/todo.txt)
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_functionally_informed_risk_scorer/scaled_functionally_informed_risk_scorer.R \
+  --targ_feature_pred ${UKBB_output}/Predicted_expression/FUSION/${pop}/\${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.\${weights}.predictions.gz \
+  --target_keep ${UKBB_output}/DiverseAncestry/Phenotype_subsets/UKB.\${pheno}.${pop}.QC.keep \
+  --ref_score ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/\${gwas}/1KGPhase3.w_hm3.EUR.FUSION.\${gwas}.\${weights}.score \
+  --ref_scale ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/\${gwas}/1KGPhase3.w_hm3.EUR.FUSION.\${gwas}.\${weights}.scale \
+  --pheno_name \${gwas} \
+  --n_cores 1 \
+  --pigz ${pigz_binary} \
+  --output ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/\${weights}/UKBB.w_hm3.EUR.\${weights}.\${gwas}
+
+EOF
+done
+
+for pop in $(echo AMR);do
+sbatch --array=1-$(wc -l ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/todo.txt | cut -d ' ' -f 1)%10 ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/todo_array.sh
+done
+
+```
+</details>
+
+Note. Using colocalised score files might do better across ancestries
 
 ***
 
@@ -230,6 +299,68 @@ done
 ```
 </details>
 
+<details><summary>GeRS + PRS</summary>
+```{bash, echo=T, eval=F}
+##############################
+# Evaluating predictive utility of GeRS and PRS individually and in combination
+##############################
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Make required directories
+for pheno_i in $(echo BMI Height);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRS_and_GeRSs
+done
+
+# Create a file listing the predictors files
+pheno=$(echo BMI Height)
+gwas=$(echo BODY03 HEIG03)
+weights=$(cat ${TWAS_rep}/snp_weight_list.txt)
+
+for i in $(seq 1 2);do
+  for pop in $(echo AFR AMR EAS EUR SAS);do
+    pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+    gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+    
+    echo "predictors group" > /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.${pop}-GeRSs.${pop}-PRSs.pt_clump.predictor_groups
+  
+    for weight in ${weights}; do
+      if [ -f ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/${weight}/UKBB.w_hm3.EUR.${weight}.${gwas_i}.fiprofile ]; then
+        echo ${UKBB_output}/GeRS_for_diversity/1KG_ref/${pop}/${weight}/UKBB.w_hm3.EUR.${weight}.${gwas_i}.fiprofile GeRS >> /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.${pop}-GeRSs.${pop}-PRSs.pt_clump.predictor_groups
+      fi
+    done
+  
+      echo ${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.profiles PRS >> /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.${pop}-GeRSs.${pop}-PRSs.pt_clump.predictor_groups
+  done
+done
+
+# Derive and evaluate models
+pheno=$(echo BMI Height)
+pheno_file=$(echo UKBB_BMI.score.UpdateIDs.pheno UKBB_Height.score.UpdateIDs.pheno)
+gwas=$(echo BODY03 HEIG03)
+prev=$(echo NA NA)
+
+# 1KG reference
+for i in $(seq 1 2);do
+  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  pheno_file_i=$(echo ${pheno_file} | cut -f ${i} -d ' ')
+  gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+  for pop in $(echo AMR);do
+sbatch --mem 10G -n 4 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R \
+    --pheno ${UKBB_output}/Phenotype/${pheno_i}/${pheno_file_i} \
+    --out /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.${pop}-GeRSs.${pop}-PRSs.pt_clump \
+    --n_core 4 \
+    --compare_predictors F \
+    --assoc T \
+    --outcome_pop_prev ${prev_i} \
+    --predictors /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${gwas_i}.${pop}-GeRSs.${pop}-PRSs.pt_clump.predictor_groups
+done
+done
+
+```
+</details>
+
 ***
 
 ## Plot the results
@@ -267,6 +398,7 @@ for(i in 1:length(gwas)){
                             geom_point(stat="identity", position=position_dodge( width=.25)) +
                             geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(.25)) +
                             theme_half_open() +
+                            ylim(0,NA) +
                             theme(axis.text.x = element_text(angle = 55, vjust = 1, hjust=1), plot.title = element_text(hjust = 0.4, size=12)) +
                             background_grid(major = 'y', minor = 'y') +
                             labs(x='pT',y='Predicted-Observed Correlation', title=pheno[i])
@@ -279,9 +411,76 @@ dev.off()
 ```
 </details>
 
-***
+<details><summary>GeRS and pT+clump comparison</summary>
+```{R, echo=T, eval=F}
+pop<-c('AMR','EAS','EUR')
+pheno<-c('BMI','Height')
+gwas<-c('BODY03','HEIG03')
 
-<details><summary>Show pT+clump prediction across populations</summary>
+library(data.table)
+res<-list()
+for(i in 1:length(gwas)){
+  res_pheno<-NULL
+  for(k in 1:length(pop)){
+    tmp<-fread(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.',gwas[i],'.',pop[k],'-GeRSs.',pop[k],'-PRSs.pt_clump.pred_eval.txt'))
+    tmp2<-data.frame( Population=pop[k],
+                      Phenotype=pheno[i],
+                      tmp)
+    
+    res_pheno<-rbind(res_pheno, tmp2)
+  }
+
+  res_pheno$Model<-gsub('_group','',res_pheno$Model)
+  res_pheno$Model<-factor(res_pheno$Model, levels=unique(res_pheno$Model))
+  res[[pheno[i]]]<-res_pheno
+}
+
+library(ggplot2)
+library(cowplot)
+
+plot_list<-NULL
+for(i in 1:length(gwas)){
+  plot_list[[pheno[i]]]<-ggplot(res[[pheno[i]]], aes(x=factor(Model), y=R, colour=Population)) +
+                            geom_point(stat="identity", position=position_dodge( width=.30)) +
+                            geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(.30)) +
+                            theme_half_open() +
+                            theme(axis.text.x = element_text(angle = 55, vjust = 1, hjust=1), plot.title = element_text(hjust = 0.4, size=12)) +
+                            background_grid(major = 'y', minor = 'y') +
+                            labs(x='pT',y="Correlation (SE)", title=pheno[i])
+  
+  if(i != length(gwas)){
+    plot_list[[pheno[i]]]<-plot_list[[pheno[i]]] + theme(legend.position = "none")
+  }
+}
+
+png('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/UKB.Diverse.GeRS_vs_pTclump.png', units='px', res=300, width=1750, height=600)
+  plot_grid(plotlist=plot_list, nrow = 1, rel_widths = c(1.2/3, 1.8/3))
+dev.off()
+
+res_2<-list()
+for(i in 1:length(gwas)){
+  res_2_pheno<-NULL
+  for(k in 1:length(pop)){
+    tmp<-fread(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.',gwas[i],'.',pop[k],'-GeRSs.',pop[k],'-PRSs.pt_clump.pred_comp.txt'))
+    tmp<-tmp[tmp$Model_1 == 'All' & tmp$Model_2 == 'PRS',]
+    tmp2<-data.frame( Population=pop[k],
+                      Phenotype=pheno[i],
+                      tmp)
+    
+    res_2_pheno<-rbind(res_2_pheno, tmp2)
+  }
+
+  res_2_pheno$Model_1<-'GeRS + PRS'
+  res_2_pheno$Model_2<-'PRS only'
+  res_2[[pheno[i]]]<-res_2_pheno
+}
+
+res_2_all<-do.call(rbind, res_2)
+write.csv(res_2_all, '/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/UKB.Diverse.GeRS_vs_pTclump.csv', row.names=F, quote=F)
+```
+</details>
+
+***
 
 ```{bash, eval=T, echo=F}
 mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/
@@ -292,14 +491,34 @@ cp /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_predic
 
 ![pT+clump prediction across populations](Images/UKB.Diverse.pTclump_per_pT.png)
 
-</details>
+
+***
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/
+
+cp /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/UKB.Diverse.GeRS_vs_pTclump.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/
+
+```
+
+![pT+clump prediction across populations](Images/UKB.Diverse.GeRS_vs_pTclump.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/UKB.Diverse.GeRS_vs_pTclump.csv")
+
+res[,c('Model_1_R','Model_2_R','R_diff')]<-round(res[,c('Model_1_R','Model_2_R','R_diff')], 3)
+res$R_diff_pval<-format(res$R_diff_pval, scientific = TRUE, digits = 3)
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between GeRS+PRS model and PRS only model')
+```
 
 ***
 
 To do:
+
 * Run with more phenotypes
 * Run for other PRS methods
-* Run using GeRS method
 * Compare methods that improve portability of EUR GWAS
 
 
