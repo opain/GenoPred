@@ -312,7 +312,7 @@ for(pop in keep_list$pop){
   	n_clust_sol<-NbClust(data = targ_PCs[,-1:-2], distance = "euclidean", min.nc = 2, max.nc = 10, method = 'kmeans', index='all')
   }
   
-  n_clust_opt<-which(as.numeric(table(n_clust_sol$Best.nc[1,])) == max(as.numeric(table(n_clust_sol$Best.nc[1,]))))[1]
+  n_clust_opt<-length(unique(n_clust_sol$Best.partition))
   
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   cat(n_clust_opt, 'centroids was found to fit best.\n')
