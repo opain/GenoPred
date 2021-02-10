@@ -8,8 +8,6 @@ make_option("--ref_plink", action="store", default=NA, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
 make_option("--ref_keep", action="store", default=NA, type='character',
 		help="Keep file to subset individuals in reference for clumping [required]"),
-make_option("--ref_freq_chr", action="store", default=NA, type='character',
-		help="Path to per chromosome reference PLINK .frq files [required]"),
 make_option("--ref_pop_scale", action="store", default=NA, type='character',
 		help="File containing the population code and location of the keep file [required]"),
 make_option("--plink", action="store", default='plink', type='character',
@@ -25,9 +23,15 @@ make_option("--sumstats", action="store", default=NA, type='character',
 make_option("--gcta", action="store", default=NA, type='character',
 		help="Path to GCTA binary [required]"),
 make_option("--ldsc", action="store", default=NA, type='character',
-		help="Path to LD-score regression binary [required]"),
+    help="Path to LD-score regression binary [required]"),
+make_option("--munge_sumstats", action="store", default=NA, type='character',
+    help="Path to munge_sumstats.py script [required]"),
 make_option("--ldsc_ref", action="store", default=NA, type='character',
-		help="Path to LD-score regression reference data 'eur_w_ld_chr' [required]"),
+    help="Path to LD-score regression reference data 'eur_w_ld_chr' [required]"),
+make_option("--hm3_snplist", action="store", default=NA, type='character',
+    help="Path to LDSC HapMap3 snplist [required]"),
+make_option("--test", action="store", default=NA, type='character',
+    help="Specify number of SNPs to include [optional]"),
 make_option("--prune_hla", action="store", default=T, type='logical',
 		help="Retain only top assocaited variant in HLA region [optional]")
 )
@@ -42,6 +46,18 @@ registerDoMC(opt$n_cores)
 tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
+
+CHROMS<-1:22
+
+if(!is.na(opt$test)){
+  if(grepl('chr', opt$test)){
+    single_chr_test<-T
+    CHROMS<-as.numeric(gsub('chr','',opt$test))
+  } else {
+    single_chr_test<-F
+    opt$test<-as.numeric(opt$test)
+  }
+}
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
@@ -58,10 +74,16 @@ cat('Analysis started at',as.character(start.time),'\n')
 sink()
 
 #####
+# Munge_sumstats
+#####
+
+system(paste0(opt$munge_sumstats,' --sumstats ',opt$sumstats,' --merge-alleles ',opt$ldsc_ref,'/w_hm3.snplist --out ', opt$output_dir,'munged_sumstats_temp'))
+
+#####
 # Estimate the SNP-heritability
 #####
 
-system(paste0(opt$ldsc,' --h2 ',opt$sumstats,' --ref-ld-chr ',opt$ldsc_ref,'/ --w-ld-chr ',opt$ldsc_ref,'/ --out ', opt$output_dir,'ldsc_snp_h2_temp'))
+system(paste0(opt$ldsc,' --h2 ',opt$output_dir,'munged_sumstats_temp.sumstats.gz --ref-ld-chr ',opt$ldsc_ref,'/ --w-ld-chr ',opt$ldsc_ref,'/ --out ', opt$output_dir,'ldsc_snp_h2_temp'))
 
 ldsc_log<-read.table(paste0(opt$output_dir,'ldsc_snp_h2_temp.log'), header=F, sep='&')
 ldsc_h2<-ldsc_log[grepl('Total Observed scale h2', ldsc_log$V1),]
@@ -83,77 +105,96 @@ sink()
 
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
 GWAS<-GWAS[complete.cases(GWAS),]
-GWAS$P<-2*pnorm(-abs(GWAS$Z))
+
+# Extract subset if testing
+if(!is.na(opt$test)){
+  if(single_chr_test == F){
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Testing mode enabled. Extracted ',opt$test,' variants per chromsome.\n', sep='')
+    sink()
+    
+    GWAS_test<-NULL
+    for(i in 1:22){
+      GWAS_tmp<-GWAS[GWAS$CHR == i,]
+      GWAS_tmp<-GWAS_tmp[order(GWAS_tmp$BP),]
+      GWAS_tmp<-GWAS_tmp[1:opt$test,]
+      GWAS_test<-rbind(GWAS_test,GWAS_tmp)
+    }
+    
+    GWAS<-GWAS_test
+    GWAS<-GWAS[complete.cases(GWAS),]
+    rm(GWAS_test)
+    print(table(GWAS$CHR))
+    
+  } else {
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Testing mode enabled. Extracted chromosome ',opt$test,' variants per chromsome.\n', sep='')
+    sink()
+    
+    GWAS<-GWAS[GWAS$CHR == CHROMS,]
+    print(table(GWAS$CHR))
+  }
+}
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
 
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='A']<-'W'
-GWAS$IUPAC[GWAS$A1 == 'C' & GWAS$A2 =='G' | GWAS$A1 == 'G' & GWAS$A2 =='C']<-'S'
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='G' | GWAS$A1 == 'G' & GWAS$A2 =='A']<-'R'
-GWAS$IUPAC[GWAS$A1 == 'C' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='C']<-'Y'
-GWAS$IUPAC[GWAS$A1 == 'G' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='G']<-'K'
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='C' | GWAS$A1 == 'C' & GWAS$A2 =='A']<-'M'
-
-# Extract SNPs that match the reference
-bim<-fread(paste0(opt$ref_plink,'.bim'))
-
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='A']<-'W'
-bim$IUPAC[bim$V5 == 'C' & bim$V6 =='G' | bim$V5 == 'G' & bim$V6 =='C']<-'S'
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='G' | bim$V5 == 'G' & bim$V6 =='A']<-'R'
-bim$IUPAC[bim$V5 == 'C' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='C']<-'Y'
-bim$IUPAC[bim$V5 == 'G' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='G']<-'K'
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='C' | bim$V5 == 'C' & bim$V6 =='A']<-'M'
-
-bim_GWAS<-merge(bim,GWAS, by.x='V2', by.y='SNP')
-GWAS_clean<-bim_GWAS[bim_GWAS$IUPAC.x == bim_GWAS$IUPAC.y,]
-
-GWAS_clean<-GWAS_clean[,c('V2','A1','A2','Z','P','N')]
-names(GWAS_clean)<-c('SNP','A1','A2','Z','P','N')
-
-nsnp<-dim(GWAS_clean)[1]
+nsnp<-dim(GWAS)[1]
 
 ###
 # Change to COJO format
 ###
 
-# Insert frq of each variant based on reference data
-freq<-NULL
-for(i in 1:22){
-	freq_tmp<-fread(paste0(opt$ref_freq_chr,i,'.frq'))
-	freq<-rbind(freq, freq_tmp)
+# If OR present, calculate BETA
+if(sum(names(GWAS) == 'OR') == 1){
+  GWAS$BETA<-log(GWAS$OR)
 }
 
-GWAS_clean_frq_match<-merge(GWAS_clean, freq, by=c('SNP','A1','A2'))
-GWAS_clean_frq_switch<-merge(GWAS_clean, freq, by.x=c('SNP','A1','A2'), by.y=c('SNP','A2','A1'))
-GWAS_clean_frq_switch$MAF<-1-GWAS_clean_frq_switch$MAF
-GWAS_clean<-rbind(GWAS_clean_frq_match, GWAS_clean_frq_switch)
-GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','Z','P','N','MAF')]
+# Rename allele frequency column
+if(sum(names(GWAS) == 'FREQ') == 1){
+  GWAS$MAF<-GWAS$FREQ
+} else {
+  GWAS$MAF<-GWAS$REF.FREQ
+}
 
-# Remove invariant SNPs
-GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 0,]
-GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 1,]
+GWAS<-GWAS[,c('SNP','A1','A2','MAF','BETA','SE','P','N'),with=F]
+names(GWAS)<-c('SNP','A1','A2','freq','b','se','p','N')
 
-# Transform Z score to beta and se using formula from https://www.ncbi.nlm.nih.gov/pubmed/27019110
-# Note, we could use full sumstats rather than munged which would contain more accurate beta and se.
-GWAS_clean$beta<-GWAS_clean$Z/sqrt((2*GWAS_clean$MAF)*(1-GWAS_clean$MAF)*(GWAS_clean$N+sqrt(abs(GWAS_clean$Z))))
-GWAS_clean$se<-abs(GWAS_clean$beta)/abs(GWAS_clean$Z)
+fwrite(GWAS, paste0(opt$output_dir,'GWAS_sumstats_COJO.txt'), sep=' ', na = "NA", quote=F)
 
-GWAS_clean<-GWAS_clean[,c('SNP','A1','A2','MAF','beta','se','P','N'),with=F]
-names(GWAS_clean)<-c('SNP','A1','A2','freq','b','se','p','N')
-
-fwrite(GWAS_clean, paste0(opt$output_dir,'GWAS_sumstats_COJO.txt'), sep=' ', na = "NA", quote=F)
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('After harmonisation with the reference,',dim(GWAS_clean)[1],'variants remain.\n')
-sink()
+if(!is.na(opt$test)){
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  test_start.time <- Sys.time()
+  cat('Test started at',as.character(test_start.time),'\n')
+  sink()
+}
 
 #####
 # Run GCTA SBLUP
 #####
 
-system(paste0(opt$gcta,' --bfile ',opt$ref_plink,' --keep ',opt$ref_keep,' --cojo-file ',opt$output_dir,'GWAS_sumstats_COJO.txt --cojo-sblup ',nsnp*(1/ldsc_h2-1),' --cojo-wind 1000 --thread-num ',opt$n_cores,' --out ',opt$output_dir,'GWAS_sumstats_SBLUP'))
+system(paste0(opt$gcta,' --bfile ',opt$ref_plink,' --maf 0.01 --keep ',opt$ref_keep,' --cojo-file ',opt$output_dir,'GWAS_sumstats_COJO.txt --cojo-sblup ',nsnp*(1/ldsc_h2-1),' --cojo-wind 1000 --thread-num ',opt$n_cores,' --out ',opt$output_dir,'GWAS_sumstats_SBLUP'))
+
+if(!is.na(opt$test)){
+  if(!file.exists(paste0(opt$output_dir,'GWAS_sumstats_SBLUP.sblup.cojo'))){
+    q()
+  }
+  
+  end.time <- Sys.time()
+  time.taken <- end.time - test_start.time
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('Test run finished at',as.character(end.time),'\n')
+  cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
+  sink()
+  system(paste0('rm ',opt$output_dir,'ldsc_snp_h2_temp.log'))
+  system(paste0('rm ',opt$output_dir,'munged_sumstats_temp.log'))
+  system(paste0('rm ',opt$output_dir,'munged_sumstats_temp.sumstats.gz'))
+  system(paste0('rm ',opt$output_dir,'GWAS_sumstats_COJO.txt'))
+  system(paste0('rm ',opt$output_dir,'GWAS_sumstats_SBLUP.log'))
+  system(paste0('rm ',opt$output_dir,'GWAS_sumstats_SBLUP.sblup.cojo'))
+  q()
+}
 
 ####
 # Calculate mean and sd of polygenic scores at each threshold
@@ -189,6 +230,8 @@ for(k in 1:dim(pop_keep_files)[1]){
 
 system(paste0('rm ',opt$output_dir,'ref.profiles.*'))
 system(paste0('rm ',opt$output_dir,'ldsc_snp_h2_temp.log'))
+system(paste0('rm ',opt$output_dir,'munged_sumstats_temp.log'))
+system(paste0('rm ',opt$output_dir,'munged_sumstats_temp.sumstats.gz'))
 system(paste0('rm ',opt$output_dir,'GWAS_sumstats_COJO.txt'))
 
 end.time <- Sys.time()
