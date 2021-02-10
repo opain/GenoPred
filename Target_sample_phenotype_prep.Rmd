@@ -46,6 +46,8 @@ Phenotype:
 * Inflammatory Bowel Disorder (IBD)
 * Rheumatoid arthritis (RheumArth)
 * Multiple Slerosis (MultiScler)
+* Prostate Cancer
+* Breast Cancer
 
 Below I provide a description of how each phenotype was derived and some descriptive statistics.
 
@@ -541,6 +543,93 @@ n
 
 <br/>
 
+***
+
+## Prostate and Breast cancer
+
+<details><summary>Preparation of cancer phenotype</summary>
+```{bash, echo=T, eval=F}
+#####
+# Extract Height variable, update IDs and calculate descriptives
+#####
+module add apps/R/3.6.0
+R
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
+
+# Read in the field finder to find the code for the phenotype of interest.
+field_finder<-read.table(paste0(ukbb_pheno_file,'/ukb18177_glanville_field_finder.txt'), stringsAsFactors=F)
+field_finder[grepl('Cancer|cancer', field_finder$V3),]
+# The self reported cancer variable code is f.20001
+# The sex variable code is f.31.0.0
+
+# Identify which column in the phenotype file contains the relevant code
+library(data.table)
+pheno_header<-names(data.frame(fread(cmd=paste0('head -n 1 ',ukbb_pheno_file,'/ukb18177_glanville_phenotypes.txt'))))
+rel_cols<-c(1,which(grepl('f.31.0.0|f.20001',pheno_header)))
+
+# Read in the IID, sex, and cancer columns
+pheno<-data.frame(fread(cmd=paste0('cut -f ',paste(rel_cols,collapse=','),' ',ukbb_pheno_file,'/ukb18177_glanville_phenotypes.txt')))
+names(pheno)[1:2]<-c('IID','sex')
+names(pheno)<-gsub('X..','',names(pheno))
+names(pheno)<-gsub('\\.\\.','',names(pheno))
+
+# Update IDs to match genetic data
+fam<-fread(paste0(UKBB_output,'/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr22.fam'))
+names(fam)[1:2]<-c('FID','IID')
+
+pheno<-merge(fam[,c('FID','IID')],pheno, by=c('IID'))
+
+# Identify individuals with prostate cancer ID '1044' in any column
+prostate<-NULL
+for(i in names(pheno)[-1:-3]){
+  prostate<-c(prostate, which(pheno[[i]] == '1044'))
+  prostate<-unique(prostate)
+}
+
+pheno$prostate_cancer<-NA
+pheno$prostate_cancer[pheno$sex == 1]<-0
+pheno$prostate_cancer[prostate]<-1
+
+# Identify individuals with breast cancer ID '1002' in any column
+breast<-NULL
+for(i in names(pheno)[-1:-3]){
+  breast<-c(breast, which(pheno[[i]] == '1002'))
+  breast<-unique(breast)
+}
+
+pheno$breast_cancer<-NA
+pheno$breast_cancer[pheno$sex == 0]<-0
+pheno$breast_cancer[breast]<-1
+
+# Write out the phenotype in PLINK format.
+pheno_plink_prostate<-data.frame(FID=pheno$FID,
+                        IID=pheno$IID,
+                        prostate_cancer=pheno$prostate_cancer)
+                        
+pheno_plink_prostate<-pheno_plink_prostate[complete.cases(pheno_plink_prostate),]
+
+pheno_plink_breast<-data.frame(FID=pheno$FID,
+                        IID=pheno$IID,
+                        breast_cancer=pheno$breast_cancer)
+
+pheno_plink_breast<-pheno_plink_breast[complete.cases(pheno_plink_breast),]
+
+dir.create(paste0(UKBB_output,'/Phenotype/Prostate_Cancer/'))
+dir.create(paste0(UKBB_output,'/Phenotype/Breast_Cancer/'))
+
+fwrite(pheno_plink_prostate, paste0(UKBB_output,'/Phenotype/Prostate_Cancer/UKBB_Prostate_Cancer.pheno'), sep='\t')
+fwrite(pheno_plink_breast, paste0(UKBB_output,'/Phenotype/Breast_Cancer/UKBB_Breast_Cancer.pheno'), sep='\t')
+
+q()
+n
+```
+</details>
+
+<br/>
+
+***
+
 ## Create subset of UK Biobank individuals
 The UK Biobank sample is very large making the computation of the various scores and derivation of the models computationally intensive. We do not need such large samples to compare PRS methods, and it would also be useful to have a non-overlapping subset of UKBiobank which can be used as a reference sample.
 
@@ -555,8 +644,8 @@ R
 source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
 library(data.table)
 
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt','UKBB_Breast_Cancer.pheno','UKBB_Prostate_Cancer.pheno')
 
 pheno_list<-list()
 for(i in 1:length(pheno)){
@@ -566,15 +655,28 @@ for(i in 1:length(pheno)){
 pheno_all<-Reduce(function(...) merge(..., all=T, by=c('FID','IID')), pheno_list)
 
 # We want to retain all individuals that are cases, and those that have complete data.
-pheno_all_2<-pheno_all[complete.cases(pheno_all) | pheno_all$Depressed.Ever.Clean == 1 | pheno_all$t2d_all == 1 | pheno_all$CAD_all == 1 | pheno_all$ibd_prob == 1 | pheno_all$ms_prob == 1 | pheno_all$arthritis_prob == 1,]
+pheno_all_2<-pheno_all[complete.cases(pheno_all[,!grepl('cancer',names(pheno_all)),with=F]) | pheno_all$Depressed.Ever.Clean == 1 | pheno_all$t2d_all == 1 | pheno_all$CAD_all == 1 | pheno_all$ibd_prob == 1 | pheno_all$ms_prob == 1 | pheno_all$arthritis_prob == 1 | pheno_all$breast_cancer == 1 | pheno_all$prostate_cancer == 1,]
 
 # Extract individuals with EUR ancestry
 EUR<-fread(paste0(UKBB_output,'/Projected_PCs/AllAncestry/UKBB.w_hm3.AllAncestry.EUR.keep'))
 pheno_all_2_EUR<-pheno_all_2[(pheno_all_2$IID %in% EUR$V2),]
 
+# Extract individuals that survive QC
+keep<-fread('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam')
+pheno_all_2_EUR<-pheno_all_2_EUR[(pheno_all_2_EUR$IID %in% keep$V2),]
+
+# Calculate the number of individuals surviving genotype QC and ancestry check
+sum(EUR$V2 %in% keep$V2) # 379437
+
+# Remove individuals in the UKB reference
+UKB_ref<-fread('/users/k1806347/brc_scratch/Data/UKBB/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.chr22.fam')
+pheno_all_2_EUR<-pheno_all_2_EUR[!(pheno_all_2_EUR$IID %in% UKB_ref$V2),]
+# This seems circular as the phenotype file was used to select UKB individuals in the reference. This is due to the addition of breast cancer and prostate cancer phenotype. Using the original set of reference individuals losses <150 cases for each phenotype and saves recreating UKB reference files. 
+
 # There are still >100k individuals. Write out files for each phenotype, retaining individuals with complete data, with a maximum of 50000 individuals for quantitative outcomes.
 system(paste0('mkdir ',UKBB_output,'/Phenotype/PRS_comp_subset'))
 pheno_N<-NULL
+pheno_any<-NULL
 for(i in 1:length(pheno)){
   pheno_all_2_EUR_i<-pheno_all_2_EUR[,c('FID','IID',names(pheno_all_2_EUR)[2+i]),with=F]
   pheno_all_2_EUR_i<-pheno_all_2_EUR_i[complete.cases(pheno_all_2_EUR_i),]
@@ -588,8 +690,8 @@ for(i in 1:length(pheno)){
     
     pheno_N<-rbind(pheno_N,data.frame(Pheno=pheno[i], 
                                       N=length(pheno_all_2_EUR_i[[3]]),
-                                      N_case=sum(pheno_all_2_EUR_i[[3]] == 1),
-                                      N_con=sum(pheno_all_2_EUR_i[[3]] == 0)))
+                                      N_case=sum(pheno_all_2_EUR_i[[3]] == 1,na.rm=T),
+                                      N_con=sum(pheno_all_2_EUR_i[[3]] == 0,na.rm=T)))
   } else {
     pheno_all_2_EUR_i<-pheno_all_2_EUR_i[1:50000,]
     pheno_N<-rbind(pheno_N,data.frame(Pheno=pheno[i], 
@@ -597,414 +699,19 @@ for(i in 1:length(pheno)){
                                       N_case=NA,
                                       N_con=NA))
   }
+  
+  pheno_any<-rbind(pheno_any,pheno_all_2_EUR_i[,c('FID','IID'),with=F])
+  pheno_any<-pheno_any[!duplicated(pheno_any),]
+  
   write.table(pheno_all_2_EUR_i, paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',pheno[i],'.txt'), col.names=T, row.names=F, quote=F)
 }
 
 write.csv(pheno_N, paste0(UKBB_output,'/Phenotype/PRS_comp_subset/Pheno_N.csv'), row.names=F, quote=F)
-  
-```
-</details>
 
-<br/>
-
-## Estimate SNP-h2 of UK Biobank phenotypes
-We will estimate the SNP-heritability of each phenotype based on the 50k subsets we have just created. We will retain only indiviudals that pass Kylie's QC, as we have done in the prediction modelling stage. Given the sample size of each phenotype, LD-score regression seems the most suitable strategy for estimating heritability. GREML in GCTA will be computationally intensive.
-
-<details><summary>Estimating SNP-heritability</summary>
-```{bash, echo=T, eval=F}
-. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config
-####
-# Perform GWAS for each phenotype
-####
-
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
-binary=$(echo T F F F T T T T T)
-
-for i in $(seq 1 9); do
-  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
-  binary_i=$(echo ${binary} | cut -f ${i} -d ' ')
-  
-  mkdir ${UKBB_output}/Phenotype/${pheno_i}/GWAS
-  
-  if [[ ${binary_i} == "T" ]]
-  then
-    for chr in $(seq 1 22);do
-      sbatch -p brc,shared ${plink1_9} \
-        --bfile ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
-        --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
-        --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
-        --1 \
-        --assoc \
-        --allow-no-sex \
-        --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.chr${chr}
-        
-      sbatch -p brc,shared ${plink1_9} \
-        --bfile ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
-        --keep ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
-        --freq \
-        --allow-no-sex \
-        --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.chr${chr}
-
-    done
-  else
-      for chr in $(seq 1 22);do
-      sbatch -p brc,shared ${plink1_9} \
-        --bfile ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
-        --keep /users/k1806347/brc_scratch/Analyses/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
-        --pheno ${UKBB_output}/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.txt \
-        --assoc \
-        --allow-no-sex \
-        --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.chr${chr}
-    done
-  fi
-    
-done
-
-####
-# Format for munge_sumstats.py
-####
-
-module add apps/R/3.6.0
-R
-
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
-
-library(data.table)
-
-# Read in bim file
-bim<-NULL
-for(chr in 1:22){
-  bim_chr<-fread(paste0(UKBB_output,'/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr',chr,'.bim'))
-  bim<-rbind(bim,bim_chr)
-}
-
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-binary<-c(T,F,F,F,T,T,T,T,T)
-
-for(i in 1:9){
-gwas_i<-NULL
-  for(chr in 1:22){
-    if(binary[i] == T){
-        gwas_i_chr<-fread(paste0(UKBB_output,'/Phenotype/',pheno[i],'/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.',pheno[i],'.chr',chr,'.assoc'))
-        frq_i_chr<-fread(paste0(UKBB_output,'/Phenotype/',pheno[i],'/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.',pheno[i],'.chr',chr,'.frq'))
-        frq_i_chr$NCHROBS<-frq_i_chr$NCHROBS/2
-        gwas_i_chr<-merge(gwas_i_chr,frq_i_chr[,c('SNP','NCHROBS')],by='SNP')
-        gwas_i_chr<-gwas_i_chr[,c('SNP','A1','A2','OR','P','NCHROBS')]
-        names(gwas_i_chr)<-c('SNP','A1','A2','OR','P','N')
-        gwas_i_chr<-gwas_i_chr[complete.cases(gwas_i_chr),]
-    } else {
-        gwas_i_chr<-fread(paste0(UKBB_output,'/Phenotype/',pheno[i],'/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.',pheno[i],'.chr',chr,'.qassoc'))
-        gwas_i_chr<-merge(gwas_i_chr, bim, by.x='SNP', by.y='V2')
-        gwas_i_chr<-gwas_i_chr[,c('SNP','V5','V6','BETA','P','NMISS')]
-        names(gwas_i_chr)<-c('SNP','A1','A2','BETA','P','N')
-        gwas_i_chr<-gwas_i_chr[complete.cases(gwas_i_chr),]
-    }
-    gwas_i<-rbind(gwas_i, gwas_i_chr)
-  }
-  
-  write.table(gwas_i, paste0(UKBB_output,'/Phenotype/',pheno[i],'/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.',pheno[i],'.GW.assoc_clean'), col.names=T, row.names=F, quote=F)
-}
-
-q()
-n
-
-####
-# Munge sumstats
-####
-
-. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config
-
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
-binary=$(echo T F F F T T T T T)
-
-for i in $(seq 1 9); do
-  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
-  binary_i=$(echo ${binary} | cut -f ${i} -d ' ')
-  
-  sbatch -p brc,shared ~/brc_scratch/Software/munge_sumstats.sh \
-   --sumstats ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.assoc_clean \
-   --merge-alleles ${HapMap3_snplist_dir}/w_hm3.snplist \
-   --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW
-done
-
-####
-# Estimate heritability
-####
-
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
-binary=$(echo T F F F T T T T T)
-pop_prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005)
-samp_prev=$(echo 0.5 NA NA NA 0.298 0.5 0.069 0.023 0.068)
-
-for i in $(seq 1 9); do
-  pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
-  binary_i=$(echo ${binary} | cut -f ${i} -d ' ')
-  pop_prev_i=$(echo ${pop_prev} | cut -f ${i} -d ' ')
-  samp_prev_i=$(echo ${samp_prev} | cut -f ${i} -d ' ')
-  
-  if [[ ${binary_i} == "T" ]]
-    then
-    sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh \
-     --h2 ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.sumstats.gz \
-     --ref-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
-     --w-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
-     --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW
-     
-    sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh \
-     --h2 ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.sumstats.gz \
-     --ref-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
-     --w-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
-     --samp-prev ${pop_prev_i} \
-     --pop-prev ${pop_prev_i} \
-     --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.liab
-     
-  else
-  
-   sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh \
-     --h2 ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW.sumstats.gz \
-     --ref-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
-     --w-ld-chr ${HapMap3_snplist_dir}/eur_w_ld_chr/ \
-     --out ${UKBB_output}/Phenotype/${pheno_i}/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.${pheno_i}.GW
-
-  fi
-  
-done
-
-#####
-# Tabulate results
-#####
-
-module add apps/R/3.6.0
-R
-
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
-
-library(data.table)
-
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-binary<-c(T,F,F,F,T,T,T,T,T)
-
-N_tab<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/Pheno_N.csv'))
-for(i in 1:9){
-  if(binary[i] == T){
-    h2_i<-read.table(paste0(UKBB_output,'/Phenotype/',pheno[i],'/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.',pheno[i],'.GW.log'), header=F, sep='&')
-    h2_liab_i<-read.table(paste0(UKBB_output,'/Phenotype/',pheno[i],'/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.',pheno[i],'.GW.liab.log'), header=F, sep='&')
-    N_tab$h2_obs[N_tab$Pheno == pheno[i]]<-gsub('Total Observed scale h2: ','',h2_i$V1[grepl('Total Observed scale h2: ',h2_i$V1)])
-    N_tab$h2_liab[N_tab$Pheno == pheno[i]]<-gsub('Total Liability scale h2: ','',h2_liab_i$V1[grepl('Total Liability scale h2: ',h2_liab_i$V1)])
-    N_tab$intercept[N_tab$Pheno == pheno[i]]<-gsub('Intercept: ','',h2_i$V1[grepl('Intercept: ',h2_i$V1)])
-    N_tab$lambda[N_tab$Pheno == pheno[i]]<-gsub('Lambda GC: ','',h2_i$V1[grepl('Lambda GC: ',h2_i$V1)])
-  } else {
-      h2_i<-read.table(paste0(UKBB_output,'/Phenotype/',pheno[i],'/GWAS/UKBB.w_hm3.QCd.AllSNP.Subset.',pheno[i],'.GW.log'), header=F, sep='&')
-    N_tab$h2_obs[N_tab$Pheno == pheno[i]]<-gsub('Total Observed scale h2: ','',h2_i$V1[grepl('Total Observed scale h2: ',h2_i$V1)])
-    N_tab$intercept[N_tab$Pheno == pheno[i]]<-gsub('Intercept: ','',h2_i$V1[grepl('Intercept: ',h2_i$V1)])
-    N_tab$lambda[N_tab$Pheno == pheno[i]]<-gsub('Lambda GC: ','',h2_i$V1[grepl('Lambda GC: ',h2_i$V1)])
-  }
-}
-
-write.csv(N_tab, paste0(UKBB_output,'/Phenotype/PRS_comp_subset/Pheno_N_h2.csv'), row.names=F, quote=F)
-q()
-n
-
-####
-# Delete intermediate files
-####
-
-rm ${UKBB_output}/Phenotype/*/GWAS/*.assoc
-rm ${UKBB_output}/Phenotype/*/GWAS/*chr*.frq
-rm ${UKBB_output}/Phenotype/*/GWAS/*chr*.log
-rm ${UKBB_output}/Phenotype/*/GWAS/*chr*.nosex
+# Calculate the number of individuals across all samples
+dim(pheno_any) # 104278
 
 ```
-</details>
-
-<br/>
-
-# TEDS
-
-TEDS phenotype preparation was based on the following previous [study](https://pubmed.ncbi.nlm.nih.gov/31303263/). Saskia Selzam kindly provided the code she used.
-
-Phenotypes:
-
-* BMI (age 21)
-* Height (age 21)
-* GCSE scores
-* ADHD traits (age 12)
-
-<details><summary>Preparation of TEDS phenotype</summary>
-
-```{bash, eval=F}
-################################################################
-# Prepare phenotypes in TEDS for prediction
-################################################################
-
-module add general/R/3.5.0
-R
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Phenotype_prep.config')
-
-#########
-# Read in the TEDS data
-#########
-
-library(foreign)
-
-pheno<-read.spss(paste0(TEDS_output_dir,'/Phenotypic/data_recieved/399\ Oliver\ Pain\ GERS\ 060319.sav'),to.data.frame=T)
-
-#########
-# Rename required variables to match Saskia's script
-#########
-
-x<-data.frame(	FID=pheno$id_fam,
-				IID=pheno$id_twin,
-				twin=pheno$twin,
-				sex1=pheno$sex1,
-				sex2=pheno$sex2,
-				age12par=pheno$lpqage,
-				SDQhyp_par12_1=pheno$lpshypt1,
-				SDQhyp_par12_2=pheno$lpshypt2,
-				Con_ADHD12_par_1=pheno$lpconnt1,
-				Con_ADHD12_par_2=pheno$lpconnt2,
-				age16par=pheno$ppbhage,
-				SDQhyp_par16_1=pheno$ppbhsdqhypt1,
-				SDQhyp_par16_2=pheno$ppbhsdqhypt2,
-				Con_ADHD16_par16_1=pheno$ppbhconnt1,
-				Con_ADHD16_par16_2=pheno$ppbhconnt2,
-				GCSEage=pheno$pcexgcseage1,
-				GCSE_1=pheno$pcexgcsecorem1,
-				GCSE_2=pheno$pcexgcsecorem2,
-				Weight21_1=pheno$u1cwtkg1,
-				Weight21_2=pheno$u1cwtkg2,
-				Height21_1=pheno$u1chtcm1,
-				Height21_2=pheno$u1chtcm2,
-				age21_1=pheno$u1cage1,
-				age21_2=pheno$u1cage2)
-
-#########
-# Create BMI variable
-#########
-
-x$BMI21_1 		<- x$Weight21_1/((x$Height21_1/100)^2)
-x$BMI21_2 		<- x$Weight21_2/((x$Height21_2/100)^2)
-
-#########
-# Create ADHD symptom score variable
-#########
-
-#create age regressed mean scores of SDZ & ADHD parent ratings at age 12 & 16
-#ADHD as the mean of parent reported SDZ & Connors scores
-#set function to create cleaned age specific ADHD variable
-zresid <- 	function(x,y,age) {
-					scale(
-						resid(
-							lm(
-								((scale(x)+scale(y))/2)~age,na.action=na.exclude
-							)
-						)
-					)
-				}		
-
-
-#create age regressed mean scores of SDZ & ADHD parent ratings at age 12 & 16
-x$ADHD12_1 		<- zresid(x=x$SDQhyp_par12_1,y=x$Con_ADHD12_par_1,age=x$age12par)
-x$ADHD12_2 		<- zresid(x=x$SDQhyp_par12_2,y=x$Con_ADHD12_par_2,age=x$age12par)
-
-x$ADHD16_1 		<- zresid(x=x$SDQhyp_par16_1,y=x$Con_ADHD16_par16_1,age=x$age16par)
-x$ADHD16_2 		<- zresid(x=x$SDQhyp_par16_2,y=x$Con_ADHD16_par16_2,age=x$age16par)
-
-#create ADHD mean score. If both age 12 & 16 available, take mean, if 16 is missing use 12 only and vice versa
-x$ADHD_1 			<- ifelse((!is.na(x$ADHD12_1) & !is.na(x$ADHD16_1)),  
-								(x$ADHD12_1+x$ADHD16_1)/2,
-						ifelse(is.na(x$ADHD12_1),x$ADHD16_1,
-							ifelse(is.na(x$ADHD16_1), x$ADHD12_1, NA
-							) 
-						)
-					)	
-
-x$ADHD_2 			<- ifelse((!is.na(x$ADHD12_2) & !is.na(x$ADHD16_2)),  
-								(x$ADHD12_2+x$ADHD16_2)/2,
-						ifelse(is.na(x$ADHD12_2),x$ADHD16_2,
-							ifelse(is.na(x$ADHD16_2), x$ADHD12_2, NA
-							) 
-						)
-					)	
-
-#create ADHD age variables for longitudinal measures, which is age 16 centered
-x$ADHD_AGE_1 			<- ifelse((!is.na(x$ADHD12_1) & !is.na(x$ADHD16_1)),  
-									x$age16par-16,
-								ifelse(is.na(x$ADHD12_1),x$age16par-16,
-									ifelse(is.na(x$ADHD16_1), x$age12par-16, NA
-								) 
-							)
-						)	
-
-
-x$ADHD_AGE_2 			<- ifelse((!is.na(x$ADHD12_2) & !is.na(x$ADHD16_2)),  
-									x$age16par-16,
-								ifelse(is.na(x$ADHD12_2),x$age16par-16,
-									ifelse(is.na(x$ADHD16_2), x$age12par-16, NA
-								) 
-							)
-						)	
-
-#########
-# Now regress out sex (and age if necessary)
-#########
-
-x$clHeight21_1 <- rstandard(lm(Height21_1~sex1+age21_1,data=x,na.action=na.exclude))
-x$clHeight21_2 <- rstandard(lm(Height21_2~sex2+age21_2,data=x,na.action=na.exclude))
-x$clBMI21_1 <- rstandard(lm(BMI21_1~sex1+age21_1,data=x,na.action=na.exclude))
-x$clBMI21_2 <- rstandard(lm(BMI21_2~sex2+age21_2,data=x,na.action=na.exclude))
-x$clGCSE_1 <- rstandard(lm(GCSE_1~sex1+GCSEage,data=x,na.action=na.exclude))
-x$clGCSE_2 <- rstandard(lm(GCSE_2~sex2+GCSEage,data=x,na.action=na.exclude))
-x$clADHD_1 <- rstandard(lm(ADHD_1~sex1+ADHD_AGE_1,data=x,na.action=na.exclude))
-x$clADHD_2 <- rstandard(lm(ADHD_2~sex2+ADHD_AGE_2,data=x,na.action=na.exclude))
-
-#########
-# Create files containing each phenotype with unrelated individuals only
-#########
-
-# Make function that randomly removes duplicates
-duplicated.random = function(x, incomparables = FALSE, ...) 
-{ 
-     if ( is.vector(x) ) 
-     { 
-         permutation = sample(length(x)) 
-         x.perm      = x[permutation] 
-         result.perm = duplicated(x.perm, incomparables, ...) 
-         result      = result.perm[order(permutation)] 
-         return(result) 
-     } 
-     else if ( is.matrix(x) ) 
-     { 
-         permutation = sample(nrow(x)) 
-         x.perm      = x[permutation,] 
-         result.perm = duplicated(x.perm, incomparables, ...) 
-         result      = result.perm[order(permutation)] 
-         return(result) 
-     } 
-     else 
-     { 
-         stop(paste("duplicated.random() only supports vectors", 
-                "matrices for now.")) 
-     } 
-} 
-
-# Set FID to IID to match genetic data
-x$FID<-x$IID
-
-for(outcome in c('Height21','BMI21','GCSE','ADHD')){
-	tmp<-x[c('FID','IID',paste0('cl',outcome,'_1'))]
-	tmp<-tmp[complete.cases(tmp),]
-	set.seed(1)
-	tmp<-tmp[!duplicated.random(tmp$FID),]
-	names(tmp)<-c('FID','IID',outcome)
-	
-	write.table(tmp, paste0(TEDS_output_dir,'/Phenotypic/Derived_outcomes/TEDS_',outcome,'.txt'), col.names=T, row.names=F, quote=F)
-}
-
-q()
-n
-```
-
 </details>
 
 <br/>

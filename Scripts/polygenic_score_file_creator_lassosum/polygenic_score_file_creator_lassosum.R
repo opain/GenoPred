@@ -8,14 +8,20 @@ option_list = list(
 			help="Path to genome-wide reference PLINK files [required]"),
 	make_option("--ref_keep", action="store", default=NA, type='character',
 			help="Keep file to subset individuals in reference for clumping [required]"),
+	make_option("--ref_freq_chr", action="store", default=NA, type='character',
+	    help="Path to per chromosome PLINK frequency (.frq) files [optional]"),
+	make_option("--ref_maf", action="store", default=NA, type='numeric',
+	    help="Minor allele frequency threshold to be applied based on ref_freq_chr [optional]"),
 	make_option("--ref_pop_scale", action="store", default=NA, type='character',
 			help="File containing the population code and location of the keep file [required]"),
 	make_option("--plink", action="store", default='plink', type='character',
-	            help="Path PLINK software binary [required]"),
+	    help="Path PLINK software binary [required]"),
 	make_option("--output", action="store", default='./Output', type='character',
 			help="Path for output files [required]"),
 	make_option("--memory", action="store", default=5000, type='numeric',
-	            help="Memory limit [optional]"),
+	    help="Memory limit [optional]"),
+	make_option("--test", action="store", default=NA, type='character',
+	    help="Specify number of SNPs to include [optional]"),
 	make_option("--sumstats", action="store", default=NA, type='character',
 			help="GWAS summary statistics in LDSC format [optional]")
 )
@@ -29,6 +35,19 @@ setwd(system.file("data", package="lassosum"))
 tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
+
+CHROMS<-1:22
+
+if(!is.na(opt$test)){
+  if(grepl('chr', opt$test)){
+    single_chr_test<-T
+    CHROMS<-as.numeric(gsub('chr','',opt$test))
+  } else {
+    single_chr_test<-F
+    opt$test<-as.numeric(opt$test)
+  }
+}
+
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
@@ -54,50 +73,61 @@ sink()
 
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats), nThread=1)
 GWAS<-GWAS[complete.cases(GWAS),]
+GWAS<-GWAS[GWAS$P > 0,]
 GWAS_N<-mean(GWAS$N)
-GWAS$P<-2*pnorm(-abs(GWAS$Z))
-GWAS$N<-NULL
+
+# Extract subset if testing
+if(!is.na(opt$test)){
+  if(single_chr_test == F){
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Testing mode enabled. Extracted ',opt$test,' variants per chromsome.\n', sep='')
+    sink()
+    
+    GWAS_test<-NULL
+    for(i in 1:22){
+      GWAS_tmp<-GWAS[GWAS$CHR == i,]
+      GWAS_tmp<-GWAS_tmp[order(GWAS_tmp$BP),]
+      GWAS_tmp<-GWAS_tmp[1:opt$test,]
+      GWAS_test<-rbind(GWAS_test,GWAS_tmp)
+    }
+    
+    GWAS<-GWAS_test
+    GWAS<-GWAS[complete.cases(GWAS),]
+    rm(GWAS_test)
+    print(table(GWAS$CHR))
+    
+  } else {
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Testing mode enabled. Extracted chromosome ',opt$test,' variants per chromsome.\n', sep='')
+    sink()
+    
+    GWAS<-GWAS[GWAS$CHR == CHROMS,]
+    print(table(GWAS$CHR))
+  }
+}
+
+if(!('BETA' %in% names(GWAS))){
+  GWAS$BETA<-log(GWAS$OR)
+}
+
+GWAS<-GWAS[,c('CHR','SNP','BP','A1','A2','BETA','P')]
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
 
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='A']<-'W'
-GWAS$IUPAC[GWAS$A1 == 'C' & GWAS$A2 =='G' | GWAS$A1 == 'G' & GWAS$A2 =='C']<-'S'
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='G' | GWAS$A1 == 'G' & GWAS$A2 =='A']<-'R'
-GWAS$IUPAC[GWAS$A1 == 'C' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='C']<-'Y'
-GWAS$IUPAC[GWAS$A1 == 'G' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='G']<-'K'
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='C' | GWAS$A1 == 'C' & GWAS$A2 =='A']<-'M'
-
-#####
-# Extract SNPs that match the reference
-#####
-bim<-fread(paste0(opt$ref_plink_gw,'.bim'), nThread=1)
-
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='A']<-'W'
-bim$IUPAC[bim$V5 == 'C' & bim$V6 =='G' | bim$V5 == 'G' & bim$V6 =='C']<-'S'
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='G' | bim$V5 == 'G' & bim$V6 =='A']<-'R'
-bim$IUPAC[bim$V5 == 'C' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='C']<-'Y'
-bim$IUPAC[bim$V5 == 'G' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='G']<-'K'
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='C' | bim$V5 == 'C' & bim$V6 =='A']<-'M'
-
-bim_GWAS<-merge(bim, GWAS, by.x='V2', by.y='SNP')
-GWAS_clean<-bim_GWAS[bim_GWAS$IUPAC.x == bim_GWAS$IUPAC.y,]
-
-GWAS_clean<-GWAS_clean[,c('V1','V2','V4','A1','A2','Z','P')]
-names(GWAS_clean)<-c('CHR','SNP','BP','A1','A2','Z','P')
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('After harmonisation with the reference,',dim(GWAS_clean)[1],'variants remain.\n')
-sink()
-
-rm(bim_GWAS, bim, GWAS)
-gc()
+if(!is.na(opt$test)){
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  test_start.time <- Sys.time()
+  cat('Test started at',as.character(test_start.time),'\n')
+  sink()
+}
 
 #####
 # Calculate correlation between SNP and phenotype 
 #####
-cor <- p2cor(p = GWAS_clean$P, n = GWAS_N, sign=GWAS_clean$Z)
+
+cor <- p2cor(p = GWAS$P, n = GWAS_N, sign=GWAS$BETA)
 
 #####
 # Perform lassosum to shrink effects using a range of parameters
@@ -107,8 +137,8 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Running lassosum pipeline...')
 sink()
 
-out<-lassosum.pipeline(cor=cor, chr=GWAS_clean$CHR, pos=GWAS_clean$BP, 
-                       A1=GWAS_clean$A1, A2=GWAS_clean$A2,
+out<-lassosum.pipeline(cor=cor, chr=GWAS$CHR, pos=GWAS$BP, 
+                       A1=GWAS$A1, A2=GWAS$A2,
                        ref.bfile=opt$ref_plink_gw, keep.ref=opt$ref_keep, 
                        LDblocks = 'EUR.hg19')
 
@@ -126,7 +156,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Idenitfying best parameters via pseudovalidation...')
 sink()
 
-png(paste0(opt$output,'.pseudovalidate.png'), unit='px', res=300, height=2000, width=2000)
+bitmap(paste0(opt$output,'.pseudovalidate.png'), unit='px', res=300, height=2000, width=2000)
 v <- pseudovalidate(out)
 dev.off()
 
@@ -147,7 +177,7 @@ rm(v)
 gc()
 
 # Write out a score file
-score_file<-data.frame(SNP=GWAS_clean$SNP[out$sumstats$order],
+score_file<-data.frame(SNP=GWAS$SNP[out$sumstats$order],
                        out$sumstats[c('chr','pos','A1','A2')])
 score_file<-score_file[,c('chr','SNP','pos','A1','A2')]
 names(score_file)<-c('CHR','SNP','pos','A1','A2')
@@ -159,6 +189,18 @@ for(i in 1:length(out$s)){
     score_file_tmp<-cbind(score_file,score_file_tmp)
     write.table(score_file_tmp, paste0(opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.score'), col.names=F, row.names=F, quote=F)
   }
+}
+
+if(!is.na(opt$test)){
+  end.time <- Sys.time()
+  time.taken <- end.time - test_start.time
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('Test run finished at',as.character(end.time),'\n')
+  cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
+  sink()
+  system(paste0('rm ',opt$output,'*.score'))
+  system(paste0('rm ',opt$output,'.pseudovalidate.png'))
+  q()
 }
 
 #####

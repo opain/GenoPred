@@ -27,7 +27,11 @@ make_option("--assoc", action="store", default=T, type='logical',
 make_option("--n_perm", action="store", default=1000, type='numeric',
 		help="Number of permutations for model comparison [optional]"),
 make_option("--compare_predictors", action="store", default=F, type='logical',
-		help="Option to assign each predictor to own group [optional]"),
+    help="Option to assign each predictor to own group [optional]"),
+make_option("--eval_only", action="store", default=F, type='logical',
+    help="Option to evaluate each model without comparison [optional]"),
+make_option("--test", action="store", default=F, type='logical',
+    help="Option to subset data for a test run [optional]"),
 make_option("--pred_miss", action="store", default=0.1, type='numeric',
 		help="Proportion of missing values allowed in predictor [optional]")		
 )
@@ -55,6 +59,7 @@ suppressMessages(library(caret))
 suppressMessages(library(pROC))
 suppressMessages(library(verification))
 suppressMessages(library(psych))
+suppressMessages(library(MASS))
 registerDoMC(opt$n_core)
 
 # Create the function for converting R2 into liability R2
@@ -136,6 +141,10 @@ Outcome<-fread(opt$pheno)
 Outcome<-Outcome[complete.cases(Outcome),]
 names(Outcome)[3]<-'Outcome_var'
 
+if(opt$test == T){
+  Outcome<-Outcome[sample(1:dim(Outcome)[1],1000),]
+}
+
 # Create a column that combines FID and IID
 Outcome$IID<-paste0(Outcome$FID,':',Outcome$IID)
 Outcome$FID<-NULL
@@ -173,6 +182,9 @@ if(!is.na(opt$keep)){
 	keep_file$FID<-NULL
 	# Extract keep indviduls from the phenotypic data
 	Outcome<-Outcome[(Outcome$IID %in% keep_file$IID),]
+	
+	rm(keep_file)
+	gc()
 	
 	sink(file = paste(opt$out,'.log',sep=''), append = T)
 	cat('Phenotype file contains ',dim(Outcome)[1],' individuals after extraction of individuals in ',opt$keep,'.\n',sep='')
@@ -272,6 +284,11 @@ if(opt$compare_predictors == T){
   }
 }
 
+if(opt$test == T & dim(predictors_list_new)[1] > 10){
+  predictors_list_new<-predictors_list_new[1:10,]
+  Predictors<-Predictors[,1:11]
+}
+
 ###########
 # Merge the phenotype and predictor variables
 ###########
@@ -307,26 +324,42 @@ if(opt$assoc == T){
 		Assoc_res<-foreach(i=1:dim(Outcome_Predictors_x)[2], .combine=rbind) %dopar% {
 			if(var(Outcome_Predictors_x[,i]) == 0){
 				Assoc_res_temp<-data.frame(	Predictor=names(Outcome_Predictors_x)[i],
-																		BETA=NA,
-																		SE=NA,
-																		P=NA,
-																		Obs_R2=NA)
+				                            Estimate=NA,
+				                            SE=NA,
+				                            OR=NA,
+				                            LowCI=NA,
+				                            HighCI=NA,
+				                            P=NA,
+				                            AUC=NA,
+				                            N=length(Outcome_Predictors_y),
+				                            Ncas=sum(Outcome_Predictors_y == 'CASE'),
+				                            Ncon=sum(Outcome_Predictors_y == 'CONTROL'),
+				                            Obs_R2=NA)
 				
 				Assoc_res_temp
 			} else {
 			  mod<-glm(Outcome_Predictors_y ~ scale(Outcome_Predictors_x[,i]), family=opt$family)
-				obs_r2<-cor(predict(mod), as.numeric(Outcome_Predictors_y))^2
+			  prob<-predict(mod)
+			  obs_r2<-cor(prob, as.numeric(Outcome_Predictors_y))^2
 			  sum_mod<-summary(mod)
-				prob<-predict(mod,type=c("response"))
-			  Assoc_res_temp<-data.frame(	Predictor=names(Outcome_Predictors_x)[i],
-											              BETA=coef(sum_mod)[2,1],
-											              SE=coef(sum_mod)[2,2],
-											              P=coef(sum_mod)[2,4],
-											              Obs_R2=obs_r2)
+				roc_auc<-roc(Outcome_Predictors_y ~ prob)$auc
+				cis<-exp(confint.default(mod))
+				Assoc_res_temp<-data.frame(	Predictor=names(Outcome_Predictors_x)[i],
+			                              Estimate=coef(sum_mod)[2,1],
+			                              SE=coef(sum_mod)[2,2],
+			                              OR=exp(coef(sum_mod)[2,1]),
+			                              LowCI=cis[2,1],
+			                              HighCI=cis[2,2],
+				                            P=coef(sum_mod)[2,4],
+				                            AUC=roc_auc,
+				                            N=length(Outcome_Predictors_y),
+				                            Ncas=sum(Outcome_Predictors_y == 'CASE'),
+				                            Ncon=sum(Outcome_Predictors_y == 'CONTROL'),
+				                            Obs_R2=obs_r2)
 			  Assoc_res_temp
 			}
 		}
-		# Convert Nagelkerke R2 to liability scale
+		# Convert R2 to liability scale
 		Assoc_res$Liab_R2<-h2l_R2(opt$outcome_pop_prev, Assoc_res$Obs_R2, sum(Outcome_Predictors_y == 'CASE')/length(Outcome_Predictors_y))
 	} else {
 		Assoc_res<-foreach(i=1:dim(Outcome_Predictors_x)[2], .combine=rbind) %dopar% {
@@ -335,6 +368,7 @@ if(opt$assoc == T){
 																		BETA=NA,
 																		SE=NA,
 																		P=NA,
+																		N=length(Outcome_Predictors_y),
 																		Obs_R2=NA)
 				
 				Assoc_res_temp
@@ -345,6 +379,7 @@ if(opt$assoc == T){
 											              BETA=coef(sum_mod)[2,1],
 											              SE=coef(sum_mod)[2,2],
 											              P=coef(sum_mod)[2,4],
+											              N=length(Outcome_Predictors_y),
 											              Obs_R2=coef(sum_mod)[2,1]^2)
 				Assoc_res_temp
 			}
@@ -440,8 +475,12 @@ if(opt$model_comp == T){
 		}
 		
 		if(opt$family=='binomial'){
-			Cross_mod<-summary(lm(scale(as.numeric(model$pred$obs)) ~ scale(model$pred$CASE)))
-			Cross_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Cross_mod)[2,1]^2, sum(Outcome_Predictors_train_y == 'CASE')/length(Outcome_Predictors_train_y))
+		  Cross_mod<-summary(lm(scale(as.numeric(model$pred$obs)) ~ scale(model$pred$CASE)))
+		  Cross_log_mod<-glm(model$pred$obs ~ scale(model$pred$CASE),family=opt$family)
+		  Cross_log<-summary(Cross_log_mod)
+		  Cross_cis<-exp(confint.default(Cross_log_mod))
+		  Cross_auc<-roc(model$pred$obs ~ model$pred$CASE)$auc
+		  Cross_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Cross_mod)[2,1]^2, sum(Outcome_Predictors_train_y == 'CASE')/length(Outcome_Predictors_train_y))
 
 			if(dim(Outcome_Predictors_train_x_group)[2] > 1){
 				Indep_Pred<-predict(object = model$finalModel, newx = data.matrix(Outcome_Predictors_test_x_group), type = "response", s = model$finalModel$lambdaOpt)
@@ -451,22 +490,37 @@ if(opt$model_comp == T){
 					Indep_Pred<-predict(object = model$finalModel, newdata = tmp, type = "response")
 					rm(tmp)
 			}
-			Indep_mod<-summary(lm(scale(as.numeric(Outcome_Predictors_test_y)) ~ scale(as.numeric(Indep_Pred))))
-			Indep_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Indep_mod)[2,1]^2, sum(Outcome_Predictors_test_y == 'CASE')/length(Outcome_Predictors_test_y))
+		  Indep_mod<-summary(lm(scale(as.numeric(Outcome_Predictors_test_y)) ~ scale(as.numeric(Indep_Pred))))
+		  Indep_log_mod<-glm(Outcome_Predictors_test_y ~ scale(as.numeric(Indep_Pred)),family=opt$family)
+		  Indep_log<-summary(Indep_log_mod)
+		  Indep_cis<-exp(confint.default(Indep_log_mod))
+		  Indep_auc<-roc(Outcome_Predictors_test_y ~ Indep_Pred)$auc
+		  Indep_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Indep_mod)[2,1]^2, sum(Outcome_Predictors_test_y == 'CASE')/length(Outcome_Predictors_test_y))
 
 			Prediction_summary<-data.frame(	Model=paste0(group,'_group'),
-																			CrossVal_R=coef(Cross_mod)[2,1],
-																			CrossVal_R_SE=coef(Cross_mod)[2,2],
-																			Cross_LiabR2=Cross_LiabR2,
-																			CrossVal_pval=coef(Cross_mod)[2,4],
+			                                CrossVal_R=coef(Cross_mod)[2,1],
+			                                CrossVal_R_SE=coef(Cross_mod)[2,2],
+			                                CrossVal_OR=exp(coef(Cross_log)[2,1]),
+			                                CrossVal_LowCI=Cross_cis[2,1],
+			                                CrossVal_HighCI=Cross_cis[2,2],
+			                                Cross_LiabR2=Cross_LiabR2,
+			                                Cross_AUC=Cross_auc,
+			                                CrossVal_pval=coef(Cross_mod)[2,4],
+			                                CrossVal_N=length(model$pred$obs),
+			                                CrossVal_Ncas=sum(model$pred$obs == 'CASE'),
+			                                CrossVal_Ncon=sum(model$pred$obs == 'CONTROL'),
 																			IndepVal_R=coef(Indep_mod)[2,1],
 																			IndepVal_R_SE=coef(Indep_mod)[2,2],
+																			IndepVal_OR=exp(coef(Indep_log)[2,1]),
+																			IndepVal_LowCI=Indep_cis[2,1],
+																			IndepVal_HighCI=Indep_cis[2,2],
 																			Indep_LiabR2=Indep_LiabR2,
-																			IndepVal_pval=coef(Indep_mod)[2,4])
+																			Indep_AUC=Indep_auc,
+																			IndepVal_pval=coef(Indep_mod)[2,4],
+																			IndepVal_N=length(Outcome_Predictors_test_y),
+																			IndepVal_Ncas=sum(Outcome_Predictors_test_y == 'CASE'),
+																			IndepVal_Ncon=sum(Outcome_Predictors_test_y == 'CONTROL'))
 			
-			# Rename model object for comparison between models
-			models[[group]]<-model
-			indep_pred[[group]]<-Indep_Pred
 		} else {
 			Cross_mod<-summary(lm(scale(model$pred$obs) ~ scale(model$pred$pred)))
 			if(dim(Outcome_Predictors_train_x_group)[2] > 1){
@@ -483,14 +537,16 @@ if(opt$model_comp == T){
 																			CrossVal_R=coef(Cross_mod)[2,1],
 																			CrossVal_R_SE=coef(Cross_mod)[2,2],
 																			CrossVal_pval=coef(Cross_mod)[2,4],
+																			CrossVal_N=length(model$pred$obs),
 																			IndepVal_R=coef(Indep_mod)[2,1],
 																			IndepVal_R_SE=coef(Indep_mod)[2,2],
-																			IndepVal_pval=coef(Indep_mod)[2,4])
+																			IndepVal_pval=coef(Indep_mod)[2,4],
+																			IndepVal_N=length(Outcome_Predictors_test_y))
 																			
-			# Rename model object for comparison between models
-			models[[group]]<-model
-			indep_pred[[group]]<-Indep_Pred
 		}
+
+		rm(Outcome_Predictors_train_x_group,Outcome_Predictors_test_x_group)
+		gc()
 		
 		Prediction_summary_all<-rbind(Prediction_summary_all,Prediction_summary)
 	
@@ -505,17 +561,26 @@ if(opt$model_comp == T){
 			cat(group,' model saved as ',opt$out,'.',group,'_group.model.rds.\n',sep='')
 			sink()
 		}
+		
+		if(opt$eval_only == F){
+		  # Rename model object for comparison between models
+		  models[[group]]<-model
+		  indep_pred[[group]]<-Indep_Pred
+		} else {
+		  rm(model,Indep_Pred)
+		  gc()
+		}
+		
 	}
+  # Write out the results
+  write.table(Prediction_summary_all, paste0(opt$out,'.pred_eval.txt'), col.names=T, row.names=F, quote=F)
+  
+  sink(file = paste(opt$out,'.log',sep=''), append = T)
+  cat('Model evaluation results saved as ',opt$out,'.pred_eval.txt.\n',sep='')
+  sink()
 }
 
-# Write out the results
-write.table(Prediction_summary_all, paste0(opt$out,'.pred_eval.txt'), col.names=T, row.names=F, quote=F)
-
-sink(file = paste(opt$out,'.log',sep=''), append = T)
-cat('Model evaluation results saved as ',opt$out,'.pred_eval.txt.\n',sep='')
-sink()
-
-if(opt$model_comp == T){
+if(opt$model_comp == T & opt$eval_only == F){
 	###################
 	# Compare predictive utiliy of the different models
 	###################
