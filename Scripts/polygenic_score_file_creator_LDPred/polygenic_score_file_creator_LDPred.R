@@ -8,8 +8,6 @@ make_option("--ref_plink", action="store", default=NA, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
 make_option("--ref_keep", action="store", default=NA, type='character',
 		help="Keep file to subset individuals in reference for clumping [required]"),
-make_option("--ref_freq_chr", action="store", default=NA, type='character',
-		help="Path to per chromosome reference PLINK .frq files [required]"),
 make_option("--ref_pop_scale", action="store", default=NA, type='character',
 		help="File containing the population code and location of the keep file [required]"),
 make_option("--plink", action="store", default='plink', type='character',
@@ -19,11 +17,13 @@ make_option("--output", action="store", default='./Output', type='character',
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]"),
 make_option("--n_cores", action="store", default=1, type='numeric',
-  help="Number of cores for parallel computing [optional]"),
+    help="Number of cores for parallel computing [optional]"),
 make_option("--ldpred", action="store", default='ldpred', type='character',
-  help="Command to call LDPred software [required]"),
+    help="Command to call LDPred software [required]"),
+make_option("--test", action="store", default=NA, type='character',
+    help="Specify number of SNPs to include [optional]"),
 make_option("--sumstats", action="store", default=NA, type='character',
-		help="GWAS summary statistics in LDSC format [required]")
+		help="GWAS summary statistics [required]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -36,6 +36,18 @@ registerDoMC(opt$n_cores)
 tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
+
+CHROMS<-1:22
+
+if(!is.na(opt$test)){
+  if(grepl('chr', opt$test)){
+    single_chr_test<-T
+    CHROMS<-as.numeric(gsub('chr','',opt$test))
+  } else {
+    single_chr_test<-F
+    opt$test<-as.numeric(opt$test)
+  }
+}
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
@@ -62,77 +74,72 @@ sink()
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
 GWAS<-GWAS[complete.cases(GWAS),]
 
+# Extract subset if testing
+if(!is.na(opt$test)){
+  if(single_chr_test == F){
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Testing mode enabled. Extracted ',opt$test,' variants per chromsome.\n', sep='')
+    sink()
+    
+    GWAS_test<-NULL
+    for(i in 1:22){
+      GWAS_tmp<-GWAS[GWAS$CHR == i,]
+      GWAS_tmp<-GWAS_tmp[order(GWAS_tmp$BP),]
+      GWAS_tmp<-GWAS_tmp[1:opt$test,]
+      GWAS_test<-rbind(GWAS_test,GWAS_tmp)
+    }
+    
+    GWAS<-GWAS_test
+    GWAS<-GWAS[complete.cases(GWAS),]
+    rm(GWAS_test)
+    print(table(GWAS$CHR))
+    
+  } else {
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Testing mode enabled. Extracted chromosome ',opt$test,' variants per chromsome.\n', sep='')
+    sink()
+    
+    GWAS<-GWAS[GWAS$CHR == CHROMS,]
+    print(table(GWAS$CHR))
+  }
+}
+
+# Convert OR into BETA
+if(sum(names(GWAS) == 'OR') == 1){
+  GWAS$BETA<-log(GWAS$OR)
+}
+
+# Rename allele frequency column
+if(sum(names(GWAS) == 'FREQ') == 0){
+  GWAS$FREQ<-GWAS$REF.FREQ
+}
+
 # Check GWAS_N
 GWAS_N<-mean(GWAS$N)
-
-# Calculate P values
-GWAS$P<-2*pnorm(-abs(GWAS$Z))
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
 
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='A']<-'W'
-GWAS$IUPAC[GWAS$A1 == 'C' & GWAS$A2 =='G' | GWAS$A1 == 'G' & GWAS$A2 =='C']<-'S'
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='G' | GWAS$A1 == 'G' & GWAS$A2 =='A']<-'R'
-GWAS$IUPAC[GWAS$A1 == 'C' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='C']<-'Y'
-GWAS$IUPAC[GWAS$A1 == 'G' & GWAS$A2 =='T' | GWAS$A1 == 'T' & GWAS$A2 =='G']<-'K'
-GWAS$IUPAC[GWAS$A1 == 'A' & GWAS$A2 =='C' | GWAS$A1 == 'C' & GWAS$A2 =='A']<-'M'
-
-# Extract SNPs that match the reference
-bim<-fread(paste0(opt$ref_plink,'.bim'))
-
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='A']<-'W'
-bim$IUPAC[bim$V5 == 'C' & bim$V6 =='G' | bim$V5 == 'G' & bim$V6 =='C']<-'S'
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='G' | bim$V5 == 'G' & bim$V6 =='A']<-'R'
-bim$IUPAC[bim$V5 == 'C' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='C']<-'Y'
-bim$IUPAC[bim$V5 == 'G' & bim$V6 =='T' | bim$V5 == 'T' & bim$V6 =='G']<-'K'
-bim$IUPAC[bim$V5 == 'A' & bim$V6 =='C' | bim$V5 == 'C' & bim$V6 =='A']<-'M'
-
-bim_GWAS<-merge(bim,GWAS, by.x='V2', by.y='SNP')
-GWAS_clean<-bim_GWAS[bim_GWAS$IUPAC.x == bim_GWAS$IUPAC.y,]
-
-GWAS_clean<-GWAS_clean[,c('V1','V2','V4','A1','A2','Z','P','N')]
-names(GWAS_clean)<-c('CHR','SNP','BP','A1','A2','Z','P','N')
-
-# Insert frq of each variant based on reference data
-freq<-NULL
-for(i in 1:22){
-  freq_tmp<-fread(paste0(opt$ref_freq_chr,i,'.frq'))
-  freq<-rbind(freq, freq_tmp)
+# Insert fake INFO score if not present
+if(sum(names(GWAS) == 'INFO') == 0){
+  GWAS$INFO<-1
+  
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('INFO column not present.\n')
+  sink()
 }
 
-GWAS_clean_frq_match<-merge(GWAS_clean, freq, by=c('SNP','A1','A2'))
-GWAS_clean_frq_switch<-merge(GWAS_clean, freq, by.x=c('SNP','A1','A2'), by.y=c('SNP','A2','A1'))
-GWAS_clean_frq_switch$MAF<-1-GWAS_clean_frq_switch$MAF
-GWAS_clean<-rbind(GWAS_clean_frq_match, GWAS_clean_frq_switch)
-GWAS_clean<-GWAS_clean[,c('CHR.x','SNP','BP','A1','A2','Z','P','N','MAF')]
-names(GWAS_clean)<-c('CHR','SNP','BP','A1','A2','Z','P','N','MAF')
+GWAS<-GWAS[,c('CHR','BP','A1','A2','FREQ','INFO','SNP','P','BETA'),with=F]
+names(GWAS)<-c('chr','pos','alt','ref','reffrq','info','rs','pval','effalt')
 
-# Flip MAF to be reference allele freq
-GWAS_clean$MAF<-1-GWAS_clean$MAF
+GWAS$chr<-paste0('chr',GWAS$chr)
 
-# Remove invariant SNPs
-GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 0,]
-GWAS_clean<-GWAS_clean[GWAS_clean$MAF != 1,]
-
-# Transform Z score to beta using formula from https://www.ncbi.nlm.nih.gov/pubmed/27019110
-GWAS_clean$beta<-GWAS_clean$Z/sqrt((2*GWAS_clean$MAF)*(1-GWAS_clean$MAF)*(GWAS_clean$N+sqrt(abs(GWAS_clean$Z))))
-
-# Insert fake INFO score
-GWAS_clean$INFO<-1
-
-GWAS_clean<-GWAS_clean[,c('CHR','BP','A1','A2','MAF','INFO','SNP','P','beta'),with=F]
-names(GWAS_clean)<-c('chr','pos','alt','ref','reffrq','info','rs','pval','effalt')
-
-GWAS_clean$chr<-paste0('chr',GWAS_clean$chr)
-
-fwrite(GWAS_clean, paste0(opt$output_dir,'GWAS_sumstats.txt'), sep=' ', na = "NA", quote=F)
+fwrite(GWAS, paste0(opt$output_dir,'GWAS_sumstats.txt'), sep=' ', na = "NA", quote=F)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('After harmonisation with the reference,',dim(GWAS_clean)[1],'variants remain.\n')
+cat('After harmonisation with the reference,',dim(GWAS)[1],'variants remain.\n')
 sink()
-
 
 if(!is.na(opt$ref_keep)){
   sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -150,8 +157,15 @@ if(!is.na(opt$ref_keep)){
   opt$ref_plink_subset<-opt$ref_plink
 }
 
+if(!is.na(opt$test)){
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  test_start.time <- Sys.time()
+  cat('Test started at',as.character(test_start.time),'\n')
+  sink()
+}
+
 #####
-# Corrdinate the GWAS summary statistics with reference using LDPred
+# Coordinate the GWAS summary statistics with reference using LDPred
 #####
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -159,6 +173,8 @@ cat('Corrdinating GWAS summary statistics with reference using LDPred...')
 sink()
 
 log<-system(paste0(opt$ldpred,' coord --ssf-format STANDARD --N ',round(GWAS_N,0),' --ssf ',opt$output_dir,'GWAS_sumstats.txt --out ',opt$output_dir,'GWAS_sumstats.coord --gf ',opt$ref_plink_subset), intern=T)
+
+writeLines(log, paste(opt$output_dir,'LDPred_coord.log',sep=''))
 
 log_nsnp<-log[grepl("SNPs retained after filtering:", log)]
 nsnp<-as.numeric(gsub(' ','', gsub('.*:','',log_nsnp)))
@@ -175,11 +191,34 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Adjusting effect sizes using LDPred...')
 sink()
 
-system(paste0(opt$ldpred,' gibbs --cf ',opt$output_dir,'GWAS_sumstats.coord --ldr ',round(nsnp/3000,0),' --ldf ', opt$ref_plink_subset,' --out ',opt$output,'.weight --N ',round(GWAS_N,0)))
+log2<-system(paste0(opt$ldpred,' gibbs --cf ',opt$output_dir,'GWAS_sumstats.coord --ldr ',round(nsnp/3000,0),' --ldf ', opt$ref_plink_subset,' --out ',opt$output,'.weight --N ',round(GWAS_N,0)), intern=T)
+
+writeLines(log2, paste(opt$output_dir,'LDPred_gibbs.log',sep=''))
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
+
+if(!is.na(opt$test)){
+  if(!file.exists(paste0(opt$output,'.weight_LDpred-inf.txt'))){
+    q()
+  }
+  
+  end.time <- Sys.time()
+  time.taken <- end.time - test_start.time
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('Test run finished at',as.character(end.time),'\n')
+  cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
+  sink()
+  system(paste0('rm ',opt$output_dir,'*.txt'))
+  system(paste0('rm ',opt$output_dir,'LDPred_gibbs.log'))
+  system(paste0('rm ',opt$output_dir,'LDPred_coord.log'))
+  system(paste0('rm ',opt$output_dir,'GWAS_sumstats*'))
+  if(!is.na(opt$ref_keep)){
+    system(paste0('rm ',opt$output_dir,'ldpred_ref*'))
+  }
+  q()
+}
 
 ####
 # Calculate mean and sd of polygenic scores at each threshold

@@ -71,8 +71,10 @@ scores<-scores[,1:2]
 
 SCORE_temp<-0
 for(i in 1:22){
-		profile<-fread(paste0(opt$output_dir,'profiles.chr',i,'.profile'))
-		SCORE_temp<-SCORE_temp+profile$SCORESUM
+  if(file.exists(paste0(opt$output_dir,'profiles.chr',i,'.profile'))){
+      profile<-fread(paste0(opt$output_dir,'profiles.chr',i,'.profile'))
+      SCORE_temp<-SCORE_temp+profile$SCORESUM
+  }
 }
 scores<-cbind(scores, SCORE_temp)
 

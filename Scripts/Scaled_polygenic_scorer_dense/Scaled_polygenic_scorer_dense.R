@@ -59,9 +59,9 @@ cat('Calculating polygenic scores in the target sample...')
 sink()
 
 if(is.na(opt$target_keep)){
-	  system(paste0(opt$rscript,' ',opt$prsice,'/PRSice.R --prsice ',opt$prsice,'/PRSice_linux --base ',opt$ref_score,' --target ',opt$target_plink_chr,"# --thread 1 --lower 1e-8 --stat BETA --binary-target F --no-clump --no-regress --out ",opt$output,'score'))
+	  system(paste0(opt$rscript,' ',opt$prsice,'/PRSice.R --prsice ',opt$prsice,'/PRSice_linux --base ',opt$ref_score,' --target ',opt$target_plink_chr,"# --thread 1 --lower 1e-8 --stat BETA --binary-target F --score sum --no-clump --no-regress --out ",opt$output,'score'))
 } else {
-	  system(paste0(opt$rscript,' ',opt$prsice,'/PRSice.R --prsice ',opt$prsice,'/PRSice_linux --base ',opt$ref_score,' --target ',opt$target_plink_chr,"# --keep ",opt$target_keep,' --thread 1 --lower 1e-8 --stat BETA --binary-target F --no-clump --no-regress --out ',opt$output,'score'))
+	  system(paste0(opt$rscript,' ',opt$prsice,'/PRSice.R --prsice ',opt$prsice,'/PRSice_linux --base ',opt$ref_score,' --target ',opt$target_plink_chr,"# --keep ",opt$target_keep,' --thread 1 --lower 1e-8 --stat BETA --binary-target F --score sum --no-clump --no-regress --out ',opt$output,'score'))
 }
 
 # Read in the scores
