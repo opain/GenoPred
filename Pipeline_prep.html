@@ -702,9 +702,9 @@ ls ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAnces
 </details>
 <p><br/></p>
 <hr />
-<div id="create-repository-of-ldsc-formated-gwas-summary-statistics" class="section level2">
-<h2><span class="header-section-number">4.1</span> Create repository of LDSC formated GWAS summary statistics</h2>
-<p>I will be using the GWAS reporsitory on the Rosalind server at KCL, created by Helena Gaspar. Here I idenitfy GWAS that I would like to calculate polygenic scores from, selecting GWAS that do not overlap with my target samples, the largest sample size for each phenotype, and a sample size over 15K. I also remove groups of GWAS that I think are unnecessary to speed up the pipeline. I create a list of GWAS files in the LDSC munged format (.sumstats.gz) for subsequent polygenic scoring scripts to use.</p>
+<div id="create-repository-of-gwas-summary-statistics" class="section level2">
+<h2><span class="header-section-number">4.1</span> Create repository of GWAS summary statistics</h2>
+<p>I will be using the GWAS repository on the Rosalind server at KCL, created by Helena Gaspar. Here I idenitfy GWAS that I would like to calculate polygenic scores from, selecting GWAS that do not overlap with my target samples, the largest sample size for each phenotype, and a sample size over 15K. I also remove groups of GWAS that I think are unnecessary to speed up the pipeline.</p>
 <details>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
@@ -762,7 +762,7 @@ pheno_brief_bigest_big&lt;-pheno_brief_bigest[pheno_brief_bigest$sample_size_dis
 # Remove GWAS from MAGNETIC as we are not looking at cardiometabolic traits and is excessive.
 pheno_brief_bigest_big_nomag&lt;-pheno_brief_bigest_big[pheno_brief_bigest_big$consortium !=&#39;MAGNETIC&#39;,]
 
-pheno_brief_bigest_big_nomag$gwas_list&lt;-paste0(gwas_rep,&#39;/&#39;,pheno_brief_bigest_big_nomag$Code,&#39;.sumstats.gz&#39;)
+pheno_brief_bigest_big_nomag$gwas_list&lt;-paste0(gwas_rep_cleaned,&#39;/&#39;,pheno_brief_bigest_big_nomag$Code,&#39;.gz&#39;)
 
 write.table(pheno_brief_bigest_big_nomag[c(&#39;Code&#39;,&#39;gwas_list&#39;)], &#39;~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt&#39;, col.names=F, row.names=F, quote=F)
 
@@ -823,12 +823,68 @@ pheno_brief_bigest_big&lt;-pheno_brief_bigest[pheno_brief_bigest$sample_size_dis
 # Remove GWAS from MAGNETIC as we are not looking at cardiometabolic traits and is excessive.
 pheno_brief_bigest_big_nomag&lt;-pheno_brief_bigest_big[pheno_brief_bigest_big$consortium !=&#39;MAGNETIC&#39;,]
 
-pheno_brief_bigest_big_nomag$gwas_list&lt;-paste0(gwas_rep,&#39;/&#39;,pheno_brief_bigest_big_nomag$Code,&#39;.sumstats.gz&#39;)
+pheno_brief_bigest_big_nomag$gwas_list&lt;-paste0(gwas_rep_cleaned,&#39;/&#39;,pheno_brief_bigest_big_nomag$Code,&#39;.gz&#39;)
 
 write.table(pheno_brief_bigest_big_nomag[c(&#39;Code&#39;,&#39;gwas_list&#39;)], &#39;~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutTEDS.txt&#39;, col.names=F, row.names=F, quote=F)
 
 q()
 n</code></pre>
+</details>
+<p><br/></p>
+<p>Now I will perform quality control of GWAS summary statistics for polygenic scoring. The QC paramters are based on those in LDSC, with addition of comparing reported MAF to reference MAF.</p>
+<ul>
+<li>Extract HapMap3 variants.</li>
+<li>Insert chromomsome and base pair position from reference.</li>
+<li>Remove variants that are not SNPs or were strand-ambiguous.</li>
+<li>Check allele match</li>
+<li>Remove SNPs with missing values.</li>
+<li>Remove SNPs with INFO &lt; 0.9.</li>
+<li>Remove SNPs with reported MAF &lt; 0.01.</li>
+<li>Remove SNPs with reference MAF &lt; 0.01.</li>
+<li>Remove SNPs with discordant MAF with reference &lt; 0.01.</li>
+<li>Insert reference MAF</li>
+<li>Remove SNPs with out-of-bounds p-values.</li>
+<li>Remove SNPs with duplicated rs numbers.</li>
+<li>Remove SNPs with N &lt; (90th percentile N)/2.</li>
+<li>Recompute P value if genomic control detected</li>
+</ul>
+<details>
+<p><summary>Show code</summary></p>
+<pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create directory
+mkdir ${gwas_rep_qcd}
+
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${gwas_rep_qcd}/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 RHEU01 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${gwas_rep_qcd}/${gwas}.cleaned.gz ]; then
+echo $gwas &gt;&gt; ${gwas_rep_qcd}/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat &gt; ${gwas_rep_qcd}/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 5G
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${gwas_rep_qcd}/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/sumstat_cleaner/sumstat_cleaner.R \
+  --sumstats ${gwas_rep_cleaned}/${gwas}.gz \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --output ${gwas_rep_qcd}/${gwas}.cleaned
+
+EOF
+
+sbatch --array 1-$(wc -l ${gwas_rep_qcd}/todo.txt | cut -d&#39; &#39; -f1)%5 ${gwas_rep_qcd}/sbatch.sh
+</code></pre>
 </details>
 <p><br/></p>
 <hr />
@@ -844,92 +900,42 @@ n</code></pre>
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-###
-# Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt
-###
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump
+
 # Create file listing GWAS that haven&#39;t been processed.
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt
-for gwas in $(cut -f 1 -d &#39; &#39; ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 RHEU01 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump/todo.txt
 fi
 done
 
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt);do
-qsub -N $(echo job$(($n+20))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
-  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
-  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
-  --plink ${plink1_9} \
-  --memory 3000 \
-  --output ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.${gwas} \
-  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
-done
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
 
-#########
-# Calculate score with PCs regressed out
-#########
-
-# Create a files containing all EUR and AllAncestry PCs for EUR individuals in the reference
-module add general/R/3.5.0
-R
-
-library(data.table)
-
-EUR&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_ancestry/EUR/1KGPhase3.w_hm3.EUR.eigenvec&#39;)
-names(EUR)[-1:-2]&lt;-paste0(&#39;EUR_&#39;,names(EUR)[-1:-2])
-
-All&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_ancestry/AllAncestry/1KGPhase3.w_hm3.AllAncestry.eigenvec&#39;)
-names(All)[-1:-2]&lt;-paste0(&#39;AllAncestry_&#39;,names(All)[-1:-2])
-
-PCs&lt;-merge(EUR,All,by=c(&#39;FID&#39;,&#39;IID&#39;))
-
-write.table(PCs,&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_ancestry/AllAncestry_EUR_PCs.EUR.eigenvec&#39;, col.names=T, row.names=F, quote=F)
-
-q()
-n
-
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt
-#for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 EDUC03 ADHD04 BODY11);do
-for gwas in $(echo EDUC03 DEPR06);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.EUR_PC_resid.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt
-fi
-done
-
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic/todo.txt);do
-qsub -N $(echo job$(($n+20))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
-  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
-  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
-  --plink ${plink1_9} \
-  --memory 3000 \
-  --covar ${Geno_1KG_dir}/Score_files_for_ancestry/AllAncestry_EUR_PCs.EUR.eigenvec \
-  --output ${Geno_1KG_dir}/Score_files_for_poylygenic/${gwas}/1KGPhase3.w_hm3.EUR_PC_resid.${gwas} \
-  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
-done
+#SBATCH -p shared,brc
+#SBATCH --mem 5G
+#SBATCH -J pt_clump
 
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-devtools/python/3.7.3
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump/todo.txt)
+echo ${gwas}
 
-module add general/R/3.5.0
-module add compilers/gcc/8.1.0
-module add general/python/2.7.10
-R
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+  --plink ${plink1_9} \
+  --memory 3000 \
+  --output ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
 
-opt$ref_plink_chr&lt;-&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr&#39;
-opt$ref_keep&lt;-&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep&#39;
-opt$sumstats&lt;-&#39;/scratch/groups/ukbiobank/sumstats/munged/EDUC03.sumstats.gz&#39;
-opt$plink&lt;-&#39;/users/k1806347/brc_scratch/Software/plink1.9.sh&#39;
-opt$memory&lt;-3000
-opt$covar&lt;-&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_ancestry/AllAncestry_EUR_PCs.EUR.eigenvec&#39;
-opt$output&lt;-&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_poylygenic/EDUC03/1KGPhase3.w_hm3.EUR_PC_resid.EDUC03&#39;
-opt$ref_pop_scale&lt;-&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list&#39;
+EOF
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump/todo.txt | cut -d&#39; &#39; -f1)%5 ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump/sbatch.sh
 </code></pre>
 </details>
 <p><br/></p>
@@ -942,31 +948,43 @@ opt$ref_pop_scale&lt;-&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-###
-# Run for all in ~/brc_scratch/Data/GWAS_sumstats/Largest_GWAS_over15K_withoutUKBB.txt
-###
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested
+
 # Create file listing GWAS that haven&#39;t been processed.
-mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/todo.txt
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested/todo.txt
 fi
 done
 
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/todo.txt);do
-qsub -N $(echo job$(($n+20))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 5G
+#SBATCH -J pt_clump_nn
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
   --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
   --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+  --sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
   --plink ${plink1_9} \
-  --memory 3000 \
   --nested F \
-  --output ${Geno_1KG_dir}/Score_files_for_poylygenic_non_nested/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --memory 3000 \
+  --output ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested/${gwas}/1KGPhase3.w_hm3.${gwas} \
   --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
-done
+
+EOF
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested/todo.txt | cut -d&#39; &#39; -f1)%5 ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_nonnested/sbatch.sh
 </code></pre>
 </details>
 <p><br/></p>
@@ -979,59 +997,44 @@ done
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-###
-# Run for best GWAS for target traits in UKBB
-###
-. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense
 
 # Create file listing GWAS that haven&#39;t been processed.
-mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_dense
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense/todo.txt
 fi
 done
 
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt);do
-qsub -N $(echo job$(($n+20))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_dense/polygenic_score_file_creator_dense.R \
-  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
-  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
-  --plink ${plink1_9} \
-  --prsice_path ${prsice_path} \
-  --rscript ${rscript} \
-  --memory 3000 \
-  --output ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas} \
-  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
-done
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
 
-###
-# Run for best GWAS for target traits in TEDS
-###
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt
-for gwas in $(echo EDUC03 ADHD04 HEIG03 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt
-fi
-done
+#SBATCH -p shared,brc
+#SBATCH --mem 5G
+#SBATCH -J pt_clump_dense
 
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/todo.txt);do
-qsub -N $(echo job$(($n+5))) -hold_jid $(echo job$(($n+0))) -l h_vmem=6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_dense/polygenic_score_file_creator_dense.R \
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_dense/polygenic_score_file_creator_dense.R \
     --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
     --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-  --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+  --sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
     --plink ${plink1_9} \
   --prsice_path ${prsice_path} \
   --rscript ${rscript} \
   --memory 3000 \
-    --output ${Geno_1KG_dir}/Score_files_for_poylygenic_dense/${gwas}/1KGPhase3.w_hm3.${gwas} \
+    --output ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense/${gwas}/1KGPhase3.w_hm3.${gwas} \
     --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
-done
+
+EOF
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense/todo.txt | cut -d&#39; &#39; -f1)%5 ${Geno_1KG_dir}/Score_files_for_polygenic/pt_clump_dense/sbatch.sh
 </code></pre>
 </details>
 <p><br/></p>
@@ -1046,50 +1049,40 @@ done
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-###
-# Run for best GWAS for target traits in UKBB
-###
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum
 
-mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/todo.txt
 fi
 done
 
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt);do
-sbatch --mem 10G -p shared,brc /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 10G
+#SBATCH -J lassosum
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
     --ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
     --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-    --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
-    --output ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas} \
+  --sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+    --output ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/${gwas}/1KGPhase3.w_hm3.${gwas} \
     --plink ${plink1_9} \
     --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-done
+EOF
 
-###
-# Run for best GWAS for target traits in TEDS
-###
-
-mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt
-for gwas in $(echo EDUC03 ADHD04 HEIG03 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt
-fi
-done
-
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/todo.txt);do
-sbatch --mem 10G -p shared,brc /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
-    --ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
-    --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-    --sumstats ${gwas_rep}/${gwas}.sumstats.gz \
-    --output ${Geno_1KG_dir}/Score_files_for_poylygenic_lassosum/${gwas}/1KGPhase3.w_hm3.${gwas} \
-    --plink ${plink1_9} \
-    --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
-done
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/todo.txt | cut -d&#39; &#39; -f1)%5 ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/sbatch.sh
 </code></pre>
 </details>
 <p><br/></p>
@@ -1226,60 +1219,52 @@ python /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/PRScs_ldblk/w
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-# Create directory for the output
-mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs
 
-#######
-# Run for best GWAS for target traits
-#######
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo_My1KGRef.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}_My1KGRef/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo_My1KGRef.txt
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 RHEU01 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/todo.txt
 fi
 done
 
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo_My1KGRef.txt | head -n 1);do
-sbatch -t 2-0 -p brc,shared -n 11 --mem 10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 110G
+#SBATCH -n 11
+#SBATCH --nodes=1
+#SBATCH -t 48:00:00
+#SBATCH -J PRScs
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
 --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
 --plink ${plink1_9} \
 --memory 5000 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}_My1KGRef/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
---PRScs_path /users/k1806347/brc_scratch/Software/PRScs.sh \
---PRScs_ref_path ${Geno_1KG_dir}/PRScs_LD_matrix/EUR \
---n_cores 11 \
---phi_param 1e-6,1e-4,1e-2,1,auto
-done
-
-# Run using the PRScs-provided LD reference.
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt
-fi
-done
-
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/todo.txt);do
-sbatch -t 2-0 -p brc,shared -n 11 --mem 10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
---ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
---ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep}/${gwas}.sumstats.gz \
---plink ${plink1_9} \
---memory 5000 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/${gwas}/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
 --PRScs_path /users/k1806347/brc_scratch/Software/PRScs.sh \
 --PRScs_ref_path ${PRScs_dir}/ldblk_1kg_eur \
 --n_cores 11 \
 --phi_param 1e-6,1e-4,1e-2,1,auto
-n=$(($n+1))
-done
+EOF
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/todo.txt | cut -d&#39; &#39; -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/sbatch.sh
 
 # The PRScs score for BODY11 is lower when I use my 1KG reference. The analysis also took twice as long to run. Rerun BODY11 analysis using PRScs reference to check to check whether the results are consistent with previous results, and to see how long it takes. It s possible the analysis is running slurm becuase we are now using Rosalind2. I would not expect this to affect the results though. Saloni did say she had gotten unexpected results though.
+
+# I am really struggling with this. Even using the PRScs reference, it is taking twice as long to run and the results are different! I have gone through everything. Nothing has changed. Even when I use an old pull of the PRScs repo. I think I should contact Rosalind admin to see whether this is even possible.
 </code></pre>
 </details>
 <p><br/></p>
@@ -1294,68 +1279,48 @@ done
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-# Create directory for the output
-mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP
 
-#######
-# Run for best GWAS for target traits in UKBB
-#######
-
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/todo.txt
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP/todo.txt
 fi
 done
 
-# Run script for selected GWAS
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/todo.txt);do
-qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 5 -l h_vmem=12G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBLUP/polygenic_score_file_creator_SBLUP.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 80G
+#SBATCH -n 6
+#SBATCH -J SBLUP
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBLUP/polygenic_score_file_creator_SBLUP.R \
 --ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
 --plink ${plink1_9} \
 --gcta ${gcta} \
+--munge_sumstats ${munge_sumstats} \
 --ldsc ${ldsc} \
 --ldsc_ref ${ldsc_ref} \
---memory 40000 \
---n_cores 5 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--hm3_snplist ${HapMap3_snplist_dir}/w_hm3.snplist \
+--memory 50000 \
+--n_cores 6 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP/${gwas}/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
-done
+EOF
 
-#######
-# Run for best GWAS for target traits in TEDS
-#######
-
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/todo.txt
-for gwas in $(echo EDUC03 ADHD04 HEIG03 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/todo.txt
-fi
-done
-
-# Run script for selected GWAS
-n=0
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/todo.txt);do
-qsub -N $(echo job$(($n+15))) -hold_jid $(echo job$(($n+0))) -pe smp 5 -l h_vmem=12G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBLUP/polygenic_score_file_creator_SBLUP.R \
---ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
---ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep}/${gwas}.sumstats.gz \
---plink ${plink1_9} \
---gcta ${gcta} \
---ldsc ${ldsc} \
---ldsc_ref ${ldsc_ref} \
---memory 40000 \
---n_cores 5 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBLUP/${gwas}/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-n=$(($n+1))
-done
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP/todo.txt | cut -d&#39; &#39; -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/SBLUP/sbatch.sh
 </code></pre>
 </details>
 <p><br/></p>
@@ -1477,216 +1442,198 @@ done
 <p>Now the EUR 1KG Phase 3 LD reference is ready, we can calculate SBayesR shrunk GWAS summary statistics. This section uses an R script called ‘polygenic_score_file_creator_SBayes.R’. Further information the usage of this script can be found <a href="https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_SBayesR">here</a>.</p>
 <details>
 <p><summary>Show code</summary></p>
-<pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+<pre class="bash"><code>
+################
+# Using 1KG reference
+################
 
-# Create directory for the output
-mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-# Create list of gwas that PRScs scores should calculated for
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo.txt
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR
+
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo.txt
 fi
 done
 
-# Run script for selected GWAS
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo.txt);do
-sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 50G
+#SBATCH -n 6
+#SBATCH -J SBayesR
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
 --ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
 --plink ${plink1_9} \
 --gctb ${gctb} \
 --ld_matrix_chr ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr \
 --memory 50000 \
---n_cores 8 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--n_cores 6 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas}/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-done
+EOF
 
-# Re-run SBayesR analysis using the GCTB-provided LD-matrix based on 50,000 UKB individuals.
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_LD.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_LD.txt
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo.txt | cut -d&#39; &#39; -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/sbatch.sh
+
+################
+# Using GCTB reference
+################
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR
+
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_GCTBref.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas}_GCTBref/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_GCTBref.txt
 fi
 done
 
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_LD.txt);do
-sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/sbatch_GCTBref.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 50G
+#SBATCH -n 6
+#SBATCH -J SBayesR_GCTBref
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_GCTBref.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
 --ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
 --plink ${plink1_9} \
 --gctb ${gctb} \
---ld_matrix_chr /users/k1806347/brc_scratch/Data/GCTB/LD_matrix/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
---memory 45000 \
---n_cores 8 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref/1KGPhase3.w_hm3.${gwas} \
+--ld_matrix_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/GCTB_shared/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
+--memory 50000 \
+--n_cores 6 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas}_GCTBref/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-done
+EOF
 
-# GCTB performance is highly variable. This is thought to be due to the quality of the GWAS summary statistics. The authors suggest that the method should not be included if it does not converge. My code checks for convergence errors and there aren&#39;t any reported but the heritability estimates look strange in some cases. The performance of SBayesR is affected by the assumption that sample size is constant across all variants. Per variant sample size isn&#39;t always available though. A solution is to impute the per variant sample size using the SE and MAF but this requires unmunged summary statistics to be used. The authors also suggest restricting the analysis to P&lt;0.4.
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_GCTBref.txt | cut -d&#39; &#39; -f1)%5 ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/sbatch_GCTBref.sh
 
-# Rerun GCTB using unmunged GWAS summary statistics, with GCTB impute-N option selected.
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_impute_N.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_unmunged_impute_N/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_impute_N.txt
+#########
+# Note.
+# GCTB performance is highly variable. This is thought to be due to the quality of the GWAS summary statistics. This is in some cases due to poor convergence. The authors suggest restricting the analysis to SNPs with a p-value &lt; 0.4
+########
+
+################
+# Using 1KG reference (P&lt;0.4)
+################
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR
+
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_P4.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas}_P4/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_P4.txt
 fi
 done
 
-# Run script for selected GWAS
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_impute_N.txt);do
-sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/sbatch_P4.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 50G
+#SBATCH -n 6
+#SBATCH -J SBayesR
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_P4.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
 --ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep_unmunged}/${gwas}.gz \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
 --plink ${plink1_9} \
 --gctb ${gctb} \
 --ld_matrix_chr ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr \
 --memory 50000 \
---n_cores 8 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_unmunged_impute_N/1KGPhase3.w_hm3.${gwas} \
+--n_cores 6 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas}_P4/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
---munged F \
---impute_N T
-done
-
-# Rerun GCTB using unmunged GWAS summary statistics, with GCTB impute-N option selected and removing SNP with P &gt; 0.4.
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_impute_N_P4.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_unmunged_impute_N_P4/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_impute_N_P4.txt
-fi
-done
-
-# Run script for selected GWAS
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_impute_N_P4.txt);do
-sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
---ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
---ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep_unmunged}/${gwas}.gz \
---plink ${plink1_9} \
---gctb ${gctb} \
---ld_matrix_chr ${Geno_1KG_dir}/LD_matrix/EUR/1KGPhase3.w_hm3.EUR.chr \
---memory 50000 \
---n_cores 8 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_unmunged_impute_N_P4/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
---munged F \
---impute_N T \
 --P_max 0.4
-done
+EOF
 
-# Rerun GCTB using GCTB ref and unmunged GWAS summary statistics, with GCTB impute-N option selected.
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_GCTBref_impute_N.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_unmunged_GCTBref_impute_N/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_GCTBref_impute_N.txt
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_P4.txt | cut -d&#39; &#39; -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/sbatch_P4.sh
+
+
+################
+# Using GCTB reference (P&lt;0.4)
+################
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR
+
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_GCTBref_P4.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas}_GCTBref_P4/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_GCTBref_P4.txt
 fi
 done
 
-# Run script for selected GWAS
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_GCTBref_impute_N.txt);do
-sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/sbatch_GCTBref_P4.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 50G
+#SBATCH -n 6
+#SBATCH -J SBayesR_GCTBref_P4
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_GCTBref_P4.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
 --ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep_unmunged}/${gwas}.gz \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
 --plink ${plink1_9} \
 --gctb ${gctb} \
---ld_matrix_chr /users/k1806347/brc_scratch/Data/GCTB/LD_matrix/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
+--ld_matrix_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/LD_matrix/GCTB_shared/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
 --memory 50000 \
---n_cores 8 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_unmunged_GCTBref_impute_N/1KGPhase3.w_hm3.${gwas} \
+--n_cores 6 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas}_GCTBref_P4/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
---munged F \
---impute_N T
-done
-
-# Rerun GCTB using GCTB-ref unmunged GWAS summary statistics, with GCTB impute-N option selected and removing SNP with P &gt; 0.4.
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_GCTBref_impute_N_P4.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_unmunged_GCTBref_impute_N_P4/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_GCTBref_impute_N_P4.txt
-fi
-done
-
-# Run script for selected GWAS
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_unmunged_GCTBref_impute_N_P4.txt);do
-sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
---ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
---ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep_unmunged}/${gwas}.gz \
---plink ${plink1_9} \
---gctb ${gctb} \
---ld_matrix_chr /users/k1806347/brc_scratch/Data/GCTB/LD_matrix/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
---memory 50000 \
---n_cores 8 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_unmunged_GCTBref_impute_N_P4/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
---munged F \
---impute_N T \
 --P_max 0.4
-done
+EOF
 
-# Rerun for HEIG03 and BODY03 with adaptive threshold for truncating sample size distribution 
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_GCTBref_autoTrunc
-for gwas in $(echo HEIG03 BODY03);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref_autoTrunc/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_GCTBref_autoTrunc
-fi
-done
-
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_GCTBref_autoTrunc);do
-sbatch -J SBayesR -n 8 --mem 50G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
---ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
---ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep_unmunged}/${gwas}.gz \
---plink ${plink1_9} \
---gctb ${gctb} \
---ld_matrix_chr /users/k1806347/brc_scratch/Data/GCTB/LD_matrix/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
---memory 40000 \
---munged F \
---n_cores 8 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref_autoTrunc/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
---auto_trunc T 
-done
-
-# HEIG03 converges for all chromosomes when using more stringent truncation, though heritability estimate is still odd.
-
-# Re-run SBayesR analysis using the GCTB-provided LD-matrix based on 50,000 UKB individuals, and unmunged sumstats
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_unmunged_LD.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref_unmunged/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_unmunged_LD.txt
-fi
-done
-
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/todo_GCTB_unmunged_LD.txt);do
-sbatch -J SBayesR -n 5 --mem 25G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR.R \
---ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
---ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep_unmunged}/${gwas}.gz \
---plink ${plink1_9} \
---gctb ${gctb} \
---ld_matrix_chr /users/k1806347/brc_scratch/Data/GCTB/LD_matrix/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
---memory 20000 \
---munged F \
---n_cores 5 \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_SBayesR/${gwas}_GCTBref_unmunged/1KGPhase3.w_hm3.${gwas} \
---ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
-done
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/todo_GCTBref_P4.txt | cut -d&#39; &#39; -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/sbatch_GCTBref_P4.sh
 </code></pre>
 </details>
 <p><br/></p>
@@ -1700,34 +1647,233 @@ done
 <p><summary>Show code</summary></p>
 <pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-# Create directory for the output
-mkdir ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred
 
-#######
-# Run for best GWAS for target traits
-#######
-
-&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
-if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
-echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/todo.txt
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred/todo.txt
 fi
 done
 
-# Run script for selected GWAS
-for gwas in $(cat ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/todo.txt);do
-sbatch -p brc,shared --mem 50G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_LDPred/polygenic_score_file_creator_LDPred.R \
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 50G
+#SBATCH -n 1
+#SBATCH -J LDPred
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_LDPred/polygenic_score_file_creator_LDPred.R \
 --ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
---ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
 --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
---sumstats ${gwas_rep}/${gwas}.sumstats.gz \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
 --plink ${plink1_9} \
 --memory 20000 \
 --n_cores 1 \
 --ldpred ${ldpred} \
---output ${Geno_1KG_dir}/Score_files_for_poylygenic_LDPred/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred/${gwas}/1KGPhase3.w_hm3.${gwas} \
 --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+EOF
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred/todo.txt | cut -d&#39; &#39; -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred/sbatch.sh
+</code></pre>
+</details>
+<p><br/></p>
+<hr />
+</div>
+<div id="prepare-score-and-scale-files-for-polygenic-scoring-using-ldpred2" class="section level2">
+<h2><span class="header-section-number">4.8</span> Prepare score and scale files for polygenic scoring using LDPred2</h2>
+<p>Here we create reference files for polygenic scores calculated by LDPred2, a method for performing bayesian shrinkage analysis with summary data and an LD-reference. More information on LDPred2 can be found <a href="https://privefl.github.io/bigsnpr/articles/LDpred2.html">here</a>.</p>
+<div id="create-ld-reference-for-ldpred2" class="section level3">
+<h3><span class="header-section-number">4.8.1</span> Create LD reference for LDPred2</h3>
+<details>
+<p><summary>Show code</summary></p>
+<pre class="r"><code>library(bigsnpr)
+library(bigreadr)
+
+source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config&#39;)
+
+# Subset Europeans from reference
+system(paste0(plink1_9,&#39; --bfile &#39;,Geno_1KG_dir,&#39;/1KGPhase3.w_hm3.GW --keep &#39;,Geno_1KG_dir,&#39;/keep_files/EUR_samples.keep --make-bed --out &#39;,Geno_1KG_dir,&#39;/LD_matrix/LDPred2/1KG.EUR.tmp.GW&#39;))
+
+# Read in reference data
+snp_readBed(paste0(Geno_1KG_dir,&#39;/LD_matrix/LDPred2/1KG.EUR.tmp.GW.bed&#39;))
+
+# Attach the ref object in R session
+ref &lt;- snp_attach(paste0(Geno_1KG_dir,&#39;/LD_matrix/LDPred2/1KG.EUR.tmp.GW.rds&#39;))
+G &lt;- ref$genotypes
+NCORES &lt;- as.integer(Sys.getenv(&quot;SLURM_JOB_CPUS_PER_NODE&quot;))
+bigassertr::assert_dir(paste0(Geno_1KG_dir,&#39;/LD_matrix/LDPred2&#39;))
+
+#### Impute missing values (bigsnpr can&#39;t handle missing data in most functions)
+G_imp&lt;-snp_fastImputeSimple(G, method = &quot;mean2&quot;, ncores = NCORES)
+G&lt;-G_imp
+
+# Save imputed reference
+ref$genotypes&lt;-G
+saveRDS(ref, paste0(Geno_1KG_dir,&#39;/1KGPhase3.w_hm3.GW.rds&#39;))
+
+#### Compute LD matrices ####
+CHR &lt;- ref$map$chr
+POS &lt;- ref$map$physical.pos
+POS2 &lt;- snp_asGeneticPos(CHR, POS, dir =&#39;/users/k1806347/brc_scratch/Data/Genetic_Map/CEU&#39;, ncores = NCORES)
+
+# Compute LD
+for(chr in 1:22){
+  print(chr)
+  ind.chr &lt;- which(CHR == chr)
+ 
+  corr &lt;- snp_cor(G, ind.col = ind.chr, infos.pos = POS2[ind.chr], size = 3 / 1000, ncores = NCORES)
+
+  saveRDS(corr, file = paste0(Geno_1KG_dir,&#39;/LD_matrix/LDPred2/LD_chr&#39;, chr, &quot;.rds&quot;), version = 2)
+}
+
+# Compute LD scores
+ref$map$ld &lt;- do.call(&#39;c&#39;, lapply(1:22, function(chr) {
+  cat(chr, &quot;.. &quot;, sep = &quot;&quot;)
+  corr_chr &lt;- readRDS(paste0(Geno_1KG_dir,&#39;/LD_matrix/LDPred2/LD_chr&#39;, chr, &quot;.rds&quot;))
+  Matrix::colSums(corr_chr^2)
+}))
+
+saveRDS(ref$map, paste0(Geno_1KG_dir,&#39;/LD_matrix/LDPred2/map.rds&#39;), version = 2)
+
+# Save reference SD of genotypes
+sd &lt;- runonce::save_run(
+  sqrt(big_colstats(G, ncores = NCORES)$var),
+  file = paste0(Geno_1KG_dir,&#39;/LD_matrix/LDPred2/sd.rds&#39;)
+)</code></pre>
+</details>
+<p><br/></p>
+<hr />
+</div>
+<div id="calculate-score-files" class="section level3">
+<h3><span class="header-section-number">4.8.2</span> Calculate score files</h3>
+<p>This section uses an R script called ‘polygenic_score_file_creator_LDPred2.R’. Further information the usage of this script can be found <a href="https://github.com/opain/GenoPred/tree/master/Scripts/polygenic_score_file_creator_LDPred2">here</a>.</p>
+<details>
+<p><summary>Show code</summary></p>
+<pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2
+
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo.txt
+fi
 done
+
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 70G
+#SBATCH -J LDPred2
+#SBATCH -n 10
+#SBATCH --nodes 1
+#SBATCH -t 5-00:00:00
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed &quot;${SLURM_ARRAY_TASK_ID}q;d&quot; ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_LDPred2/polygenic_score_file_creator_LDPred2.R \
+--ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--ldpred2_ref_dir ${Geno_1KG_dir}/LD_matrix/LDPred2 \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+--plink ${plink1_9} \
+--memory 20000 \
+--n_cores 10 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+EOF
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo.txt | cut -d&#39; &#39; -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/sbatch.sh
+
+# Added code to LDPred2 scorer to remove parameters with Inf or NA values</code></pre>
+</details>
+<p><br/></p>
+<hr />
+</div>
+</div>
+<div id="prepare-score-and-scale-files-for-polygenic-scoring-using-dbslmm" class="section level2">
+<h2><span class="header-section-number">4.9</span> Prepare score and scale files for polygenic scoring using DBSLMM</h2>
+<p>Here we create reference files for polygenic scores calculated by DBSLMM. More information found <a href="https://biostat0903.github.io/DBSLMM/index.html">here</a>.</p>
+<details>
+<p><summary>Show code</summary></p>
+<pre class="bash"><code>. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01)
+pop_prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005 NA 0.05 NA 0.125 0.125)
+samp_prev=$(echo 0.28 NA NA NA 0.168 0.33 0.285 0.36 0.246 NA 0.364 NA 0.564 0.537)
+
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM
+
+# Create file listing GWAS that haven&#39;t been processed.
+&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/todo.txt
+for i in $(seq 1 14);do
+gwas_i=$(echo ${gwas} | cut -f ${i} -d &#39; &#39;)
+pop_prev_i=$(echo ${pop_prev} | cut -f ${i} -d &#39; &#39;)
+sample_prev_i=$(echo ${samp_prev} | cut -f ${i} -d &#39; &#39;)
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale ]; then
+echo ${gwas_i} ${pop_prev_i} ${sample_prev_i} &gt;&gt; ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat &gt; ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/sbatch.sh &lt;&lt; &#39;EOF&#39;
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 10G
+#SBATCH -n 1
+#SBATCH --nodes 1
+#SBATCH -J DBSLMM
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(awk -v var=&quot;$SLURM_ARRAY_TASK_ID&quot; &#39;NR == var {print $1}&#39; ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/todo.txt)
+pop_prev=$(awk -v var=&quot;$SLURM_ARRAY_TASK_ID&quot; &#39;NR == var {print $2}&#39; ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/todo.txt)
+sample_prev=$(awk -v var=&quot;$SLURM_ARRAY_TASK_ID&quot; &#39;NR == var {print $3}&#39; ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/todo.txt)
+
+echo ${gwas}
+echo ${pop_prev}
+echo ${sample_prev}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM.R \
+--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+--plink ${plink1_9} \
+--memory 5000 \
+--ld_blocks /users/k1806347/brc_scratch/Data/LDetect/EUR \
+--rscript /users/k1806347/brc_scratch/Software/Rscript.sh \
+--dbslmm /users/k1806347/brc_scratch/Software/DBSLMM/software \
+--munge_sumstats ${munge_sumstats} \
+--ldsc ${ldsc} \
+--ldsc_ref ${ldsc_ref} \
+--hm3_snplist ${HapMap3_snplist_dir}/w_hm3.snplist \
+--sample_prev ${sample_prev} \
+--pop_prev ${pop_prev} \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+EOF
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/todo.txt | cut -d&#39; &#39; -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/sbatch.sh
 </code></pre>
 </details>
 <p><br/></p>
@@ -1736,6 +1882,8 @@ done
 </div>
 <div id="functionally-informed-polygenic-scoring" class="section level1">
 <h1><span class="header-section-number">5</span> Functionally-informed polygenic scoring</h1>
+<p><br/></p>
+<hr />
 <p>In this section we will create polygenic scores based on transcriptome-wide association study (TWAS) results, and predicted expression. In brief TWAS and predicted expression is performed by integrating information on how SNPs affect gene expression with GWAS sumstats or genotypic data. More information about TWAS can be found <a href="http://gusevlab.org/projects/fusion/">here</a>. It is also possible to integrate information other gene expression, and so these scores can be more generally referred to as functionally-informed polygenic scores.</p>
 <p>Unlike polygenic scores, functionally informed polygenic scores can be tissue- and developmental stage-specific, providing an oppurtunity to stratify individuals into different components of risk. Functional inference is carried out using SNP-weights, jointly estimated SNP-effects on a functional change to a gene. The joint estimation of SNP-effects on a gene in a functionally aware manner may explain variance not captured by a standard polygenic score. However, functionally informed polygenic scores typically only considers variation proximal to genes and will therefore typically explain less than a genome-wide polygenic score.</p>
 <details>
@@ -1787,7 +1935,7 @@ n
 # Create file listing GWAS that haven&#39;t been converted to TWAS
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 &gt; ${TWAS_rep}/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11);do
 if [ ! -f ${TWAS_rep}/${gwas}/${gwas}_res_GW.txt ]; then
 echo $gwas ${gwas_rep}/${gwas}.sumstats.gz &gt;&gt; ${TWAS_rep}/todo.txt
 fi
@@ -1803,7 +1951,7 @@ sbatch -p brc,shared --mem 10G -n 4 --array 1-$(wc -l ${TWAS_rep}/todo.txt | cut
 # Perform TWAS for all selected GWAS and all tissues but also estimate COLOC values
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 &gt; ${TWAS_rep}/todo_withCOLOC.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11);do
 if [ ! -f ${TWAS_rep}/${gwas}_withCOLOC/${gwas}_res_GW.txt ]; then
 echo $gwas ${gwas_rep}/${gwas}.sumstats.gz &gt;&gt; ${TWAS_rep}/todo_withCOLOC.txt
 fi
@@ -1824,7 +1972,7 @@ R
 source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config&#39;)
 
 library(data.table)
-gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;HEIG03&#39;,&#39;BODY03&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;SCLE02&#39;,&#39;RHEU01&#39;,&#39;EDUC03&#39;,&#39;ADHD04&#39;,&#39;BODY11&#39;)
+gwas&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;HEIG03&#39;,&#39;BODY04&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;SCLE03&#39;,&#39;RHEU02&#39;,&#39;EDUC03&#39;,&#39;ADHD04&#39;,&#39;BODY11&#39;)
 twas_comp&lt;-NULL
 twas_incomp&lt;-NULL
 for(gwas_name in gwas){
@@ -1840,7 +1988,7 @@ write.table(twas_comp, paste0(TWAS_rep,&#39;/Largest_TWAS_selected_75comp.txt&#3
 q()
 n
 
-# SCLE02 has a large proportion of missing data in the TWAS. This is due to very few SNPs. Exclude from future analysis.</code></pre>
+# SCLE03 has a large proportion of missing data in the TWAS. This is due to very few SNPs. Exclude from future analysis.</code></pre>
 </details>
 <p><br/></p>
 <hr />
@@ -1931,7 +2079,7 @@ done
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
 &gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_COLOC_PP4.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 RHEU01 EDUC03 ADHD04 BODY11);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 RHEU02 EDUC03 ADHD04 BODY11);do
 for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}_COLOC_PP4/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights}.scale ]; then
 echo $gwas $weights &gt;&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo_COLOC_PP4.txt
@@ -2046,7 +2194,7 @@ R
 library(data.table)
 source(&#39;/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config&#39;)
 
-twas_list&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;HEIG03&#39;,&#39;BODY03&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;RHEU01&#39;,&#39;EDUC03&#39;,&#39;ADHD04&#39;,&#39;BODY11&#39;)
+twas_list&lt;-c(&#39;DEPR06&#39;,&#39;COLL01&#39;,&#39;HEIG03&#39;,&#39;BODY04&#39;,&#39;DIAB05&#39;,&#39;COAD01&#39;,&#39;CROH01&#39;,&#39;RHEU02&#39;,&#39;EDUC03&#39;,&#39;ADHD04&#39;,&#39;BODY11&#39;)
 
 pos_tissue_specific&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/1KG/Phase3/Predicted_expression/Tissue_specific.pos&#39;)
 
@@ -2076,7 +2224,7 @@ n
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
 &gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 RHEU01 EDUC03 ADHD04 BODY11);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 RHEU02 EDUC03 ADHD04 BODY11);do
 for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.TissueSpecific.${gwas}.${weights}.scale ]; then
 echo $gwas $weights &gt;&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt
@@ -2107,7 +2255,7 @@ done
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
 &gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 RHEU01 EDUC03 ADHD04 BODY11);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 RHEU02 EDUC03 ADHD04 BODY11);do
 for weights in $(cat ${TWAS_rep}/snp_weight_list.txt);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.TissueSpecific.${gwas}.${weights}.scale ]; then
 echo $gwas $weights &gt;&gt; ${Geno_1KG_dir}/Score_files_for_functionally_informed_risk_scores/todo.TissueSpecific.txt
@@ -2214,7 +2362,7 @@ ${plink1_9} \
 # Create file listing GWAS that haven&#39;t been processed.
 mkdir -p ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene
 &gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene/todo.txt
-for gwas in $(echo DEPR06 COLL01 HEIG03 BODY03 DIAB05 COAD01 CROH01 SCLE02 RHEU01 EDUC03 ADHD04 BODY11);do
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11);do
 if [ ! -f ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene/${gwas}/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
 echo $gwas &gt;&gt; ${Geno_1KG_dir}/Score_files_for_poylygenic_stratified_TWAS_Gene/todo.txt
 fi
@@ -2259,31 +2407,30 @@ done
 ## [8] base     
 ## 
 ## other attached packages:
-##  [1] caret_6.0-85      lattice_0.20-38   optparse_1.6.4    doMC_1.3.6       
-##  [5] iterators_1.0.12  foreach_1.4.8     data.table_1.12.8 cowplot_1.0.0    
-##  [9] ggplot2_3.2.1     knitr_1.28       
+##  [1] cowplot_1.0.0     caret_6.0-85      ggplot2_3.2.1     lattice_0.20-38  
+##  [5] optparse_1.6.4    doMC_1.3.6        iterators_1.0.12  foreach_1.4.8    
+##  [9] data.table_1.12.8 knitr_1.28       
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] Rcpp_1.0.3           lubridate_1.7.4      class_7.3-15        
-##  [4] assertthat_0.2.1     digest_0.6.25        ipred_0.9-9         
-##  [7] R6_2.4.1             plyr_1.8.5           stats4_3.6.2        
-## [10] evaluate_0.14        highr_0.8            pillar_1.4.3        
-## [13] rlang_0.4.6          lazyeval_0.2.2       rpart_4.1-15        
-## [16] Matrix_1.2-18        rmarkdown_2.1        labeling_0.3        
-## [19] splines_3.6.2        gower_0.2.1          stringr_1.4.0       
-## [22] munsell_0.5.0        compiler_3.6.2       xfun_0.12           
-## [25] pkgconfig_2.0.3      htmltools_0.4.0      nnet_7.3-12         
-## [28] tidyselect_1.0.0     tibble_3.0.1         prodlim_2019.11.13  
-## [31] codetools_0.2-16     crayon_1.3.4         dplyr_0.8.4         
-## [34] withr_2.1.2          MASS_7.3-51.4        recipes_0.1.9       
-## [37] ModelMetrics_1.2.2.1 grid_3.6.2           nlme_3.1-142        
-## [40] gtable_0.3.0         lifecycle_0.2.0      magrittr_1.5        
-## [43] pROC_1.16.1          scales_1.1.0         stringi_1.4.6       
-## [46] farver_2.0.3         reshape2_1.4.3       getopt_1.20.3       
-## [49] timeDate_3043.102    ellipsis_0.3.0       generics_0.0.2      
-## [52] vctrs_0.3.1          lava_1.6.6           tools_3.6.2         
-## [55] glue_1.3.1           purrr_0.3.3          survival_3.1-8      
-## [58] yaml_2.2.1           colorspace_1.4-1</code></pre>
+##  [1] tidyselect_1.0.0     xfun_0.12            reshape2_1.4.3      
+##  [4] purrr_0.3.3          splines_3.6.2        colorspace_1.4-1    
+##  [7] vctrs_0.3.1          generics_0.0.2       stats4_3.6.2        
+## [10] htmltools_0.4.0      getopt_1.20.3        yaml_2.2.1          
+## [13] prodlim_2019.11.13   survival_3.1-8       rlang_0.4.6         
+## [16] ModelMetrics_1.2.2.1 pillar_1.4.3         glue_1.3.1          
+## [19] withr_2.1.2          lifecycle_0.2.0      plyr_1.8.5          
+## [22] lava_1.6.6           stringr_1.4.0        timeDate_3043.102   
+## [25] munsell_0.5.0        gtable_0.3.0         recipes_0.1.9       
+## [28] codetools_0.2-16     evaluate_0.14        class_7.3-15        
+## [31] highr_0.8            Rcpp_1.0.3           scales_1.1.0        
+## [34] ipred_0.9-9          digest_0.6.25        stringi_1.4.6       
+## [37] dplyr_0.8.4          grid_3.6.2           tools_3.6.2         
+## [40] magrittr_1.5         lazyeval_0.2.2       tibble_3.0.1        
+## [43] crayon_1.3.4         pkgconfig_2.0.3      ellipsis_0.3.0      
+## [46] MASS_7.3-51.4        Matrix_1.2-18        pROC_1.16.1         
+## [49] lubridate_1.7.4      gower_0.2.1          assertthat_0.2.1    
+## [52] rmarkdown_2.1        R6_2.4.1             rpart_4.1-15        
+## [55] nnet_7.3-12          nlme_3.1-142         compiler_3.6.2</code></pre>
 </details>
 <details>
 <p><summary>Software versions</summary></p>
