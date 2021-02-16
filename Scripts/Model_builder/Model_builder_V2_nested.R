@@ -362,6 +362,7 @@ if(opt$assoc == T){
 	sink()
 }
 
+if(opt$compare_predictors == T){
 ############
 # Build and evaluate models using predictors together
 ############
@@ -531,6 +532,8 @@ if(opt$model_comp == T){
   sink(file = paste(opt$out,'.log',sep=''), append = T)
   cat('Model evaluation results saved as ',opt$out,'.pred_comp.txt.\n',sep='')
   sink()
+}
+
 }
 
 end.time <- Sys.time()
