@@ -1506,6 +1506,24 @@ sd <- runonce::save_run(
 ```
 </details>
 
+<details><summary>Create SD file for LDPred2 reference</summary>
+```{R, eval=F, echo=T}
+map<-readRDS('/users/k1806347/brc_scratch/Data/LDPred2/map.rds')
+sd_ldref <- sqrt(2 * map$af_UKBB * (1 - map$af_UKBB))
+saveRDS(sd_ldref, '/users/k1806347/brc_scratch/Data/LDPred2/sd.rds')
+
+# Modify header in map
+map$genetic.dist<-NA
+map<-map[c('chr','rsid','genetic.dist','pos','a1','a0','ld')]
+names(map)<-c('chromosome','marker.ID','genetic.dist','physical.pos','allele1','allele2','ld')
+
+system('cp /users/k1806347/brc_scratch/Data/LDPred2/map.rds /users/k1806347/brc_scratch/Data/LDPred2/map_original.rds')
+
+saveRDS(map, '/users/k1806347/brc_scratch/Data/LDPred2/map.rds')
+
+```
+</details>
+
 <br/>
 
 ***
@@ -1515,6 +1533,10 @@ This section uses an R script called 'polygenic_score_file_creator_LDPred2.R'. F
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
+###########
+# Using the 1000 genomes reference
+###########
+
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
 # Create directory
@@ -1559,6 +1581,68 @@ EOF
 sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo.txt | cut -d' ' -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/sbatch.sh
 
 # Added code to LDPred2 scorer to remove parameters with Inf or NA values
+
+###########
+# Using the LDPred2 provided reference
+###########
+
+# There is no allele sd/frequency data provided.
+# We will need to create a file called create
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create file listing GWAS that haven't been processed.
+> ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo_LDPred2ref.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/${gwas}_LDPred2ref/1KGPhase3.w_hm3.${gwas}.EUR.scale ]; then
+echo $gwas >> ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo_LDPred2ref.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/sbatch_LDPred2ref.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 30G
+#SBATCH -J LDPred2
+#SBATCH -n 3
+#SBATCH --nodes 1
+#SBATCH -t 5-00:00:00
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed "${SLURM_ARRAY_TASK_ID}q;d" ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo_LDPred2ref.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_LDPred2/polygenic_score_file_creator_LDPred2.R \
+--ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--ldpred2_ref_dir /users/k1806347/brc_scratch/Data/LDPred2 \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+--plink ${plink1_9} \
+--test chr22 \
+--memory 20000 \
+--n_cores 3 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/${gwas}_LDPred2ref/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+EOF
+
+opt$ref_plink<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW'
+opt$ref_keep<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep'
+opt$ldpred2_ref_dir<-'/users/k1806347/brc_scratch/Data/LDPred2'
+opt$sumstats<-'/users/k1806347/brc_scratch/Data/GWAS_sumstats/prs_comparison/cleaned/DEPR06.cleaned.gz'
+opt$plink<-'/users/k1806347/brc_scratch/Software/plink1.9.sh'
+opt$test<-'chr22'
+opt$memory<-20000 
+opt$n_cores<-3
+opt$output<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/LDPred2/DEPR06_LDPred2ref/1KGPhase3.w_hm3.DEPR06'
+opt$ref_pop_scale<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list'
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/todo_LDPred2ref.txt | cut -d' ' -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/sbatch_LDPred2ref.sh
+
+sbatch --array 1-1 ${Geno_1KG_dir}/Score_files_for_polygenic/LDPred2/sbatch_LDPred2ref.sh
+
 ```
 </details>
 

@@ -1,6 +1,5 @@
 ---
-title: "Improving communication of polygenic scores"
-runtime: shiny
+title: "Improving interpretability of polygenic scores using only summary statistics"
 output:
   html_document:
     toc: true
@@ -30,22 +29,21 @@ pre code, pre, code {
 }
 ```
 
-<br/>
-
 ***
 
 This page describes a project investigatin approaches for converting polygenic scores into interpretable information.
 
 Aims:
 
-* Develop scalable method for converting polygenic Z-scores into absolute estimates
+* Develop method for converting polygenic Z-scores into absolute estimates using summary statistics
 * Develop figures to represent absolute risk
+* Validate approach for estimating PRS R2/AUC from summary statistics
 
 ***
 
 # Converting polygenic Z-scores to absolute estimates
 
-To enable correct intepretation of a polygenic score, the variance explained by the polygenic score must be considered. Furthermore, for binary outcomes the population prevelance must be considered, and for continuous outcomes the population mean and SD must be considered. It is possible to convert relative genetic risk into absolute esimates of an outcome when observed data is available, as 23andMe do, by splitting participants into genetic risk quantiles, and then estimating the mean outcome within each quantile. Here, we use an alternative approach based on summary statistics only alone.
+To enable correct intepretation of a polygenic score, the variance explained by the polygenic score must be considered. Furthermore, for binary outcomes the population prevelance must be considered, and for continuous outcomes the population mean and SD must be considered. It is possible to convert relative genetic risk into absolute esimates of an outcome when observed data is available, as 23andMe do, by splitting participants into genetic risk quantiles, and then estimating the mean outcome within each quantile. However, observed data is often not available. Here, we use an alternative approach based on summary statistics only alone.
 
 ***
 
@@ -113,58 +111,553 @@ ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
 
 ***
 
+#### Validate conversion
+
+Calculate reference-standardised polygenic scores within UK Biobank for a range of dichotomous phenotypes. Estimate the AUC/R2 of the polygenic scores in UKB. Compare measured and estimated absolute risk per PRS quantile. Use the PRScs fully baysian (pseudovalidation) polygenic scores, as this method provides a single score with good relative performance compared to other approaches.
+
+Reference-standardised polygenic scores have already been calculated in UKB for the PRS methods comparison study, and the AUC has already been estimated. Read in polygenic scores and observed phenotype for UKB, measure proportion of cases per PRS quantile, and then estimate proportion of cases per PRS quantile.
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+pheno=c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas=c('DEPR06','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+
+n_quant<-20
+
+files<-data.frame(pheno,gwas)
+
+# Create function
+ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
+  
+    # Convert AUC into cohen's d
+    d <- sqrt(2)*qnorm(PRS_auc)
+    
+    # Set mean difference between cases and control polygenic scores
+    mu_case <- d
+    mu_control <- 0
+    
+    # Estimate mean and variance of polygenic scores across case and control
+    varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
+    E_PRS <- d*prev
+    
+    # Estimate polygenic score quantiles
+    by_quant<-1/n_quantile
+    p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
+    quant_vals_PRS <- rep(0, length(p_quant))
+    quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
+    for(i in 1:length(p_quant)){
+        quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
+    }
+    
+    # Create a table for output
+    ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
+    ul_qv_PRS[1,1] <- -Inf
+    ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
+    ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
+    ul_qv_PRS[n_quantile,2] <- Inf
+    
+    ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
+    
+    # Estimate case control proportion for each quantile
+    prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
+    prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
+    p_case_quantile <- (prob_quantile_case*prev)/by_quant
+    p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
+    
+    # Estimate OR comparing each quantile to bottom quantile
+    OR <- p_case_quantile/p_cont_quantile
+    OR <- OR/OR[1]
+    
+    # Return output
+    out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
+    row.names(out) <- 1:n_quantile
+    colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
+    
+    data.frame(out)
+}
+
+# Run analysis for each phenotype
+res_all<-NULL
+cor_res<-NULL
+plots_all<-list()
+
+for(i in 1:dim(files)[1]){
+  # Read in pheno and prs data, and merge
+  pheno_i<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',files$pheno[i],'.txt'))
+  names(pheno_i)[3]<-'pheno'
+  prs_i<-fread(paste0(UKBB_output,'/PRS_for_comparison/1KG_ref/PRScs/',files$gwas[i],'/UKBB.subset.w_hm3.',files$gwas[i],'.PRScs_profiles'))
+  prs_i<-prs_i[,c('FID','IID',paste0(files$gwas[i], '_phiauto')), with=F]
+  names(prs_i)[3]<-'prs'
+
+  pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
+  
+  # Read in AUC for PRS
+  assoc<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',files$pheno[i],'/Association_withPRSs/UKBB.w_hm3.',files$gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+  prs_auc<-assoc[grepl('phiauto', assoc$Predictor),]$AUC
+  
+  # Assign individuals to observed PRS quantiles
+  obs_quant<-quantile(pheno_prs$prs, prob = seq(0, 1, length = n_quant+1))
+  pheno_prs$obs_quant<-as.numeric(cut( pheno_prs$prs, obs_quant, include.lowest = T))
+
+  # Calculate proportion of each quantile that are cases
+  obs_cc<-NULL
+  for(k in 1:n_quant){
+    obs_cc<-rbind(obs_cc, data.frame(Phenotype=files$pheno[i],
+                                     Type='Observed',
+                                     Quantile=k,
+                                     q_min=obs_quant[k],
+                                     q_max=obs_quant[k+1],
+                                     p_control=1-mean(pheno_prs$pheno[pheno_prs$obs_quant == k]),
+                                     p_case=mean(pheno_prs$pheno[pheno_prs$obs_quant == k])))
+  }
+  
+  # Assign individuals to estimated PRS quantiles
+  est_cc<-ccprobs.f(PRS_auc = prs_auc, prev=mean(pheno_prs$pheno), n_quantile = n_quant)
+  est_cc$OR<-NULL
+  est_cc<-data.frame(Phenotype=files$pheno[i],Type='Estimated',Quantile=1:n_quant, est_cc)
+  est_quant<-sort(unique(c(est_cc$q_min, est_cc$q_max)))
+  pheno_prs$est_quant<-as.numeric(cut( pheno_prs$prs, est_quant, include.lowest = T))
+  
+  tmp<-cor.test(obs_cc$p_case, est_cc$p_case)
+  
+  # Estimate correlation between observed and expected
+  cor_res<-rbind(cor_res,data.frame(Phenotype=files$pheno[i],
+                                    Cor=tmp$estimate,
+                                    Low95CI=tmp$conf.int[1],
+                                    High95CI=tmp$conf.int[2],
+                                    N=length(pheno_prs$pheno),
+                                    Ncas=sum(pheno_prs$pheno == 1),
+                                    Ncon=sum(pheno_prs$pheno == 0)))
+
+  quant_comp<-rbind(obs_cc, est_cc)
+  
+  res_all<-rbind(res_all, quant_comp)
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  plots_all[[i]]<-ggplot(quant_comp, aes(x=Quantile, y=p_case, colour=Type)) +
+                    geom_point(alpha=0.8) +
+                    geom_line(alpha=0.8) +
+                    labs(x='PRS quantile', y=paste0('Proportion with ',files$pheno[i]), title=files$pheno[i], colour='Method') +
+                    theme_cowplot(12)
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp.png'), units='px', res=300, width=2000, height=3000)
+  plot_grid(plotlist=plots_all, ncol = 2)
+dev.off()
+
+write.csv(cor_res, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp.csv', row.names=F, quote=F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Observed-Estimated Proportion of Cases within Polygenic Score Quantiles](Images/Validating_ImputeMe_Ideas/PropCC_Comp.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Correlation between observed and estimated proportion of cases within polygenic score quantiles')
+
+cat('Median Cor. = ',median(res$Cor),'; Mean Cor. = ', mean(res$Cor),'; Min. Cor. = ',min(res$Cor),'; Max. Cor. = ',max(res$Cor),'\n', sep='')
+```
+
+</details>
+
+***
+
 ### Continuous outcomes
 To convert a polygenic Z-score into an absolute estimate for a trait, we must know the predicitve utility of the polygenic score (R2), and the mean and SD of the outcome in the general population. Then it is possible to estimate the mean and SD of the trait within each polygenic score quantile using a truncated norm model (currently not theory based).
 
 <details><summary>Show code</summary>
 ```{R, echo=T, eval=F}
 # Thank you for Alex Gillet for her work developing this code.
-PRS_abs_quant2<-function(n=100000, PRS_R2=0.3, Outcome_mean=1, Outcome_sd=1, n_quantile=20, seed=1){
-    
-    # Simulate height and prs relationship
-    set.seed(seed)
-    
-    Outcome<-rnorm(n, Outcome_mean, Outcome_sd)
-    PRS <- as.numeric(scale(Outcome + rnorm(n,mean=0, sd=sqrt(var(Outcome)*(1-PRS_R2)/(PRS_R2)))))
-    
-    sim_dat<-data.frame(y=Outcome, x=PRS)
-    
-    # Calculate simulated R2
-    cor(sim_dat$x, sim_dat$y)^2
-    
-    # Split individuals into quantiles
-    by_quant<-1/n_quantile
-    perc<-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
-    sim_dat<-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5), include.lowest=TRUE))
-    
-    # Calculate mean and sd of individuals within in each quantile
-    outcome_per_bin<-NULL
-    for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
-        PRS_bin_temp<-sim_dat$y[which(as.numeric(sim_dat$quantile) == i)]
-        temp<-data.frame(q=i, 
-                         q_min=as.numeric(gsub(',.*','',gsub("\\[",'',gsub("\\(",'',levels(sim_dat$quantile)[i])))), 
-                         q_max=as.numeric(gsub("\\]",'',gsub(".*,",'',levels(sim_dat$quantile)[i]))), 
-                         x_mean=mean(PRS_bin_temp),
-                         x_sd=sd(PRS_bin_temp)) 
-        
-        outcome_per_bin<-rbind(outcome_per_bin,temp)
-    }
-    
-    outcome_per_bin$q_min[1]<--Inf
-    outcome_per_bin$q_max[length(outcome_per_bin$q_max)]<-Inf
-    
-    outcome_per_bin
+mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quantile=20){
+  ### PRS quantiles with a continuous phenotype (Y)
+  library(tmvtnorm)
+  ###
+  E_PRS = 0
+  SD_PRS = sqrt(1)
+  E_phenotype = Outcome_mean
+  SD_phenotype = Outcome_sd 
+
+  by_quant<-1/(n_quantile)
+  PRS_quantile_bounds <- qnorm(p=seq(0, 1, by=by_quant), mean= E_PRS, sd= SD_PRS)
+  lower_PRS_vec <- PRS_quantile_bounds[1:n_quantile]
+  upper_PRS_vec <- PRS_quantile_bounds[2:(n_quantile+1)]
+  
+  mean_vec <- c(E_phenotype, E_PRS)
+  sigma_mat <- matrix(sqrt(PRS_R2)*SD_phenotype*SD_PRS, nrow=2, ncol=2)
+  sigma_mat[1,1] <- SD_phenotype^2
+  sigma_mat[2,2] <- SD_PRS^2
+  
+  ### mean of phenotype within the truncated PRS distribution
+  out_mean_Y <- rep(0, 20)
+  ### SD of phenotype within the truncated PRS distribution
+  out_SD_Y <- rep(0, 20)
+  ### cov of Y and PRS given truncation on PRS
+  out_cov_Y_PRS <- rep(0, 20)
+  ### SD of PRS given truncation on PRS
+  out_SD_PRS <- rep(0, 20)
+  ### mean PRS given truncation on PRS
+  out_mean_PRS <- rep(0, 20)
+  
+  for(i in 1:n_quantile){
+  	distribution_i <- mtmvnorm(mean = mean_vec,
+        sigma = sigma_mat,
+        lower = c(-Inf, lower_PRS_vec[i]),
+        upper = c(Inf, upper_PRS_vec[i]),
+        doComputeVariance=TRUE,
+        pmvnorm.algorithm=GenzBretz())
+        out_mean_Y[i] <- distribution_i$tmean[1]
+        out_mean_PRS[i] <- distribution_i$tmean[2]
+        out_SD_Y[i] <- sqrt(distribution_i$tvar[1,1])
+        out_SD_PRS[i] <- sqrt(distribution_i$tvar[2,2])
+        out_cov_Y_PRS[i] <- distribution_i$tvar[1,2]
+  }
+  
+  out<-data.frame(q=1:n_quantile,
+             q_min=lower_PRS_vec,
+             q_max=upper_PRS_vec,
+             x_mean=out_mean_Y,
+             x_sd=out_SD_Y)
+  
+  return(out)
+
+  out_mean_Y
+  out_SD_Y
+  
+  out_mean_PRS
+  out_SD_PRS
+  out_cov_Y_PRS
 }
+
+library(tmvtnorm)
+
+# Create alternative of script that doesn't require simulation
+mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quantile=20){
+  ### PRS quantiles with a continuous phenotype (Y)
+  library(tmvtnorm)
+  ###
+  E_PRS = 0
+  SD_PRS = sqrt(1)
+  E_phenotype = Outcome_mean
+  SD_phenotype = Outcome_sd 
+  n_quantile=20
+  
+  by_quant<-1/(n_quantile)
+  PRS_quantile_bounds <- qnorm(p=seq(0, 1, by=by_quant), mean= E_PRS, sd= SD_PRS)
+  lower_PRS_vec <- PRS_quantile_bounds[1:n_quantile]
+  upper_PRS_vec <- PRS_quantile_bounds[2:(n_quantile+1)]
+  
+  mean_vec <- c(E_phenotype, E_PRS)
+  sigma_mat <- matrix(sqrt(PRS_R2)*SD_phenotype*SD_PRS, nrow=2, ncol=2)
+  sigma_mat[1,1] <- SD_phenotype^2
+  sigma_mat[2,2] <- SD_PRS^2
+  
+  ### mean of phenotype within the truncated PRS distribution
+  out_mean_Y <- rep(0, 20)
+  ### SD of phenotype within the truncated PRS distribution
+  out_SD_Y <- rep(0, 20)
+  ### cov of Y and PRS given truncation on PRS
+  out_cov_Y_PRS <- rep(0, 20)
+  ### SD of PRS given truncation on PRS
+  out_SD_PRS <- rep(0, 20)
+  ### mean PRS given truncation on PRS
+  out_mean_PRS <- rep(0, 20)
+  
+  for(i in 1:n_quantile){
+  	distribution_i <- mtmvnorm(mean = mean_vec,
+        sigma = sigma_mat,
+        lower = c(-Inf, lower_PRS_vec[i]),
+        upper = c(Inf, upper_PRS_vec[i]),
+        doComputeVariance=TRUE,
+        pmvnorm.algorithm=GenzBretz())
+        out_mean_Y[i] <- distribution_i$tmean[1]
+        out_mean_PRS[i] <- distribution_i$tmean[2]
+        out_SD_Y[i] <- sqrt(distribution_i$tvar[1,1])
+        out_SD_PRS[i] <- sqrt(distribution_i$tvar[2,2])
+        out_cov_Y_PRS[i] <- distribution_i$tvar[1,2]
+  }
+  
+  out<-data.frame(q=1:n_quantile,
+             q_min=lower_PRS_vec,
+             q_max=upper_PRS_vec,
+             x_mean=out_mean_Y,
+             x_sd=out_SD_Y)
+  
+  return(out)
+
+  out_mean_Y
+  out_SD_Y
+  
+  out_mean_PRS
+  out_SD_PRS
+  out_cov_Y_PRS
+}
+
+pdf('~/comp_stand.pdf')
+for(i in seq(0.05, 0.95, 0.05)){
+sim_res<-PRS_abs_quant2(PRS_R2 = i, Outcome_mean = 0, Outcome_sd = 1, n_quantile = 20)
+nosim_res<-mean_sd_quant.f(PRS_R2 = i, Outcome_mean = 0, Outcome_sd = 1, n_quantile = 20)
+
+plot(sim_res$x_mean,nosim_res$x_mean, main=paste0('R2 = ',i))
+abline(coef = c(0,1))
+}
+dev.off()
+
+pdf('~/comp_centre.pdf')
+for(i in seq(0.05, 0.95, 0.05)){
+sim_res<-PRS_abs_quant2(PRS_R2 = i, Outcome_mean = 0, Outcome_sd = 2, n_quantile = 20)
+nosim_res<-mean_sd_quant.f(PRS_R2 = i, Outcome_mean = 0, Outcome_sd = 2, n_quantile = 20)
+
+plot(sim_res$x_mean,nosim_res$x_mean, main=paste0('R2 = ',i))
+abline(coef = c(0,1))
+
+plot(sim_res$x_sd,nosim_res$x_sd, main=paste0('R2 = ',i))
+abline(coef = c(0,1))
+
+}
+dev.off()
+
+pdf('~/comp_scaled.pdf')
+for(i in seq(0.05, 0.95, 0.05)){
+sim_res<-PRS_abs_quant2(PRS_R2 = i, Outcome_mean = 100, Outcome_sd = 1, n_quantile = 20)
+nosim_res<-mean_sd_quant.f(PRS_R2 = i, Outcome_mean = 100, Outcome_sd = 1, n_quantile = 20)
+
+plot(sim_res$x_mean,nosim_res$x_mean, main=paste0('R2 = ',i))
+abline(coef = c(0,1))
+}
+dev.off()
+
 ```
 </details>
 
 ***
 
-Both these conversions require estimates of variance explained by the polygenic score. However, this information is often not known for a given polygenic score so approaches to estimate the variance explained by a polygenic scores using summary statistics is required.
+
+#### Validate conversion
+
+Calculate reference-standardised polygenic scores within UK Biobank for a range of continuous phenotypes. Estimate the R2 of the polygenic scores in UKB. Compare measured and estimated absolute meana and sd per PRS quantile. Use the PRScs fully baysian (pseudovalidation) polygenic scores, as this method provides a single score with good relative performance compared to other approaches.
+
+Reference-standardised polygenic scores have already been calculated in UKB for the PRS methods comparison study, and the R2 has already been estimated. Read in polygenic scores and observed phenotype for UKB, measure phenotype mean and sd per PRS quantile, and then estimate measure phenotype mean and sd per PRS quantile.
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+library(e1071)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+gwas<-c('COLL01','HEIG03','BODY04')
+pheno<-c('Intelligence','Height','BMI')
+
+n_quant<-20
+
+files<-data.frame(pheno,gwas)
+
+# Create function
+mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quantile=20){
+  ### PRS quantiles with a continuous phenotype (Y)
+  library(tmvtnorm)
+  ###
+  E_PRS = 0
+  SD_PRS = sqrt(1)
+  E_phenotype = Outcome_mean
+  SD_phenotype = Outcome_sd 
+
+  by_quant<-1/(n_quantile)
+  PRS_quantile_bounds <- qnorm(p=seq(0, 1, by=by_quant), mean= E_PRS, sd= SD_PRS)
+  lower_PRS_vec <- PRS_quantile_bounds[1:n_quantile]
+  upper_PRS_vec <- PRS_quantile_bounds[2:(n_quantile+1)]
+  
+  mean_vec <- c(E_phenotype, E_PRS)
+  sigma_mat <- matrix(sqrt(PRS_R2)*SD_phenotype*SD_PRS, nrow=2, ncol=2)
+  sigma_mat[1,1] <- SD_phenotype^2
+  sigma_mat[2,2] <- SD_PRS^2
+  
+  ### mean of phenotype within the truncated PRS distribution
+  out_mean_Y <- rep(0, 20)
+  ### SD of phenotype within the truncated PRS distribution
+  out_SD_Y <- rep(0, 20)
+  ### cov of Y and PRS given truncation on PRS
+  out_cov_Y_PRS <- rep(0, 20)
+  ### SD of PRS given truncation on PRS
+  out_SD_PRS <- rep(0, 20)
+  ### mean PRS given truncation on PRS
+  out_mean_PRS <- rep(0, 20)
+  
+  for(i in 1:n_quantile){
+  	distribution_i <- mtmvnorm(mean = mean_vec,
+        sigma = sigma_mat,
+        lower = c(-Inf, lower_PRS_vec[i]),
+        upper = c(Inf, upper_PRS_vec[i]),
+        doComputeVariance=TRUE,
+        pmvnorm.algorithm=GenzBretz())
+        out_mean_Y[i] <- distribution_i$tmean[1]
+        out_mean_PRS[i] <- distribution_i$tmean[2]
+        out_SD_Y[i] <- sqrt(distribution_i$tvar[1,1])
+        out_SD_PRS[i] <- sqrt(distribution_i$tvar[2,2])
+        out_cov_Y_PRS[i] <- distribution_i$tvar[1,2]
+  }
+  
+  out<-data.frame(q=1:n_quantile,
+             q_min=lower_PRS_vec,
+             q_max=upper_PRS_vec,
+             x_mean=out_mean_Y,
+             x_sd=out_SD_Y)
+  
+  return(out)
+
+  out_mean_Y
+  out_SD_Y
+  
+  out_mean_PRS
+  out_SD_PRS
+  out_cov_Y_PRS
+}
+
+# Run analysis for each phenotype
+res_all<-NULL
+plots_all<-list()
+cor_res<-NULL
+
+for(i in 1:dim(files)[1]){
+  # Read in pheno and prs data, and merge
+  pheno_i<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',files$pheno[i],'.txt'))
+  names(pheno_i)[3]<-'pheno'
+  prs_i<-fread(paste0(UKBB_output,'/PRS_for_comparison/1KG_ref/PRScs/',files$gwas[i],'/UKBB.subset.w_hm3.',files$gwas[i],'.PRScs_profiles'))
+  prs_i<-prs_i[,c('FID','IID',paste0(files$gwas[i], '_phiauto')), with=F]
+  names(prs_i)[3]<-'prs'
+
+  pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
+  
+  # Read in AUC for PRS
+  assoc<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',files$pheno[i],'/Association_withPRSs/UKBB.w_hm3.',files$gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+  prs_r2<-assoc[grepl('phiauto', assoc$Predictor),]$Obs_R2
+  
+  # Assign individuals to observed PRS quantiles
+  obs_quant<-quantile(pheno_prs$prs, prob = seq(0, 1, length = n_quant+1))
+  pheno_prs$obs_quant<-as.numeric(cut( pheno_prs$prs, obs_quant, include.lowest = T))
+
+  # Calculate mean and SD of each quantile that are cases
+  obs_dist<-NULL
+  for(k in 1:n_quant){
+    obs_dist<-rbind(obs_dist, data.frame(Phenotype=files$pheno[i],
+                                     Type='Observed',
+                                     Quantile=k,
+                                     q_min=obs_quant[k],
+                                     q_max=obs_quant[k+1],
+                                     x_mean=mean(pheno_prs$pheno[pheno_prs$obs_quant == k]),
+                                     x_sd=sd(pheno_prs$pheno[pheno_prs$obs_quant == k])))
+  }
+  
+  # Assign individuals to estimated PRS quantiles
+  est_dist<-mean_sd_quant.f(PRS_R2 = prs_r2, Outcome_mean=mean(pheno_prs$pheno), Outcome_sd=sd(pheno_prs$pheno), n_quantile = n_quant)
+  est_dist$q<-NULL
+  est_dist<-data.frame(Phenotype=files$pheno[i],Type='Estimated',Quantile=1:n_quant, est_dist)
+  est_quant<-sort(unique(c(est_dist$q_min, est_dist$q_max)))
+  pheno_prs$est_quant<-as.numeric(cut( pheno_prs$prs, est_quant, include.lowest = T))
+
+  quant_comp<-rbind(obs_dist, est_dist)
+  
+  tmp<-cor.test(obs_dist$x_mean, est_dist$x_mean)
+  
+  cor_res<-rbind(cor_res,data.frame(Phenotype=files$pheno[i],
+                                    Cor_mean=tmp$estimate,
+                                    Cor_mean_Low95CI=tmp$conf.int[1],
+                                    Cor_mean_High95CI=tmp$conf.int[2],
+                                    PercDiff_sd_mean=mean(abs(est_dist$x_sd-obs_dist$x_sd)/obs_dist$x_sd),
+                                    N=length(pheno_prs$pheno),
+                                    Skewness=skewness(pheno_prs$pheno)))
+
+  res_all<-rbind(res_all, quant_comp)
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  plots_all[[i]]<-ggplot(quant_comp, aes(x=Quantile, y=x_mean, colour=Type)) +
+    geom_point(stat="identity", position=position_dodge(.9), alpha=0.8, shape=18) +
+    geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.9), alpha=0.8) +
+    labs(x='PRS quantile', y=paste0(pheno[i], ' mean and SD'), title=files$pheno[i], colour='Method') +
+    theme_cowplot(12)
+  
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.png'), units='px', res=300, width=2000, height=1500)
+  plot_grid(plotlist=plots_all, ncol = 2)
+dev.off()
+
+write.csv(cor_res, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.csv', row.names=F, quote=F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Observed-Estimated Proportion of Cases within Polygenic Score Quantiles](Images/Validating_ImputeMe_Ideas/Mean_SD_Comp.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Correlation between observed and estimated mean and standar deviation of outcome within polygenic score quantiles')
+
+cat('Median Cor. of means = ',median(res$Cor_mean),'; Mean Cor. of means = ', mean(res$Cor_mean),'; Min. Cor. of means = ',min(res$Cor_mean),'; Max. Cor. of means = ',max(res$Cor_mean),'\n\n', sep='')
+
+cat('Median mean %diff of SD = ',median(res$PercDiff_sd_mean),'; Mean mean %diff of SD = ', mean(res$PercDiff_sd_mean),'; Min. mean %diff of SD = ',min(res$PercDiff_sd_mean),'; Max. mean %diff of SD = ',max(res$PercDiff_sd_mean),'\n', sep='')
+```
+
+</details>
 
 ***
 
-## Validate method for estimating polygenic score variance explained
+## Interactive tool for converting PRS into absolute risk estimates
+
+***
+
+### Binary outcomes
+
+<details><summary>Show tool</summary>
+
+<iframe height="1100" width="120%" frameborder="no" src="https://opain.shinyapps.io/risk_visualiser/"> </iframe>
+
+</details>
+
+***
+
+### Quantitative outcomes
+
+<details><summary>Show tool</summary>
+
+<iframe height="800" width="120%" frameborder="no" src="https://opain.shinyapps.io/trait_visualiser/"> </iframe>
+
+</details>
+
+***
+
+Both these conversions require estimates of AUC/R2 by the polygenic score. However, this information is often not known for a given polygenic score so approaches to estimate the variance explained by a polygenic scores using summary statistics is required.
+
+***
+
+# Estimating AUC/R2 by polygenic score
 
 Here we will use an approach using LD-score regression to estimate the SNP-based heritability of the GWAS phenotype, and subsequent use of AVENGEME to estimate the variance explained by the polygenic score given the heritability of the phenotype and the sample size of the GWAS.
 
@@ -176,13 +669,1117 @@ We validate this method by comparison to observed variance explained measurement
 
 ***
 
-### Cross-validation approach
+## Validation using External GWAS
+
+Estimate the AUC/R2 of polygenic scores from external GWAS, and compare to observed estimates.
+
+***
+
+### LDSC/AVENGEME
+
+***
+
+#### LDSC
+
+<details><summary>Show results</summary>
+```{R, eval=F, echo=T}
+
+# Create version of HapMap3 SNP list that doesn't contain the MHC region
+library(data.table)
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+
+hm3<-fread(paste0(ldsc_ref,'/w_hm3.snplist'))
+
+bim<-fread('/scratch/groups/biomarkers-brc-mh/Reference_data/1KG_Phase3/PLINK/all_phase3.chr6.bim')
+bim_mhc<-bim[bim$V1 == 6 & bim$V4 > 28e6 & bim$V4 < 34e6,]
+
+hm3_nomhc<-hm3[!(hm3$SNP %in% bim_mhc$V2),]
+
+write.table(hm3_nomhc, paste0(ldsc_ref,'/w_hm3_nomhc.snplist'), col.names = T, row.names = F, quote = F)
+
+
+########
+
+# Run LDSC for binary outcomes
+library(data.table)
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+
+pheno=c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas=c('DEPR06','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+pop_prev=c(0.15,0.05,0.03,0.013,0.00164,0.005,0.125,0.125)
+samp_prev=c(0.28,0.168,0.33,0.285,0.36,0.246,0.537,0.564)
+
+# Munge the sumstats
+for(i in 1:length(pheno)){
+  system(paste0(munge_sumstats,' --sumstats ',gwas_rep_qcd,'/',gwas[i],'.cleaned.gz --merge-alleles ',ldsc_ref,'/w_hm3_nomhc.snplist --out ', gwas_rep_qcd,'/',gwas[i],'.munged'))
+}
+
+# Estimate heritability
+for(i in 1:length(pheno)){
+  system(paste0(ldsc,' --h2 ',gwas_rep_qcd,'/',gwas[i],'.munged.sumstats.gz --ref-ld-chr ',ldsc_ref,'/ --w-ld-chr ',ldsc_ref,'/ --out /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/',pheno[i],'_h2 --samp-prev ',samp_prev[i],' --pop-prev ',pop_prev[i]))
+}
+
+h2_all<-NULL
+for(i in 1:length(pheno)){
+  ldsc_log<-read.table(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/',pheno[i],'_h2.log'), header=F, sep='&')
+  ldsc_h2<-ldsc_log[grepl('Total Liability scale h2', ldsc_log$V1),]
+  ldsc_h2<-gsub('Total Liability scale h2: ','', ldsc_h2)
+  ldsc_h2_est<-as.numeric(gsub(' .*','', ldsc_h2))
+  ldsc_h2_se<-as.numeric(gsub("\\)",'',gsub(".*\\(",'', ldsc_h2)))
+  
+  ldsc_int<-ldsc_log[grepl('Intercept: ', ldsc_log$V1),]
+  ldsc_int<-gsub('Intercept: ','', ldsc_int)
+  ldsc_int_est<-as.numeric(gsub(' .*','', ldsc_int))
+  ldsc_int_se<-as.numeric(gsub("\\)",'',gsub(".*\\(",'', ldsc_int)))
+
+  munged<-fread(cmd=paste0('zcat ',gwas_rep_qcd,'/',gwas[i],'.munged.sumstats.gz'))
+  N<-median(munged$N, na.rm = T)
+  
+  h2_all<-rbind(h2_all, data.frame(GWAS=gwas[i],
+                                   Phenotype=pheno[i],
+                                   h2=ldsc_h2_est,
+                                   h2_se=ldsc_h2_se,
+                                   int=ldsc_int_est,
+                                   int_se=ldsc_int_se,
+                                   pop_prev=pop_prev[i],
+                                   samp_prev=samp_prev[i],
+                                   N=N))
+}
+
+write.csv(h2_all, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/ldsc_h2.csv', row.names=F, quote=F)
+
+#####
+# Continuous outcomes
+#####
+library(data.table)
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+
+gwas<-c('COLL01','HEIG03','BODY04')
+pheno=c('Intelligence','BMI','Height')
+
+# Munge the sumstats
+for(i in 1:length(pheno)){
+  system(paste0(munge_sumstats,' --sumstats ',gwas_rep_qcd,'/',gwas[i],'.cleaned.gz --merge-alleles ',ldsc_ref,'/w_hm3_nomhc.snplist --out ', gwas_rep_qcd,'/',gwas[i],'.munged'))
+}
+
+# Estimate heritability
+for(i in 1:length(pheno)){
+  system(paste0(ldsc,' --h2 ',gwas_rep_qcd,'/',gwas[i],'.munged.sumstats.gz --ref-ld-chr ',ldsc_ref,'/ --w-ld-chr ',ldsc_ref,'/ --out /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/',pheno[i],'_h2_obs'))
+}
+
+h2_all<-NULL
+for(i in 1:length(pheno)){
+  ldsc_log<-read.table(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/',pheno[i],'_h2_obs.log'), header=F, sep='&')
+  ldsc_h2<-ldsc_log[grepl('Total Observed scale h2', ldsc_log$V1),]
+  ldsc_h2<-gsub('Total Observed scale h2: ','', ldsc_h2)
+  ldsc_h2_est<-as.numeric(gsub(' .*','', ldsc_h2))
+  ldsc_h2_se<-as.numeric(gsub("\\)",'',gsub(".*\\(",'', ldsc_h2)))
+
+  ldsc_int<-ldsc_log[grepl('Intercept: ', ldsc_log$V1),]
+  ldsc_int<-gsub('Intercept: ','', ldsc_int)
+  ldsc_int_est<-as.numeric(gsub(' .*','', ldsc_int))
+  ldsc_int_se<-as.numeric(gsub("\\)",'',gsub(".*\\(",'', ldsc_int)))
+  
+  munged<-fread(cmd=paste0('zcat ',gwas_rep_qcd,'/',gwas[i],'.munged.sumstats.gz'))
+  N<-median(munged$N, na.rm = T)
+  
+  h2_all<-rbind(h2_all, data.frame(GWAS=gwas[i],
+                                   Phenotype=pheno[i],
+                                   h2=ldsc_h2_est,
+                                   h2_se=ldsc_h2_se,
+                                   int=ldsc_int_est,
+                                   int_se=ldsc_int_se,
+                                   N=N))
+}
+
+write.csv(h2_all, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/ldsc_h2_obs.csv', row.names=F, quote=F)
+
+```
+</details>
+
+***
+
+#### AVENGEME
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(avengeme)
+library(ggplot2)
+library(cowplot)
+
+pheno=c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas=c('DEPR06','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+
+#####
+# Estimate using the liability h2
+#####
+h2<-fread('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/ldsc_h2.csv')
+
+AUC_pred<-NULL
+AVENGEME_plots<-list()
+for(i in 1:length(pheno)){
+  
+  # Read in observed AUC estimates
+  assoc<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+  
+  # Estimate heritability using AVENGEME
+  pheno_nsnp<-NULL
+  tmp<-fread(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/pt_clump/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.NSNP_per_pT'))
+  pheno_nsnp<-tmp$NSNP[length(tmp$NSNP)]
+
+  pheno_res_pTclump<-assoc[grepl('PredFile1',assoc$Predictor),]
+  pT<-as.numeric(gsub('e.','e-',gsub('.*_','',pheno_res_pTclump$Predictor)))
+  
+  tmp2<-estimatePolygenicModel(p=pheno_res_pTclump$Estimate/pheno_res_pTclump$SE, 
+                           nsnp=pheno_nsnp, 
+                           n=c(h2$N[h2$Phenotype == pheno[i]], pheno_res_pTclump$N[1]), 
+                           pupper = c(0,pT),
+                           binary = c(T, T), 
+                           prevalence = h2$pop_prev[h2$Phenotype == pheno[i]], 
+                           sampling = c(h2$samp_prev[h2$Phenotype == pheno[i]], (pheno_res_pTclump$Ncas/pheno_res_pTclump$N)[1]), 
+                           fixvg2pi02 = T,
+                           alpha = 0.05)
+
+  # Run AVENGEME predicted AUC using LDSC heritability
+  avengeme_res_ldsc<-NULL
+  for(pT in c(5e-8,1e-6,1e-5,1e-4,1e-3,0.01,0.1,0.2,0.3,0.4,0.5,1)){
+    for(pi0 in seq(0.92,0.98,0.02)){
+        tmp<-polygenescore(nsnp=pheno_nsnp, n=h2$N[h2$Phenotype == pheno[i]], vg1 = h2$h2[h2$Phenotype == pheno[i]], pupper = c(0, pT), pi0 = pi0, nested = TRUE, weighted = TRUE, binary = T, prevalence = h2$pop_prev[h2$Phenotype == pheno[i]], sampling = h2$samp_prev[h2$Phenotype == pheno[i]])
+        
+      avengeme_res_ldsc<-rbind(avengeme_res_ldsc, data.frame(pT=pT,
+                                                   pi0=pi0,
+                                                   AUC=tmp$AUC))
+    }
+  }
+
+  # Run AVENGEME predicted AUC using AVENGEME heritability
+  avengeme_res_avenge<-NULL
+  for(pT in c(5e-8,1e-6,1e-5,1e-4,1e-3,0.01,0.1,0.2,0.3,0.4,0.5,1)){
+    for(pi0 in seq(0.92,0.98,0.02)){
+        tmp<-polygenescore(nsnp=pheno_nsnp, n=h2$N[h2$Phenotype == pheno[i]], vg1 = tmp2$vg[1], pupper = c(0, pT), pi0 = pi0, nested = TRUE, weighted = TRUE, binary = T, prevalence = h2$pop_prev[h2$Phenotype == pheno[i]], sampling = h2$samp_prev[h2$Phenotype == pheno[i]])
+        
+      avengeme_res_avenge<-rbind(avengeme_res_avenge, data.frame(pT=pT,
+                                                   pi0=pi0,
+                                                   AUC=tmp$AUC))
+    }
+  }
+
+  prs_auc_pt1<-assoc[grepl(paste0(gwas[i],'_1$'), assoc$Predictor),]$AUC
+  prscs_auc<-assoc[grepl('phiauto', assoc$Predictor),]$AUC
+
+  obs_res<-data.frame(Method=c('pT+clump','PRScs'),
+                      AUC=c(prs_auc_pt1, prscs_auc))
+  
+  AVENGEME_plots[[paste0(i,'_LDSC')]]<-ggplot(avengeme_res_ldsc, aes(x=factor(pT), y=AUC, group=factor(pi0),colour=factor(pi0))) +
+    geom_point() +
+    geom_line() +
+    theme_cowplot(12) +
+    ylim(0.5,0.8) +
+    labs(x='pT', y='AUC', title=paste0(pheno[i],': LDSC h2'), colour='pi0') +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    geom_hline(data=obs_res, aes(yintercept=AUC, linetype=Method))
+  
+  AVENGEME_plots[[paste0(i,'_AVENG')]]<-ggplot(avengeme_res_avenge, aes(x=factor(pT), y=AUC, group=factor(pi0),colour=factor(pi0))) +
+    geom_point() +
+    geom_line() +
+    theme_cowplot(12) +
+    ylim(0.5,0.8) +
+    labs(x='pT', y='AUC', title=paste0(pheno[i],': AVENGEME h2'), colour='pi0') +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    geom_hline(data=obs_res, aes(yintercept=AUC, linetype=Method))
+
+  avengeme_res_ldsc_best_94<-max(avengeme_res_ldsc$AUC[as.character(avengeme_res_ldsc$pi0) == 0.94])
+  
+  avengeme_res_avenge_best_94<-max(avengeme_res_avenge$AUC[as.character(avengeme_res_avenge$pi0) == 0.94])
+
+  AUC_pred<-rbind(AUC_pred, data.frame(Phenotype=pheno[i],
+                                         N=h2$N[h2$Phenotype == pheno[i]],
+                                         vg1=h2$h2[h2$Phenotype == pheno[i]],
+                                       Intercept=h2$int[h2$Phenotype == pheno[i]],
+                                         prevalence=h2$pop_prev[h2$Phenotype == pheno[i]],
+                                         sampling=h2$samp_prev[h2$Phenotype == pheno[i]],
+                                         NSNP=pheno_nsnp,
+                                         pred_AUC_LDSC=avengeme_res_ldsc_best_94,
+                                         pred_AUC_AVENG=avengeme_res_avenge_best_94,
+                                         pTclump_pt1_AUC=prs_auc_pt1,
+                                         PRScs_AUC=prscs_auc))
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_AUC.png'), units='px', res=300, width=2200, height=6000)
+  plot_grid(plotlist=AVENGEME_plots, ncol = 2)
+dev.off()
+
+write.csv(AUC_pred, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_AUC.csv', row.names=F, quote = F)
+
+# The LDSC intercept is below 1 for some GWAS leading to inaccurate h2 estimates
+# When using AVENGEME estimates of h2, the optimal pT assuming a p0 of 0.94 is fairly close to the observed PRScs AUC. Its accuracy depends on how close the observed pi0 of these outcomes is to 0.94.
+# Integration of polygenicity estimates based on GWAS summary statistics would be a future direction.
+
+###########
+# Estimate for continuous outcomes
+###########
+
+library(avengeme)
+library(ggplot2)
+library(cowplot)
+
+pheno=c('Intelligence','BMI','Height')
+gwas=c('COLL01','BODY04','HEIG03')
+
+h2<-fread('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/ldsc_h2_obs.csv')
+
+R2_pred<-NULL
+AVENGEME_plots<-list()
+for(i in 1:length(pheno)){
+  
+  # Read in observed R2 estimates
+  assoc<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+  
+  # Estimate heritability using AVENGEME
+  pheno_nsnp<-NULL
+  tmp<-fread(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/pt_clump/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.NSNP_per_pT'))
+  pheno_nsnp<-tmp$NSNP[length(tmp$NSNP)]
+
+  pheno_res_pTclump<-assoc[grepl('PredFile1',assoc$Predictor),]
+  pT<-as.numeric(gsub('e.','e-',gsub('.*_','',pheno_res_pTclump$Predictor)))
+  
+  tmp2<-estimatePolygenicModel(p=pheno_res_pTclump$BETA/pheno_res_pTclump$SE, 
+                           nsnp=pheno_nsnp, 
+                           n=c(h2$N[h2$Phenotype == pheno[i]], pheno_res_pTclump$N[1]), 
+                           pupper = c(0,pT),
+                           binary = F, 
+                           fixvg2pi02 = T,
+                           alpha = 0.05)
+
+  # Run AVENGEME predicted R2 using LDSC heritability
+  avengeme_res_ldsc<-NULL
+  for(pT in c(5e-8,1e-6,1e-5,1e-4,1e-3,0.01,0.1,0.2,0.3,0.4,0.5,1)){
+    for(pi0 in seq(0.92,0.98,0.02)){
+        tmp<-polygenescore(nsnp=pheno_nsnp, n=h2$N[h2$Phenotype == pheno[i]], vg1 = h2$h2[h2$Phenotype == pheno[i]], pupper = c(0, pT), pi0 = pi0, nested = TRUE, weighted = TRUE, binary = F)
+        
+      avengeme_res_ldsc<-rbind(avengeme_res_ldsc, data.frame(pT=pT,
+                                                   pi0=pi0,
+                                                   R2=tmp$R2))
+    }
+  }
+
+  # Run AVENGEME predicted R2 using AVENGEME heritability
+  avengeme_res_avenge<-NULL
+  for(pT in c(5e-8,1e-6,1e-5,1e-4,1e-3,0.01,0.1,0.2,0.3,0.4,0.5,1)){
+    for(pi0 in seq(0.92,0.98,0.02)){
+        tmp<-polygenescore(nsnp=pheno_nsnp, n=h2$N[h2$Phenotype == pheno[i]], vg1 = tmp2$vg[1], pupper = c(0, pT), pi0 = pi0, nested = TRUE, weighted = TRUE, binary = F)
+        
+      avengeme_res_avenge<-rbind(avengeme_res_avenge, data.frame(pT=pT,
+                                                   pi0=pi0,
+                                                   R2=tmp$R2))
+    }
+  }
+
+  prs_R2_pt1<-assoc[grepl(paste0(gwas[i],'_1$'), assoc$Predictor),]$Obs_R2
+  prscs_R2<-assoc[grepl('phiauto', assoc$Predictor),]$Obs_R2
+
+  obs_res<-data.frame(Method=c('pT+clump','PRScs'),
+                      R2=c(prs_R2_pt1, prscs_R2))
+  
+  y_limit<-max(c(avengeme_res_ldsc$R2, avengeme_res_avenge$R2))
+  
+  AVENGEME_plots[[paste0(i,'_LDSC')]]<-ggplot(avengeme_res_ldsc, aes(x=factor(pT), y=R2, group=factor(pi0),colour=factor(pi0))) +
+    geom_point() +
+    geom_line() +
+    theme_cowplot(12) +
+    ylim(0,y_limit) +
+    labs(x='pT', y='R2', title=paste0(pheno[i],': LDSC h2'), colour='pi0') +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    geom_hline(data=obs_res, aes(yintercept=R2, linetype=Method))
+  
+  AVENGEME_plots[[paste0(i,'_AVENG')]]<-ggplot(avengeme_res_avenge, aes(x=factor(pT), y=R2, group=factor(pi0),colour=factor(pi0))) +
+    geom_point() +
+    geom_line() +
+    theme_cowplot(12) +
+    ylim(0,y_limit) +
+    labs(x='pT', y='R2', title=paste0(pheno[i],': AVENGEME h2'), colour='pi0') +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    geom_hline(data=obs_res, aes(yintercept=R2, linetype=Method))
+
+  avengeme_res_ldsc_best_94<-max(avengeme_res_ldsc$R2[as.character(avengeme_res_ldsc$pi0) == 0.94])
+  
+  avengeme_res_avenge_best_94<-max(avengeme_res_avenge$R2[as.character(avengeme_res_avenge$pi0) == 0.94])
+
+  R2_pred<-rbind(R2_pred, data.frame(Phenotype=pheno[i],
+                                         N=h2$N[h2$Phenotype == pheno[i]],
+                                         vg1=h2$h2[h2$Phenotype == pheno[i]],
+                                       Intercept=h2$int[h2$Phenotype == pheno[i]],
+                                         NSNP=pheno_nsnp,
+                                         pred_R2_LDSC=avengeme_res_ldsc_best_94,
+                                         pred_R2_AVENG=avengeme_res_avenge_best_94,
+                                         pTclump_pt1_R2=prs_R2_pt1,
+                                         PRScs_R2=prscs_R2))
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_R2.png'), units='px', res=300, width=2200, height=3000)
+  plot_grid(plotlist=AVENGEME_plots, ncol = 2)
+dev.off()
+
+write.csv(R2_pred, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_R2.csv', row.names=F, quote = F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_AUC.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_R2.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Estimates of AUC using AVENGEME/LDSC](Images/Validating_ImputeMe_Ideas/AVENGEME_AUC.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_AUC.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Etimation of PRS AUC using LDSC and AVENGEME approach')
+```
+
+![Estimates of R2 using AVENGEME/LDSC](Images/Validating_ImputeMe_Ideas/AVENGEME_R2.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_R2.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Etimation of PRS R2 using LDSC and AVENGEME approach')
+```
+
+</details>
+
+***
+
+### GWIZ
+
+We will calculate the AUC using GWIZ using the leave one out meta-analysis summary statistics, and then average the AUC results. This will hopefully tell us how much variance GWAS expects the LOO sumstats to explain in the left out subset.
+
+***
+
+#### Format GWAS summary statistics 
+
+<details><summary>Show code</summary>
+```{R, echo=T, eval=F}
+library(data.table)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+
+pheno=c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas=c('DEPR06','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+samp_prev=c(0.28,0.168,0.33,0.285,0.36,0.246,0.537,0.564)
+
+dir.create('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/GWIZ')
+
+for(i in 1:length(pheno)){
+  # Read in GWAS sumstats
+  sumstats<-fread(paste0(gwas_rep_qcd,'/',gwas[i],'.cleaned.gz'))
+  sumstats$phenotype<-'n/a'
+  sumstats$dataset<-'n/a'
+  sumstats$model<-'additive'
+  
+  if(sum(names(sumstats) == 'Ncas') == 0){
+    sumstats$Ncas<-round(sumstats$N*samp_prev[i])
+    sumstats$Ncon<-round(sumstats$N*(1-samp_prev[i]))
+  }
+  
+  sumstats$control_size<-sumstats$Ncon
+  sumstats$case_size<-sumstats$Ncas
+
+  if(sum(names(sumstats) == 'REF.FREQ') > 0){
+    sumstats$FREQ<-sumstats$REF.FREQ
+    sumstats$REF.FREQ<-NULL
+  }
+
+  if(sum(names(sumstats) == 'OR') == 0){
+    sumstats$OR<-exp(sumstats$BETA)
+  }
+  
+  # OR and MAFs to all be corresponding to the risk allele
+  sumstats$FREQ[sumstats$OR < 1]<-1-sumstats$FREQ[sumstats$OR < 1]
+  names(sumstats)[names(sumstats) == 'FREQ']<-'risk_allele_freq'
+  sumstats$BETA<-log(sumstats$OR)
+  sumstats$OR[sumstats$OR < 1]<-exp(-sumstats$BETA[sumstats$OR < 1])
+  
+  # Extract LD independent variants
+  ld_indep<-NULL
+  for(chr in 1:22){
+    ld_indep<-rbind(ld_indep, fread(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/pt_clump/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.chr',chr,'.range_values')))
+  }
+  
+  # Filter genome-wide variants 
+  ld_indep_sig<-ld_indep[ld_indep$V2 < 1e-8]
+  sumstats<-sumstats[(sumstats$SNP %in% ld_indep_sig$V1),]
+  sumstats<-sumstats[,c('phenotype','dataset','SNP','control_size','case_size','risk_allele_freq','OR','model'),with=F]
+  names(sumstats)[names(sumstats) == 'SNP']<-'accession'
+  
+  sumstats$model<-rep(c('recessive','dominant'),dim(sumstats)[1])[1:dim(sumstats)[1]]
+  
+  fwrite(sumstats, paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/GWIZ/',gwas[i],'.GWIZ.csv'), sep=',', na='NA', quote=F)
+}
+```
+</details>
+
+***
+
+#### Run GWIZ
+
+GWIZ is an R script. It needs to modification:
+- It doesn't allow input files, software and output to be in different directories
+- It uses the png function which does't work on Rosalind
+- It prints the contents of the GWAS sumstats repeatedly and 
+GWIZ is an Rscript that must be modified to allow for different input and output files. I have edited the script slightly so all files don't have be stored in the same directory, and can be easily run in parallel.
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+
+# Run GWIZ for each phenotype and subset
+for gwas in $(echo DEPR06 DIAB05 COAD01 CROH01 SCLE03 RHEU02 BRCA01 PRCA01); do
+    sbatch -p brc,shared --mem 10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/gwizer/gwizer.R \
+      --sumstats /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/GWIZ/${gwas}.GWIZ.csv \
+      --gwiz /mnt/lustre/users/k1806347/Software/GWIZ-Rscript-master \
+      --output /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/GWIZ/${gwas}/res_${gwas}
+done
+
+```
+</details>
+
+***
+
+#### Compare observed and estimate AUC
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+pheno=c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas=c('DEPR06','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+
+AUC_comp<-NULL
+for(i in 1:length(pheno)){
+  GWIZ_AUC_i<-NULL
+    GWIZ_AUC_i<-read.table(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/GWIZ/',gwas[i],'/res_',gwas[i],'.log'), sep='&', header=F)$V1
+    GWIZ_AUC_i_auc<-as.numeric(gsub('AUC = ','',GWIZ_AUC_i[grepl('AUC = ', GWIZ_AUC_i)]))
+    
+  pheno_res_pTclump<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+
+  Obs_AUC<-pheno_res_pTclump$AUC[grepl('pT.clump', pheno_res_pTclump$Predictor) & grepl('1e.06', pheno_res_pTclump$Predictor)]
+  
+  AUC_comp<-rbind(AUC_comp, data.frame(Phenotype=pheno[i],
+                                       Obs_AUC=Obs_AUC,
+                                       GWIZ_AUC=GWIZ_AUC_i_auc))
+}
+
+write.csv(AUC_comp, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/GWIZ_AUC.csv', row.names=F, quote=F)
+
+# GWIZ is not performing well, except for T2D, CAD, and Depression. Again, I think this might be due to improper preparation of GWAS summary statistics. GWIZ is also running quite slow, and would need to be run GW to get accurate estimates for polygenic outcomes. I don't think this is a viable option. This method is also not suitable for continous outcomes.
+
+```
+</details>
+
+<details><summary>Show results</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/GWIZ_AUC.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Estimation of PRS AUC using GWIZ')
+```
+
+</details>
+
+***
+
+### Lassosum
+
+Lassosum has a pseudovalidate option which estimates the correlation between predicted and observed values across shrinkage parameters. Although, its ability to estimate the best shrinakge parameter, the estimated correlation for the top shrinkage parameter appears similar to the observed correlation. We can convert the correlation into an R2 for continuous outcomes, and possible into an AUC, but converting to observed R2 into a liability R2, and then into an AUC. This would also be more suitable to predicting R2/AUC for the more modern shrinkage PRS methods, since lassosum is one.
+
+***
+
+#### Pseudovalidate
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo =T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create directory
+mkdir /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum
+
+# Create file listing GWAS that haven't been processed.
+> /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/todo.txt
+for gwas in $(echo DEPR06 COLL01 BODY04 HEIG03 DIAB05 COAD01 CROH01 SCLE03 RHEU02 BRCA01 PRCA01);do
+if [ ! -f /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/${gwas}/lassosum_pseudo_${gwas}.pseudoval.txt ]; then
+echo $gwas >> /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem=20G
+#SBATCH -n 2
+#SBATCH -J lassosum
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed "${SLURM_ARRAY_TASK_ID}q;d" /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R \
+	--ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+	--output /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/${gwas}/lassosum_pseudo_${gwas} \
+	--n_cores 2
+EOF
+
+sbatch --array 1-$(wc -l /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/todo.txt | cut -d' ' -f1)%5 /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/sbatch.sh
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+##########
+# Run excluding MHC
+##########
+
+# Create directory
+mkdir /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum
+
+# Create file listing GWAS that haven't been processed.
+> /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/todo_noMHC.txt
+for gwas in $(echo DEPR06 COLL01 BODY04 HEIG03 DIAB05 COAD01 CROH01 SCLE03 RHEU02 BRCA01 PRCA01);do
+if [ ! -f /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/${gwas}_noMHC/lassosum_pseudo_${gwas}.pseudoval.txt ]; then
+echo $gwas >> /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/todo_noMHC.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/sbatch_noMHC.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem=20G
+#SBATCH -n 2
+#SBATCH -J lassosum
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed "${SLURM_ARRAY_TASK_ID}q;d" /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/todo_noMHC.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R \
+	--ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+  --prune_mhc T \
+	--output /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/${gwas}_noMHC/lassosum_pseudo_${gwas} \
+	--plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
+	--n_cores 2
+EOF
+
+sbatch --array 1-$(wc -l /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/todo_noMHC.txt | cut -d' ' -f1)%5 /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/sbatch_noMHC.sh
+
+opt$ref_plink_gw<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW'
+opt$ref_keep<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep'
+opt$sumstats<-'/users/k1806347/brc_scratch/Data/GWAS_sumstats/prs_comparison/cleaned/SCLE03.cleaned.gz'
+opt$exclude_mhc<-T
+opt$output<-'/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/SCLE03_noMHC/lassosum_pseudo_SCLE03'
+opt$n_cores<-2
+opt$plink<-'/users/k1806347/brc_scratch/Software/plink1.9.sh'
+
+```
+</details>
+
+***
+
+#### Compare observed and estimate AUC
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+
+#####
+# Binary outcomes
+#####
+pheno=c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas=c('DEPR06','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+samp_prev=c(0.28,0.168,0.33,0.285,0.36,0.246,0.537,0.564)
+
+AUC_comp<-NULL
+for(i in 1:length(pheno)){
+  lasso_AUC_i<-NULL
+  lasso_AUC_i<-read.table(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/',gwas[i],'_noMHC/lassosum_pseudo_',gwas[i],'.log'), sep='&', header=F)$V1
+  lasso_AUC_i_r<-as.numeric(gsub('value = ','',lasso_AUC_i[grepl('value = ', lasso_AUC_i)]))
+  
+  n_case<-samp_prev[i]
+  n_con<-1-samp_prev[i]
+  
+  a<-(n_case+n_con)^2/(n_case*n_con)
+  
+  lasso_AUC_i_d<-sqrt(a)*lasso_AUC_i_r/sqrt(1-lasso_AUC_i_r^2)
+  lasso_AUC_i_auc <- pnorm(lasso_AUC_i_d/sqrt(2), 0, 1)
+  
+  pheno_res<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+
+  Obs_pT_clump_AUC<-pheno_res$AUC[grepl('_1$', pheno_res$Predictor)]
+  Obs_PRScs_AUC<-pheno_res$AUC[grepl('_phiauto', pheno_res$Predictor)]
+
+  AUC_comp<-rbind(AUC_comp, data.frame(Phenotype=pheno[i],
+                                       Obs_pTclump_pt1_AUC=Obs_pT_clump_AUC,
+                                       Obs_PRScs_AUC=Obs_PRScs_AUC,
+                                       Est_lasso_AUC=lasso_AUC_i_auc))
+}
+
+write.csv(AUC_comp, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/lassosum_AUC.csv', row.names=F, quote=F)
+
+#####
+# Continuous outcomes
+#####
+pheno=c('Intelligence','BMI','Height')
+gwas=c('COLL01','BODY04','HEIG03')
+
+R2_comp<-NULL
+for(i in 1:length(pheno)){
+    lasso_R2_i<-NULL
+    lasso_R2_i<-read.table(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/',gwas[i],'_noMHC/lassosum_pseudo_',gwas[i],'.log'), sep='&', header=F)$V1
+    lasso_R2_i_r<-as.numeric(gsub('value = ','',lasso_R2_i[grepl('value = ', lasso_R2_i)]))
+    
+    lasso_R2_i_r2<-lasso_R2_i_r^2
+
+    pheno_res<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+  
+    Obs_pT_clump_R2<-pheno_res$Obs_R2[grepl('_1$', pheno_res$Predictor)]
+    Obs_PRScs_R2<-pheno_res$Obs_R2[grepl('_phiauto', pheno_res$Predictor)]
+    
+    R2_comp<-rbind(R2_comp, data.frame(Phenotype=pheno[i],
+                                         Obs_pTclump_pT1_R2=Obs_pT_clump_R2,
+                                         Obs_PRScs_R2=Obs_PRScs_R2,
+                                         lasso_R2=lasso_R2_i_r2))
+}
+
+write.csv(R2_comp, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/lassosum_R2.csv', row.names=F, quote=F)
+
+# This is looking really promising. Lassosum has some trouble with IBD, MultiScler and RheuArth, but otherwise is very accurate. These outcomes are all rarer and autoimmune disorders. I have run without mhc region but results still poor for these outcomes. Discordant findings may be due to phenotype heterogeneity between GWAS and UKB.
+
+```
+</details>
+
+<details><summary>Show results</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/lassosum_AUC.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Estimation of PRS AUC using lassosum')
+
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/lassosum_R2.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Estimation of PRS R2 using lassosum')
+
+```
+
+</details>
+
+***
+
+Based on these results, none of these approaches are brilliant. The AVENGEME/LDSC method is limited by the accuracy of the LDSC heritability estimate, and the 'medium' polygencity assumed by using a pi0 of 0.94. The lassosum approach does fairly well, but is not good for the autoimmune disorders. I think we  should use the lassosum estimate unless it is R2=0 or AUC=0.5.
+
+***
+
+### Compare absolute estimates/values when using lassosum AUC/R2
+
+***
+
+#### Binary
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+pheno=c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas=c('DEPR06','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+
+n_quant<-20
+
+files<-data.frame(pheno,gwas)
+
+# Create function
+ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
+  
+    # Convert AUC into cohen's d
+    d <- sqrt(2)*qnorm(PRS_auc)
+    
+    # Set mean difference between cases and control polygenic scores
+    mu_case <- d
+    mu_control <- 0
+    
+    # Estimate mean and variance of polygenic scores across case and control
+    varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
+    E_PRS <- d*prev
+    
+    # Estimate polygenic score quantiles
+    by_quant<-1/n_quantile
+    p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
+    quant_vals_PRS <- rep(0, length(p_quant))
+    quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
+    for(i in 1:length(p_quant)){
+        quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
+    }
+    
+    # Create a table for output
+    ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
+    ul_qv_PRS[1,1] <- -Inf
+    ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
+    ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
+    ul_qv_PRS[n_quantile,2] <- Inf
+    
+    ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
+    
+    # Estimate case control proportion for each quantile
+    prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
+    prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
+    p_case_quantile <- (prob_quantile_case*prev)/by_quant
+    p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
+    
+    # Estimate OR comparing each quantile to bottom quantile
+    OR <- p_case_quantile/p_cont_quantile
+    OR <- OR/OR[1]
+    
+    # Return output
+    out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
+    row.names(out) <- 1:n_quantile
+    colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
+    
+    data.frame(out)
+}
+
+# Read in lassosum AUC
+lassosum_AUC<-read.csv('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/lassosum_AUC.csv')
+
+# Run analysis for each phenotype
+res_all<-NULL
+cor_res<-NULL
+plots_all<-list()
+
+for(i in 1:dim(files)[1]){
+  # Read in pheno and prs data, and merge
+  pheno_i<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',files$pheno[i],'.txt'))
+  names(pheno_i)[3]<-'pheno'
+  prs_i<-fread(paste0(UKBB_output,'/PRS_for_comparison/1KG_ref/PRScs/',files$gwas[i],'/UKBB.subset.w_hm3.',files$gwas[i],'.PRScs_profiles'))
+  prs_i<-prs_i[,c('FID','IID',paste0(files$gwas[i], '_phiauto')), with=F]
+  names(prs_i)[3]<-'prs'
+
+  pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
+  
+  # Read in AUC for PRS
+  assoc<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',files$pheno[i],'/Association_withPRSs/UKBB.w_hm3.',files$gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+  prs_auc<-assoc[grepl('phiauto', assoc$Predictor),]$AUC
+  
+  # Assign individuals to observed PRS quantiles
+  obs_quant<-quantile(pheno_prs$prs, prob = seq(0, 1, length = n_quant+1))
+  pheno_prs$obs_quant<-as.numeric(cut( pheno_prs$prs, obs_quant, include.lowest = T))
+
+  # Calculate proportion of each quantile that are cases
+  obs_cc<-NULL
+  for(k in 1:n_quant){
+    obs_cc<-rbind(obs_cc, data.frame(Phenotype=files$pheno[i],
+                                     Type='Observed',
+                                     Quantile=k,
+                                     q_min=obs_quant[k],
+                                     q_max=obs_quant[k+1],
+                                     p_control=1-mean(pheno_prs$pheno[pheno_prs$obs_quant == k]),
+                                     p_case=mean(pheno_prs$pheno[pheno_prs$obs_quant == k])))
+  }
+  
+  # Assign individuals to estimated PRS quantiles
+  est_cc<-ccprobs.f(PRS_auc = prs_auc, prev=mean(pheno_prs$pheno), n_quantile = n_quant)
+  est_cc$OR<-NULL
+  est_cc<-data.frame(Phenotype=files$pheno[i],Type='Estimated',Quantile=1:n_quant, est_cc)
+  est_quant<-sort(unique(c(est_cc$q_min, est_cc$q_max)))
+  pheno_prs$est_quant<-as.numeric(cut( pheno_prs$prs, est_quant, include.lowest = T))
+  
+  tmp<-cor.test(obs_cc$p_case, est_cc$p_case)
+
+  # Assign individuals to estimated PRS quantiles
+  lasso_est_cc<-ccprobs.f(PRS_auc = lassosum_AUC$Est_lasso_AUC[lassosum_AUC$Phenotype == files$pheno[i]], prev=mean(pheno_prs$pheno), n_quantile = n_quant)
+  lasso_est_cc$OR<-NULL
+  lasso_est_cc<-data.frame(Phenotype=files$pheno[i],Type="Estimated (lasso)",Quantile=1:n_quant, lasso_est_cc)
+  lasso_est_quant<-sort(unique(c(lasso_est_cc$q_min, lasso_est_cc$q_max)))
+  pheno_prs$lasso_est_quant<-as.numeric(cut( pheno_prs$prs, lasso_est_quant, include.lowest = T))
+
+  tmp2<-cor.test(obs_cc$p_case, lasso_est_cc$p_case)
+  
+  # Estimate correlation between observed and expected
+  cor_res<-rbind(cor_res,data.frame(Phenotype=files$pheno[i],
+                                    Cor=tmp$estimate,
+                                    Low95CI=tmp$conf.int[1],
+                                    High95CI=tmp$conf.int[2],
+                                    Cor_lasso=tmp2$estimate,
+                                    Low95CI_lasso=tmp2$conf.int[1],
+                                    High95CI_lasso=tmp2$conf.int[2],
+                                    N=length(pheno_prs$pheno),
+                                    Ncas=sum(pheno_prs$pheno == 1),
+                                    Ncon=sum(pheno_prs$pheno == 0)))
+
+  quant_comp<-do.call(rbind,list(obs_cc, est_cc, lasso_est_cc))
+  
+  res_all<-rbind(res_all, quant_comp)
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  plots_all[[i]]<-ggplot(quant_comp, aes(x=Quantile, y=p_case, colour=Type)) +
+                    geom_point(alpha=0.8) +
+                    geom_line(alpha=0.8) +
+                    labs(x='PRS quantile', y=paste0('Proportion with ',files$pheno[i]), title=files$pheno[i], colour='Method') +
+                    theme_cowplot(12)
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp_lasso.png'), units='px', res=300, width=2000, height=3000)
+  plot_grid(plotlist=plots_all, ncol = 2)
+dev.off()
+
+write.csv(cor_res, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp_lasso.csv', row.names=F, quote=F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp_lasso.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Observed-Estimated Proportion of Cases within Polygenic Score Quantiles](Images/Validating_ImputeMe_Ideas/PropCC_Comp_lasso.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp_lasso.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Correlation between observed and estimated proportion of cases within polygenic score quantiles')
+
+cat('Median Cor. = ',median(res$Cor_lasso),'; Mean Cor. = ', mean(res$Cor_lasso),'; Min. Cor. = ',min(res$Cor_lasso),'; Max. Cor. = ',max(res$Cor_lasso),'\n\n', sep='')
+
+res<-res[res$Phenotype != 'RheuArth',]
+
+cat('Excluding RheuArth:\n')
+cat('Median Cor. = ',median(res$Cor_lasso),'; Mean Cor. = ', mean(res$Cor_lasso),'; Min. Cor. = ',min(res$Cor_lasso),'; Max. Cor. = ',max(res$Cor_lasso),'\n', sep='')
+
+```
+
+</details>
+
+***
+
+#### Continuous
+
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+library(e1071)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+gwas<-c('COLL01','HEIG03','BODY04')
+pheno<-c('Intelligence','Height','BMI')
+
+n_quant<-20
+
+files<-data.frame(pheno,gwas)
+
+# Create function
+mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quantile=20){
+  ### PRS quantiles with a continuous phenotype (Y)
+  library(tmvtnorm)
+  ###
+  E_PRS = 0
+  SD_PRS = sqrt(1)
+  E_phenotype = Outcome_mean
+  SD_phenotype = Outcome_sd 
+
+  by_quant<-1/(n_quantile)
+  PRS_quantile_bounds <- qnorm(p=seq(0, 1, by=by_quant), mean= E_PRS, sd= SD_PRS)
+  lower_PRS_vec <- PRS_quantile_bounds[1:n_quantile]
+  upper_PRS_vec <- PRS_quantile_bounds[2:(n_quantile+1)]
+  
+  mean_vec <- c(E_phenotype, E_PRS)
+  sigma_mat <- matrix(sqrt(PRS_R2)*SD_phenotype*SD_PRS, nrow=2, ncol=2)
+  sigma_mat[1,1] <- SD_phenotype^2
+  sigma_mat[2,2] <- SD_PRS^2
+  
+  ### mean of phenotype within the truncated PRS distribution
+  out_mean_Y <- rep(0, 20)
+  ### SD of phenotype within the truncated PRS distribution
+  out_SD_Y <- rep(0, 20)
+  ### cov of Y and PRS given truncation on PRS
+  out_cov_Y_PRS <- rep(0, 20)
+  ### SD of PRS given truncation on PRS
+  out_SD_PRS <- rep(0, 20)
+  ### mean PRS given truncation on PRS
+  out_mean_PRS <- rep(0, 20)
+  
+  for(i in 1:n_quantile){
+  	distribution_i <- mtmvnorm(mean = mean_vec,
+        sigma = sigma_mat,
+        lower = c(-Inf, lower_PRS_vec[i]),
+        upper = c(Inf, upper_PRS_vec[i]),
+        doComputeVariance=TRUE,
+        pmvnorm.algorithm=GenzBretz())
+        out_mean_Y[i] <- distribution_i$tmean[1]
+        out_mean_PRS[i] <- distribution_i$tmean[2]
+        out_SD_Y[i] <- sqrt(distribution_i$tvar[1,1])
+        out_SD_PRS[i] <- sqrt(distribution_i$tvar[2,2])
+        out_cov_Y_PRS[i] <- distribution_i$tvar[1,2]
+  }
+  
+  out<-data.frame(q=1:n_quantile,
+             q_min=lower_PRS_vec,
+             q_max=upper_PRS_vec,
+             x_mean=out_mean_Y,
+             x_sd=out_SD_Y)
+  
+  return(out)
+
+  out_mean_Y
+  out_SD_Y
+  
+  out_mean_PRS
+  out_SD_PRS
+  out_cov_Y_PRS
+}
+
+# Read in lassosum R2
+lassosum_R2<-read.csv('/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/lassosum/lassosum_R2.csv')
+
+# Run analysis for each phenotype
+res_all<-NULL
+plots_all<-list()
+cor_res<-NULL
+
+for(i in 1:dim(files)[1]){
+  # Read in pheno and prs data, and merge
+  pheno_i<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',files$pheno[i],'.txt'))
+  names(pheno_i)[3]<-'pheno'
+  prs_i<-fread(paste0(UKBB_output,'/PRS_for_comparison/1KG_ref/PRScs/',files$gwas[i],'/UKBB.subset.w_hm3.',files$gwas[i],'.PRScs_profiles'))
+  prs_i<-prs_i[,c('FID','IID',paste0(files$gwas[i], '_phiauto')), with=F]
+  names(prs_i)[3]<-'prs'
+
+  pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
+  
+  # Read in AUC for PRS
+  assoc<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',files$pheno[i],'/Association_withPRSs/UKBB.w_hm3.',files$gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+  prs_r2<-assoc[grepl('phiauto', assoc$Predictor),]$Obs_R2
+  
+  # Assign individuals to observed PRS quantiles
+  obs_quant<-quantile(pheno_prs$prs, prob = seq(0, 1, length = n_quant+1))
+  pheno_prs$obs_quant<-as.numeric(cut( pheno_prs$prs, obs_quant, include.lowest = T))
+
+  # Calculate mean and SD of each quantile that are cases
+  obs_dist<-NULL
+  for(k in 1:n_quant){
+    obs_dist<-rbind(obs_dist, data.frame(Phenotype=files$pheno[i],
+                                     Type='Observed',
+                                     Quantile=k,
+                                     q_min=obs_quant[k],
+                                     q_max=obs_quant[k+1],
+                                     x_mean=mean(pheno_prs$pheno[pheno_prs$obs_quant == k]),
+                                     x_sd=sd(pheno_prs$pheno[pheno_prs$obs_quant == k])))
+  }
+  
+  # Assign individuals to estimated PRS quantiles
+  est_dist<-mean_sd_quant.f(PRS_R2 = prs_r2, Outcome_mean=mean(pheno_prs$pheno), Outcome_sd=sd(pheno_prs$pheno), n_quantile = n_quant)
+  est_dist$q<-NULL
+  est_dist<-data.frame(Phenotype=files$pheno[i],Type='Estimated',Quantile=1:n_quant, est_dist)
+  est_quant<-sort(unique(c(est_dist$q_min, est_dist$q_max)))
+  pheno_prs$est_quant<-as.numeric(cut( pheno_prs$prs, est_quant, include.lowest = T))
+
+  # Assign individuals to lassosum estimated PRS quantiles
+  lasso_est_dist<-mean_sd_quant.f(PRS_R2 = lassosum_R2$lasso_R2[lassosum_AUC$Phenotype == files$pheno[i]], Outcome_mean=mean(pheno_prs$pheno), Outcome_sd=sd(pheno_prs$pheno), n_quantile = n_quant)
+  lasso_est_dist$q<-NULL
+  lasso_est_dist<-data.frame(Phenotype=files$pheno[i],Type="Estimated (lassosum)",Quantile=1:n_quant, lasso_est_dist)
+  lasso_est_quant<-sort(unique(c(lasso_est_dist$q_min, lasso_est_dist$q_max)))
+  pheno_prs$lasso_est_quant<-as.numeric(cut( pheno_prs$prs, lasso_est_quant, include.lowest = T))
+  
+  quant_comp<-do.call(rbind, list(obs_dist, est_dist, lasso_est_dist))
+  
+  tmp<-cor.test(obs_dist$x_mean, est_dist$x_mean)
+  tmp2<-cor.test(obs_dist$x_mean, lasso_est_dist$x_mean)
+  
+  cor_res<-rbind(cor_res,data.frame(Phenotype=files$pheno[i],
+                                    Cor_mean=tmp$estimate,
+                                    Cor_mean_Low95CI=tmp$conf.int[1],
+                                    Cor_mean_High95CI=tmp$conf.int[2],
+                                    Cor_mean_lasso=tmp2$estimate,
+                                    Cor_mean_Low95CI_lasso=tmp2$conf.int[1],
+                                    Cor_mean_High95CI_lasso=tmp2$conf.int[2],
+                                    PercDiff_sd_mean=mean(abs(est_dist$x_sd-obs_dist$x_sd)/obs_dist$x_sd),
+                                    PercDiff_sd_mean_lasso=mean(abs(lasso_est_dist$x_sd-obs_dist$x_sd)/obs_dist$x_sd),
+                                    N=length(pheno_prs$pheno),
+                                    Skewness=skewness(pheno_prs$pheno)))
+
+  res_all<-rbind(res_all, quant_comp)
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  plots_all[[i]]<-ggplot(quant_comp, aes(x=Quantile, y=x_mean, colour=Type)) +
+    geom_point(stat="identity", position=position_dodge(.9), alpha=0.8, shape=18) +
+    geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.9), alpha=0.8) +
+    labs(x='PRS quantile', y=paste0(pheno[i], " mean (SD)"), title=files$pheno[i], colour='Method') +
+    theme_cowplot(12)
+  
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp_lasso.png'), units='px', res=300, width=1500, height=1750)
+  plot_grid(plotlist=plots_all, ncol = 1)
+dev.off()
+
+write.csv(cor_res, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp_lasso.csv', row.names=F, quote=F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp_lasso.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Observed-Estimated Proportion of Cases within Polygenic Score Quantiles](Images/Validating_ImputeMe_Ideas/Mean_SD_Comp_lasso.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp_lasso.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Correlation between observed and estimated mean and standar deviation of outcome within polygenic score quantiles')
+
+cat('Median Cor. of means = ',median(res$Cor_mean_lasso),'; Mean Cor. of means = ', mean(res$Cor_mean_lasso),'; Min. Cor. of means = ',min(res$Cor_mean_lasso),'; Max. Cor. of means = ',max(res$Cor_mean_lasso),'\n\n', sep='')
+
+cat('Median mean %diff of SD = ',median(res$PercDiff_sd_mean_lasso),'; Mean mean %diff of SD = ', mean(res$PercDiff_sd_mean_lasso),'; Min. mean %diff of SD = ',min(res$PercDiff_sd_mean_lasso),'; Max. mean %diff of SD = ',max(res$PercDiff_sd_mean_lasso),'\n', sep='')
+
+```
+
+</details>
+
+***
+
+## Validation using Cross-validation
 
 Use the same phenotypes as other GenoPred projects. To maximise power, lets use a 10-fold cross validation procedure, whereby we split the cases and controls for each outcome into 10 parts, then perform a GWAS within each fold. Then we create GWAS sumstats using 9 of 10 subsets, and calculate polygenic scores from the results for the remaining part of the sample. I have already written code for a similar process when playing with the BWAS project.
 
 ***
 
-#### Split UKB into 10 roughly equal parts
+### Split UKB into 10 roughly equal parts
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo =T}
@@ -192,8 +1789,6 @@ system('mkdir -p /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS
 library(data.table)
 QC<-fread('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam')
 names(QC)<-c('FID','IID')
-
-pheno_all_2_QC<-pheno_all_2[(pheno_all_2$IID %in% QC$V2),]
 
 N <- 10
 set.seed(1)
@@ -208,7 +1803,7 @@ for(i in 1:length(subsets)){
 
 ***
 
-#### Prepare covariates file
+### Prepare covariates file
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo =T}
@@ -241,7 +1836,7 @@ Note. Running a regression with all covariates does not work due to multicolinea
 
 ***
 
-#### Calculate phenotype residuals
+### Calculate phenotype residuals
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
@@ -274,8 +1869,8 @@ covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(covs, QC))
 # Residualise each phenotype within each subset
 ###
 
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt','UKBB_Breast_Cancer.pheno','UKBB_Prostate_Cancer.pheno')
 
 for(i in 1:length(pheno)){
   print(pheno[i])
@@ -322,17 +1917,19 @@ for(i in 1:length(pheno)){
 
 ***
 
-#### Run GWAS within each subset for each phenotype
+### Run GWAS within each subset for each phenotype
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 
-pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth)
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer)
 
 for subset in $(seq 1 10);do
-mkdir /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/Subset_${subset}
-  for i in $(seq 2 2); do
-    pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  mkdir /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/Subset_${subset}
+done
 
+for i in $(seq 1 11); do
+    pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+  for subset in $(seq 1 10);do
     for chr in $(seq 1 22); do
         sbatch -p brc,shared --mem 5G -t 00:10:00 /users/k1806347/brc_scratch/Software/plink1.9.sh \
           --bfile /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
@@ -344,8 +1941,8 @@ mkdir /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/Subset_${s
           --allow-no-sex \
           --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/Subset_${subset}/UKBB.w_hm3.QCd.AllSNP.Subset_${subset}.${pheno_i}.chr${chr}
       done
+      sleep 100
   done
-  sleep 600
 done
 
 ```
@@ -353,11 +1950,11 @@ done
 
 ***
 
-#### Meta-analyse LOO results
+### Meta-analyse LOO results
 
 ***
 
-##### Prepare sumstats for METAL
+#### Prepare sumstats for METAL
 
 <details><summary>Show code</summary>
 ```{R, echo=T, eval=F}
@@ -371,10 +1968,10 @@ for(chr in 1:22){
   bim<-rbind(bim,bim_chr)
 }
 
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
 
-for(subset_i in 1:10){
-  for(pheno_i in pheno[2]){
+for(pheno_i in pheno){
+  for(subset_i in 1:10){
   gwas_i<-NULL
     for(chr in 1:22){
           gwas_i_chr<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/Subset_',subset_i,'/UKBB.w_hm3.QCd.AllSNP.Subset_',subset_i,'.',pheno_i,'.chr',chr,'.qassoc'))
@@ -394,20 +1991,21 @@ for(subset_i in 1:10){
 
 ***
 
-##### Run meta-analysis leaving one subset out each time
+#### Run meta-analysis leaving one subset out each time
 
 <details><summary>Show code</summary>
 ```{bash, echo=T, eval=F}
 
 # Delete per chromosome files
-rm /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/*/*.chr*
+# rm /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/*/*.chr*
 
 # Run METAL using all subsets first
 mkdir /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta
 
 # Iteratively meta-analyse across all bar one subsets using METAL.
+# for pheno in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer); do
+for pheno in $(echo BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer); do
 for subset in $(seq 1 10);do
-for pheno in $(echo Intelligence); do
 
 cat > /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_subset_template.sh <<EOF
 MARKER SNP
@@ -441,6 +2039,7 @@ sed "/\\.Subset_${subset}\\./d" /users/k1806347/brc_scratch/Data/UKBB/Validation
 sbatch -p brc,shared /users/k1806347/brc_scratch/Software/metal.sh /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_subset_${subset}_${pheno}.sh
 
 done
+sleep 60
 done
 
 # Delete the script files
@@ -451,15 +2050,15 @@ rm /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/*sh
 
 ***
 
-#### Create a file listing the sample size for each variant and all phenotype
+### Create a file listing the sample size for each variant and all phenotype
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 library(data.table)
 
-pheno<-c('Intelligence')
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
 
-for(pheno_i in pheno[1]){
+for(pheno_i in pheno){
   for(subset in as.character(1:10)){
     gwas<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/Subset_',subset,'/UKBB.w_hm3.QCd.AllSNP.Subset_',subset,'.',pheno_i,'.GW.qassoc.clean'))
     
@@ -481,26 +2080,35 @@ for(pheno_i in pheno[1]){
 
 ***
 
-#### Polygenic scoring
+### Polygenic scoring
 
 Now we calculate polygenic scores for these phenotypes in UK Biobank, using the independent summary statistics. Lets use the standard PRScs method (best) and pT+clump method (traditional).
 
 ***
 
-##### Format the LOO-meta-analysis and full meta-analysis results for polygenic scoring
+#### Format the LOO-meta-analysis results for polygenic scoring
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 library(data.table)
 
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
 
-for(subset_i in 1:10){
-  for(pheno_i in pheno[2]){
+# Read in bim file
+bim<-NULL
+for(chr in 1:22){
+  bim_chr<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr',chr,'.bim'))
+  bim<-rbind(bim,bim_chr)
+}
+
+for(pheno_i in pheno){
+  for(subset_i in 1:10){
     gwas<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno_i,'1.tbl'))
-    names(gwas)<-c('SNP','A1','A2','BETA','SE','P','Direction')
-    gwas$Z<-gwas$BETA/gwas$SE
-    gwas<-gwas[,c('SNP','A1','A2','Z'),with=F]
+    
+    gwas<-merge(gwas[,c('MarkerName','Allele1','Allele2','Effect','StdErr','P-value'), with=F], bim[,c('V1','V2','V4'),with=F], by.x='MarkerName', by.y='V2')
+    names(gwas)<-c('SNP','A1','A2','BETA','SE','P','CHR','ORIGBP')
+
     gwas$A1<-toupper(gwas$A1)
     gwas$A2<-toupper(gwas$A2)
     
@@ -508,235 +2116,38 @@ for(subset_i in 1:10){
     
     N_tab$excl_subset<-rowSums(N_tab[,names(N_tab)[!grepl(paste0('SNP|Subset_',subset_i,'_N'), names(N_tab))],with=F])
   
-  gwas<-merge(gwas, N_tab[,c('SNP','excl_subset'), with=F], by='SNP')
-  
-  names(gwas)[names(gwas) == 'excl_subset']<-'N'
+    gwas<-merge(gwas, N_tab[,c('SNP','excl_subset'), with=F], by='SNP')
+    
+    names(gwas)[names(gwas) == 'excl_subset']<-'N'
+    gwas<-gwas[,c('CHR','SNP','ORIGBP','A1','A2','BETA','SE','P','N'), with=F]
+    gwas<-gwas[order(gwas$CHR, gwas$ORIGBP),]
   
     fwrite(gwas, paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno_i,'.clean'), sep=' ', na='NA', quote=F)
-  }
-}
-```
-</details>
-
-***
-
-##### Compress the sumstats
-
-<details><summary>Show code</summary>
-```{bash, eval=F, echo=T}
-for pheno in $(echo Intelligence); do
-  for subset in $(seq 1 10);do
-    /users/k1806347/brc_scratch/Software/pigz /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_${subset}_${pheno}.clean
-  done
-done
-```
-</details>
-
-***
-
-##### PRScs
-
-***
-
-###### Run PRScs
-
-<details><summary>Show code</summary>
-```{bash, eval=F, echo=T}
-
-# Run PRScs
-for pheno in $(echo Intelligence); do
-  for subset in $(seq 1 10);do
-
-    sbatch -p brc,shared -n 4 --mem 6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs.R \
-    --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
-    --sumstats /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_${subset}_${pheno}.clean.gz \
-    --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
-    --memory 5000 \
-    --output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/PRScs/${pheno}/excl_Subset_${subset}/PRScs_excl_Subset_${subset}_${pheno} \
-    --ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list \
-    --PRScs_path /users/k1806347/brc_scratch/Software/PRScs.sh \
-    --PRScs_ref_path /users/k1806347/brc_scratch/Software/PRScs/ldblk_1kg_eur \
-    --n_cores 4 \
-    --phi_param auto
-
-  done
-done
-
-# Calculate polygenic scores in each subset
-for pheno in $(echo BMI Intelligence CAD); do
-  for subset in $(seq 1 10);do
-  
-    mkdir -p /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/${pheno}/Subset_${subset}
     
-    sbatch -n 1 --mem 10G -t 1:00:00 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_PRScs/Scaled_polygenic_scorer_PRScs.R \
-      --target_plink_chr /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
-      --target_keep /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/Subset_${subset}.keep \
-      --ref_score /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/PRScs/${pheno}/excl_Subset_${subset}/PRScs_excl_Subset_${subset}_${pheno} \
-      --ref_scale /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/PRScs/${pheno}/excl_Subset_${subset}/PRScs_excl_Subset_${subset}_${pheno}.EUR.scale \
-      --ref_freq_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
-      --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
-      --output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/${pheno}/Subset_${subset}/Subset_${subset}_${pheno}_PRScs.Phi
-  done
-done
-
-```
-</details>
-
-***
-
-###### Evaluate predictive utility of PRS 
-
-<details><summary>Show code</summary>
-```{bash, echo=T, eval=F}
-# Combine the polygenic scores for each subset
-library(data.table)
-
-####
-# Prepare covariate data
-####
-
-# Read in covariate data
-geno_covar<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/ukb18177_glanville_covariates.UpdateIDs.txt')
-sex<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Sex.pheno')
-age<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Age.pheno')
-
-covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(geno_covar, sex, age))
-
-# Convert catagorical variables into factors so they are dummy coded in the regression
-covs$batch<-factor(covs$batch)
-covs$assessment_centre<-factor(covs$assessment_centre)
-
-# Read in list of individuals passing QC
-QC<-fread('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam')
-names(QC)<-c('FID','IID')
-
-# Merge all data
-covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(covs, QC))
-
-###
-# Read in pheno type and PRS data, regress covariates from PRS within subset, and the estimate R2 and AUC across subsets.
-###
-
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
-prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005)
-
-pheno_res<-NULL
-for(i in c(1,2,3,5,6)){
-  print(pheno[i])
-  
-  # Read in phenotype file
-  pheno_i<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/',pheno[i],'/',pheno_file[i]))
-  names(pheno_i)[3]<-'pheno'
-  
-  # Determine whether binary
-  if(length(unique(pheno_i$pheno[!is.na(pheno_i$pheno)])) == 2){
-    family_i<-'binomial'
-  } else {
-    family_i<-'gaussian'
-  }
-  
-  # Merge pheno and covar data
-  pheno_i_covs<-merge(pheno_i, covs, by=c('FID','IID'), all=T)
-
-  pheno_i_covs_prs<-NULL
-  for(subset_i in 1:10){
-    # Read in PRS for subset      
-    prs_var_subset<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/',pheno[i],'/Subset_',subset_i,'/Subset_',subset_i,'_',pheno[i],'_PRScs.Phi.PRScs_profiles'))
-    
-    # Merge with pheno and covs
-    pheno_i_covs_prs_subset<-merge(pheno_i_covs, prs_var_subset, by=c('FID','IID'))
-    
-    # Remove incomplete rows
-    pheno_i_covs_prs_subset<-pheno_i_covs_prs_subset[complete.cases(pheno_i_covs_prs_subset),]
-
-    # Regress covariates out of the PRS
-    pheno_i_covs_prs_subset$SCORE_phiauto<-as.numeric(scale(resid(glm(SCORE_phiauto ~ ., family='gaussian', data=pheno_i_covs_prs_subset[,-1:-3]))))
-    
-    pheno_i_covs_prs<-rbind(pheno_i_covs_prs, pheno_i_covs_prs_subset)
-  }
-  
-  # Run regression between outcome and PRS residuals
-  model<-glm(pheno ~ SCORE_phiauto, data=pheno_i_covs_prs, family=family_i)
-  summary_model<-summary(model)
-  
-  # Calculate Observed R2, Liability R2 and AUC
-  obs_R2<-cor(pheno_i_covs_prs$pheno, pheno_i_covs_prs$SCORE_phiauto)^2
-  
-  if(family_i == 'binomial'){
-    library('fmsb')
-    Nag_R2<-NagR2<-NagelkerkeR2(model)$R2
-    h2l_R2N <- function(k, r2n, p) {
-      # k baseline disease risk
-      # r2n Nagelkerke's attributable to genomic profile risk score
-      # proportion of sample that are cases
-      # calculates proportion of variance explained on the liability scale
-      #from ABC at http://www.complextraitgenomics.com/software/
-      #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
-      x <- qnorm(1 - k)
-      z <- dnorm(x)
-      i <- z / k
-      cc <- k * (1 - k) * k * (1 - k) / (z^2 * p * (1 - p))
-      theta <- i * ((p - k)/(1 - k)) * (i * ((p - k) / ( 1 - k)) - x)
-      e <- 1 - p^(2 * p) * (1 - p)^(2 * (1 - p))
-      h2l_R2N <- cc * e * r2n / (1 + cc * e * theta * r2n)
-    }
-    liab_R2<-h2l_R2N(prev[i], Nag_R2, mean(pheno_i_covs_prs$pheno))
-    library(pROC)
-    auc_prs<-auc(pheno_i_covs_prs$pheno, pheno_i_covs_prs$SCORE_phiauto)
-    
-      pheno_res<-rbind(pheno_res, data.frame( Phenotype=pheno[i],
-                                              Estimate=coef(summary_model)[2,1],
-                                              SE=coef(summary_model)[2,2],
-                                              P=coef(summary_model)[2,4],
-                                              R2_obs=obs_R2,
-                                              R2_nag=Nag_R2,
-                                              R2_liab=liab_R2,
-                                              AUC=auc_prs,
-                                              N=length(pheno_i_covs_prs$pheno),
-                                              Ncase=sum(pheno_i_covs_prs$pheno == 1),
-                                              Ncon=sum(pheno_i_covs_prs$pheno == 0),
-                                              Pop_prev=prev[i]))
-                                            
-  } else {
-    
-    pheno_res<-rbind(pheno_res, data.frame( Phenotype=pheno[i],
-                                            Estimate=coef(summary_model)[2,1],
-                                            SE=coef(summary_model)[2,2],
-                                            P=coef(summary_model)[2,4],
-                                            R2_obs=obs_R2,
-                                            R2_nag=NA,
-                                            R2_liab=NA,
-                                            AUC=NA,
-                                            N=length(pheno_i_covs_prs$pheno),
-                                            Ncase=NA,
-                                            Ncon=NA,
-                                            Pop_prev=NA))
-
+    # Run through GWAS sumstat QC script
+    system(paste0('/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/sumstat_cleaner/sumstat_cleaner.R --sumstats /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno_i,'.clean --ref_plink_chr ',Geno_1KG_dir,'/1KGPhase3.w_hm3.chr --ref_freq_chr ',Geno_1KG_dir,'/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr --output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno_i,'.clean.QC'))
   }
 }
 
-write.csv(pheno_res, '/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/Pheno_PRS_assoc_res.csv', row.names=F, quote=F)
-
 ```
 </details>
 
 ***
 
-##### pT+clump
+#### pT+clump
 
 ***
 
-###### Run pT+clump
+##### Run pT+clump
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
-for pheno in $(echo Intelligence); do
+for pheno in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer); do
   for subset in $(seq 1 10);do
 
     sbatch -p brc,shared --mem 6G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
       --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
-      --sumstats /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_${subset}_${pheno}.clean.gz \
+      --sumstats /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_${subset}_${pheno}.clean.QC.gz \
       --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
       --memory 5000 \
       --output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/pTclump/${pheno}/excl_Subset_${subset}/pTclump_excl_Subset_${subset}_${pheno} \
@@ -745,7 +2156,7 @@ done
 done
 
 # Calculate polygenic scores in each subset
-for pheno in $(echo Intelligence); do
+for pheno in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer); do
   for subset in $(seq 1 10);do
   
     mkdir -p /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/${pheno}/Subset_${subset}
@@ -762,12 +2173,13 @@ for pheno in $(echo Intelligence); do
 
   done
 done
+
 ```
 </details>
 
 ***
 
-###### Evaluate predictive utility of PRS 
+##### Evaluate predictive utility of PRS 
 
 <details><summary>Show code</summary>
 ```{bash, echo=T, eval=F}
@@ -800,11 +2212,11 @@ covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(covs, QC))
 # Read in pheno type and PRS data, regress covariates from PRS within subset, and the estimate R2 and AUC across subsets.
 ###
 
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
-prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005)
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt','UKBB_Breast_Cancer.pheno','UKBB_Prostate_Cancer.pheno')
+prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005,0.125,0.125)
 
-for(i in c(2)){
+for(i in 1:length(pheno_file)){
   print(pheno[i])
   
   # Read in phenotype file
@@ -846,7 +2258,7 @@ for(i in c(2)){
     for(pT_i in pT){
     
     # Regress covariates out of the PRS
-    pheno_i_covs_prs_subset[[paste0(pheno[i],'_',pT_i)]]<-as.numeric(scale(resid(glm(paste0(pheno[i],'_',pT_i,' ~ .'), family='gaussian', data=pheno_i_covs_prs_subset[,-1:-3]))))
+    pheno_i_covs_prs_subset[[paste0(pheno[i],'_',pT_i)]]<-as.numeric(scale(resid(glm(paste0(pheno[i],'_',pT_i,' ~ ',paste(names(covs)[-1:-2],collapse='+')), family='gaussian', data=pheno_i_covs_prs_subset[,-1:-3]))))
     
     }
     
@@ -924,38 +2336,279 @@ write.csv(pheno_res,paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationAren
 
 ***
 
-### External GWAS sumstat approach
+#### DBSLMM
+
+I was going to using PRScs auto, but DBSLMM is almost as good and much faster.
 
 ***
 
-## Compare observed variance explained measurements to those derived using AVENGEME and LDSC
+##### Run DBSLMM
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer)
+pop_prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005 0.125 0.125)
+samp_prev=$(echo 0.31654 NA NA NA 0.04444 0.08082 0.0108 0.00355 0.01054 0.04245 0.01705)
+
+# Create directory
+mkdir /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM
+
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/todo.txt
+for i in $(seq 1 11);do
+for k in $(seq 1 10);do
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+pop_prev_i=$(echo ${pop_prev} | cut -f ${i} -d ' ')
+sample_prev_i=$(echo ${samp_prev} | cut -f ${i} -d ' ')
+if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/${gwas_i}/excl_Subset_${k}/DBSLMM_excl_Subset_${k}_${gwas_i}.EUR.scale ]; then
+echo ${gwas_i} ${pop_prev_i} ${sample_prev_i} ${k} >> /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/todo.txt
+fi
+done
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 10G
+#SBATCH -J DBSLMM
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/todo.txt)
+pop_prev=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/todo.txt)
+sample_prev=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $3}' /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/todo.txt)
+subset=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $4}' /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/todo.txt)
+
+echo ${gwas}
+echo ${pop_prev}
+echo ${sample_prev}
+echo ${subset}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM.R \
+--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--sumstats /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_${subset}_${gwas}.clean.QC.gz \
+--plink ${plink1_9} \
+--memory 5000 \
+--ld_blocks /users/k1806347/brc_scratch/Data/LDetect/EUR \
+--rscript /users/k1806347/brc_scratch/Software/Rscript.sh \
+--dbslmm /users/k1806347/brc_scratch/Software/DBSLMM/software \
+--munge_sumstats ${munge_sumstats} \
+--ldsc ${ldsc} \
+--ldsc_ref ${ldsc_ref} \
+--hm3_snplist ${HapMap3_snplist_dir}/w_hm3.snplist \
+--sample_prev ${sample_prev} \
+--pop_prev ${pop_prev} \
+--output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/${gwas}/excl_Subset_${subset}/DBSLMM_excl_Subset_${subset}_${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/todo.txt | cut -d' ' -f1)%10 /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/sbatch.sh
+
+sbatch --array 1-1 /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/sbatch.sh
+
+#########################
+
+# Calculate polygenic scores in each subset
+for pheno in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer); do
+  for subset in $(seq 1 10);do
+  
+    mkdir -p /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/DBSLMM/${pheno}/Subset_${subset}
+    
+    sbatch -n 1 --mem 10G -t 1:00:00 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_DBSLMM/Scaled_polygenic_scorer_DBSLMM.R \
+      --target_plink_chr /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+      --target_keep /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/Subset_${subset}.keep \
+      --ref_score /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/${pheno}/excl_Subset_${subset}/DBSLMM_excl_Subset_${subset}_${pheno}.dbslmm.GW.txt \
+      --ref_scale /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/DBSLMM/${pheno}/excl_Subset_${subset}/DBSLMM_excl_Subset_${subset}_${pheno}.EUR.scale \
+      --ref_freq_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+      --pheno_name ${pheno} \
+      --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
+      --output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/DBSLMM/${pheno}/Subset_${subset}/Subset_${subset}_${pheno}_DBSLMM
+  done
+done
+
+```
+</details>
+
+***
+
+##### Evaluate predictive utility of DBSLMM 
+
+<details><summary>Show code</summary>
+```{R, echo=T, eval=F}
+# Combine the polygenic scores for each subset
+library(data.table)
+
+####
+# Prepare covariate data
+####
+
+# Read in covariate data
+geno_covar<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/ukb18177_glanville_covariates.UpdateIDs.txt')
+sex<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Sex.pheno')
+age<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Age.pheno')
+
+covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(geno_covar, sex, age))
+
+# Convert catagorical variables into factors so they are dummy coded in the regression
+covs$batch<-factor(covs$batch)
+covs$assessment_centre<-factor(covs$assessment_centre)
+
+# Read in list of individuals passing QC
+QC<-fread('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam')
+names(QC)<-c('FID','IID')
+
+# Merge all data
+covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(covs, QC))
+
+###
+# Read in pheno type and PRS data, regress covariates from PRS within subset, and the estimate R2 and AUC across subsets.
+###
+
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt','UKBB_Breast_Cancer.pheno','UKBB_Prostate_Cancer.pheno')
+prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005,0.125,0.125)
+
+pheno_res<-NULL
+for(i in c(1:11)){
+  print(pheno[i])
+  
+  # Read in phenotype file
+  pheno_i<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/',pheno[i],'/',pheno_file[i]))
+  names(pheno_i)[3]<-'pheno'
+  
+  # Determine whether binary
+  if(length(unique(pheno_i$pheno[!is.na(pheno_i$pheno)])) == 2){
+    family_i<-'binomial'
+  } else {
+    family_i<-'gaussian'
+  }
+  
+  # Merge pheno and covar data
+  pheno_i_covs<-merge(pheno_i, covs, by=c('FID','IID'), all=T)
+
+  pheno_i_covs_prs<-NULL
+  for(subset_i in 1:10){
+    # Read in PRS for subset      
+    prs_var_subset<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/DBSLMM/',pheno[i],'/Subset_',subset_i,'/Subset_',subset_i,'_',pheno[i],'_DBSLMM.DBSLMM_profiles'))
+    names(prs_var_subset)<-c('FID','IID','DBSLMM')
+    
+    # Merge with pheno and covs
+    pheno_i_covs_prs_subset<-merge(pheno_i_covs, prs_var_subset, by=c('FID','IID'))
+    
+    # Remove incomplete rows
+    pheno_i_covs_prs_subset<-pheno_i_covs_prs_subset[complete.cases(pheno_i_covs_prs_subset),]
+
+    # Regress covariates out of the PRS
+    pheno_i_covs_prs_subset$DBSLMM<-as.numeric(scale(resid(glm(DBSLMM ~ ., family='gaussian', data=pheno_i_covs_prs_subset[,-1:-3]))))
+    
+    pheno_i_covs_prs<-rbind(pheno_i_covs_prs, pheno_i_covs_prs_subset)
+  }
+  
+  # Run regression between outcome and PRS residuals
+  model<-glm(pheno ~ DBSLMM, data=pheno_i_covs_prs, family=family_i)
+  summary_model<-summary(model)
+  
+  # Calculate Observed R2, Liability R2 and AUC
+  obs_R2<-cor(pheno_i_covs_prs$pheno, pheno_i_covs_prs$DBSLMM)^2
+  
+  if(family_i == 'binomial'){
+    library('fmsb')
+    Nag_R2<-NagR2<-NagelkerkeR2(model)$R2
+    h2l_R2N <- function(k, r2n, p) {
+      # k baseline disease risk
+      # r2n Nagelkerke's attributable to genomic profile risk score
+      # proportion of sample that are cases
+      # calculates proportion of variance explained on the liability scale
+      #from ABC at http://www.complextraitgenomics.com/software/
+      #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+      x <- qnorm(1 - k)
+      z <- dnorm(x)
+      i <- z / k
+      cc <- k * (1 - k) * k * (1 - k) / (z^2 * p * (1 - p))
+      theta <- i * ((p - k)/(1 - k)) * (i * ((p - k) / ( 1 - k)) - x)
+      e <- 1 - p^(2 * p) * (1 - p)^(2 * (1 - p))
+      h2l_R2N <- cc * e * r2n / (1 + cc * e * theta * r2n)
+    }
+    liab_R2<-h2l_R2N(prev[i], Nag_R2, mean(pheno_i_covs_prs$pheno))
+    library(pROC)
+    auc_prs<-auc(pheno_i_covs_prs$pheno, pheno_i_covs_prs$DBSLMM)
+    
+      pheno_res<-rbind(pheno_res, data.frame( Phenotype=pheno[i],
+                                              Estimate=coef(summary_model)[2,1],
+                                              SE=coef(summary_model)[2,2],
+                                              P=coef(summary_model)[2,4],
+                                              R2_obs=obs_R2,
+                                              R2_nag=Nag_R2,
+                                              R2_liab=liab_R2,
+                                              AUC=auc_prs,
+                                              N=length(pheno_i_covs_prs$pheno),
+                                              Ncase=sum(pheno_i_covs_prs$pheno == 1),
+                                              Ncon=sum(pheno_i_covs_prs$pheno == 0),
+                                              Pop_prev=prev[i]))
+                                            
+  } else {
+    
+    pheno_res<-rbind(pheno_res, data.frame( Phenotype=pheno[i],
+                                            Estimate=coef(summary_model)[2,1],
+                                            SE=coef(summary_model)[2,2],
+                                            P=coef(summary_model)[2,4],
+                                            R2_obs=obs_R2,
+                                            R2_nag=NA,
+                                            R2_liab=NA,
+                                            AUC=NA,
+                                            N=length(pheno_i_covs_prs$pheno),
+                                            Ncase=NA,
+                                            Ncon=NA,
+                                            Pop_prev=NA))
+
+  }
+}
+
+write.csv(pheno_res, '/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/DBSLMM/Pheno_PRS_assoc_res.csv', row.names=F, quote=F)
+
+```
+</details>
+
+***
+
+### Compare observed variance explained measurements to those derived using AVENGEME and LDSC
 
 AVENGEME can estimate the R2 you would expect to see from a polygenic scores given an estimate of heritability and sample size. To estimate heritability and polygenicity, we could use GCTB.
 
 ***
 
-### Estimate the SNP-based heritability using LDSC
+#### Estimate the SNP-based heritability using LDSC
 
 <details><summary>Show code</summary>
 ```{R, echo=T, eval =F}
 
 dir.create('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC')
 
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
-prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005)
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005,0.125,0.125)
 
 library(data.table)
 
-for(i in c(2)){
+for(i in 1:length(pheno)){
+  for(subset_i in 1:10){
+      system(paste0('~/brc_scratch/Software/munge_sumstats.sh --sumstats /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno[i],'.clean.QC.gz --merge-alleles /users/k1806347/brc_scratch/Data/ldsc/w_hm3.snplist --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno[i],'.clean.QC.munged'))
+  }
+}
+
+for(i in 1:length(pheno)){
   PRS_res<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv')) 
-  sample_prev<-round(PRS_res$Ncase[1]/PRS_res$N[1],2)
+  sample_prev<-round(PRS_res$Ncase[1]/PRS_res$N[1],5)
   
   for(subset_i in 1:10){
     if(is.na(prev[i])){
-      system(paste0('sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh --h2 /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno[i],'.clean.gz --ref-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ --w-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC/metal_excl_Subset_',subset_i,'_',pheno[i],'.obs'))
+      system(paste0('~/brc_scratch/Software/ldsc.sh --h2 /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno[i],'.clean.QC.munged.sumstats.gz --ref-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ --w-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC/metal_excl_Subset_',subset_i,'_',pheno[i],'.obs'))
     } else {
-      system(paste0('sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh --h2 /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno[i],'.clean.gz --ref-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ --w-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ --samp-prev ',sample_prev,' --pop-prev ',prev[i],' --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC/metal_excl_Subset_',subset_i,'_',pheno[i],'.liab'))
+      system(paste0('~/brc_scratch/Software/ldsc.sh --h2 /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno[i],'.clean.QC.munged.sumstats.gz --ref-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ --w-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ --samp-prev ',sample_prev,' --pop-prev ',prev[i],' --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC/metal_excl_Subset_',subset_i,'_',pheno[i],'.liab'))
     }
   }
 }
@@ -964,24 +2617,31 @@ for(i in c(2)){
 library(meta)
 
 meta_h2<-NULL
-for(i in c(1,2,3,5,6)){
+for(i in 1:length(pheno)){
   if(is.na(prev[i])){
     pheno_ldsc<-NULL
     PRS_res<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv')) 
     sample_N<-PRS_res$N[1]
     for(subset_i in 1:10){
       log<-read.table(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC/metal_excl_Subset_',subset_i,'_',pheno[i],'.obs.log'), sep='&')$V1
+      int_log<-as.character(log[grepl('Intercept:', log)])
+      int_est<-as.numeric(gsub(' .*','',gsub('.*: ', '', int_log)))
+      int_se<-as.numeric(gsub("\\)",'',gsub(".*\\(", '', int_log)))
       h2_log<-as.character(log[grepl('Total Observed scale h2', log)])
       h2_est<-as.numeric(gsub(' .*','',gsub('.*: ', '', h2_log)))
       h2_se<-as.numeric(gsub("\\)",'',gsub(".*\\(", '', h2_log)))
       
       pheno_ldsc<-rbind(pheno_ldsc, data.frame(Est=h2_est,
                                                SE=h2_se,
+                                               Int=int_est,
+                                               Int_SE=int_se,
                                                Subset=subset_i))
     }
     meta_pheno_ldsc<-metagen(pheno_ldsc$Est, pheno_ldsc$SE, pheno_ldsc$Subset, comb.random=F)
+    meta_pheno_ldsc_int<-metagen(pheno_ldsc$Int, pheno_ldsc$Int_SE, pheno_ldsc$Subset, comb.random=F)
     
   meta_h2<-rbind(meta_h2,data.frame(Phenotype=pheno[i],
+                            LDSC_int=meta_pheno_ldsc_int$TE.fixed,
                             H2_liab=NA,
                             H2_obs=meta_pheno_ldsc$TE.fixed,
                             SE=meta_pheno_ldsc$seTE.fixed,
@@ -993,22 +2653,29 @@ for(i in c(1,2,3,5,6)){
   } else {
     pheno_ldsc<-NULL
     PRS_res<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv')) 
-    sample_prev<-round(PRS_res$Ncase[1]/PRS_res$N[1],2)
+    sample_prev<-round(PRS_res$Ncase[1]/PRS_res$N[1],5)
     sample_N<-PRS_res$N[1]
   
     for(subset_i in 1:10){
       log<-read.table(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC/metal_excl_Subset_',subset_i,'_',pheno[i],'.liab.log'), sep='&')$V1
+      int_log<-as.character(log[grepl('Intercept:', log)])
+      int_est<-as.numeric(gsub(' .*','',gsub('.*: ', '', int_log)))
+      int_se<-as.numeric(gsub("\\)",'',gsub(".*\\(", '', int_log)))
       h2_log<-as.character(log[grepl('Total Liability scale h2', log)])
       h2_est<-as.numeric(gsub(' .*','',gsub('.*: ', '', h2_log)))
       h2_se<-as.numeric(gsub("\\)",'',gsub(".*\\(", '', h2_log)))
       
       pheno_ldsc<-rbind(pheno_ldsc, data.frame(Est=h2_est,
                                                SE=h2_se,
+                                               Int=int_est,
+                                               Int_SE=int_se,
                                                Subset=subset_i))
     }
     meta_pheno_ldsc<-metagen(pheno_ldsc$Est, pheno_ldsc$SE, pheno_ldsc$Subset, comb.random=F)
-    
+    meta_pheno_ldsc_int<-metagen(pheno_ldsc$Int, pheno_ldsc$Int_SE, pheno_ldsc$Subset, comb.random=F)
+
   meta_h2<-rbind(meta_h2,data.frame(Phenotype=pheno[i],
+                            LDSC_int=meta_pheno_ldsc_int$TE.fixed,
                             H2_liab=meta_pheno_ldsc$TE.fixed,
                             H2_obs=NA,
                             SE=meta_pheno_ldsc$seTE.fixed,
@@ -1021,12 +2688,13 @@ for(i in c(1,2,3,5,6)){
 
 write.csv(meta_h2, '/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC/meta_h2.res.csv',row.names=F, quote=F)
 
+# The Height LDSC intercept is very high.
 ```
 </details>
 
 ***
 
-### Estimate AUC using AVENGEME
+#### Estimate AUC using AVENGEME
 
 <details><summary>Show code</summary>
 ```{R, echo=T, eval =F}
@@ -1034,12 +2702,12 @@ library(avengeme)
 
 # pi0 parameter doesn't affect AUC why using a p-value threshold of 1.
 
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
 
 meta_h2<-fread('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/LDSC/meta_h2.res.csv')
 
 AUC_R2_pred<-NULL
-for(i in c(1,2,3,5,6)){
+for(i in 1:length(pheno)){
   
   pheno_nsnp<-NULL
   for(subset_i in 1:10){
@@ -1052,669 +2720,401 @@ for(i in c(1,2,3,5,6)){
   mean_nsnp<-mean(pheno_nsnp$NSNP)
   
   if(is.na(meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]])){
-    tmp<-polygenescore(nsnp=mean_nsnp, n=meta_h2$N[meta_h2$Phenotype == pheno[i]], vg1 = meta_h2$H2_obs[meta_h2$Phenotype == pheno[i]], pupper = c(0, 1), nested = TRUE, weighted = TRUE, binary = F)
+    tmp<-polygenescore(nsnp=mean_nsnp, n=meta_h2$N[meta_h2$Phenotype == pheno[i]], vg1 = meta_h2$H2_obs[meta_h2$Phenotype == pheno[i]], pupper = c(0, 1), pi0=0.9, nested = TRUE, weighted = TRUE, binary = F)
     
     pheno_res_pTclump<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv'))
+    
+    pT<-as.numeric(gsub('_','-',pheno_res_pTclump$pT))
   
-    pheno_res_PRScs<-read.csv('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/Pheno_PRS_assoc_res.csv')
-    pheno_res_PRScs<-pheno_res_PRScs[pheno_res_PRScs$Phenotype == pheno[i],]
-      
+    tmp2<-estimatePolygenicModel(p=pheno_res_pTclump$Estimate/pheno_res_pTclump$SE, 
+                           nsnp=mean_nsnp, 
+                           n=c(meta_h2$N[meta_h2$Phenotype == pheno[i]], pheno_res_pTclump$N[1]), 
+                           pupper = c(0,pT),
+                           binary = c(FALSE, FALSE), 
+                           prevalence = c(NA, NA), 
+                           sampling = c(NA, NA), 
+                           fixvg2pi02 = T,
+                           alpha = 0.05)
+    
+    tmp3<-polygenescore(nsnp=mean_nsnp, n=meta_h2$N[meta_h2$Phenotype == pheno[i]], vg1 = tmp2$vg[1], pupper = c(0, 1), pi0=tmp2$pi0[1], nested = TRUE, weighted = TRUE, binary = F)
+
     AUC_R2_pred<-rbind(AUC_R2_pred, data.frame(Phenotype=pheno[i],
                                          N=meta_h2$N[meta_h2$Phenotype == pheno[i]],
-                                         vg1=meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]],
+                                         LDSC_int=meta_h2$LDSC_int[meta_h2$Phenotype == pheno[i]],
+                                         LDSC_vg1=meta_h2$H2_obs[meta_h2$Phenotype == pheno[i]],
+                                         AVENGEME_vg1=tmp2$vg[1],
+                                         AVENGEME_pi0=tmp2$pi0[1],
                                          prevalence=meta_h2$pop_prev[meta_h2$Phenotype == pheno[i]],
                                          sampling=meta_h2$sample_prev[meta_h2$Phenotype == pheno[i]],
                                          NSNP=mean_nsnp,
                                          pred_AUC=NA,
                                          pred_R2=tmp$R2,
+                                         pred_AUC_AVENG=NA,
+                                         pred_R2_AVENG=tmp3$R2,
                                          pTclump_AUC=NA,
-                                         pTclump_R2=pheno_res_pTclump$R2_obs[length(pheno_res_pTclump$R2_obs)],
-                                         PRScs_AUC=NA,
-                                         PRScs_R2=pheno_res_PRScs$R2_obs[1]))
+                                         pTclump_R2=pheno_res_pTclump$R2_obs[pheno_res_pTclump$pT == '1']))
   
   } else {
     
-    tmp<-polygenescore(nsnp=mean_nsnp, n=meta_h2$N[meta_h2$Phenotype == pheno[i]], vg1 = meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]], pupper = c(0, 1), nested = TRUE, weighted = TRUE, binary = T, prevalence = meta_h2$pop_prev[meta_h2$Phenotype == pheno[i]], sampling = meta_h2$sample_prev[meta_h2$Phenotype == pheno[i]])
+    tmp<-polygenescore(nsnp=mean_nsnp, n=meta_h2$N[meta_h2$Phenotype == pheno[i]], vg1 = meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]], pupper = c(0, 1), pi0=0.9, nested = TRUE, weighted = TRUE, binary = T, prevalence = meta_h2$pop_prev[meta_h2$Phenotype == pheno[i]], sampling = meta_h2$sample_prev[meta_h2$Phenotype == pheno[i]])
     
     pheno_res_pTclump<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv'))
   
-    pheno_res_PRScs<-read.csv('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/Pheno_PRS_assoc_res.csv')
-    pheno_res_PRScs<-pheno_res_PRScs[pheno_res_PRScs$Phenotype == pheno[i],]
+    pT<-as.numeric(gsub('_','-',pheno_res_pTclump$pT))
+
+    tmp2<-estimatePolygenicModel(p=pheno_res_pTclump$Estimate/pheno_res_pTclump$SE, 
+                           nsnp=mean_nsnp, 
+                           n=c(meta_h2$N[meta_h2$Phenotype == pheno[i]], pheno_res_pTclump$N[1]), 
+                           pupper = c(0,pT),
+                           binary = T, 
+                           prevalence = meta_h2$pop_prev[meta_h2$Phenotype == pheno[i]], 
+                           sampling = meta_h2$sample_prev[meta_h2$Phenotype == pheno[i]], 
+                           fixvg2pi02 = T,
+                           alpha = 0.05)
     
+    tmp3<-polygenescore(nsnp=mean_nsnp, n=meta_h2$N[meta_h2$Phenotype == pheno[i]], vg1 = tmp2$vg[1], pupper = c(0, 1), pi0=tmp2$pi0[1], nested = TRUE, weighted = TRUE, binary = T)
+
     AUC_R2_pred<-rbind(AUC_R2_pred, data.frame(Phenotype=pheno[i],
                                          N=meta_h2$N[meta_h2$Phenotype == pheno[i]],
-                                         vg1=meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]],
+                                         LDSC_int=meta_h2$LDSC_int[meta_h2$Phenotype == pheno[i]],
+                                         LDSC_vg1=meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]],
+                                         AVENGEME_vg1=tmp2$vg[1],
+                                         AVENGEME_pi0=tmp2$pi0[1],
+
                                          prevalence=meta_h2$pop_prev[meta_h2$Phenotype == pheno[i]],
                                          sampling=meta_h2$sample_prev[meta_h2$Phenotype == pheno[i]],
                                          NSNP=mean_nsnp,
                                          pred_AUC=tmp$AUC,
                                          pred_R2=NA,
-                                         pTclump_AUC=pheno_res_pTclump$AUC[length(pheno_res_pTclump$AUC)],
-                                         pTclump_R2=NA,
-                                         PRScs_AUC=pheno_res_PRScs$AUC[1],
-                                         PRScs_R2=NA))
-  }
-}
+                                         pred_AUC_AVENG=tmp3$AUC,
+                                         pred_R2_AVENG=NA,
 
-# Thes estimates are slightly low compared to the observed. This might be a result of slight overfitting somewhere in my 10FC GWAS procedure. Therefore, AVENGEME might be more accurate for the general user of Impute.Me.
-
-# The PRS R2 and AUC estimates can be raised by reducing the nsnp parameter. Try 90000.
-
-for(i in c(1,2,3,5,6)){
-  
-  pheno_nsnp<-NULL
-  for(subset_i in 1:10){
-    tmp<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/pTclump/',pheno[i],'/excl_Subset_',subset_i,'/pTclump_excl_Subset_',subset_i,'_',pheno[i],'.NSNP_per_pT'))
-  
-    pheno_nsnp<-rbind(pheno_nsnp, data.frame(Subset=subset_i,
-                           NSNP=tmp$NSNP[length(tmp$NSNP)]))
-  }
-
-  mean_nsnp<-mean(pheno_nsnp$NSNP)
-  
-  if(is.na(meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]])){
-    tmp<-polygenescore(nsnp=90000, n=meta_h2$N[meta_h2$Phenotype == pheno[i]], vg1 = meta_h2$H2_obs[meta_h2$Phenotype == pheno[i]], pupper = c(0, 1), nested = TRUE, weighted = TRUE, binary = F)
-    
-    pheno_res_pTclump<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv'))
-  
-    pheno_res_PRScs<-read.csv('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/Pheno_PRS_assoc_res.csv')
-    pheno_res_PRScs<-pheno_res_PRScs[pheno_res_PRScs$Phenotype == pheno[i],]
-      
-    AUC_R2_pred<-rbind(AUC_R2_pred, data.frame(Phenotype=pheno[i],
-                                         N=meta_h2$N[meta_h2$Phenotype == pheno[i]],
-                                         vg1=meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]],
-                                         prevalence=meta_h2$pop_prev[meta_h2$Phenotype == pheno[i]],
-                                         sampling=meta_h2$sample_prev[meta_h2$Phenotype == pheno[i]],
-                                         NSNP=90000,
-                                         pred_AUC=NA,
-                                         pred_R2=tmp$R2,
-                                         pTclump_AUC=NA,
-                                         pTclump_R2=pheno_res_pTclump$R2_obs[length(pheno_res_pTclump$R2_obs)],
-                                         PRScs_AUC=NA,
-                                         PRScs_R2=pheno_res_PRScs$R2_obs[1]))
-  
-  } else {
-    
-    tmp<-polygenescore(nsnp=90000, n=meta_h2$N[meta_h2$Phenotype == pheno[i]], vg1 = meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]], pupper = c(0, 1), nested = TRUE, weighted = TRUE, binary = T, prevalence = meta_h2$pop_prev[meta_h2$Phenotype == pheno[i]], sampling = meta_h2$sample_prev[meta_h2$Phenotype == pheno[i]])
-    
-    pheno_res_pTclump<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv'))
-  
-    pheno_res_PRScs<-read.csv('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/PRScs/Pheno_PRS_assoc_res.csv')
-    pheno_res_PRScs<-pheno_res_PRScs[pheno_res_PRScs$Phenotype == pheno[i],]
-    
-    AUC_R2_pred<-rbind(AUC_R2_pred, data.frame(Phenotype=pheno[i],
-                                         N=meta_h2$N[meta_h2$Phenotype == pheno[i]],
-                                         vg1=meta_h2$H2_liab[meta_h2$Phenotype == pheno[i]],
-                                         prevalence=meta_h2$pop_prev[meta_h2$Phenotype == pheno[i]],
-                                         sampling=meta_h2$sample_prev[meta_h2$Phenotype == pheno[i]],
-                                         NSNP=90000,
-                                         pred_AUC=tmp$AUC,
-                                         pred_R2=NA,
-                                         pTclump_AUC=pheno_res_pTclump$AUC[length(pheno_res_pTclump$AUC)],
-                                         pTclump_R2=NA,
-                                         PRScs_AUC=pheno_res_PRScs$AUC[1],
-                                         PRScs_R2=NA))
+                                         pTclump_AUC=pheno_res_pTclump$AUC[pheno_res_pTclump$pT == '1'],
+                                         pTclump_R2=NA))
   }
 }
 
 write.csv(AUC_R2_pred, '/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/AUC_predictions.csv', row.names=F, quote=F)
 
-# The AVENGEME and LDSC approach is very fast and fairly accurate. However, the NSNP parameter is reduced to 90K, the estimates become more accurate.
+# The estimates of h2 are similar between LDSC and AVENGEME, except for LDSC, for which the LDSC intercept is very high (1.4).
+# The predicted AUC/R2 is generally lower than the observed. This could reflect the homogeneity of UKB leading to better R2 than expected.
+# This uses the pT of 1, but this is no optimal for less polygenic outcomes, and will therefore drastically underestimate the AUC/R2 of PRS derived using methods that account for varying polygenicity (i.e. PRScs auto, DBSLMM etc.). Incorporating a polygenicity parameter would allow us to account for this, but estimating polygenicity using summary statistics is not easy, and I have found discordance between AVENGEME and SBayesR in the past. Even when setting pi0 to the AVENGME estimate, the estimated AUC/R2 of lower pT is different from the observed.
+# I don't think the AVENGEME approach is going to work unless we only using pT=1 pT+clump PRS, which are suboptimal.
+# The GWAS ROCS approach could work better. I used this before and found it was very slow, but didn't give it a proper chance.
+# Should probably just provide the absolute estimate for a subset of GWAS where we have manually extracted the R2 of the PRS.
 
-# Make plot
-AUC_obs<-AUC_R2_pred[AUC_R2_pred$NSNP != 90000,c('Phenotype','pTclump_AUC')]
-names(AUC_obs)<-c('Phenotype','AUC')
-AUC_obs$Method<-'Observed'
-AUC_pred<-AUC_R2_pred[AUC_R2_pred$NSNP != 90000,c('Phenotype','pred_AUC')]
-names(AUC_pred)<-c('Phenotype','AUC')
-AUC_pred$Method<-'Estimated'
-AUC_pred_90k<-AUC_R2_pred[AUC_R2_pred$NSNP == 90000,c('Phenotype','pred_AUC')]
-names(AUC_pred_90k)<-c('Phenotype','AUC')
-AUC_pred_90k$Method<-"Estimated (90k SNP)"
-AUC_comp_plot<-do.call(rbind, list(AUC_obs, AUC_pred, AUC_pred_90k))
-AUC_comp_plot<-AUC_comp_plot[complete.cases(AUC_comp_plot),]
-
-R2_obs<-AUC_R2_pred[AUC_R2_pred$NSNP != 90000,c('Phenotype','pTclump_R2')]
-names(R2_obs)<-c('Phenotype','R2')
-R2_obs$Method<-'Observed'
-R2_pred<-AUC_R2_pred[AUC_R2_pred$NSNP != 90000,c('Phenotype','pred_R2')]
-names(R2_pred)<-c('Phenotype','R2')
-R2_pred$Method<-'Estimated'
-R2_pred_90k<-AUC_R2_pred[AUC_R2_pred$NSNP == 90000,c('Phenotype','pred_R2')]
-names(R2_pred_90k)<-c('Phenotype','R2')
-R2_pred_90k$Method<-"Estimated (90k SNP)"
-R2_comp_plot<-do.call(rbind, list(R2_obs, R2_pred, R2_pred_90k))
-R2_comp_plot<-R2_comp_plot[complete.cases(R2_comp_plot),]
-
-library(ggplot2)
-library(cowplot)
-
-bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Estimated_AUC_comparison.png'), res=300, unit='px', width=1500, height=1000)
-print(ggplot(AUC_comp_plot, aes(x=Phenotype, y=AUC, colour=Method, group=Method)) +
-  geom_point() +
-  geom_line() +
-  theme_cowplot(12)) +
-  labs(title="AVENGEME vs. observed pT+clump (pT=1)")
-dev.off()
-
-bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Estimated_R2_comparison.png'), res=300, unit='px', width=1500, height=1000)
-print(ggplot(R2_comp_plot, aes(x=Phenotype, y=R2, colour=Method, group=Method)) +
-  geom_point() +
-  geom_line() +
-  theme_cowplot(12)) +
-  labs(title="AVENGEME vs. observed pT+clump (pT=1)")
-dev.off()
 
 ```
 </details>
 
-```{bash, eval=T, echo=F}
+***
 
-mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+### Estimate AUC using GWIZ
 
-cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Estimated_AUC_comparison.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+We will calculate the AUC using GWIZ using the leave one out meta-analysis summary statistics, and then average the AUC results. This will hopefully tell us how much variance GWAS expects the LOO sumstats to explain in the left out subset.
 
-cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Estimated_R2_comparison.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+***
 
+#### Compute allele frequencies
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+for chr in $(seq 1 22); do
+    sbatch -p brc,shared --mem 5G -t 00:10:00 /users/k1806347/brc_scratch/Software/plink1.9.sh \
+      --bfile /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
+      --keep /users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam \
+      --maf 0.01 \
+      --geno 0.05 \
+      --freq \
+      --allow-no-sex \
+      --out /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/allele_freq_chr${chr}
+done
 ```
-
-***
-
-<details><summary>Show predicted and observed AUC values</summary>
-
-<center>
-
-![Predicted and Observed AUC values](Images/Validating_ImputeMe_Ideas/Estimated_AUC_comparison.png)
-
-\center
-
 </details>
 
-<details><summary>Show predicted and observed R2 values</summary>
+***
 
-<center>
+#### Format GWAS summary statistics 
 
-![Predicted and Observed R2 values](Images/Validating_ImputeMe_Ideas/Estimated_R2_comparison.png)
+<details><summary>Show code</summary>
+```{R, echo=T, eval=F}
+library(data.table)
 
-\center
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt','UKBB_Breast_Cancer.pheno','UKBB_Prostate_Cancer.pheno')
 
+# Read in covariate data
+geno_covar<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/ukb18177_glanville_covariates.UpdateIDs.txt')
+sex<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Sex.pheno')
+age<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Age.pheno')
+covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(geno_covar, sex, age))
+# Convert catagorical variables into factors so they are dummy coded in the regression
+covs$batch<-factor(covs$batch)
+covs$assessment_centre<-factor(covs$assessment_centre)
+# Read in list of individuals passing QC
+QC<-fread('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam')
+names(QC)<-c('FID','IID')
+# Merge all data
+covs<-Reduce(function(...) merge(..., all=F, by=c('FID','IID')), list(covs, QC))
+# Read in allele frequency per variant
+freq<-NULL
+for(chr in 1:22){
+  freq<-rbind(freq, fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/allele_freq_chr',chr,'.frq')))
+}
+freq$A1<-tolower(freq$A1)
+freq$A2<-tolower(freq$A2)
+
+for(i in c(1,5:11)){
+  # Read in pheno file to determine number of cases and controls
+  pheno_i<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/',pheno[i],'/',pheno_file[i]))
+  names(pheno_i)[3]<-'pheno'
+  
+  # Merge pheno and covar data
+  pheno_i_covs<-merge(pheno_i, covs, by=c('FID','IID'), all=T)
+  pheno_i_covs<-pheno_i_covs[complete.cases(pheno_i_covs),]
+  
+  # Identify proportion of cases and controls which can be used to estimate the number of cases and controls in each LOO meta-analysis.
+  sample_prev<-mean(pheno_i_covs$pheno)
+  
+  for(subset_i in 1:10){
+    # Read in meta-analysis GWAS sumstats
+    gwas<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_',subset_i,'_',pheno[i],'1.tbl'))
+    names(gwas)<-c('SNP','A1','A2','BETA','SE','P','Direction')
+    gwas$OR<-exp(gwas$BETA)
+    gwas$phenotype<-'n/a'
+    gwas$dataset<-'n/a'
+    gwas$model<-'additive'
+    
+    # Read sample size per variant
+    N_tab<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/N_table_',pheno[i],'.txt'))
+    
+    N_tab$excl_subset<-rowSums(N_tab[,names(N_tab)[!grepl(paste0('SNP|Subset_',subset_i,'_N'), names(N_tab))],with=F])
+  
+    N_tab$control_size<-round(N_tab$excl_subset*(1-sample_prev))
+    N_tab$case_size<-round(N_tab$excl_subset*(sample_prev))
+      
+    gwas<-merge(gwas, N_tab[,c('SNP','control_size','case_size'), with=F], by='SNP')
+    
+    # Merge frequency data
+    gwas_same<-merge(gwas, freq[,c('SNP','A1','A2','MAF')], by=c('SNP','A1','A2'))
+    gwas_flip<-merge(gwas, freq[,c('SNP','A1','A2','MAF')], by.x=c('SNP','A1','A2'),by.y=c('SNP','A2','A1'))
+    gwas_flip$MAF<-1-gwas_flip$MAF
+    gwas<-rbind(gwas_same, gwas_flip)
+    
+    # OR and MAFs to all be corresponding to the risk allele
+    gwas$MAF[gwas$OR < 1]<-1-gwas$MAF[gwas$OR < 1]
+    names(gwas)[names(gwas) == 'MAF']<-'risk_allele_freq'
+    gwas$OR[gwas$OR < 1]<-exp(-gwas$BETA[gwas$OR < 1])
+    
+    # Extract LD independent variants
+    ld_indep<-NULL
+    for(chr in 1:22){
+      ld_indep<-rbind(ld_indep, fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/pTclump/',pheno[i],'/excl_Subset_',subset_i,'/pTclump_excl_Subset_',subset_i,'_',pheno[i],'.chr',chr,'.range_values')))
+    }
+    
+    # Filter genome-wide variants 
+    ld_indep_sig<-ld_indep[ld_indep$V2 < 1e-6]
+    gwas<-gwas[(gwas$SNP %in% ld_indep_sig$V1),]
+    gwas<-gwas[,c('phenotype','dataset','SNP','control_size','case_size','risk_allele_freq','OR','model'),with=F]
+    names(gwas)[names(gwas) == 'SNP']<-'accession'
+    
+    gwas$model<-rep(c('recessive','dominant'),dim(gwas)[1])[1:dim(gwas)[1]]
+    
+      fwrite(gwas, paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/metal_excl_Subset_',subset_i,'_',pheno[i],'.GWIZ.csv'), sep=',', na='NA', quote=F)
+  }
+}
+```
 </details>
 
-<br/>
-
 ***
 
-# Compare observed and estimated absolute estimates
+#### Run GWIZ
 
-***
-
-## Binary outcomes
+GWIZ is an R script. It needs to modification:
+- It doesn't allow input files, software and output to be in different directories
+- It uses the png function which does't work on Rosalind
+- It prints the contents of the GWAS sumstats repeatedly and 
+GWIZ is an Rscript that must be modified to allow for different input and output files. I have edited the script slightly so all files don't have be stored in the same directory, and can be easily run in parallel.
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 
-library(data.table)
-
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
-prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005)
-
-AUC_pred<-read.csv('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/AUC_predictions.csv')
-
-# Create function for estimating absolute risk
-ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
-  d <- sqrt(2)*qnorm(PRS_auc)
-  mu_case <- d
-  mu_control <- 0
-  
-  varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
-  E_PRS <- d*prev
-  
-  by_quant<-1/n_quantile
-  p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
-  quant_vals_PRS <- rep(0, length(p_quant))
-  quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
-  for(i in 1:length(p_quant)){
-    quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
-  }
-  
-  ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
-  ul_qv_PRS[1,1] <- -Inf
-  ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
-  ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
-  ul_qv_PRS[n_quantile,2] <- Inf
-  
-  ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
-
-  prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
-  prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
-  p_case_quantile <- (prob_quantile_case*prev)/by_quant
-  p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
-
-  OR <- p_case_quantile/p_cont_quantile
-  OR <- OR/OR[1]
-  out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
-  row.names(out) <- 1:n_quantile
-  colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
-  
-  data.frame(out)
-}
-
-for(i in c(1,5,6)){
-  print(pheno[i])
-  
-  ##
-  # Calculate estimated absolute risk per quantile
-  ##
-  
-  # Read in AUC predicted by AVENGEME
-  PRS_AUC<-AUC_pred$pred_AUC[AUC_pred$Phenotype == pheno[i] & AUC_pred$NSNP != 90000]
-  
-  # Estimate absolute risk per quantile
-  quant_prop_est<-ccprobs.f(PRS_auc=PRS_AUC, prev=prev[i], n_quantile=20)
-  quant_prop_est$q<-1:20
-  
-  quant_prop_est<-quant_prop_est[c('q','q_min','q_max','p_case')]
-  quant_prop_est$method<-'Estimated'
-
-  quant_prop_est_all<-quant_prop_est
-  
-  # Read in AUC predicted by AVENGEME using 90k SNP
-  PRS_AUC<-AUC_pred$pred_AUC[AUC_pred$Phenotype == pheno[i] & AUC_pred$NSNP == 90000]
-  
-  # Estimate absolute risk per quantile
-  quant_prop_est<-ccprobs.f(PRS_auc=PRS_AUC, prev=prev[i], n_quantile=20)
-  quant_prop_est$q<-1:20
-  
-  quant_prop_est<-quant_prop_est[c('q','q_min','q_max','p_case')]
-  quant_prop_est$method<-"Estimated (90k SNP)"
-  
-  quant_prop_est_all<-rbind(quant_prop_est_all,quant_prop_est)
-  
-  # Read in AUC predicted by AVENGEME using observed AUC
-  PRS_AUC<-AUC_pred$pTclump_AUC[AUC_pred$Phenotype == pheno[i] & AUC_pred$NSNP != 90000]
-  
-  # Estimate absolute risk per quantile
-  quant_prop_est<-ccprobs.f(PRS_auc=PRS_AUC, prev=prev[i], n_quantile=20)
-  quant_prop_est$q<-1:20
-  
-  quant_prop_est<-quant_prop_est[c('q','q_min','q_max','p_case')]
-  quant_prop_est$method<-"Estimated (observed AUC)"
-  
-  quant_prop_est_all<-rbind(quant_prop_est_all,quant_prop_est)
-
-  ##
-  # Calculate observed absolute risk per quantile
-  ##
-  # Read in phenotype file
-  pheno_i<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/',pheno[i],'/',pheno_file[i]))
-  names(pheno_i)[3]<-'pheno'
-
-  prs_var<-NULL
-  for(subset_i in 1:10){
-    # Read in the PRS
-    prs_var_subset<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'/Subset_',subset_i,'/Subset_',subset_i,'_',pheno[i],'_pTclump.profiles'))
-
-    prs_var_subset<-prs_var_subset[,c('FID','IID',paste0(pheno[i],'_1')), with=F]
-    prs_var<-rbind(prs_var, prs_var_subset)
-  }
-  pheno_i_prs<-merge(pheno_i,prs_var,by=c('FID','IID')) 
-  pheno_i_prs<-pheno_i_prs[complete.cases(pheno_i_prs),]
-  
-  # Calculate the proportion of cases within each quantile
-  quant_prop<-NULL
-  for(quant_i in 1:20){
-
-    quant_prop_est
-    quant_prop<-rbind(quant_prop, data.frame(q_min=quant_prop_est$q_min[quant_i],
-                                             q_max=quant_prop_est$q_max[quant_i],
-                                             p_case=mean(pheno_i_prs$pheno[pheno_i_prs[[paste0(pheno[i],'_1')]] > quant_prop_est$q_min[quant_i] & pheno_i_prs[[paste0(pheno[i],'_1')]] < quant_prop_est$q_max[quant_i]]),
-                                             p_control=1-mean(pheno_i_prs$pheno[pheno_i_prs[[paste0(pheno[i],'_1')]] > quant_prop_est$q_min[quant_i] & pheno_i_prs[[paste0(pheno[i],'_1')]] < quant_prop_est$q_max[quant_i]])))
-  }
-  
-  quant_prop$p_case_liab<-quant_prop$p_case/(mean(pheno_i_prs$pheno)/prev[i])
-  quant_prop$p_control_liab<-1-quant_prop$p_case_liab
-  
-  quant_prop$q<-1:20
-  quant_prop<-quant_prop[c('q','q_min','q_max','p_case_liab')]
-  names(quant_prop)[4]<-'p_case'
-  
-  quant_prop$method<-'Observed'
-
-  quant_comp<-rbind(quant_prop, quant_prop_est_all)
-  
-  ##
-  # Make a plot comparing the p_case
-  ##
-  
-  library(ggplot2)
-  library(cowplot)
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_prop_predictions_all_',pheno[i],'.png'), res=300, unit='px', width=1500, height=1000)
-  print(ggplot(quant_comp, aes(x=q, y=p_case, colour=method)) +
-    geom_point() +
-    geom_line() +
-    labs(x='PRS quantile', y=paste0('Proportion with ',pheno[i]), colour='Method') +
-    theme_cowplot(12))
-  dev.off()
-
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_prop_predictions_AVENGEME_',pheno[i],'.png'), res=300, unit='px', width=1500, height=1000)
-  print(ggplot(quant_comp[quant_comp$method == 'Observed' | quant_comp$method == 'Estimated',], aes(x=q, y=p_case, colour=method)) +
-    geom_point() +
-    geom_line() +
-    labs(x='PRS quantile', y=paste0('Proportion with ',pheno[i]), colour='Method') +
-    theme_cowplot(12))
-  dev.off()
-  
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_prop_predictions_AVENGEME_90k_',pheno[i],'.png'), res=300, unit='px', width=1500, height=1000)
-  print(ggplot(quant_comp[quant_comp$method == 'Observed' | quant_comp$method == "Estimated (90k SNP)",], aes(x=q, y=p_case, colour=method)) +
-    geom_point() +
-    geom_line() +
-    labs(x='PRS quantile', y=paste0('Proportion with ',pheno[i]), colour='Method') +
-    theme_cowplot(12))
-  dev.off()
-  
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_prop_predictions_AVENGEME_observedAUC_',pheno[i],'.png'), res=300, unit='px', width=1500, height=1000)
-  print(ggplot(quant_comp[quant_comp$method == 'Observed' | quant_comp$method == "Estimated (observed AUC)",], aes(x=q, y=p_case, colour=method)) +
-    geom_point() +
-    geom_line() +
-    labs(x='PRS quantile', y=paste0('Proportion with ',pheno[i]), colour='Method') +
-    theme_cowplot(12))
-  dev.off()
-
-}
-
-# This works very well. The only issue is whether the predicted AUC is accurate. I think it is safer to use the AVENGEME estimate of AUC and allow for slightly more error when returning results.
-
-```
-</details>
-
-
-```{bash, eval=T, echo=F}
-
-mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
-
-for pheno in $(echo Depression T2D CAD); do
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_prop_predictions_all_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
-  
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_prop_predictions_AVENGEME_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
-
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_prop_predictions_AVENGEME_90k_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
-
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_prop_predictions_AVENGEME_observedAUC_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
-
+# Run GWIZ for each phenotype and subset
+for pheno in $(echo Depression T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer); do
+  for subset in $(seq 1 10); do
+    sbatch -p brc,shared --mem 10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/gwizer/gwizer.R \
+      --sumstats /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/metal_excl_Subset_${subset}_${pheno}.GWIZ.csv \
+      --gwiz /mnt/lustre/users/k1806347/Software/GWIZ-Rscript-master \
+      --output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/${pheno}/Subset_${subset}/GWIZ_${pheno}_Subset_${subset}
+  done
 done
 
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/gwizer/gwizer.R \
+      --sumstats ~/Test.csv \
+      --gwiz /mnt/lustre/users/k1806347/Software/GWIZ-Rscript-master \
+      --output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/Test/Test
+
 ```
-
-<details><summary>Show predicted and observed proportion of cases across quantiles</summary>
-
-<center>
-
-![Predicted and Observed proportion of cases across quantiles](Images/Validating_ImputeMe_Ideas/Quantile_prop_predictions_all_Depression.png)
-![Predicted and Observed proportion of cases across quantiles](Images/Validating_ImputeMe_Ideas/Quantile_prop_predictions_all_CAD.png)
-
-![Predicted and Observed proportion of cases across quantiles](Images/Validating_ImputeMe_Ideas/Quantile_prop_predictions_all_T2D.png)
-
-\center
-
 </details>
-
-<br/>
 
 ***
 
-## Continuous outcomes
+#### Compare observed and estimate AUC
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
+pheno<-c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
 
-library(data.table)
-
-pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth')
-pheno_file<-c('ever_depressed_pheno_final.UpdateIDs.txt','UKBB_Fluid.intelligence.score.UpdateIDs.pheno','UKBB_BMI.score.UpdateIDs.pheno','UKBB_Height.score.UpdateIDs.pheno','t2d_only_111119.UpdateIDs.txt','cad_only_111119.UpdateIDs.txt','UKBB.IBD.txt','UKBB.MultiScler.txt','UKBB.RheuArth.txt')
-prev=c(0.15,NA,NA,NA,0.05,0.03,0.013,0.00164,0.005)
-
-R2_pred<-read.csv('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/AUC_predictions.csv')
-
-PRS_abs_quant2<-function(n=100000, PRS_R2=0.3, Outcome_mean=1, Outcome_sd=1, n_quantile=20, seed=1){
-
-  # Simulate height and prs relationship
-  set.seed(seed)
-  
-  Outcome<-rnorm(n, Outcome_mean, Outcome_sd)
-  PRS <- as.numeric(scale(Outcome + rnorm(n,mean=0, sd=sqrt(var(Outcome)*(1-PRS_R2)/(PRS_R2)))))
-  
-  sim_dat<-data.frame(y=Outcome, x=PRS)
-  
-  # Calculate simulated R2
-  cor(sim_dat$x, sim_dat$y)^2
-  
-  # Split individuals into quantiles
-  by_quant<-1/n_quantile
-  perc<-quantile(sim_dat$x, probs = seq(0, 1, by=by_quant))
-  sim_dat<-data.frame(y=sim_dat$y, x=sim_dat$x, quantile=cut(sim_dat$x, quantile(sim_dat$x, prob = seq(0, 1, length = 1/by_quant+1), type = 5), include.lowest=TRUE))
-  
-  # Calculate mean and sd of individuals within in each quantile
-  outcome_per_bin<-NULL
-  for(i in 1:max(as.numeric(sim_dat$quantile), na.rm=T)){
-    PRS_bin_temp<-sim_dat$y[which(as.numeric(sim_dat$quantile) == i)]
-    temp<-data.frame(q=i, 
-                     q_min=as.numeric(gsub(',.*','',gsub("\\[",'',gsub("\\(",'',levels(sim_dat$quantile)[i])))), 
-                     q_max=as.numeric(gsub("\\]",'',gsub(".*,",'',levels(sim_dat$quantile)[i]))), 
-                     x_mean=mean(PRS_bin_temp),
-                     x_sd=sd(PRS_bin_temp)) 
-                     
-    outcome_per_bin<-rbind(outcome_per_bin,temp)
+AUC_comp<-NULL
+for(i in 1:length(pheno)){
+  GWIZ_AUC_i<-NULL
+  for(k in 1:10){
+    GWIZ_AUC_i_k<-read.table(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/GWIZ/',pheno[i],'/Subset_',k,'/GWIZ_',pheno[i],'_Subset_',k,'.log'), sep='&', header=F)$V1
+    GWIZ_AUC_i_k_auc<-as.numeric(gsub('AUC = ','',GWIZ_AUC_i_k[grepl('AUC', GWIZ_AUC_i_k)]))
+    GWIZ_AUC_i<-rbind(GWIZ_AUC_i, data.frame(Subset=k,
+                                             AUC=GWIZ_AUC_i_k_auc))
   }
+  GWIZ_AUC_i_average<-mean(GWIZ_AUC_i$AUC)
   
-  outcome_per_bin$q_min[1]<--Inf
-  outcome_per_bin$q_max[length(outcome_per_bin$q_max)]<-Inf
+  pheno_res_pTclump<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv'))
+  pheno_res_pTclump$pT<-as.numeric(gsub('_','-',pheno_res_pTclump$pT))
+  Obs_AUC<-pheno_res_pTclump$AUC[pheno_res_pTclump$pT == 1e-6]
   
-  outcome_per_bin
+  AUC_comp<-rbind(AUC_comp, data.frame(Phenotype=pheno[i],
+                                       Obs_AUC=Obs_AUC,
+                                       GWIZ_AUC=GWIZ_AUC_i_average))
 }
 
-n_quant<-20
-
-for(i in c(2,3)){
-  print(pheno[i])
-
-  # Read in phenotype file
-  pheno_i<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/',pheno[i],'/',pheno_file[i]))
-  names(pheno_i)[3]<-'pheno'
-  
-  ##
-  # Calculate estimated absolute risk per quantile
-  ##
-  
-  # Read in R2 predicted by AVENGEME
-  PRS_R2<-R2_pred$pred_R2[R2_pred$Phenotype == pheno[i] & R2_pred$NSNP != 90000]
-
-  # Estimate absolute risk per quantile
-  # Use observed mean and sd. Ideally this would come from the most representative sample for the target individual. This would be improved easily by including sex.
-  quant_mean_sd_est<-PRS_abs_quant2(PRS_R2=PRS_R2, Outcome_mean=mean(pheno_i$pheno,na.rm=T), Outcome_sd=sd(pheno_i$pheno,na.rm=T), n_quantile=n_quant)
-  quant_mean_sd_est$q<-1:n_quant
-  
-  quant_mean_sd_est<-quant_mean_sd_est[c('q','q_min','q_max','x_mean','x_sd')]
-  quant_mean_sd_est$method<-'Estimated'
-  
-  quant_mean_sd_est_all<-quant_mean_sd_est
-  ##
-  # Calculate estimated absolute risk per quantile (NSNP=90k)
-  ##
-  
-  # Read in R2 predicted by AVENGEME
-  PRS_R2<-R2_pred$pred_R2[R2_pred$Phenotype == pheno[i] & R2_pred$NSNP == 90000]
-
-  # Estimate absolute risk per quantile
-  # Use observed mean and sd. Ideally this would come from the most representative sample for the target individual. This would be improved easily by including sex.
-  quant_mean_sd_est<-PRS_abs_quant2(PRS_R2=PRS_R2, Outcome_mean=mean(pheno_i$pheno,na.rm=T), Outcome_sd=sd(pheno_i$pheno,na.rm=T), n_quantile=n_quant)
-  quant_mean_sd_est$q<-1:n_quant
-  
-  quant_mean_sd_est<-quant_mean_sd_est[c('q','q_min','q_max','x_mean','x_sd')]
-  quant_mean_sd_est$method<-"Estimated (90k SNP)"
-
-  quant_mean_sd_est_all<-rbind(quant_mean_sd_est_all, quant_mean_sd_est)
-
-  ##
-  # Calculate estimated absolute risk per quantile using observed AUC
-  ##
-  
-  # Read in R2 predicted by AVENGEME
-  PRS_R2<-R2_pred$pTclump_R2[R2_pred$Phenotype == pheno[i] & R2_pred$NSNP == 90000]
-
-  # Estimate absolute risk per quantile
-  # Use observed mean and sd. Ideally this would come from the most representative sample for the target individual. This would be improved easily by including sex.
-  quant_mean_sd_est<-PRS_abs_quant2(PRS_R2=PRS_R2, Outcome_mean=mean(pheno_i$pheno,na.rm=T), Outcome_sd=sd(pheno_i$pheno,na.rm=T), n_quantile=n_quant)
-  quant_mean_sd_est$q<-1:n_quant
-  
-  quant_mean_sd_est<-quant_mean_sd_est[c('q','q_min','q_max','x_mean','x_sd')]
-  quant_mean_sd_est$method<-"Estimated (observed R2)"
-
-  quant_mean_sd_est_all<-rbind(quant_mean_sd_est_all, quant_mean_sd_est)
-
-  ##
-  # Calculate observed absolute risk per quantile
-  ##
-  # Read in phenotype file
-  pheno_i<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/',pheno[i],'/',pheno_file[i]))
-  names(pheno_i)[3]<-'pheno'
-
-  prs_var<-NULL
-  for(subset_i in 1:10){
-    # Read in the PRS
-    prs_var_subset<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'/Subset_',subset_i,'/Subset_',subset_i,'_',pheno[i],'_pTclump.profiles'))
-
-    prs_var_subset<-prs_var_subset[,c('FID','IID',paste0(pheno[i],'_1')), with=F]
-    prs_var<-rbind(prs_var, prs_var_subset)
-  }
-  pheno_i_prs<-merge(pheno_i,prs_var,by=c('FID','IID')) 
-  pheno_i_prs<-pheno_i_prs[complete.cases(pheno_i_prs),]
-  
-  # Calculate the proportion of cases within each quantile
-  quant_mean_sd<-NULL
-  for(quant_i in 1:n_quant){
-
-    quant_mean_sd<-rbind(quant_mean_sd, data.frame(q_min=quant_mean_sd_est$q_min[quant_i],
-                                             q_max=quant_mean_sd_est$q_max[quant_i],
-                                             x_mean=mean(pheno_i_prs$pheno[pheno_i_prs[[paste0(pheno[i],'_1')]] > quant_mean_sd_est$q_min[quant_i] & pheno_i_prs[[paste0(pheno[i],'_1')]] < quant_mean_sd_est$q_max[quant_i]]),
-                                             x_sd=sd(pheno_i_prs$pheno[pheno_i_prs[[paste0(pheno[i],'_1')]] > quant_mean_sd_est$q_min[quant_i] & pheno_i_prs[[paste0(pheno[i],'_1')]] < quant_mean_sd_est$q_max[quant_i]])))
-  }
-  
-  quant_mean_sd$q<-1:n_quant
-  quant_mean_sd<-quant_mean_sd[c('q','q_min','q_max','x_mean','x_sd')]
-
-  quant_mean_sd$method<-'Observed'
-
-  quant_comp<-rbind(quant_mean_sd, quant_mean_sd_est_all)
-  
-  ##
-  # Make a plot comparing the p_case
-  ##
-  
-  library(ggplot2)
-  library(cowplot)
-
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_mean_predictions_all_',pheno[i],'.png'), res=300, unit='px', width=2500, height=1000)
-  print(ggplot(quant_comp, aes(x=q, y=x_mean, colour=method)) +
-    geom_point(stat="identity", position=position_dodge(.9)) +
-    geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.9)) +
-    labs(x='PRS quantile', y=paste0(pheno[i], ' mean and SD'), colour='Method') +
-    theme_cowplot(12))
-  dev.off()
-  
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_mean_predictions_AVENGEME_',pheno[i],'.png'), res=300, unit='px', width=1500, height=1000)
-  print(ggplot(quant_comp[quant_comp$method == 'Observed' | quant_comp$method == 'Estimated',], aes(x=q, y=x_mean, colour=method)) +
-    geom_point(stat="identity", position=position_dodge(.9)) +
-    geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.9)) +
-    labs(x='PRS quantile', y=paste0(pheno[i], ' mean and SD'), colour='Method') +
-    theme_cowplot(12))
-  dev.off()
-  
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_mean_predictions_AVENGEME_90k_',pheno[i],'.png'), res=300, unit='px', width=1500, height=1000)
-  print(ggplot(quant_comp[quant_comp$method == 'Observed' | quant_comp$method == "Estimated (90k SNP)",], aes(x=q, y=x_mean, colour=method)) +
-    geom_point(stat="identity", position=position_dodge(.9)) +
-    geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.9)) +
-    labs(x='PRS quantile', y=paste0(pheno[i], ' mean and SD'), colour='Method') +
-    theme_cowplot(12))
-  dev.off()
-  
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_mean_predictions_AVENGEME_observedR2_',pheno[i],'.png'), res=300, unit='px', width=1500, height=1000)
-  print(ggplot(quant_comp[quant_comp$method == 'Observed' | quant_comp$method == "Estimated (observed R2)",], aes(x=q, y=x_mean, colour=method)) +
-    geom_point(stat="identity", position=position_dodge(.9)) +
-    geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.9)) +
-    labs(x='PRS quantile', y=paste0(pheno[i], ' mean and SD'), colour='Method') +
-    theme_cowplot(12))
-  dev.off()
-
-  bitmap(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Histograms_',pheno[i],'.png'), res=300, unit='px', width=1500, height=1500)
-  hist(pheno_i_prs$pheno, xlab=pheno[i], main=paste0('Histogram of ',pheno[i]))
-  dev.off()
-
-}
-
-# This works fairly well, although BMI is skewed in UKBiobank, which means the predictions are slightly off.
-
+# GWIZ is performing terribly. It thinks the AUC is ~0.5 for all outcomes. I feel like I am doing something wrong when running GWIZ. It works when I use the GWIZ example sumstats, indicating the problem is how I derived the GWAS sumstats or formatted them. I reckon it is because the OR are really log(BETA), and therefore not to scale. This would be clearer, if I used external GWAS sumstats.
 ```
 </details>
 
-```{bash, eval=T, echo=F}
+***
 
-mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+### Lassosum
 
-for pheno in $(echo Intelligence BMI); do
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_mean_predictions_all_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
-  
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_mean_predictions_AVENGEME_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
 
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_mean_predictions_AVENGEME_90k_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+<details><summary>Show code</summary>
+```{bash, eval=F, echo =T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Quantile_mean_predictions_AVENGEME_observedR2_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+# Create directory
+mkdir /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum
 
-  cp /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/Histograms_${pheno}.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
-
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/todo.txt
+for pheno in $(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer);do
+for subset in $(seq 1 10);do
+if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/${pheno}/lassosum_pseudo_${pheno}.pseudoval.txt ]; then
+echo $pheno $subset >> /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/todo.txt
+fi
+done
 done
 
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem=20G
+#SBATCH -n 2
+#SBATCH -J lassosum
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/todo.txt)
+subset=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/todo.txt)
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R \
+	--ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/metal_excl_Subset_${subset}_${pheno}.clean.QC.gz \
+	--output /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/${pheno}/Subset_${subset}/lassosum_pseudo_${pheno}_Subset_${subset} \
+	--n_cores 2
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/todo.txt | cut -d' ' -f1)%5 /users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/sbatch.sh
+
 ```
-
-<details><summary>Show predicted and observed mean and sd across quantiles</summary>
-
-<center>
-
-![Predicted and Observed proportion of mean and sd across quantiles](Images/Validating_ImputeMe_Ideas/Quantile_mean_predictions_all_Intelligence.png)
-
-![Predicted and Observed proportion of mean and sd across quantiles](Images/Validating_ImputeMe_Ideas/Quantile_mean_predictions_all_BMI.png)
-
-\center
-
-</details>
-
-<details><summary>Show observed distribution of quantitative outcomes</summary>
-
-<center>
-
-![Histogram](Images/Validating_ImputeMe_Ideas/Histograms_Intelligence.png)
-
-![Histogram](Images/Validating_ImputeMe_Ideas/Histograms_BMI.png)
-
-\center
-
 </details>
 
 ***
 
-# Plots for interpreting individual polygenic scores
+#### Compare observed and estimate AUC
 
-***
+<details><summary>Show results</summary>
+```{R, eval=F, echo=T}
+pheno<-c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
 
-## Binary outcomes
+AUC_comp<-NULL
+for(i in 1:length(pheno)){
+  lassosum_AUC_i<-NULL
+  for(k in 1:10){
+    lassosum_AUC_i_k<-read.table(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/',pheno[i],'/Subset_',k,'/lassosum_pseudo_',pheno[i],'_Subset_',k,'.log'), sep='&', header=F)$V1
+    
+    lasso_AUC_i_k_r<-as.numeric(gsub('value = ','',lassosum_AUC_i_k[grepl('value = ', lassosum_AUC_i_k)]))
+    lasso_AUC_i_k_d<- ((2*lasso_AUC_i_k_r)/sqrt(1-lasso_AUC_i_k_r^2))
+    lasso_AUC_i_k_auc <- pnorm(lasso_AUC_i_k_d/sqrt(2), 0, 1)
 
-<iframe height="1200" width="100%" frameborder="no" src="https://opain.shinyapps.io/risk_visualiser/"> </iframe>
+    lassosum_AUC_i<-rbind(lassosum_AUC_i, data.frame( Subset=k,
+                                                      AUC=lasso_AUC_i_k_auc))
+  }
+  
+  lassosum_AUC_i_average<-mean(lassosum_AUC_i$AUC)
+  
+  pheno_res_pTclump<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv'))
+  pheno_res_pTclump$pT<-as.numeric(gsub('_','-',pheno_res_pTclump$pT))
+  Obs_AUC_pTclump<-pheno_res_pTclump$AUC[pheno_res_pTclump$pT == 1]
+  
+  pheno_res_DBSLMM<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/DBSLMM/Pheno_PRS_assoc_res.csv'))
+  pheno_res_DBSLMM<-pheno_res_DBSLMM[pheno_res_DBSLMM$Phenotype == pheno[i],]
+  Obs_AUC_DBSLMM<-pheno_res_DBSLMM$AUC
+  
+  AUC_comp<-rbind(AUC_comp, data.frame(Phenotype=pheno[i],
+                                       pTclump_AUC=Obs_AUC_pTclump,
+                                       DBSLMM_AUC=Obs_AUC_DBSLMM,
+                                       lassosum_AUC=lassosum_AUC_i_average))
+}
 
-***
+AUC_comp$diff<-AUC_comp$lassosum_AUC-AUC_comp$DBSLMM_AUC
+  
+pheno<-c('Intelligence','BMI','Height')
 
-## Quantitative outcomes
+R2_comp<-NULL
+for(i in 1:length(pheno)){
+  lassosum_R2_i<-NULL
+  for(k in 1:10){
+    lassosum_R2_i_k<-read.table(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/10FC_GWAS/meta/lassosum/',pheno[i],'/Subset_',k,'/lassosum_pseudo_',pheno[i],'_Subset_',k,'.log'), sep='&', header=F)$V1
+    
+    lasso_R2_i_k_r<-as.numeric(gsub('value = ','',lassosum_R2_i_k[grepl('value = ', lassosum_R2_i_k)]))
+    lasso_R2_i_k_R2<-lasso_R2_i_k_r^2
 
-<iframe height="800" width="100%" frameborder="no" src="https://opain.shinyapps.io/trait_visualiser/"> </iframe>
+    lassosum_R2_i<-rbind(lassosum_R2_i, data.frame( Subset=k,
+                                                      R2=lasso_R2_i_k_R2))
+  }
+  
+  lassosum_R2_i_average<-mean(lassosum_R2_i$R2)
+  
+  pheno_res_pTclump<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/pTclump/',pheno[i],'_PRS_assoc_res.csv'))
+  pheno_res_pTclump$pT<-as.numeric(gsub('_','-',pheno_res_pTclump$pT))
+  Obs_R2_pTclump<-pheno_res_pTclump$R2_obs[pheno_res_pTclump$pT == 1]
+  
+  pheno_res_DBSLMM<-read.csv(paste0('/users/k1806347/brc_scratch/Data/UKBB/ValidationArena/PolygenicScores/DBSLMM/Pheno_PRS_assoc_res.csv'))
+  pheno_res_DBSLMM<-pheno_res_DBSLMM[pheno_res_DBSLMM$Phenotype == pheno[i],]
+  Obs_R2_DBSLMM<-pheno_res_DBSLMM$R2_obs
+  
+  R2_comp<-rbind(R2_comp, data.frame(Phenotype=pheno[i],
+                                       pTclump_R2=Obs_R2_pTclump,
+                                       DBSLMM_R2=Obs_R2_DBSLMM,
+                                       lassosum_R2=lassosum_R2_i_average))
+}
+
+# It does quite well for binary outcome, but then 
+```
+</details>
+
+<br/>
 
 ***
 
@@ -1724,6 +3124,7 @@ I need to download GWAS sumstats in an automated way, estimate the underlying he
 
 ## Download GWAS sumstats
 
+<details><summary>Show results</summary>
 ```{R, eval=F, echo=T}
 # Download latest GWAS catalogue index (22/11/2020)
 # https://www.ebi.ac.uk/gwas/downloads/summary-statistics
@@ -1756,11 +3157,6 @@ for(gwas_i in ftp_list){
 
 # After looking through the results for these studies, they are often not full summary statistics. Some are not in harmonised format, and some contain trans ancestry data. I think using the KCL repository might be a better option.
 ```
-
-
-
-
-
-
+</details>
 
 
