@@ -170,8 +170,6 @@ info_snp <- snp_match(sumstats, map)
 if(opt$sd_check == T){
   # Read in reference genotype SD
   sd<-readRDS(paste0(opt$ldpred2_ref_dir,'/sd.rds'))
-  # NOTE. there are missing values in the reference. Might be due to missing data.
-  # May also be an issue in the LD data.
   
   # Remove SDss<0.5???SDval or SDss>0.1+SDval or SDss<0.1 or SDval<0.05
   sd_val <- sd[info_snp$`_NUM_ID_`]
