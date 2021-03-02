@@ -54,7 +54,11 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Reading in GWAS sumstats.\n')
 sink()
 
-GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
+if(substr(opt$sumstats,(nchar(opt$sumstats)+1)-3,nchar(opt$sumstats)) == '.gz'){
+  GWAS<-data.frame(fread(cmd=paste0('zcat ',opt$sumstats)))
+} else {	
+  GWAS<-data.frame(fread(opt$sumstats))
+}
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
