@@ -30,6 +30,8 @@ make_option("--impute_N", action="store", default=T, type='logical',
     help="Logical indicating whether per variant N should imputed based on SE. [optional]"),
 make_option("--P_max", action="store", default=NA, type='numeric',
     help="P-value threshold for filter variants [optional]"),
+make_option("--robust", action="store", default=F, type='logical',
+    help="Force robust GCTB parameterisation [optional]"),
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
 make_option("--ld_matrix_chr", action="store", default=NA, type='character',
@@ -204,11 +206,20 @@ CHROMS_vector<-CHROMS_vector[!is.na(CHROMS_vector)]
 print(CHROMS_vector)
 
 error<-foreach(i=CHROMS_vector, .combine=rbind) %dopar% {
-  if(per_var_N == F & opt$impute_N == T){
-    log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --impute-n --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+  if(opt$robust){
+    if(per_var_N == F & opt$impute_N == T){
+      log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --robust --exclude-mhc --burn-in 2000 --impute-n --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+    } else {
+      log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --robust --exclude-mhc --burn-in 2000 --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+    }
   } else {
-    log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+    if(per_var_N == F & opt$impute_N == T){
+      log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --impute-n --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+    } else {
+      log<-system(paste0(opt$gctb,' --sbayes R --ldm ',opt$ld_matrix_chr,i,'.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ',opt$output_dir,'GWAS_sumstats_COJO.txt --chain-length 10000 --exclude-mhc --burn-in 2000 --out-freq 1000 --out ',opt$output_dir,'GWAS_sumstats_SBayesR.chr',i), intern=T)
+    }
   }
+  writeLines(log, paste0(opt$output_dir,'SBayesR.chr',i,'.log'))
   
 	if(sum(grepl("MCMC cycles completed", log) == T) == 1 & sum(grepl("Analysis finished", log) == T) == 1){
 	  error_log<-data.frame(chr=i, Log='Analysis converged')
