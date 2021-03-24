@@ -22,8 +22,10 @@ make_option("--covar_model", action="store", default=NA, type='character',
 		help="Path to reference-derived model for covariates [optional]"),
 make_option("--target_covar", action="store", default=NA, type='character',
 		help="Target sample covariates data [optional]"),
-make_option("--pheno_name", action="store", default='./Output', type='character',
-		help="Name of phenotype to be added to column names. Default is SCORE. [optional]"),
+make_option("--pheno_name", action="store", default=NA, type='character',
+    help="Name of phenotype to be added to column names. Default is SCORE. [optional]"),
+make_option("--extract", action="store", default=NA, type='character',
+    help="SNP list to extract before scoring [optional]"),
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]")
 )
@@ -60,11 +62,19 @@ sink()
 
 if(is.na(opt$target_keep)){
 	for(i in 1:22){
-		system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,'.chr',i,'.score sum --q-score-range ',opt$ref_score,'.range_list ',opt$ref_score,'.chr',i,'.range_values  --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+	  if(is.na(opt$extract)){
+		  system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,'.chr',i,'.score sum --q-score-range ',opt$ref_score,'.range_list ',opt$ref_score,'.chr',i,'.range_values  --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+	  } else {
+	    system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,'.chr',i,'.score sum --q-score-range ',opt$ref_score,'.range_list ',opt$ref_score,'.chr',i,'.range_values  --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+	  }
 	}
 } else {
 	for(i in 1:22){
-		system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,'.chr',i,'.score sum --q-score-range ',opt$ref_score,'.range_list ',opt$ref_score,'.chr',i,'.range_values  --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+	  if(is.na(opt$extract)){
+	    system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,'.chr',i,'.score sum --q-score-range ',opt$ref_score,'.range_list ',opt$ref_score,'.chr',i,'.range_values  --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+	  } else {
+	    system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,'.chr',i,'.score sum --q-score-range ',opt$ref_score,'.range_list ',opt$ref_score,'.chr',i,'.range_values  --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
+	  }
 	}
 }
 
