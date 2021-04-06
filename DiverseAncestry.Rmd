@@ -285,6 +285,37 @@ done
 ```
 </details>
 
+<details><summary>SBayesR</summary>
+```{bash, echo=T, eval=F}
+# Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Create variable listing phenotypes and corresponding GWAS
+pheno=$(echo BMI Height)
+gwas=$(echo BODY04 HEIG03)
+
+# Calculate polygenic scores using 1KG reference
+for i in $(seq 1 2);do
+  for pop in $(echo AFR AMR EAS EUR SAS);do
+    pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+    gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+  
+    sbatch -n 1 --mem 5G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer_SBayesR/Scaled_polygenic_scorer_SBayesR.R \
+ \
+      --target_plink_chr ${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+      --target_keep ${UKBB_output}/DiverseAncestry/Phenotype_subsets/UKB.${pheno_i}.${pop}.QC.keep \
+      --ref_score ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas_i}_GCTB_203_robust/GWAS_sumstats_SBayesR.GW.snpRes \
+      --ref_scale ${Geno_1KG_dir}/Score_files_for_polygenic/SBayesR/${gwas_i}_GCTB_203_robust/1KGPhase3.w_hm3.${gwas_i}.${pop}.scale \
+      --ref_freq_chr ${Geno_1KG_dir}/freq_files/${pop}/1KGPhase3.w_hm3.${pop}.chr \
+      --pheno_name ${gwas_i} \
+      --plink ${plink1_9} \
+      --output ${UKBB_output}/DiverseAncestry/1KG_ref/SBayesR/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}
+      
+  done
+done
+```
+</details>
+
 <details><summary>LDPred</summary>
 ```{bash, echo=T, eval=F}
 # Set required variables
@@ -575,6 +606,7 @@ ${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${gwas_i}/UKBB.${pop}.w_h
 ${UKBB_output}/DiverseAncestry/1KG_ref/lassosum/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.lassosum_profiles lassosum
 ${UKBB_output}/DiverseAncestry/1KG_ref/PRScs/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.PRScs_profiles PRScs
 ${UKBB_output}/DiverseAncestry/1KG_ref/SBLUP/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.SBLUP_profiles SBLUP
+${UKBB_output}/DiverseAncestry/1KG_ref/SBayesR/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.SBayesR_profiles SBayesR
 ${UKBB_output}/DiverseAncestry/1KG_ref/LDPred/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.LDPred_profiles LDPred
 ${UKBB_output}/DiverseAncestry/1KG_ref/LDPred2/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.LDPred_profiles LDPred2
 ${UKBB_output}/DiverseAncestry/1KG_ref/DBSLMM/${pop}/${gwas_i}/UKBB.${pop}.w_hm3.${gwas_i}.DBSLMM_profiles DBSLMM
@@ -605,6 +637,8 @@ for i in $(seq 1 2);do
       --predictors /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno_i}/Association_withPRSs/UKBB.${pop}.w_hm3.${gwas_i}.EUR-PRSs.AllMethodComp.predictor_groups
   done
 done
+
+# Note. The nested cross validation model builder is not ideal when there are multiple parameters for each method. Previously we have identifying the best single parameter in the training sample, and then testing it out of sample. With nested cross validation, we are selecting the best pT based on results out of sample. Probably doesn't make a big diffrence, but will lead to slight inflation of R2 of single parameters PRS. I like using the full sample though, so I could add an option select best predictor within each group, rather than nested cross validate single predictors which is quite pointless. Leave as is for now.
 
 ```
 </details>
@@ -850,7 +884,7 @@ for(k in 1:length(pop)){
     res_eval_i_per_pT[res_eval_i_per_pT$R == max(res_eval_i_per_pT$R),]$Model[1]))
   
     # Identify multi pT
-    selected_models<-rbind(selected_models,data.frame(Test='pT+clump.MultiPRS', Label='pT.clump'))
+    selected_models<-rbind(selected_models,data.frame(Test='pT+clump.MultiPRS', Label='pt.clump'))
   
     ##
     # lassosum
@@ -898,6 +932,13 @@ for(k in 1:length(pop)){
     selected_models<-rbind(selected_models,data.frame(Test='SBLUP.Inf', Label='SBLUP'))
     
     ##
+    # SBayesR
+    ##
+    
+    # Identify PseudoVal
+    selected_models<-rbind(selected_models,data.frame(Test='SBayesR.PseudoVal', Label='SBayesR'))
+
+    ##
     # LDPred1
     ##
     
@@ -914,6 +955,27 @@ for(k in 1:length(pop)){
     res_eval_i_per_LDPred<-res_eval_i_per_LDPred[grepl('.LDpred.inf', res_eval_i_per_LDPred$Model),]
     selected_models<-rbind(selected_models,data.frame(Test='LDPred1.Inf', Label=res_eval_i_per_LDPred[res_eval_i_per_LDPred$R == max(res_eval_i_per_LDPred$R),]$Model[1]))
   
+    ##
+    # LDPred2
+    ##
+    
+    # Identify best pT in 10FCVal
+    res_eval_i_per_LDPred2<-res_eval_i[grepl('LDPred2.PredFile', res_eval_i$Model),]
+    res_eval_i_per_LDPred2<-res_eval_i_per_LDPred2[!grepl('beta.inf|beta.auto', res_eval_i_per_LDPred2$Model),]
+    selected_models<-rbind(selected_models,data.frame(Test='LDPred2.10FCVal', Label=res_eval_i_per_LDPred2[res_eval_i_per_LDPred2$R == max(res_eval_i_per_LDPred2$R),]$Model[1]))
+  
+    # Identify multi pT
+    selected_models<-rbind(selected_models,data.frame(Test='LDPred2.MultiPRS', Label='LDPred2'))
+  
+    # Identify pseudoval
+    res_eval_i_per_LDPred2<-res_eval_i[grepl('LDPred2.PredFile', res_eval_i$Model),]
+    res_eval_i_per_LDPred2<-res_eval_i_per_LDPred2[grepl('beta.inf', res_eval_i_per_LDPred2$Model),]
+    selected_models<-rbind(selected_models,data.frame(Test='LDPred2.Inf', Label=res_eval_i_per_LDPred2$Model))
+
+    res_eval_i_per_LDPred2<-res_eval_i[grepl('LDPred2.PredFile', res_eval_i$Model),]
+    res_eval_i_per_LDPred2<-res_eval_i_per_LDPred2[grepl('beta.auto', res_eval_i_per_LDPred2$Model),]
+    selected_models<-rbind(selected_models,data.frame(Test='LDPred2.PseudoVal', Label=res_eval_i_per_LDPred2$Model))
+
     ##
     # DBSLMM
     ##
@@ -964,7 +1026,7 @@ for(k in 1:length(pop)){
     res_eval_i_select$Method<-gsub('\\..*','',res_eval_i_select$Test)
     res_eval_i_select$Model<-gsub('.*\\.','',res_eval_i_select$Test)
     
-    res_eval_i_select$Method<-factor(res_eval_i_select$Method, levels=c('pT+clump','lassosum','PRScs','SBLUP','LDPred1','DBSLMM','All'))
+    res_eval_i_select$Method<-factor(res_eval_i_select$Method, levels=c('pT+clump','lassosum','PRScs','SBLUP','SBayesR','LDPred1','LDPred2','DBSLMM','All'))
     res_eval_i_select$Model<-factor(res_eval_i_select$Model, levels=c('10FCVal','MultiPRS','PseudoVal','Inf'))
     
     res_eval_plots[[j]] <- ggplot( res_eval_i_select, aes(x=Method, y=R, fill=Model)) +
@@ -1040,15 +1102,15 @@ write.csv(res_eval, paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry
 
 write.csv(res_comp, paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp_diff.csv'), row.names=F, quote=F)
 
-bitmap(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp.png'), units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots)/2))
+png(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp.png'), units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots)/2))
 print(plot_grid(plotlist=res_eval_plots, ncol = 2))
 dev.off()
 
-bitmap(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp_pTDiff.png'), units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots)/2))
+png(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp_pTDiff.png'), units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots)/2))
 print(plot_grid(plotlist=res_eval_diff_plots, ncol = 2))
 dev.off()
 
-bitmap(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp_diff.png'), units='px', res=300, width=2450, height=1750*length(res_eval_diff_matrix))
+png(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp_diff.png'), units='px', res=300, width=2450, height=1750*length(res_eval_diff_matrix))
 print(plot_grid(plotlist=res_eval_diff_matrix, ncol = 1))
 dev.off()
 
@@ -1347,8 +1409,9 @@ done
 cat > /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/score_sbatch.sh << 'EOF'
 #!/bin/sh
 
-#SBATCH -p test
+#SBATCH -p brc,shared
 #SBATCH -J GeRS
+#SBATCH --mem 5G
 
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
@@ -1362,16 +1425,14 @@ echo ${weights}
 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ref_funtionally_informed_risk_scorer/ref_funtionally_informed_risk_scorer.R \
   --twas_results /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/TWAS/${pheno}_withCOLOC/${pheno}_res_GW.txt \
   --ref_feature_pred ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.predictions.gz \
-  --output /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/${gwas}/1KGPhase3.w_hm3.EUR.FUSION.${gwas}.${weights} \
+  --output /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/${pheno}/1KGPhase3.w_hm3.EUR.FUSION.${pheno}.${weights} \
   --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
   --ref_scale ${Geno_1KG_dir}/Predicted_expression/FUSION/${weights}/1KGPhase3.w_hm3.FUSION.${weights}.EUR.scale \
   --panel ${weights}
 
 EOF
 
-sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/score_todo.txt | cut -d' ' -f1)%20 /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/score_sbatch.sh
-
-sbatch --array 1-1 /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/score_sbatch.sh
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/todo.txt | cut -d' ' -f1)%40 /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/score_sbatch.sh
 
 ```
 </details>
@@ -1546,14 +1607,72 @@ sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAnce
 
 ### Calculate scores
 
+<details><summary>GeRS</summary>
+```{bash, echo=T, eval=F}
+mkdir -p /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/
+
+pop1=EUR
+> /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/score_todo.txt
+for pop2 in $(echo EUR_test EAS AMR AFR SAS); do
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
+for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/${pheno}/UKBB.w_hm3.${pop2}.${pheno}.${weights}.fiprofile ]; then
+echo ${pop2} ${pheno} ${weights} >> /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/score_todo.txt
+fi
+done
+done
+done
+
+cat > /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/score_sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p brc,shared
+#SBATCH -J GeRS
+#SBATCH --mem 15G
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+pop1=EUR
+pop2=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/score_todo.txt)
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/score_todo.txt)
+weights=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $3}' /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/score_todo.txt)
+
+pop2_short=${pop2}
+if echo "$pop2" | grep -q "EUR_test"; then
+    pop2_short=EUR
+fi  
+
+echo ${pop1}
+echo ${pop2}
+echo ${pop2_short}
+echo ${pheno}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/scaled_functionally_informed_risk_scorer/scaled_functionally_informed_risk_scorer.R \
+  --targ_feature_pred ${UKBB_output}/Predicted_expression/FUSION/${pop2}/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz \
+  --target_keep /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/Residuals/${pop2}/${pheno}_resid.pheno \
+  --ref_score /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/${pheno}/1KGPhase3.w_hm3.EUR.FUSION.${pheno}.${weights}.score \
+  --ref_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/DiverseAncestry/score_files/GeRS/${pheno}/1KGPhase3.w_hm3.EUR.FUSION.${pheno}.${weights}.scale \
+  --pheno_name ${pheno} \
+  --n_cores 1 \
+  --pigz ${pigz_binary} \
+  --output /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/${pheno}/UKBB.w_hm3.${pop2}.${pheno}.${weights}
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/score_todo.txt | cut -d' ' -f1)%20 /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/score_sbatch.sh
+
+# Note, standardise all predictors when running model_builder as GeRS are scaled to EUR population. But gene expression is standardised.
+```
+</details>
+
 <details><summary>pT + clump: Sparse</summary>
 ```{bash, echo=T, eval=F}
 pop1=EUR
 > /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/pt_clump/score_todo.txt
-for pop2 in $(echo EAS AMR AFR SAS); do
+for pop2 in $(echo EUR_test EAS AMR AFR SAS); do
 for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
 
-if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/pt_clump/${pop}/${pheno}/UKBB.${pop}.w_hm3.${pheno}.profiles ]; then
+if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/pt_clump/${pop2}/${pheno}/UKBB.${pop2}.w_hm3.${pheno}.profiles ]; then
 echo ${pop2} ${pheno} >> /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/pt_clump/score_todo.txt
 fi
 done
@@ -1599,10 +1718,10 @@ sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1
 ```{bash, echo=T, eval=F}
 pop1=EUR
 > /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/lassosum/score_todo.txt
-for pop2 in $(echo EAS AMR AFR SAS); do
+for pop2 in $(echo EUR_test EAS AMR AFR SAS); do
 for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
 
-if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/lassosum/${pop}/${pheno}/UKBB.${pop}.w_hm3.${pheno}.lassosum.profiles ]; then
+if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/lassosum/${pop2}/${pheno}/UKBB.${pop2}.w_hm3.${pheno}.lassosum_profiles ]; then
 echo ${pop2} ${pheno} >> /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/lassosum/score_todo.txt
 fi
 done
@@ -1653,10 +1772,10 @@ sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1
 pop1=EUR
 mkdir /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/SBayesR
 > /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/SBayesR/score_todo.txt
-for pop2 in $(echo EAS AMR AFR SAS); do
+for pop2 in $(echo EUR_test EAS AMR AFR SAS); do
 for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
 
-if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/SBayesR/${pop}/${pheno}/UKBB.${pop}.w_hm3.${pheno}.SBayesR.profiles ]; then
+if [ ! -f /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/SBayesR/${pop2}/${pheno}/UKBB.${pop2}.w_hm3.${pheno}.SBayesR_profiles ]; then
 echo ${pop2} ${pheno} >> /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/SBayesR/score_todo.txt
 fi
 done
@@ -1697,6 +1816,385 @@ EOF
 
 sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/SBayesR/score_todo.txt | cut -d' ' -f1)%6 /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/SBayesR/score_sbatch.sh
 
+```
+</details>
+
+### Evaluate scores
+
+<details><summary>pT + clump comparison</summary>
+```{bash, echo=T, eval=F}
+##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRSs
+for pop in $(echo AFR AMR EAS EUR_test SAS);do
+cat > /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRSs/UKBB.${pop}.w_hm3.${pheno}.EUR-PRSs.predictor_groups <<EOF
+predictors 
+${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${pheno}/UKBB.${pop}.w_hm3.${pheno}.profiles
+EOF
+done
+done
+
+# pT + clump (sparse)
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt);do
+  for pop in $(echo AFR AMR EAS EUR_test SAS);do
+  sbatch --mem 10G -n 1 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R \
+      --pheno /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/Residuals/${pop}/${pheno}_resid.pheno \
+      --out /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRSs/UKBB.${pop}.w_hm3.${pheno}.EUR-PRSs \
+      --n_core 1 \
+      --compare_predictors T \
+      --assoc T \
+      --predictors /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRSs/UKBB.${pop}.w_hm3.${pheno}.EUR-PRSs.predictor_groups
+  done
+done
+
+```
+</details>
+
+<details><summary>Comparison of PRS methods</summary>
+```{R, eval=F, echo=T}
+##############################
+# Evaluating predictive utility of pT + clump PRSs across multiple pTs individually and in combination
+##############################
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt);do
+  for pop in $(echo AFR AMR EAS EUR_test SAS);do
+cat > /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRSs/UKBB.${pop}.w_hm3.${pheno}.EUR-PRSs.AllMethodComp.predictor_groups <<EOF
+predictors group
+${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${pheno}/UKBB.${pop}.w_hm3.${pheno}.profiles pt_clump
+${UKBB_output}/DiverseAncestry/1KG_ref/lassosum/${pop}/${pheno}/UKBB.${pop}.w_hm3.${pheno}.lassosum_profiles lassosum
+${UKBB_output}/DiverseAncestry/1KG_ref/SBayesR/${pop}/${pheno}/UKBB.${pop}.w_hm3.${pheno}.SBayesR_profiles SBayesR
+EOF
+done
+done
+
+# Derive and evaluate models
+for pheno in $(head -n 5 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt);do
+  for pop in $(echo AFR AMR EAS EUR_test SAS);do
+  sbatch --mem 20G -n 1 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R \
+      --pheno /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/Residuals/${pop}/${pheno}_resid.pheno \
+      --out /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRSs/UKBB.${pop}.w_hm3.${pheno}.EUR-PRSs.AllMethodComp \
+      --n_core 1 \
+      --compare_predictors T \
+      --assoc T \
+      --outcome_pop_prev ${prev_i} \
+      --predictors /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRSs/UKBB.${pop}.w_hm3.${pheno}.EUR-PRSs.AllMethodComp.predictor_groups
+  done
+done
+
+```
+</details>
+
+<details><summary>GeRS + PRS</summary>
+```{bash, echo=T, eval=F}
+##############################
+# Evaluating predictive utility of GeRS and PRS individually and in combination
+##############################
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+# Make required directories
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt);do
+mkdir -p /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRS_and_GeRSs
+done
+
+# Create a file listing the predictors files
+weights=$(cat ${TWAS_rep}/snp_weight_list.txt)
+
+for pheno in $(head -n 5 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt);do
+  for pop in $(echo AFR AMR EAS EUR_test SAS);do
+    
+    echo "predictors group" > /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${pheno}.${pop}-GeRSs.${pop}-PRSs.pt_clump.predictor_groups
+  
+    for weight in ${weights}; do
+      if [ -f /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/${pheno}/UKBB.w_hm3.${pop}.${pheno}.${weight}.fiprofile ]; then
+        echo /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/1KG_ref/GeRS/${pheno}/UKBB.w_hm3.${pop}.${pheno}.${weight}.fiprofile GeRS >> /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${pheno}.${pop}-GeRSs.${pop}-PRSs.pt_clump.predictor_groups
+      fi
+    done
+  
+      echo ${UKBB_output}/DiverseAncestry/1KG_ref/pt_clump/${pop}/${pheno}/UKBB.${pop}.w_hm3.${pheno}.profiles PRS >> /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${pheno}.${pop}-GeRSs.${pop}-PRSs.pt_clump.predictor_groups
+  done
+done
+
+# Derive and evaluate models
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt);do
+  for pop in $(echo AFR AMR EAS EUR_test SAS);do
+sbatch --mem 10G -n 1 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R \
+      --pheno /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/Residuals/${pop}/${pheno}_resid.pheno \
+    --out /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${pheno}.${pop}-GeRSs.${pop}-PRSs.pt_clump \
+    --n_core 1 \
+    --compare_predictors F \
+    --assoc T \
+    --predictors /users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/${pheno}/Association_withPRS_and_GeRSs/UKBB.w_hm3.AllTissue.${pheno}.${pop}-GeRSs.${pop}-PRSs.pt_clump.predictor_groups
+done
+done
+
+```
+</details>
+
+
+### Plot the results
+
+***
+
+#### pT+clump
+
+<details><summary>pT + clump comparison</summary>
+```{R, echo=T, eval=F}
+library(data.table)
+pop<-c('AFR','AMR','EAS','EUR_test','SAS')
+pheno<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', header=F)$V1
+
+res<-list()
+for(i in 1:length(pheno)){
+  res_pheno<-NULL
+  for(k in 1:length(pop)){
+    tmp<-fread(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.',pop[k],'.w_hm3.',pheno[i],'.EUR-PRSs.pred_eval.txt'))
+    tmp2<-data.frame( Population=gsub('_test','',pop[k]),
+                      Phenotype=pheno[i],
+                      tmp)
+    
+    res_pheno<-rbind(res_pheno, tmp2)
+  }
+
+  res_pheno$Model<-gsub('e.','e-',gsub('_.*','',gsub('SCORE.','',res_pheno$Model)))
+  res_pheno$Model<-factor(res_pheno$Model, levels=unique(res_pheno$Model))
+  res[[pheno[i]]]<-res_pheno
+}
+
+library(ggplot2)
+library(cowplot)
+
+plot_list<-NULL
+for(i in 1:length(pheno)){
+  plot_list[[pheno[i]]]<-ggplot(res[[pheno[i]]], aes(x=factor(Model), y=R, colour=Population)) +
+                            geom_point(stat="identity", position=position_dodge( width=.25)) +
+                            geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(.25)) +
+                            theme_half_open() +
+                            theme(axis.text.x = element_text(angle = 55, vjust = 1, hjust=1), plot.title = element_text(hjust = 0.4, size=12)) +
+                            background_grid(major = 'y', minor = 'y') +
+                            labs(x='pT',y="Correlation (SE)", title=pheno[i])
+}
+
+png('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/UKB.Diverse.internal.pTclump_per_pT.png', units='px', res=300, width=3000, height=10000)
+  plot_grid(plotlist=plot_list, ncol = 2)
+dev.off()
+
+```
+</details>
+
+***
+
+#### PRS method comparison
+
+```{R, eval=F, echo=T}
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+meta_res_eval<-NULL
+meta_res_comp<-NULL
+meta_res_eval_plots<-list()
+meta_res_eval_diff_plots<-list()
+meta_res_eval_diff_matrix<-list()
+
+pheno<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', header=F)$V1
+pop<-c('AFR','AMR','EAS','EUR_test','SAS')
+
+##################
+# Organise, make tables and figures for per phenotype results
+##################
+
+res_eval<-NULL
+res_comp<-NULL
+res_eval_plots<-list()
+res_eval_diff_plots<-list()
+res_eval_diff_matrix<-list()
+j<-1
+
+for(k in 1:length(pop)){
+  for(i in 1:length(pheno)){
+    res_eval_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.',pop[k],'.w_hm3.',pheno[i],'.EUR-PRSs.AllMethodComp.pred_eval.txt'), header=T, stringsAsFactors=F)
+
+    res_comp_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.',pop[k],'.w_hm3.',pheno[i],'.EUR-PRSs.AllMethodComp.pred_comp.txt'), header=T, stringsAsFactors=F)
+  
+    # Idenitfy model names for 10FCVal, multi-PRS and pseudoval
+    selected_models<-NULL
+    
+    ##
+    # pT+clump (sparse)
+    ##
+    
+    # Identify best pT in 10FCVal
+    res_eval_i_per_pT<-res_eval_i[grepl('pt.clump.PredFile', res_eval_i$Model),]
+    selected_models<-rbind(selected_models,data.frame(Test='pT+clump.10FCVal', Label=
+    res_eval_i_per_pT[res_eval_i_per_pT$R == max(res_eval_i_per_pT$R),]$Model[1]))
+  
+    # Identify multi pT
+    selected_models<-rbind(selected_models,data.frame(Test='pT+clump.MultiPRS', Label='pt.clump'))
+  
+    ##
+    # lassosum
+    ##
+    
+    # Identify best pT in 10FCVal
+    res_eval_i_per_lassosum<-res_eval_i[grepl('lassosum.PredFile', res_eval_i$Model),]
+    selected_models<-rbind(selected_models,data.frame(Test='lassosum.10FCVal', Label=
+    res_eval_i_per_lassosum[res_eval_i_per_lassosum$R == max(res_eval_i_per_lassosum$R),]$Model[1]))
+  
+    # Identify multi pT
+    selected_models<-rbind(selected_models,data.frame(Test='lassosum.MultiPRS', Label='lassosum'))
+  
+    # Identify pseudoVal
+    lassosum_val<-read.table(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/lassosum/',pheno[i],'/1KGPhase3.w_hm3.',pheno[i],'.log'), sep='&')
+    lassosum_val_s<-as.numeric(gsub('s = ','',lassosum_val$V1[grepl('s = ',lassosum_val$V1)]))
+    lassosum_val_lambda<-as.numeric(gsub('lambda =','',lassosum_val$V1[grepl('lambda =',lassosum_val$V1)]))
+    lassosum_val_param<-paste0('s',lassosum_val_s,'.lambda',lassosum_val_lambda)
+    lassosum_val_param<-substr(lassosum_val_param, 1, nchar(lassosum_val_param)-1) 
+  
+    selected_models<-rbind(selected_models,data.frame(Test='lassosum.PseudoVal', Label=res_eval_i[grepl(lassosum_val_param, res_eval_i$Model),]$Model[1]))
+    
+    ##
+    # SBayesR
+    ##
+    
+    # Identify PseudoVal
+    selected_models<-rbind(selected_models,data.frame(Test='SBayesR.PseudoVal', Label='SBayesR'))
+
+    ##
+    # All methods
+    ##
+    
+    selected_models<-rbind(selected_models,data.frame(Test='All.MultiPRS', Label='All'))
+  
+    ###
+    # Subset selected models and format
+    ###
+    
+    # Eval
+    selected_models$Label_2<-paste0(gsub('_group','',selected_models$Label),'_group')
+    res_eval_i_select<-res_eval_i[(res_eval_i$Model %in% selected_models$Label_2),]
+    res_eval_i_select<-merge(res_eval_i_select, selected_models[c('Test','Label_2')], by.x='Model',by.y='Label_2')
+    res_eval_i_select$Phenotype<-pheno[i]
+  
+    res_eval_i_select<-res_eval_i_select[c('Phenotype','Test',"R","SE",'P','R2o','N')]
+                                           
+    res_eval<-rbind(res_eval,res_eval_i_select)
+    
+    # Comp
+    selected_models$Label_3<-gsub('_group','',selected_models$Label)
+    res_comp_i_select<-res_comp_i[(res_comp_i$Model_1 %in% selected_models$Label_3) & (res_comp_i$Model_2 %in% selected_models$Label_3),]
+    res_comp_i_select<-merge(res_comp_i_select, selected_models[c('Test','Label_3')], by.x='Model_1',by.y='Label_3')
+    names(res_comp_i_select)[names(res_comp_i_select) == 'Test']<-'Model_1_Test'
+    res_comp_i_select<-merge(res_comp_i_select, selected_models[c('Test','Label_3')], by.x='Model_2',by.y='Label_3')
+    names(res_comp_i_select)[names(res_comp_i_select) == 'Test']<-'Model_2_Test'
+    res_comp_i_select$Label<-NULL
+    res_comp_i_select$Phenotype<-pheno[i]
+    res_comp_i_select<-res_comp_i_select[c('Phenotype','Model_1_Test','Model_2_Test','Model_1_R','Model_2_R','R_diff','R_diff_pval')]
+  
+    res_comp<-rbind(res_comp,res_comp_i_select)
+    
+    ###
+    # Create plot showing performance of each method
+    ###
+    
+    library(ggplot2)
+    library(cowplot)
+    
+    res_eval_i_select$Method<-gsub('\\..*','',res_eval_i_select$Test)
+    res_eval_i_select$Model<-gsub('.*\\.','',res_eval_i_select$Test)
+    
+    res_eval_i_select$Method<-factor(res_eval_i_select$Method, levels=c('pT+clump','lassosum','SbayesR','All'))
+    res_eval_i_select$Model<-factor(res_eval_i_select$Model, levels=c('10FCVal','MultiPRS','PseudoVal','Inf'))
+    
+    res_eval_plots[[j]] <- ggplot( res_eval_i_select, aes(x=Method, y=R, fill=Model)) +
+                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+                          geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                          labs(y="Correlation (SE)", x='', title=paste0(pheno[i],"(",pop[k],")")) +
+                          coord_cartesian(ylim=c(min(res_eval_i_select$R[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$R[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y') +
+                          theme(legend.position="top", legend.title = element_blank(), legend.box="vertical", legend.margin=margin()) +
+                          guides(fill=guide_legend(nrow=2))
+                				  
+    ###
+    # Create plot showing performance of each method compared to pT+clump
+    ###
+  
+    res_eval_i_select$R_diff<-res_eval_i_select$R-res_eval_i_select$R[res_eval_i_select$Test == "pT+clump.10FCVal"]
+    
+    res_eval_diff_plots[[j]] <- ggplot( res_eval_i_select, aes(x=Method, y=R_diff, fill=Model)) +
+                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+                          geom_errorbar(aes(ymin=R_diff-SE, ymax=R_diff+SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                          labs(y="Correlation (SE)", x='', title=paste0(pheno[i],"(",pop[k],")")) +
+                          coord_cartesian(ylim=c(min(res_eval_i_select$R_diff[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$R_diff[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y') +
+                          theme(legend.position="top", legend.title = element_blank(), legend.box="vertical", legend.margin=margin()) +
+                          guides(fill=guide_legend(nrow=2))
+    
+  
+    ###
+    # Create plot showing matrix of differences with significance
+    ###
+  
+    library(reshape2)
+    
+    res_comp_i_select$R_diff[res_comp_i_select$Model_1_Test == res_comp_i_select$Model_2_Test]<-NA
+  
+    res_comp_i_select$R_diff_catagory<-'NA'
+    res_comp_i_select$R_diff_catagory[res_comp_i_select$R_diff < -0.002]<-'-0.025 - -0.002'
+    res_comp_i_select$R_diff_catagory[res_comp_i_select$R_diff < -0.025]<-'-0.08 - -0.025'
+    res_comp_i_select$R_diff_catagory[res_comp_i_select$R_diff < -0.08]<-'< -0.08'
+    res_comp_i_select$R_diff_catagory[res_comp_i_select$R_diff > -0.002 & res_comp_i_select$R_diff < 0.002]<-'-0.002 - 0.002'
+    res_comp_i_select$R_diff_catagory[res_comp_i_select$R_diff > 0.002]<-'0.002 - 0.025'
+    res_comp_i_select$R_diff_catagory[res_comp_i_select$R_diff > 0.025]<-'0.025 - 0.08'
+    res_comp_i_select$R_diff_catagory[res_comp_i_select$R_diff > 0.08]<-'> 0.08'
+    
+    res_comp_i_select$R_diff_catagory<-factor(res_comp_i_select$R_diff_catagory, level=rev(c('< -0.08','-0.08 - -0.025','-0.025 - -0.002','-0.002 - 0.002','0.002 - 0.025','0.025 - 0.08','> 0.08')))
+  
+    res_comp_i_select$star<-' '
+    res_comp_i_select$star[res_comp_i_select$R_diff_pval < 0.05]<-'*'
+    res_comp_i_select$star[res_comp_i_select$R_diff_pval < 1e-3]<-'**'
+    res_comp_i_select$star[res_comp_i_select$R_diff_pval < 1e-6]<-'***'
+  
+    
+    library(RColorBrewer)
+    res_eval_diff_matrix[[j]]<-ggplot(data = res_comp_i_select, aes(Model_2_Test, Model_1_Test, fill=R_diff_catagory))+
+     geom_tile(color = "white")+
+     labs(y='Test', x='Comparison', title=paste0(pheno[i],"(",pop[k],")"), fill='R difference') +
+      theme_minimal()+ 
+     theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+        size = 8, hjust = 1))+
+     coord_fixed() +
+    geom_text(data=res_comp_i_select, aes(Model_2_Test, Model_1_Test, label = star), color = "black", size = 4, angle = 0, vjust=0.8) +
+    scale_fill_brewer(breaks = levels(res_comp_i_select$R_diff_catagory), palette = "RdBu", drop=F, na.value='grey')
+
+    j<-j+1
+  }
+}
+
+write.csv(res_eval, paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp.csv'), row.names=F, quote=F)
+
+write.csv(res_comp, paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp_diff.csv'), row.names=F, quote=F)
+
+png(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp.png'), units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots)/2))
+print(plot_grid(plotlist=res_eval_plots, ncol = 2))
+dev.off()
+
+png(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp_pTDiff.png'), units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots)/2))
+print(plot_grid(plotlist=res_eval_diff_plots, ncol = 2))
+dev.off()
+
+png(paste0('/users/k1806347/brc_scratch/Analyses/DiverseAncestry/UKBB_outcomes_for_prediction/PRS_method_comp_diff.png'), units='px', res=300, width=2450, height=1750*length(res_eval_diff_matrix))
+print(plot_grid(plotlist=res_eval_diff_matrix, ncol = 1))
+dev.off()
+
+# With only two phenotypes, meta-analysis is not necessary or helpful.
 ```
 </details>
 

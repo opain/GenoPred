@@ -362,7 +362,7 @@ if(opt$assoc == T){
 	sink()
 }
 
-if(opt$compare_predictors == T){
+if(opt$model_comp == T){
 ############
 # Build and evaluate models using predictors together
 ############
