@@ -137,15 +137,15 @@ mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quanti
   sigma_mat[2,2] <- SD_PRS^2
   
   ### mean of phenotype within the truncated PRS distribution
-  out_mean_Y <- rep(0, 20)
+  out_mean_Y <- rep(0, n_quantile)
   ### SD of phenotype within the truncated PRS distribution
-  out_SD_Y <- rep(0, 20)
+  out_SD_Y <- rep(0, n_quantile)
   ### cov of Y and PRS given truncation on PRS
-  out_cov_Y_PRS <- rep(0, 20)
+  out_cov_Y_PRS <- rep(0, n_quantile)
   ### SD of PRS given truncation on PRS
-  out_SD_PRS <- rep(0, 20)
+  out_SD_PRS <- rep(0, n_quantile)
   ### mean PRS given truncation on PRS
-  out_mean_PRS <- rep(0, 20)
+  out_mean_PRS <- rep(0, n_quantile)
   
   for(i in 1:n_quantile){
   	distribution_i <- mtmvnorm(mean = mean_vec,
@@ -471,6 +471,8 @@ Calculate reference-standardised polygenic scores within UK Biobank for a range 
 
 Reference-standardised polygenic scores have already been calculated in UKB for the PRS methods comparison study, and the AUC has already been estimated. Read in polygenic scores and observed phenotype for UKB, measure proportion of cases per PRS quantile, and then estimate proportion of cases per PRS quantile.
 
+#### DBSLMM
+
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 library(data.table)
@@ -538,6 +540,7 @@ ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
 res_all<-NULL
 cor_res<-NULL
 plots_all<-list()
+prs_dist_all<-list()
 
 for(i in 1:dim(files)[1]){
   # Read in pheno and prs data, and merge
@@ -548,6 +551,14 @@ for(i in 1:dim(files)[1]){
   names(prs_i)[3]<-'prs'
 
   pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
+  
+  # Plot DBSLMM PRS distribution
+  library(ggplot2)
+  library(cowplot)
+  prs_dist_all[[i]]<-ggplot(pheno_prs, aes(x=prs)) +
+    geom_histogram() +
+    labs(y="Count", x='Polygenic Score', title=files$pheno[i]) +
+    theme_cowplot(12)
   
   # Read in AUC for PRS
   assoc<-fread(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/',files$pheno[i],'/UKBB.w_hm3.',files$gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
@@ -603,6 +614,10 @@ for(i in 1:dim(files)[1]){
                     theme_cowplot(12)
 }
 
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PRS_dist_binary.png'), units='px', res=300, width=2000, height=2800)
+  plot_grid(plotlist=prs_dist_all, ncol = 2)
+dev.off()
+
 png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PropCC_Comp.png'), units='px', res=300, width=2000, height=2800)
   plot_grid(plotlist=plots_all, ncol = 2)
 dev.off()
@@ -642,11 +657,204 @@ cat('Median Cor. = ',median(res$Cor),'; Mean Cor. = ', mean(res$Cor),'; Min. Cor
 
 ***
 
+#### pT+clump
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+pheno=c('Depression','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas=c('DEPR06','DIAB05','COAD01','INFB01','SCLE03','RHEU02','BRCA01','PRCA01')
+
+n_quant<-20
+
+files<-data.frame(pheno,gwas)
+
+# Create function
+ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
+  
+    # Convert AUC into cohen's d
+    d <- sqrt(2)*qnorm(PRS_auc)
+    
+    # Set mean difference between cases and control polygenic scores
+    mu_case <- d
+    mu_control <- 0
+    
+    # Estimate mean and variance of polygenic scores across case and control
+    varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
+    E_PRS <- d*prev
+    
+    # Estimate polygenic score quantiles
+    by_quant<-1/n_quantile
+    p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
+    quant_vals_PRS <- rep(0, length(p_quant))
+    quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
+    for(i in 1:length(p_quant)){
+        quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
+    }
+    
+    # Create a table for output
+    ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
+    ul_qv_PRS[1,1] <- -Inf
+    ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
+    ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
+    ul_qv_PRS[n_quantile,2] <- Inf
+    
+    ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
+    
+    # Estimate case control proportion for each quantile
+    prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
+    prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
+    p_case_quantile <- (prob_quantile_case*prev)/by_quant
+    p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
+    
+    # Estimate OR comparing each quantile to bottom quantile
+    OR <- p_case_quantile/p_cont_quantile
+    OR <- OR/OR[1]
+    
+    # Return output
+    out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
+    row.names(out) <- 1:n_quantile
+    colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
+    
+    data.frame(out)
+}
+
+# Run analysis for each phenotype
+res_all<-NULL
+cor_res<-NULL
+plots_all<-list()
+prs_dist_all<-list()
+
+for(i in 1:dim(files)[1]){
+  # Read in pheno and prs data, and merge
+  pheno_i<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',files$pheno[i],'.txt'))
+  names(pheno_i)[3]<-'pheno'
+  prs_i<-fread(paste0(UKBB_output,'/PRS_for_interpretation/1KG_ref/pt_clump/',files$gwas[i],'/UKBB.subset.w_hm3.',files$gwas[i],'.profiles'))
+  # Extract PRS with the most stringent p-value threshold
+  score_nsnp<-fread(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/pt_clump/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.NSNP_per_pT'))
+  score_nsnp<-score_nsnp[score_nsnp$NSNP >= 5,]
+  nsnp<-score_nsnp$NSNP[score_nsnp$pT1 == min(score_nsnp$pT1)]
+  pT<-min(score_nsnp$pT1)
+  prs_i<-prs_i[,c('FID','IID',paste0(files$gwas[i], '_',pT)), with=F]
+  names(prs_i)[3]<-'prs'
+
+  pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
+  
+  # Plot DBSLMM PRS distribution
+  library(ggplot2)
+  library(cowplot)
+  prs_dist_all[[i]]<-ggplot(pheno_prs, aes(x=prs)) +
+    geom_histogram() +
+    labs(y="Count", x='Polygenic Score', title=paste0(files$pheno[i],': ',nsnp,' SNPs')) +
+    theme_cowplot(12)
+  
+  # Read in AUC for PRS
+    assoc<-fread(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/',files$pheno[i],'/UKBB.w_hm3.',files$gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+    prs_auc<-assoc[grepl(paste0(gwas[i],'_',gsub('-','.',pT)), assoc$Predictor),]$AUC
+  
+  # Assign individuals to observed PRS quantiles
+  obs_quant<-quantile(pheno_prs$prs, prob = seq(0, 1, length = n_quant+1))
+  pheno_prs$obs_quant<-as.numeric(cut( pheno_prs$prs, obs_quant, include.lowest = T))
+
+  # Calculate proportion of each quantile that are cases
+  obs_cc<-NULL
+  for(k in 1:n_quant){
+    obs_cc<-rbind(obs_cc, data.frame(Phenotype=files$pheno[i],
+                                     Type='Observed',
+                                     Quantile=k,
+                                     q_min=obs_quant[k],
+                                     q_max=obs_quant[k+1],
+                                     p_control=1-mean(pheno_prs$pheno[pheno_prs$obs_quant == k]),
+                                     p_case=mean(pheno_prs$pheno[pheno_prs$obs_quant == k])))
+  }
+  
+  # Assign individuals to estimated PRS quantiles
+  est_cc<-ccprobs.f(PRS_auc = prs_auc, prev=mean(pheno_prs$pheno), n_quantile = n_quant)
+  est_cc$OR<-NULL
+  est_cc<-data.frame(Phenotype=files$pheno[i],Type="\nEstimated\n(Observed AUC)",Quantile=1:n_quant, est_cc)
+  est_quant<-sort(unique(c(est_cc$q_min, est_cc$q_max)))
+  pheno_prs$est_quant<-as.numeric(cut( pheno_prs$prs, est_quant, include.lowest = T))
+  
+  tmp<-cor.test(obs_cc$p_case, est_cc$p_case)
+  tmp2<-abs(est_cc$p_case-obs_cc$p_case)/obs_cc$p_case
+  
+  # Estimate correlation between observed and expected
+  cor_res<-rbind(cor_res,data.frame(Phenotype=files$pheno[i],
+                                    Cor=tmp$estimate,
+                                    Low95CI=tmp$conf.int[1],
+                                    High95CI=tmp$conf.int[2],
+                                    Mean_perc_diff=mean(tmp2),
+                                    N=length(pheno_prs$pheno),
+                                    Ncas=sum(pheno_prs$pheno == 1),
+                                    Ncon=sum(pheno_prs$pheno == 0)))
+
+  quant_comp<-rbind(obs_cc, est_cc)
+  
+  res_all<-rbind(res_all, quant_comp)
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  plots_all[[i]]<-ggplot(quant_comp, aes(x=Quantile, y=p_case, colour=Type)) +
+                    geom_point(alpha=0.8) +
+                    geom_line(alpha=0.8) +
+                    labs(y="p(case)", title=paste0(files$pheno[i],': \n',nsnp,' SNPs; AUC=',round(prs_auc,3)), colour='Method') +
+                    theme_cowplot(12)
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/pt_clump_PRS_dist_binary.png'), units='px', res=300, width=2000, height=2800)
+  plot_grid(plotlist=prs_dist_all, ncol = 2)
+dev.off()
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/pt_clump_PropCC_Comp.png'), units='px', res=300, width=2000, height=2800)
+  plot_grid(plotlist=plots_all, ncol = 2)
+dev.off()
+
+write.csv(cor_res, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/pt_clump_PropCC_Comp.csv', row.names=F, quote=F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/pt_clump_PropCC_Comp.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Observed-Estimated Proportion of Cases within Polygenic Score Quantiles](Images/Validating_ImputeMe_Ideas/pt_clump_PropCC_Comp.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/pt_clump_PropCC_Comp.csv")
+
+res_tab<-res
+res_tab[,2:5]<-round(res_tab[,2:5], 3)
+res_tab$R<-paste0(res_tab$Cor, " (",res_tab$Low95CI,"-",res_tab$High95CI,")")
+res_tab$Diff<-paste0(round(res_tab$Mean_perc_diff*100,1),"%")
+res_tab<-res_tab[,c('Phenotype','R','Diff','N','Ncas','Ncon')]
+
+names(res_tab)<-c('Phenotype',"Correlation (95%CI)","Mean Abs. Diff.",'N','Ncas','Ncon')
+
+library(knitr)
+kable(res_tab, rownames = FALSE, caption='Correlation between observed and estimated proportion of cases within polygenic score quantiles')
+
+cat('Median Cor. = ',median(res$Cor),'; Mean Cor. = ', mean(res$Cor),'; Min. Cor. = ',min(res$Cor),'; Max. Cor. = ',max(res$Cor),'\n', sep='')
+```
+
+</details>
+
+***
+
 ### Continuous outcomes
 
 Calculate reference-standardised polygenic scores within UK Biobank for a range of continuous phenotypes. Estimate the R2 of the polygenic scores in UKB. Compare measured and estimated absolute meana and sd per PRS quantile. Use the DBSLMM fully baysian (pseudovalidation) polygenic scores, as this method provides a single score with good relative performance compared to other approaches.
 
 Reference-standardised polygenic scores have already been calculated in UKB for the PRS methods comparison study, and the R2 has already been estimated. Read in polygenic scores and observed phenotype for UKB, measure phenotype mean and sd per PRS quantile, and then estimate measure phenotype mean and sd per PRS quantile.
+
+#### DBSLMM
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
@@ -683,15 +891,15 @@ mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quanti
   sigma_mat[2,2] <- SD_PRS^2
   
   ### mean of phenotype within the truncated PRS distribution
-  out_mean_Y <- rep(0, 20)
+  out_mean_Y <- rep(0, n_quantile)
   ### SD of phenotype within the truncated PRS distribution
-  out_SD_Y <- rep(0, 20)
+  out_SD_Y <- rep(0, n_quantile)
   ### cov of Y and PRS given truncation on PRS
-  out_cov_Y_PRS <- rep(0, 20)
+  out_cov_Y_PRS <- rep(0, n_quantile)
   ### SD of PRS given truncation on PRS
-  out_SD_PRS <- rep(0, 20)
+  out_SD_PRS <- rep(0, n_quantile)
   ### mean PRS given truncation on PRS
-  out_mean_PRS <- rep(0, 20)
+  out_mean_PRS <- rep(0, n_quantile)
   
   for(i in 1:n_quantile){
   	distribution_i <- mtmvnorm(mean = mean_vec,
@@ -727,6 +935,7 @@ mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quanti
 res_all<-NULL
 plots_all<-list()
 cor_res<-NULL
+prs_dist_all<-list()
 
 for(i in 1:dim(files)[1]){
   # Read in pheno and prs data, and merge
@@ -738,6 +947,14 @@ for(i in 1:dim(files)[1]){
 
   pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
   
+  # Plot DBSLMM PRS distribution
+  library(ggplot2)
+  library(cowplot)
+  prs_dist_all[[i]]<-ggplot(pheno_prs, aes(x=prs)) +
+    geom_histogram() +
+    labs(y="Count", x='Polygenic Score', title=files$pheno[i]) +
+    theme_cowplot(12)
+
   # Read in AUC for PRS
   assoc<-fread(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/',files$pheno[i],'/UKBB.w_hm3.',files$gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
   prs_r2<-assoc[grepl('DBSLMM', assoc$Predictor),]$Obs_R2
@@ -794,6 +1011,10 @@ for(i in 1:dim(files)[1]){
   
 }
 
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/PRS_dist_cont.png'), units='px', res=300, width=1750, height=2000)
+  plot_grid(plotlist=prs_dist_all, ncol = 1)
+dev.off()
+
 png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.png'), units='px', res=300, width=1750, height=2000)
   plot_grid(plotlist=plots_all, ncol = 1)
 dev.off()
@@ -830,6 +1051,651 @@ kable(res_tab, rownames = FALSE, caption='Correlation between observed and estim
 cat('Median Cor. of means = ',median(res$Cor_mean),'; Mean Cor. of means = ', mean(res$Cor_mean),'; Min. Cor. of means = ',min(res$Cor_mean),'; Max. Cor. of means = ',max(res$Cor_mean),'\n\n', sep='')
 
 cat('Median mean %diff of SD = ',median(res$PercDiff_sd_mean),'; Mean mean %diff of SD = ', mean(res$PercDiff_sd_mean),'; Min. mean %diff of SD = ',min(res$PercDiff_sd_mean),'; Max. mean %diff of SD = ',max(res$PercDiff_sd_mean),'\n', sep='')
+```
+
+</details>
+
+***
+
+#### pt+clump
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+library(e1071)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+gwas<-c('COLL01','HEIG03','BODY04')
+pheno<-c('Intelligence','Height','BMI')
+
+n_quant<-20
+
+files<-data.frame(pheno,gwas)
+
+# Create function
+mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quantile=20){
+  ### PRS quantiles with a continuous phenotype (Y)
+  library(tmvtnorm)
+  ###
+  E_PRS = 0
+  SD_PRS = sqrt(1)
+  E_phenotype = Outcome_mean
+  SD_phenotype = Outcome_sd 
+
+  by_quant<-1/(n_quantile)
+  PRS_quantile_bounds <- qnorm(p=seq(0, 1, by=by_quant), mean= E_PRS, sd= SD_PRS)
+  lower_PRS_vec <- PRS_quantile_bounds[1:n_quantile]
+  upper_PRS_vec <- PRS_quantile_bounds[2:(n_quantile+1)]
+  
+  mean_vec <- c(E_phenotype, E_PRS)
+  sigma_mat <- matrix(sqrt(PRS_R2)*SD_phenotype*SD_PRS, nrow=2, ncol=2)
+  sigma_mat[1,1] <- SD_phenotype^2
+  sigma_mat[2,2] <- SD_PRS^2
+  
+  ### mean of phenotype within the truncated PRS distribution
+  out_mean_Y <- rep(0, n_quantile)
+  ### SD of phenotype within the truncated PRS distribution
+  out_SD_Y <- rep(0, n_quantile)
+  ### cov of Y and PRS given truncation on PRS
+  out_cov_Y_PRS <- rep(0, n_quantile)
+  ### SD of PRS given truncation on PRS
+  out_SD_PRS <- rep(0, n_quantile)
+  ### mean PRS given truncation on PRS
+  out_mean_PRS <- rep(0, n_quantile)
+  
+  for(i in 1:n_quantile){
+  	distribution_i <- mtmvnorm(mean = mean_vec,
+        sigma = sigma_mat,
+        lower = c(-Inf, lower_PRS_vec[i]),
+        upper = c(Inf, upper_PRS_vec[i]),
+        doComputeVariance=TRUE,
+        pmvnorm.algorithm=GenzBretz())
+        out_mean_Y[i] <- distribution_i$tmean[1]
+        out_mean_PRS[i] <- distribution_i$tmean[2]
+        out_SD_Y[i] <- sqrt(distribution_i$tvar[1,1])
+        out_SD_PRS[i] <- sqrt(distribution_i$tvar[2,2])
+        out_cov_Y_PRS[i] <- distribution_i$tvar[1,2]
+  }
+  
+  out<-data.frame(q=1:n_quantile,
+             q_min=lower_PRS_vec,
+             q_max=upper_PRS_vec,
+             x_mean=out_mean_Y,
+             x_sd=out_SD_Y)
+  
+  return(out)
+
+  out_mean_Y
+  out_SD_Y
+  
+  out_mean_PRS
+  out_SD_PRS
+  out_cov_Y_PRS
+}
+
+# Run analysis for each phenotype
+res_all<-NULL
+plots_all<-list()
+cor_res<-NULL
+prs_dist_all<-list()
+
+for(i in 1:dim(files)[1]){
+  # Read in pheno and prs data, and merge
+  pheno_i<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',files$pheno[i],'.txt'))
+  names(pheno_i)[3]<-'pheno'
+  prs_i<-fread(paste0(UKBB_output,'/PRS_for_interpretation/1KG_ref/pt_clump/',files$gwas[i],'/UKBB.subset.w_hm3.',files$gwas[i],'.profiles'))
+  score_nsnp<-fread(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/pt_clump/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.NSNP_per_pT'))
+  score_nsnp<-score_nsnp[score_nsnp$NSNP >= 5,]
+  nsnp<-score_nsnp$NSNP[score_nsnp$pT1 == min(score_nsnp$pT1)]
+  pT<-min(score_nsnp$pT1)
+  prs_i<-prs_i[,c('FID','IID',paste0(files$gwas[i], '_',pT)), with=F]
+  names(prs_i)[3]<-'prs'
+
+  pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
+  
+  # Plot PRS distribution
+  library(ggplot2)
+  library(cowplot)
+  prs_dist_all[[i]]<-ggplot(pheno_prs, aes(x=prs)) +
+    geom_histogram() +
+    labs(y="Count", x='Polygenic Score', title=paste0(files$pheno[i],': ',nsnp,' SNPs')) +
+    theme_cowplot(12)
+
+  # Read in R2 for PRS
+  assoc<-fread(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/',files$pheno[i],'/UKBB.w_hm3.',files$gwas[i],'.EUR-PRSs.AllMethodComp.assoc.txt'))
+  prs_r2<-assoc[grepl(paste0(gwas[i],'_',gsub('-','.',pT)), assoc$Predictor),]$Obs_R2
+
+  # Assign individuals to observed PRS quantiles
+  obs_quant<-quantile(pheno_prs$prs, prob = seq(0, 1, length = n_quant+1))
+  pheno_prs$obs_quant<-as.numeric(cut( pheno_prs$prs, obs_quant, include.lowest = T))
+
+  # Calculate mean and SD of each quantile
+  obs_dist<-NULL
+  for(k in 1:n_quant){
+    obs_dist<-rbind(obs_dist, data.frame(Phenotype=files$pheno[i],
+                                     Type='Observed',
+                                     Quantile=k,
+                                     q_min=obs_quant[k],
+                                     q_max=obs_quant[k+1],
+                                     x_mean=mean(pheno_prs$pheno[pheno_prs$obs_quant == k]),
+                                     x_sd=sd(pheno_prs$pheno[pheno_prs$obs_quant == k])))
+  }
+  
+  # Assign individuals to estimated PRS quantiles
+  est_dist<-mean_sd_quant.f(PRS_R2 = prs_r2, Outcome_mean=mean(pheno_prs$pheno), Outcome_sd=sd(pheno_prs$pheno), n_quantile = n_quant)
+  est_dist$q<-NULL
+  est_dist<-data.frame(Phenotype=files$pheno[i],Type="\nEstimated\n(Observed R2)",Quantile=1:n_quant, est_dist)
+  est_quant<-sort(unique(c(est_dist$q_min, est_dist$q_max)))
+  pheno_prs$est_quant<-as.numeric(cut( pheno_prs$prs, est_quant, include.lowest = T))
+
+  quant_comp<-rbind(obs_dist, est_dist)
+  
+  tmp<-cor.test(obs_dist$x_mean, est_dist$x_mean)
+  tmp2<-abs(est_dist$x_mean-obs_dist$x_mean)/obs_dist$x_mean
+  
+  cor_res<-rbind(cor_res,data.frame(Phenotype=files$pheno[i],
+                                    Cor_mean=tmp$estimate,
+                                    Cor_mean_Low95CI=tmp$conf.int[1],
+                                    Cor_mean_High95CI=tmp$conf.int[2],
+                                    Mean_perc_diff_mean=mean(abs(est_dist$x_mean-obs_dist$x_mean)/obs_dist$x_mean),
+                                      Mean_perc_diff_sd=mean(abs(est_dist$x_sd-obs_dist$x_sd)/obs_dist$x_sd),
+                                    N=length(pheno_prs$pheno),
+                                    Skewness=skewness(pheno_prs$pheno)))
+
+  res_all<-rbind(res_all, quant_comp)
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  plots_all[[i]]<-ggplot(quant_comp, aes(x=Quantile, y=x_mean, colour=Type)) +
+    geom_point(stat="identity", position=position_dodge(.5), alpha=0.8, shape=18, size=3) +
+    geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.5), alpha=0.8) +
+    labs(y="Mean (SD)", title=paste0(files$pheno[i],':\n',nsnp,' SNPs; R2=',round(prs_r2,3)), colour='Method') +
+    theme_cowplot(12)
+  
+    # geom_vline(xintercept = seq(1.5,19.5,1), linetype="dotted", color = "black")
+  
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/pt_clump_PRS_dist_cont.png'), units='px', res=300, width=1750, height=2000)
+  plot_grid(plotlist=prs_dist_all, ncol = 1)
+dev.off()
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/pt_clump_Mean_SD_Comp.png'), units='px', res=300, width=1750, height=2000)
+  plot_grid(plotlist=plots_all, ncol = 1)
+dev.off()
+
+write.csv(cor_res, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/pt_clump_Mean_SD_Comp.csv', row.names=F, quote=F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Observed-Estimated Proportion of Cases within Polygenic Score Quantiles](Images/Validating_ImputeMe_Ideas/Mean_SD_Comp.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.csv")
+
+res_tab<-res
+res_tab[,c(-1,-7)]<-round(res_tab[,c(-1,-7)], 3)
+res_tab$R<-paste0(res_tab$Cor_mean, " (",res_tab$Cor_mean_Low95CI,"-",res_tab$Cor_mean_High95CI,")")
+res_tab$Diff_mean<-paste0(round(res_tab$Mean_perc_diff_mean*100,1),"%")
+res_tab$Diff_sd<-paste0(round(res_tab$Mean_perc_diff_sd*100,1),"%")
+res_tab<-res_tab[,c('Phenotype','R','Diff_mean','Diff_sd','N','Skewness')]
+
+names(res_tab)<-c('Phenotype',"Correlation (95%CI)","Mean Abs. Diff. of Mean","Mean Abs. Diff. of SD",'N','Skewness')
+
+library(knitr)
+kable(res_tab, rownames = FALSE, caption='Correlation between observed and estimated mean and standar deviation of outcome within polygenic score quantiles')
+
+cat('Median Cor. of means = ',median(res$Cor_mean),'; Mean Cor. of means = ', mean(res$Cor_mean),'; Min. Cor. of means = ',min(res$Cor_mean),'; Max. Cor. of means = ',max(res$Cor_mean),'\n\n', sep='')
+
+cat('Median mean %diff of SD = ',median(res$PercDiff_sd_mean),'; Mean mean %diff of SD = ', mean(res$PercDiff_sd_mean),'; Min. mean %diff of SD = ',min(res$PercDiff_sd_mean),'; Max. mean %diff of SD = ',max(res$PercDiff_sd_mean),'\n', sep='')
+```
+
+</details>
+
+***
+
+#### Sex stratified
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+library(e1071)
+
+source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
+
+gwas<-c('COLL01','HEIG03','BODY04')
+pheno<-c('Intelligence','Height','BMI')
+
+n_quant<-20
+
+files<-data.frame(pheno,gwas)
+
+# Create function
+mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quantile=20){
+  ### PRS quantiles with a continuous phenotype (Y)
+  library(tmvtnorm)
+  ###
+  E_PRS = 0
+  SD_PRS = sqrt(1)
+  E_phenotype = Outcome_mean
+  SD_phenotype = Outcome_sd 
+
+  by_quant<-1/(n_quantile)
+  PRS_quantile_bounds <- qnorm(p=seq(0, 1, by=by_quant), mean= E_PRS, sd= SD_PRS)
+  lower_PRS_vec <- PRS_quantile_bounds[1:n_quantile]
+  upper_PRS_vec <- PRS_quantile_bounds[2:(n_quantile+1)]
+  
+  mean_vec <- c(E_phenotype, E_PRS)
+  sigma_mat <- matrix(sqrt(PRS_R2)*SD_phenotype*SD_PRS, nrow=2, ncol=2)
+  sigma_mat[1,1] <- SD_phenotype^2
+  sigma_mat[2,2] <- SD_PRS^2
+  
+  ### mean of phenotype within the truncated PRS distribution
+  out_mean_Y <- rep(0, n_quantile)
+  ### SD of phenotype within the truncated PRS distribution
+  out_SD_Y <- rep(0, n_quantile)
+  ### cov of Y and PRS given truncation on PRS
+  out_cov_Y_PRS <- rep(0, n_quantile)
+  ### SD of PRS given truncation on PRS
+  out_SD_PRS <- rep(0, n_quantile)
+  ### mean PRS given truncation on PRS
+  out_mean_PRS <- rep(0, n_quantile)
+  
+  for(i in 1:n_quantile){
+  	distribution_i <- mtmvnorm(mean = mean_vec,
+        sigma = sigma_mat,
+        lower = c(-Inf, lower_PRS_vec[i]),
+        upper = c(Inf, upper_PRS_vec[i]),
+        doComputeVariance=TRUE,
+        pmvnorm.algorithm=GenzBretz())
+        out_mean_Y[i] <- distribution_i$tmean[1]
+        out_mean_PRS[i] <- distribution_i$tmean[2]
+        out_SD_Y[i] <- sqrt(distribution_i$tvar[1,1])
+        out_SD_PRS[i] <- sqrt(distribution_i$tvar[2,2])
+        out_cov_Y_PRS[i] <- distribution_i$tvar[1,2]
+  }
+  
+  out<-data.frame(q=1:n_quantile,
+             q_min=lower_PRS_vec,
+             q_max=upper_PRS_vec,
+             x_mean=out_mean_Y,
+             x_sd=out_SD_Y)
+  
+  return(out)
+
+  out_mean_Y
+  out_SD_Y
+  
+  out_mean_PRS
+  out_SD_PRS
+  out_cov_Y_PRS
+}
+
+# Run analysis for each phenotype
+res_all<-NULL
+plots_all<-list()
+cor_res<-NULL
+prs_dist_all<-list()
+obs_dist<-NULL
+
+for(i in 1:dim(files)[1]){
+  # Read in pheno and prs data, and merge
+  pheno_i<-fread(paste0(UKBB_output,'/Phenotype/PRS_comp_subset/UKBB.',files$pheno[i],'.txt'))
+  names(pheno_i)[3]<-'pheno'
+  prs_i<-fread(paste0(UKBB_output,'/PRS_for_interpretation/1KG_ref/DBSLMM/',files$gwas[i],'/UKBB.subset.w_hm3.',files$gwas[i],'.DBSLMM_profiles'))
+  prs_i<-prs_i[,c('FID','IID',paste0(files$gwas[i], '_DBSLMM')), with=F]
+  names(prs_i)[3]<-'prs'
+
+  pheno_prs<-merge(pheno_i, prs_i, by=c('FID','IID'))
+  
+  # Split sample sex (0=female, 1=male)
+  ukb_sex<-fread('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/UKBB_Sex.pheno')
+  sex_code<-data.frame(code=c(0,1), sex=c('Female', 'Male'))
+  pheno_prs<-merge(pheno_prs, ukb_sex, by=c('FID','IID'))
+
+  cor(pheno_prs[,-1:-2])^2 # The sum of R2 values for independent variables is equal to the R2 of a model combining all variables. PRS_R2/(1-sex_R2) ~ PRS_R2 within each sex. This logic could be used to account for additional uncorrelated factors.
+  
+  obs_dist<-NULL
+  est_dist_all<-NULL
+  for(sex in 0:1){
+    pheno_prs_sex<-pheno_prs[pheno_prs$Sex == sex,]
+    prs_r2<-cor(pheno_prs_sex$pheno, pheno_prs_sex$prs)^2
+    
+    # Assign individuals to observed PRS quantiles
+    obs_quant<-quantile(pheno_prs_sex$prs, prob = seq(0, 1, length = n_quant+1))
+    pheno_prs_sex$obs_quant<-as.numeric(cut( pheno_prs_sex$prs, obs_quant, include.lowest = T))
+  
+    # Calculate mean and SD of each quantile that are cases
+    for(k in 1:n_quant){
+      obs_dist<-rbind(obs_dist, data.frame(Phenotype=files$pheno[i],
+                                       Sex=sex_code$sex[sex_code$code == sex],
+                                       Type='Observed',
+                                       Quantile=k,
+                                       q_min=obs_quant[k],
+                                       q_max=obs_quant[k+1],
+                                       x_mean=mean(pheno_prs_sex$pheno[pheno_prs_sex$obs_quant == k]),
+                                       x_sd=sd(pheno_prs_sex$pheno[pheno_prs_sex$obs_quant == k])))
+    }
+  
+  # Assign individuals to estimated PRS quantiles
+  est_dist<-mean_sd_quant.f(PRS_R2 = prs_r2, Outcome_mean=mean(pheno_prs_sex$pheno), Outcome_sd=sd(pheno_prs_sex$pheno), n_quantile = n_quant)
+  est_dist$q<-NULL
+  est_dist<-data.frame(Phenotype=files$pheno[i],
+                       Sex=sex_code$sex[sex_code$code == sex], Type="\nEstimated\n(Observed R2)",Quantile=1:n_quant, est_dist)
+  est_quant<-sort(unique(c(est_dist$q_min, est_dist$q_max)))
+  pheno_prs_sex$est_quant<-as.numeric(cut( pheno_prs_sex$prs, est_quant, include.lowest = T))
+  
+  est_dist_all<-rbind(est_dist_all, est_dist)
+
+  }
+  
+  quant_comp<-rbind(obs_dist, est_dist_all)
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  plots_all[[paste0(i)]]<-ggplot(quant_comp, aes(x=Quantile, y=x_mean, colour=Type)) +
+    geom_point(stat="identity", position=position_dodge(.5), alpha=0.8, shape=18, size=3) +
+    geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.5), alpha=0.8) +
+    labs(y="Mean (SD)", title=paste0(files$pheno[i]), colour='Method') +
+    theme_cowplot(12) +
+    facet_grid(. ~ Sex)
+  
+    # geom_vline(xintercept = seq(1.5,19.5,1), linetype="dotted", color = "black")
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp_sex_stratified.png'), units='px', res=300, width=2000, height=2000)
+  plot_grid(plotlist=plots_all, ncol = 1)
+dev.off()
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Observed-Estimated Proportion of Cases within Polygenic Score Quantiles](Images/Validating_ImputeMe_Ideas/Mean_SD_Comp.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Measured_AUC_R2/Mean_SD_Comp.csv")
+
+res_tab<-res
+res_tab[,c(-1,-7)]<-round(res_tab[,c(-1,-7)], 3)
+res_tab$R<-paste0(res_tab$Cor_mean, " (",res_tab$Cor_mean_Low95CI,"-",res_tab$Cor_mean_High95CI,")")
+res_tab$Diff_mean<-paste0(round(res_tab$Mean_perc_diff_mean*100,1),"%")
+res_tab$Diff_sd<-paste0(round(res_tab$Mean_perc_diff_sd*100,1),"%")
+res_tab<-res_tab[,c('Phenotype','R','Diff_mean','Diff_sd','N','Skewness')]
+
+names(res_tab)<-c('Phenotype',"Correlation (95%CI)","Mean Abs. Diff. of Mean","Mean Abs. Diff. of SD",'N','Skewness')
+
+library(knitr)
+kable(res_tab, rownames = FALSE, caption='Correlation between observed and estimated mean and standar deviation of outcome within polygenic score quantiles')
+
+cat('Median Cor. of means = ',median(res$Cor_mean),'; Mean Cor. of means = ', mean(res$Cor_mean),'; Min. Cor. of means = ',min(res$Cor_mean),'; Max. Cor. of means = ',max(res$Cor_mean),'\n\n', sep='')
+
+cat('Median mean %diff of SD = ',median(res$PercDiff_sd_mean),'; Mean mean %diff of SD = ', mean(res$PercDiff_sd_mean),'; Min. mean %diff of SD = ',min(res$PercDiff_sd_mean),'; Max. mean %diff of SD = ',max(res$PercDiff_sd_mean),'\n', sep='')
+```
+
+</details>
+
+***
+
+## Demonstrate potential of polygenic scores
+
+Here we will create a series of plots showing estimates on the absolute scale across PRS quantiles given a range of phenotype distribution and PRS AUC/R2.
+
+***
+
+### Binary outcomes
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+# Thank you for Alex Gillet for her work developing this code.
+ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
+  
+    # Convert AUC into cohen's d
+    d <- sqrt(2)*qnorm(PRS_auc)
+    
+    # Set mean difference between cases and control polygenic scores
+    mu_case <- d
+    mu_control <- 0
+    
+    # Estimate mean and variance of polygenic scores across case and control
+    varPRS <- prev*(1+(d^2) - (d*prev)^2) + (1-prev)*(1 - (d*prev)^2)
+    E_PRS <- d*prev
+    
+    # Estimate polygenic score quantiles
+    by_quant<-1/n_quantile
+    p_quant <- seq(by_quant, 1-by_quant, by=by_quant)
+    quant_vals_PRS <- rep(0, length(p_quant))
+    quant_f_solve <- function(x, prev, d, pq){prev*pnorm(x-d) + (1-prev)*pnorm(x) - pq}
+    for(i in 1:length(p_quant)){
+        quant_vals_PRS[i] <- unlist(uniroot(quant_f_solve, prev=prev, d=d, pq= p_quant[i], interval=c(-2.5, 2.5), extendInt = "yes", tol=6e-12)$root)
+    }
+    
+    # Create a table for output
+    ul_qv_PRS <- matrix(0, ncol=2, nrow=n_quantile)
+    ul_qv_PRS[1,1] <- -Inf
+    ul_qv_PRS[2:n_quantile,1] <- quant_vals_PRS
+    ul_qv_PRS[1:(n_quantile-1),2] <- quant_vals_PRS
+    ul_qv_PRS[n_quantile,2] <- Inf
+    
+    ul_qv_PRS<-cbind(ul_qv_PRS, (ul_qv_PRS[,1:2]-E_PRS)/sqrt(varPRS))
+    
+    # Estimate case control proportion for each quantile
+    prob_quantile_case <- pnorm(ul_qv_PRS[,2], mean = mu_case) - pnorm(ul_qv_PRS[,1], mean = mu_case)
+    prob_quantile_control <- pnorm(ul_qv_PRS[,2], mean = mu_control) - pnorm(ul_qv_PRS[,1], mean = mu_control)
+    p_case_quantile <- (prob_quantile_case*prev)/by_quant
+    p_cont_quantile <- (prob_quantile_control*(1-prev))/by_quant
+    
+    # Estimate OR comparing each quantile to bottom quantile
+    OR <- p_case_quantile/p_cont_quantile
+    OR <- OR/OR[1]
+    
+    # Return output
+    out <- cbind(ul_qv_PRS[,3:4],p_cont_quantile, p_case_quantile, OR)
+    row.names(out) <- 1:n_quantile
+    colnames(out) <- c("q_min", "q_max","p_control", "p_case", "OR")
+    
+    data.frame(out)
+}
+
+k<-as.character(c(0.01,0.15,0.3,0.5))
+auc<-as.character(seq(0.6, 0.9, by=0.1))
+
+library(ggplot2)
+library(cowplot)
+
+plot_list<-list()
+plot_list_OR<-list()
+res_all<-NULL
+for(i in k){
+  res_i<-NULL
+  for(j in auc){
+    res_i_j<-ccprobs.f(PRS_auc=as.numeric(j), prev=as.numeric(i), n_quantile=100)
+    res_i_j$Quantile<-1:nrow(res_i_j)
+    res_i_j$auc<-j
+    res_i_j$k<-i
+    res_i_j$OR<-res_i_j$p_case/as.numeric(i)
+    res_i<-rbind(res_i, res_i_j)
+  }
+  
+  res_all<-rbind(res_all, res_i)
+  
+  plot_list[[i]]<-ggplot(res_i, aes(x=Quantile, y=p_case, group=auc, colour=auc)) +
+                    geom_line() +
+                    labs(y="p(case)", title=paste0('Prevelance = ',i), colour='AUC')  +
+                    theme_half_open() +
+                    background_grid()
+
+    plot_list_OR[[i]]<-ggplot(res_i, aes(x=Quantile, y=OR, group=auc, colour=auc)) +
+                    geom_line() +
+                    labs(y="OR", title=paste0('Prevelance = ',i), colour='AUC') +
+                    theme_half_open() +
+                    background_grid()
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Binary_sim.png'), units='px', res=300, width=2000, height=1800)
+  plot_grid(plotlist=plot_list, ncol = 2)
+dev.off()
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Binary_sim_OR.png'), units='px', res=300, width=2000, height=1800)
+  plot_grid(plotlist=plot_list_OR, ncol = 2)
+dev.off()
+
+write.csv(res_all, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Binary_sim.csv', row.names=F, quote=F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Binary_sim.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Proportion of Cases within Polygenic Score Quantiles across AUC and prevelance](Images/Validating_ImputeMe_Ideas/Binary_sim.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Binary_sim.csv")
+
+res<-round(res, 3)
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Proportion of Cases within Polygenic Score Quantiles across AUC and prevelance')
+```
+
+</details>
+
+***
+
+### Continuous outcomes
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+# Thank you for Alex Gillet for her work developing this code.
+mean_sd_quant.f <- function(PRS_R2=0.641, Outcome_mean=1, Outcome_sd=1, n_quantile=20){
+  ### PRS quantiles with a continuous phenotype (Y)
+  library(tmvtnorm)
+  ###
+  E_PRS = 0
+  SD_PRS = sqrt(1)
+  E_phenotype = Outcome_mean
+  SD_phenotype = Outcome_sd 
+
+  by_quant<-1/(n_quantile)
+  PRS_quantile_bounds <- qnorm(p=seq(0, 1, by=by_quant), mean= E_PRS, sd= SD_PRS)
+  lower_PRS_vec <- PRS_quantile_bounds[1:n_quantile]
+  upper_PRS_vec <- PRS_quantile_bounds[2:(n_quantile+1)]
+  
+  mean_vec <- c(E_phenotype, E_PRS)
+  sigma_mat <- matrix(sqrt(PRS_R2)*SD_phenotype*SD_PRS, nrow=2, ncol=2)
+  sigma_mat[1,1] <- SD_phenotype^2
+  sigma_mat[2,2] <- SD_PRS^2
+  
+  ### mean of phenotype within the truncated PRS distribution
+  out_mean_Y <- rep(0, n_quantile)
+  ### SD of phenotype within the truncated PRS distribution
+  out_SD_Y <- rep(0, n_quantile)
+  ### cov of Y and PRS given truncation on PRS
+  out_cov_Y_PRS <- rep(0, n_quantile)
+  ### SD of PRS given truncation on PRS
+  out_SD_PRS <- rep(0, n_quantile)
+  ### mean PRS given truncation on PRS
+  out_mean_PRS <- rep(0, n_quantile)
+  
+  for(i in 1:n_quantile){
+  	distribution_i <- mtmvnorm(mean = mean_vec,
+        sigma = sigma_mat,
+        lower = c(-Inf, lower_PRS_vec[i]),
+        upper = c(Inf, upper_PRS_vec[i]),
+        doComputeVariance=TRUE,
+        pmvnorm.algorithm=GenzBretz())
+        out_mean_Y[i] <- distribution_i$tmean[1]
+        out_mean_PRS[i] <- distribution_i$tmean[2]
+        out_SD_Y[i] <- sqrt(distribution_i$tvar[1,1])
+        out_SD_PRS[i] <- sqrt(distribution_i$tvar[2,2])
+        out_cov_Y_PRS[i] <- distribution_i$tvar[1,2]
+  }
+  
+  out<-data.frame(q=1:n_quantile,
+             q_min=lower_PRS_vec,
+             q_max=upper_PRS_vec,
+             x_mean=out_mean_Y,
+             x_sd=out_SD_Y)
+  
+  return(out)
+
+  out_mean_Y
+  out_SD_Y
+  
+  out_mean_PRS
+  out_SD_PRS
+  out_cov_Y_PRS
+}
+
+r2<-as.character(seq(0.1, 0.9, by=0.2))
+
+library(ggplot2)
+library(cowplot)
+
+plot_list<-list()
+res_all<-NULL
+res_j<-NULL
+for(j in r2){
+  res_j<-mean_sd_quant.f(PRS_R2=as.numeric(j), Outcome_mean=0, Outcome_sd=1, n_quantile=20)
+  res_j$Quantile<-1:nrow(res_j)
+  res_j$r2<-j
+  res_j$mean<-0
+  res_j$sd<-i
+  res_all<-rbind(res_all, res_j)
+}
+
+png(paste0('/scratch/users/k1806347/Analyses/AbsoluteRisk/Continuous_sim.png'), units='px', res=300, width=2000, height=1000)
+  ggplot(res_all, aes(x=Quantile, y=x_mean, colour=r2)) +
+      geom_point(position=position_dodge(.5)) +
+      geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.5), alpha=0.8) +
+      labs(y="Mean (SD)", colour=expression(paste(italic("R")^2))) +
+      theme_half_open() +
+      background_grid()
+dev.off()
+
+write.csv(res_all, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Continuous_sim.csv', row.names=F, quote=F)
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas
+
+cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Binary_sim.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Validating_ImputeMe_Ideas/
+```
+
+<details><summary>Show results</summary>
+![Proportion of Cases within Polygenic Score Quantiles across AUC and prevelance](Images/Validating_ImputeMe_Ideas/Binary_sim.png)
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Binary_sim.csv")
+
+res<-round(res, 3)
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Proportion of Cases within Polygenic Score Quantiles across AUC and prevelance')
 ```
 
 </details>
@@ -958,6 +1824,7 @@ write.csv(h2_all, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R
 #####
 # Continuous outcomes
 #####
+
 library(data.table)
 source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
 
@@ -1112,6 +1979,8 @@ for(i in 1:length(pheno)){
 
   AUC_pred<-rbind(AUC_pred, data.frame(Phenotype=pheno[i],
                                          N=h2$N[h2$Phenotype == pheno[i]],
+                                         AVENGEME_vg1=tmp2$vg[1],
+                                         AVENGEME_pi0=tmp2$pi0[1],
                                          vg1=h2$h2[h2$Phenotype == pheno[i]],
                                          Intercept=h2$int[h2$Phenotype == pheno[i]],
                                          prevalence=h2$pop_prev[h2$Phenotype == pheno[i]],
@@ -1235,6 +2104,8 @@ for(i in 1:length(pheno)){
 
   R2_pred<-rbind(R2_pred, data.frame(Phenotype=pheno[i],
                                          N=h2$N[h2$Phenotype == pheno[i]],
+                                         AVENGEME_vg1=tmp2$vg[1],
+                                         AVENGEME_pi0=tmp2$pi0[1],
                                          vg1=h2$h2[h2$Phenotype == pheno[i]],
                                          Intercept=h2$int[h2$Phenotype == pheno[i]],
                                          NSNP=pheno_nsnp,
@@ -1251,6 +2122,8 @@ dev.off()
 R2_pred$Est_Obs_diff_LDSC<-R2_pred$pred_R2_LDSC-R2_pred$DBSLMM_R2
 
 write.csv(R2_pred, '/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_R2.csv', row.names=F, quote = F)
+
+# Note: I considered using GCTB to estimate heritability and polygenicity for AVENGEME. The estimates are often concordant, but heritability and polygenicity estimates do vary.
 
 ```
 </details>
@@ -1270,8 +2143,8 @@ cp /scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_R2.pn
 res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_AUC.csv")
 
 res[,-1]<-round(res[,-1],3)
-res<-res[,c('Phenotype','N','vg1','Intercept','prevalence','sampling','pred_AUC_LDSC','pred_AUC_AVENG','pTclump_pt1_AUC','DBSLMM_AUC')]
-names(res)<-c('Phenotype','N','LDSC h2','LDSC intercept','Prevalence','Sampling',"Obs. AUC (pT1)", "Obs. AUC (DBSLMM)","Est. AUC (LDSC h2)", "Est. AUC (AVENGEME h2)")
+res<-res[,c('Phenotype','N','AVENGEME_vg1','vg1','Intercept','prevalence','sampling','pred_AUC_LDSC','pred_AUC_AVENG','pTclump_pt1_AUC','DBSLMM_AUC')]
+names(res)<-c('Phenotype','N','AVENGEME h2','LDSC h2','LDSC intercept','Prevalence','Sampling', "Est. AUC (LDSC h2)", "Est. AUC (AVENGEME h2)","Obs. AUC (pT1)", "Obs. AUC (DBSLMM)")
 
 library(knitr)
 kable(res, rownames = FALSE, caption='Etimation of PRS AUC using LDSC and AVENGEME approach')
@@ -1281,6 +2154,10 @@ kable(res, rownames = FALSE, caption='Etimation of PRS AUC using LDSC and AVENGE
 
 ```{r, echo=F, eval=T, results='asis'}
 res<-read.csv("/scratch/users/k1806347/Analyses/AbsoluteRisk/Estimated_AUC_R2/AVENGEME_R2.csv")
+
+res[,-1]<-round(res[,-1],3)
+res<-res[,c('Phenotype','N','AVENGEME_vg1','vg1','Intercept','pred_R2_LDSC','pred_R2_AVENG','pTclump_pt1_R2','DBSLMM_R2')]
+names(res)<-c('Phenotype','N','AVENGEME h2','LDSC h2','LDSC intercept',"Est. R2 (LDSC h2)", "Est. R2 (AVENGEME h2)","Obs. R2 (pT1)", "Obs. R2 (DBSLMM)")
 
 library(knitr)
 kable(res, rownames = FALSE, caption='Etimation of PRS R2 using LDSC and AVENGEME approach')
@@ -2146,7 +3023,7 @@ for(i in 1:dim(files)[1]){
   library(ggplot2)
   library(cowplot)
   
-  plots_all[[i]]<-ggplot(quant_comp[grepl('Estimated', quant_comp$Type),], aes(x=Quantile, y=p_case, colour=Type)) +
+  plots_all[[i]]<-ggplot(quant_comp, aes(x=Quantile, y=p_case, colour=Type)) +
     geom_line() +
     geom_point(alpha=0.8, shape=18, size=2) +
     labs(y="p(case)", title=files$pheno[i], colour='Method') +
@@ -2364,7 +3241,7 @@ for(i in 1:dim(files)[1]){
   library(ggplot2)
   library(cowplot)
   
-  plots_all[[i]]<-ggplot(quant_comp[grepl('Estimate', quant_comp$Type),], aes(x=Quantile, y=x_mean, colour=Type)) +
+  plots_all[[i]]<-ggplot(quant_comp, aes(x=Quantile, y=x_mean, colour=Type)) +
     geom_point(stat="identity", position=position_dodge(.5), alpha=0.8, shape=18, size=2) +
     geom_errorbar(aes(ymin=x_mean-x_sd, ymax=x_mean+x_sd), width=.2, position=position_dodge(.5), alpha=0.8) +
     labs(y="Mean (SD)", title=files$pheno[i], colour='Method') +

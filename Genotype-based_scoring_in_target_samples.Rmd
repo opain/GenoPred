@@ -1081,6 +1081,58 @@ for pop in $(echo AMR EAS SAS);do
 sbatch --array=1-$(wc -l ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt | cut -d ' ' -f 1)%5 ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo_array.sh
 done
 
+######
+# Predict gene expression into EUR_test subset for diverse ancestry analysis
+######
+
+# Set required variables
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+for pop in $(echo EUR_test);do
+# Create file listing weights that haven't been predicted in the reference.
+mkdir -p ${UKBB_output}/Predicted_expression/FUSION/${pop}
+> ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt
+for weights in $(cat ~/brc_scratch/Data/TWAS_sumstats/FUSION/snp_weight_list.txt);do
+if [ ! -f ${UKBB_output}/Predicted_expression/FUSION/${pop}/${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.${weights}.predictions.gz ]; then
+echo $weights >> ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt
+fi
+done
+done
+
+for pop in $(echo EUR_test);do
+cat <<EOF >${UKBB_output}/Predicted_expression/FUSION/${pop}/todo_array.sh
+#!/bin/bash
+#SBATCH -p shared,brc
+#SBATCH --mem 40G
+#SBATCH -n 5
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+
+weights=\$(awk -v myvar=\${SLURM_ARRAY_TASK_ID} 'NR == myvar {print}' ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt)
+echo \${SLURM_ARRAY_TASK_ID}
+echo \$weights
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/FUSION_targ_scorer/FUSION_targ_scorer.R \
+  --targ_plink_chr \${UKBB_output}/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --targ_keep /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/EUR_test.keep \
+  --weights \${FUSION_dir}/SNP-weights/\${weights}/\${weights}.pos \
+  --plink \${plink1_9} \
+  --n_cores 5 \
+  --memory 40000 \
+  --score_files \${FUSION_dir}/SCORE_FILES \
+  --ref_scale \${Geno_1KG_dir}/Predicted_expression/FUSION/\${weights}/1KGPhase3.w_hm3.FUSION.\${weights}.EUR.scale \
+  --pigz \${pigz_binary} \
+  --output \${UKBB_output}/Predicted_expression/FUSION/${pop}/\${weights}/UKBB.w_hm3.QCd.AllSNP.FUSION.\${weights} \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr
+
+EOF
+done
+
+for pop in $(echo EUR_test);do
+sbatch --array=1-$(wc -l ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo.txt | cut -d ' ' -f 1)%5 ${UKBB_output}/Predicted_expression/FUSION/${pop}/todo_array.sh
+done
+
+
 ```
 </details>
 
