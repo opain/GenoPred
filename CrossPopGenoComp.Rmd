@@ -41,6 +41,7 @@ In this document we compare linkage disequilibrium (LD) patterns and minor allel
 
 ## Trying out the approach
 
+<details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 ########
 # Using bigsnpr
@@ -211,6 +212,7 @@ comp<-merge(EUR_pop_k_dat, c_score, by.x='SNP', by.y='V3')
 # This is probably due to differences in window size.
 
 ```
+</details>
 
 ***
 
@@ -218,6 +220,7 @@ comp<-merge(EUR_pop_k_dat, c_score, by.x='SNP', by.y='V3')
 
 I have now created an Rscript to run this analysis so it can be split by chromosome and population and run in parallel.
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 pop1=EUR
 
@@ -236,11 +239,15 @@ done
 # This scripts works well enough but the memory consumption is high. I am sure bigsnpr/bigstatsr functions could make this more efficient.
 # Also, the output may vary slightly if the sliding window step size is changed due to the inclusion SNPs beyond 3cM. Although these SNPs would have a correlation of 0 due to bigsnpr window size, inclusion of the zero values my slightly influence the result.
 ```
+</details>
+
+***
 
 ## Stratify SNPs by LD and MAF differences
 
 Create SNP-list listing SNPs within deciles of cov_score, cor_score, and Fst. Also, output a list of SNPs with MAF > 0.01 in both samples (i.e. in the file just created), and also split SNPs into random decile. These sensitivity analyses will help understand the cause of improved prediction.
 
+<details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 library(data.table)
 
@@ -280,6 +287,7 @@ for(pop2 in c('EAS','AMR','AFR','SAS')){
 }
 
 ```
+</details>
 
 ***
 
@@ -289,6 +297,7 @@ for(pop2 in c('EAS','AMR','AFR','SAS')){
 
 ## Calculate polygenic scores
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 ####
 # Step 1. Create score files
@@ -397,11 +406,13 @@ for pop2 in $(echo EAS AMR AFR SAS); do
 done
 
 ```
+</details>
 
 ***
 
 ## Evaluate polygenic scores
 
+<details><summary>Show code</summary>
 ```{r, eval=F, echo=T}
 ########
 # Compare unstratified to prs-stratified by each metric seperately
@@ -583,9 +594,13 @@ sbatch -p brc,shared --mem 40G /users/k1806347/brc_scratch/Software/Rscript.sh /
 done
 
 ```
+</details>
+
+***
 
 ## Plot the results
 
+<details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 library(data.table)
 library(ggplot2)
@@ -648,6 +663,8 @@ for(k in 1:length(type)){
 res_all<-rbind(res_all, EUR_res_all)
 res_all$Type<-factor(res_all$Type, levels=c('cov. Q','cor. Q','Fst. Q','random. Q','MAF1','Unstratified','All','EUR'))
 
+write.csv(res_all, '/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/seperate_stratification_summary.csv', row.names=F, quote=F)
+
 # Plot the performance of stratifying by cov, cor, Fst
 for(j in 1:length(pop2)){
 for(i in 1:length(gwas)){
@@ -707,8 +724,11 @@ for(i in 1:length(gwas)){
 }
 }
 
+write.csv(combined_res, '/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/combined_stratification_summary.csv', row.names=F, quote=F)
+
 res_all_2<-res_all[!grepl('. Q', res_all$Model),]
-res_all_2<-res_all_2[!grepl('Unstratified', res_all_2$Model),]
+res_all_2<-res_all_2[!grepl('Unstratified|MAF1', res_all_2$Model),]
+res_all_2<-res_all_2[!grepl('random', res_all_2$Method),]
 res_all_2$Model<-as.character(res_all_2$Model)
 res_all_2$Method<-as.character(res_all_2$Method)
 res_all_2$Type<-as.character(res_all_2$Type)
@@ -761,6 +781,8 @@ res_all_3$Model[res_all_3$Model == 'All']<-'CrossPop'
 res_all_3$Model<-factor(res_all_3$Model, levels=c('Unstratified','CrossPop'))
 res_all_3$Type<-res_all_3$Model
 
+write.csv(res_all_3, '/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/Unstratified_vs_stratified.csv', row.names=F, quote=F)
+
 plot_list<-NULL
 for(i in 1:length(gwas)){
   res_all_3_i<-res_all_3[res_all_3$GWAS == gwas[i],]
@@ -771,8 +793,9 @@ for(i in 1:length(gwas)){
     y_lim<-c(0,max(res_all_3_i$R + res_all_3_i$SE))
   }
 
-  plot_list[[i]]<-ggplot(res_all_3_i, aes(x=factor(Model), y=R, colour=Population)) +
+  plot_list[[i]]<-ggplot(res_all_3_i, aes(x=factor(Model), y=R, colour=Population, group=Population)) +
                             geom_point(stat="identity", position=position_dodge( width=.30)) +
+                            geom_line(stat="identity", position=position_dodge( width=.30)) +
                             geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(.30)) +
                             ylim(y_lim) +
                             theme_half_open() +
@@ -790,13 +813,136 @@ png('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/prs_res_summary_allpop.pn
 dev.off()
 
 ```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop
+
+for pop1 in $(echo EUR); do
+for pop2 in $(echo EAS AMR AFR SAS); do
+for gwas in $(echo HEIG03 BODY04); do
+
+cp /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/${pop1}_${pop2}/assoc/${gwas}/prs_res.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop/${pop1}_${pop2}_${gwas}_prs_res.png
+
+done
+
+cp /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/${pop1}_${pop2}/assoc/prs_res_summary.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop/${pop1}_${pop2}_prs_res_summary.png
+
+done
+done
+
+cp /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/prs_res_summary_allpop.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop/
+```
+
+***
+
+### Results for cov, cor, Fst, random seperately
+<details><summary>Show figures</summary>
+
+![EUR - AFR: BODY04](Images/CrossPop/EUR_AFR_BODY04_prs_res.png)
+![EUR - EAS: BODY04](Images/CrossPop/EUR_EAS_BODY04_prs_res.png)
+![EUR - AMR: BODY04](Images/CrossPop/EUR_AMR_BODY04_prs_res.png)
+![EUR - SAS: BODY04](Images/CrossPop/EUR_SAS_BODY04_prs_res.png)
+
+![EUR - AFR: HEIG03](Images/CrossPop/EUR_AFR_HEIG03_prs_res.png)
+![EUR - EAS: HEIG03](Images/CrossPop/EUR_EAS_HEIG03_prs_res.png)
+![EUR - AMR: HEIG03](Images/CrossPop/EUR_AMR_HEIG03_prs_res.png)
+![EUR - SAS: HEIG03](Images/CrossPop/EUR_SAS_HEIG03_prs_res.png)
+
+</details>
+
+<details><summary>Show table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/combined_stratification_summary.csv")
+
+res$P<-format(res$P, scientific = TRUE, digits = 3)
+res[,!grepl("Model|P|Type|GWAS|Population|Method",names(res))]<-round(res[,!grepl("Model|P|Type|GWAS|Population|Method",names(res))], 3)
+
+res<-res[,c('GWAS','Population','Model','R','SE','P','R2o','N')]
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Predictive utility of stratified PRS')
+```
+
+</details>
+
+***
+
+* These results show that stratifying PRS by cov, cor and Fst does improve prediction over unstratified PRS.
+* In most instances PRS based on SNPs with lowest cov or cor explain least variance. There is an increase in variance explained are cov and cor increase, as expected. However, the highest quantile for cov and cor often shows poor prediction. This should be investigated.
+* The pattern of enrichment of Fst varies. There is a typically a decreased variance explained by high Fst PRS. BMI nicely shows this pattern except for in AFR, where high Fst increases variance explained. The pattern across Fst for height is very mixed.
+* Stratify by random quantiles also improve prediction over unstratified PRS, though the improvement appears slightly smaller than when stratified by cov, cor or Fst. This suggests improvements based on cor, cov and Fst are not entirely due to these properties. This would probably be less of an issue if there were fewer PRS in the model, i.e. less quantiles, and less p-value thresholds.
+* On average restricting to MAF 1% variants does not improve prediction.
+
+***
+
+### Results for cov, cor, and Fst combined
+<details><summary>Show figures</summary>
+
+![EUR - AFR](Images/CrossPop/EUR_AFR_prs_res_summary.png)
+![EUR - EAS](Images/CrossPop/EUR_EAS_prs_res_summary.png)
+![EUR - AMR](Images/CrossPop/EUR_AMR_prs_res_summary.png)
+![EUR - SAS](Images/CrossPop/EUR_SAS_prs_res_summary.png)
+
+</details>
+
+<details><summary>Show table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/seperate_stratification_summary.csv")
+
+res$P<-format(res$P, scientific = TRUE, digits = 3)
+res[,!grepl("Model|P|Type|GWAS|Population|Method",names(res))]<-round(res[,!grepl("Model|P|Type|GWAS|Population|Method",names(res))], 3)
+
+res<-res[,c('GWAS','Population','Method','Model','R','SE','P','R2o','N')]
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Predictive utility of stratified PRS')
+```
+
+</details>
+
+***
 
 Results are looking promising:
 
-* EAS results using cov-stratified PRS match results when using C-scores
+* Results using cov-stratified PRS match results when using C-scores from POPCORN (Toshiki)
 * Stratified PRS improve prediction in most instances
 * Each type of stratification can work, but combining all approaches improves prediction the most
 
+It is is unclear whether this improvement is due to enrichment of cross population portability metrics, or if it is merely due to splitting genetic variants into many groups. Does this matter? I suppose it would be interesting to test for cross population enrichment of cov, cor and Fst. Results across quantiles hint at enrichment, but this could be tested in a more controlled way perhaps. Perhaps estimating the correlation between genetic effects across cov, cor and Fst bins. LD clumping would be required after stratification.
+
+***
+
+### Summary results comparing unstratfified vs stratified
+<details><summary>Show figure</summary>
+
+![Summary](Images/CrossPop/prs_res_summary_allpop.png)
+
+</details>
+
+<details><summary>Show table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/Unstratified_vs_stratified.csv")
+
+res$P<-format(res$P, scientific = TRUE, digits = 3)
+res[,!grepl("Model|P|Type|GWAS|Population|Method",names(res))]<-round(res[,!grepl("Model|P|Type|GWAS|Population|Method",names(res))], 3)
+
+res<-res[,c('GWAS','Population','Model','R','SE','P','R2o','N')]
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Predictive utility of stratified PRS')
+```
+
+</details>
+
+***
+
+### Portabilty results
+
+<details><summary>Show code</summary>
 ```{R, eval=F, echo=F}
 # Read in the pred_comp results
 library(data.table)
@@ -812,7 +958,7 @@ pop2=c('EAS','AMR','AFR','SAS')
 EUR_res_all<-NULL
 pheno<-c('Height','BMI')
 for(i in 1:length(gwas)){
-EUR_res<-fread(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.pred_eval.txt'))
+EUR_res<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/EUR_EUR/assoc/',gwas[i],'/prs.pred_eval.txt'))
 
 EUR_res<-EUR_res[EUR_res$Model == 'All_group',]
 EUR_res$GWAS<-gwas[i]
@@ -833,11 +979,23 @@ for(k in 1:length(type)){
   res_comp$Population<-pop2[j]
   res_comp$Method<-type[k]
   
-  res_comp$EUR_R<-EUR_res_comp_all$IndepVal_R[EUR_res_comp_all$GWAS == gwas[i]]
+  res_comp$EUR_R<-EUR_res_all$R[EUR_res_all$GWAS == gwas[i]]
   
   res_comp_all<-rbind(res_comp_all, res_comp)
   
 }
+res_comp<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/',pop1,'_',pop2[j],'/assoc/',gwas[i],'/prs.pred_comp.txt'))
+
+res_comp<-res_comp[res_comp$Model_1 == 'All' & res_comp$Model_2 == 'unstratified', ]
+
+res_comp$GWAS<-gwas[i]
+res_comp$Population<-pop2[j]
+res_comp$Method<-'All'
+
+res_comp$EUR_R<-EUR_res_all$R[EUR_res_all$GWAS == gwas[i]]
+
+res_comp_all<-rbind(res_comp_all, res_comp)
+
 }
 } 
 
@@ -861,140 +1019,127 @@ res_comp_all$Model_2_R2_port<-res_comp_all$Model_2_R2/(res_comp_all$EUR_R^2)
 res_comp_all$R2_port_perc_diff<-(res_comp_all$Model_1_R2_port-res_comp_all$Model_2_R2_port)/res_comp_all$Model_2_R2_port
 res_comp_all$R2_port_diff<-(res_comp_all$Model_1_R2_port-res_comp_all$Model_2_R2_port)
 
-mean(res_comp_all$R_perc_diff[res_comp_all$Method == 'cov'])
-mean(res_comp_all$R2_perc_diff[res_comp_all$Method == 'cov'])
-mean(res_comp_all$R_perc_diff[res_comp_all$Method == 'cor'])
-mean(res_comp_all$R2_perc_diff[res_comp_all$Method == 'cor'])
-mean(res_comp_all$R_perc_diff[res_comp_all$Method == 'Fst'])
-mean(res_comp_all$R2_perc_diff[res_comp_all$Method == 'Fst'])
+write.csv(res_comp_all, '/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/prs_portability.csv', row.names=F, quote=F)
 
-mean(res_comp_all$R_port_perc_diff[res_comp_all$Method == 'cov'])
-mean(res_comp_all$R2_port_perc_diff[res_comp_all$Method == 'cov'])
-mean(res_comp_all$R_port_perc_diff[res_comp_all$Method == 'cor'])
-mean(res_comp_all$R2_port_perc_diff[res_comp_all$Method == 'cor'])
-mean(res_comp_all$R_port_perc_diff[res_comp_all$Method == 'Fst'])
-mean(res_comp_all$R2_port_perc_diff[res_comp_all$Method == 'Fst'])
+# Calculate the average portability across phenotypes
+average_port<-NULL
+type<-c('cov','cor','Fst','All')
+for(k in 1:length(type)){
+  average_port<-rbind(average_port, data.frame(Method=type[k],
+                                               Population='All',
+                                               R_perc_diff=mean(res_comp_all$R_perc_diff[res_comp_all$Method == type[k]]),
+                                               R2_perc_diff=mean(res_comp_all$R2_perc_diff[res_comp_all$Method == type[k]]),
+                                               R_port_perc_diff=mean(res_comp_all$R_port_perc_diff[res_comp_all$Method == type[k]]),
+                                               R2_port_perc_diff=mean(res_comp_all$R2_port_perc_diff[res_comp_all$Method == type[k]]),
+                                               R_port_diff=mean(res_comp_all$R_port_diff[res_comp_all$Method == type[k]]),
+                                               R2_port_diff=mean(res_comp_all$R2_port_diff[res_comp_all$Method == type[k]]),
+                                               All_R_port=mean(res_comp_all$Model_1_R_port[res_comp_all$Method == type[k]]),
+                                               Unstratified_R_port=mean(res_comp_all$Model_2_R_port[res_comp_all$Method == type[k]]),
+                                               All_R2_port=mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == type[k]]),
+                                               Unstratified_R2_port=mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == type[k]])))
+}
 
-mean(res_comp_all$R_port_diff[res_comp_all$Method == 'cov'])
-mean(res_comp_all$R2_port_diff[res_comp_all$Method == 'cov'])
-mean(res_comp_all$R_port_diff[res_comp_all$Method == 'cor'])
-mean(res_comp_all$R2_port_diff[res_comp_all$Method == 'cor'])
-mean(res_comp_all$R_port_diff[res_comp_all$Method == 'Fst'])
-mean(res_comp_all$R2_port_diff[res_comp_all$Method == 'Fst'])
+# Plot the average portability across phenotypes
+pop2=c('EAS','AMR','AFR','SAS')
+for(k in 1:length(type)){
+for(j in 1:length(pop2)){
+  average_port<-rbind(average_port, data.frame(Method=type[k],
+                                               Population=pop2[j],
+                                               R_perc_diff=mean(res_comp_all$R_perc_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R2_perc_diff=mean(res_comp_all$R2_perc_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R_port_perc_diff=mean(res_comp_all$R_port_perc_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R2_port_perc_diff=mean(res_comp_all$R2_port_perc_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R_port_diff=mean(res_comp_all$R_port_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R2_port_diff=mean(res_comp_all$R2_port_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               All_R_port=mean(res_comp_all$Model_1_R_port[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               Unstratified_R_port=mean(res_comp_all$Model_2_R_port[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               All_R2_port=mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               Unstratified_R2_port=mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]])))
+}
+}
 
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cov'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cov'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cor'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cor'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'Fst'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'Fst'])
+write.csv(average_port, '/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/prs_portability_average.csv', row.names=F, quote=F)
 
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'EAS'])
+# Create plot showing results
+port_plot_dat<-average_port[,c('Method', 'Population','All_R_port','Unstratified_R_port','All_R2_port','Unstratified_R2_port')]
 
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'AMR'])
+port_plot_dat<-melt(port_plot_dat)
+port_plot_dat$Metric<-gsub('.*_','',gsub('_port','', port_plot_dat$variable))
+port_plot_dat$Method2<-NA
+port_plot_dat$Method2[grepl('All', port_plot_dat$variable)]<-paste0('Stratified: ', port_plot_dat$Method[grepl('All', port_plot_dat$variable)])
+port_plot_dat$Method2[!grepl('All', port_plot_dat$variable)]<-'Unstratified'
+port_plot_dat$Method<-port_plot_dat$Method2
+port_plot_dat$Method2<-NULL
+port_plot_dat<-port_plot_dat[!duplicated(port_plot_dat),]
 
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'AFR'])
+port_plot_dat$Method<-factor(port_plot_dat$Method, levels=unique(c('Unstratified',port_plot_dat$Method)))
 
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_1_R_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_2_R_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'SAS'])
+library(ggplot2)
+library(cowplot)
+R_plot<-ggplot(port_plot_dat[port_plot_dat$Metric == 'R',], aes(x=Population, y=value, fill=Method)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  labs(y='Portability', title="Average portability (R)") +
+  ylim(c(0,1)) +
+  theme_minimal_hgrid()
 
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cov'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cov'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cor'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cor'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'Fst'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'Fst'])
+R2_plot<-ggplot(port_plot_dat[port_plot_dat$Metric == 'R2',], aes(x=Population, y=value, fill=Method)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  labs(y='Portability', title="Average portability (R2)") +
+  ylim(c(0,1)) +
+  theme_minimal_hgrid()
 
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'EAS'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'EAS'])
-
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'AMR'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'AMR'])
-
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'AFR'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'AFR'])
-
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cov' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'cor' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'SAS'])
-mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == 'Fst' & res_comp_all$Population == 'SAS'])
-
-# This is all looking great. I am trying different ways of comparing the performance of the unstratified approach vs the stratified approach.
+png('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/prs_portability_summary.png', units='px', res=300, width=2000, height=1400)
+plot_grid(R_plot, R2_plot, labels = c('A', 'B'), ncol=1)
+dev.off()
 
 ```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop
+
+cp /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/prs_portability_summary.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop/
+```
+
+<details><summary>Show average portability figure</summary>
+
+![Average portability](Images/CrossPop/prs_portability_summary.png)
+
+</details>
+
+
+<details><summary>Show portability table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/prs_portability.csv")
+
+res$R_diff_pval<-format(res$R_diff_pval, scientific = TRUE, digits = 3)
+res[,!grepl("Model_1$|Model_2$|R_diff_pval|GWAS|Population|Method",names(res))]<-round(res[,!grepl("Model_1$|Model_2$|R_diff_pval|GWAS|Population|Method",names(res))], 3)
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Portability')
+```
+
+</details>
+
+<details><summary>Show average portability table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop/prs_portability_average.csv")
+
+res[,!grepl("Population|Method",names(res))]<-round(res[,!grepl("Population|Method",names(res))], 3)
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average portability')
+```
+
+</details>
 
 ***
 
-# Additional phenotypes
+This shows portability improves when stratifying by cross population metrics, with cov, cor, Fst and All providing the large improvement respectively.
 
-Use the Pan-UKB phenotype manifest as a way of quickly selecting a collection of phenotypes available in all populations.
-
-```{r, eval=F, echo=T}
-library(data.table)
-
-# Downloaded from https://docs.google.com/spreadsheets/d/1AeeADtT0U1AukliiNyiVzVRdLYPkTbruQSk38DeutU8/edit#gid=511623409
-dat<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/Pan-UKB_phenotype_manifest.csv')
-
-dat_brief<-dat[,c('trait_type','description','phenocode','coding','n_cases_full_cohort_both_sexes','n_cases_AFR','n_cases_AMR','n_cases_CSA','n_cases_EAS','n_cases_EUR','n_cases_MID',"saige_heritability_AFR","saige_heritability_AMR","saige_heritability_CSA","saige_heritability_EAS", "saige_heritability_EUR","saige_heritability_MID"), with=F]
-
-# Identify phenotype with certain number of cases in all populations
-n_case_min<-500
-dat_brief_comp<-dat_brief[dat_brief$n_cases_AFR > n_case_min & 
-                          dat_brief$n_cases_AMR > n_case_min & 
-                          dat_brief$n_cases_CSA > n_case_min & 
-                          dat_brief$n_cases_EAS > n_case_min & 
-                          dat_brief$n_cases_EUR > n_case_min & 
-                          dat_brief$n_cases_MID > n_case_min,]
-
-# The biomarkers could be useful, though I am not aware of biomarker GWAS that do not contain UKB.
-dat_brief_comp_nobio<-dat_brief_comp[dat_brief_comp$trait_type != 'biomarkers',]
-
-# Look for phenotypes that we already have GWAS for
-dat_brief_comp_nobio[grepl('Height|height', dat_brief_comp_nobio$description),]
-
-dat_brief[grepl('Height|height', dat_brief$description),]
-dat_brief[grepl('BMI|body mass index|Body mass index', dat_brief$description),]
-dat_brief[grepl('Type 2 diabetes', dat_brief$description),]
-dat_brief[grepl('BMI|body mass index|Body mass index', dat_brief$description),]
-
-# There are NA is some columns I would not expect, like height in europeans.
-# Florian Prive's paper might be another good source of phenotypes.
-# Performing GWAS within UKB might be a good option.
-
-```
+We should now expand this analysis to more phenotypes. This will require GWAS to be run in UKB.
 
 ***
 
@@ -1008,6 +1153,7 @@ Here we will generate GWAS summary statistics within a subset of EUR UKB partici
 
 Let's use continuous phenotypes to help alleviate sample size issues in smaller populations. We need to identify phenotypes that are available in most individuals. Let use the same phenotypes as used by the Liang preprint regarding transcriptome risk scores.
 
+<details><summary>Show code</summary>
 ```{r, eval=F, echo=T}
 library(data.table)
 liang_phen<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno.csv')
@@ -1145,11 +1291,13 @@ for(pheno_i in pheno){
 # Write out file listing pheno
 write.table(pheno, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', col.names=F, row.names=F, quote=F)
 ```
+</details>
 
 ***
 
 ## Run GWAS in EUR training sample
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 mkdir /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS
 
@@ -1168,11 +1316,13 @@ for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_phe
 done
 
 ```
+</details>
 
 ***
 
 ## Format sumstats
 
+<details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 library(data.table)
 library(qqman)
@@ -1213,11 +1363,13 @@ gwas_i<-NULL
 }
 
 ```
+</details>
 
 ***
 
 ## Estimate heritability
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 ####
 # Munge sumstats
@@ -1274,6 +1426,7 @@ res$h2_obs_se<-NULL
 write.csv(res, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv', row.names=F, quote=F)
 
 ```
+</details>
 
 ***
 
@@ -1283,8 +1436,8 @@ write.csv(res, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv'
 
 ### Generate SCORE files
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
-
 # Unstratified PRS
 pop1=EUR
 pop2=EUR_test
@@ -1347,13 +1500,14 @@ EOF
 sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt | cut -d' ' -f1)%40 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_sbatch.sh
 
 ```
+</details>
 
 ***
 
 ### Calculate polygenic scores
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
-
 # Unstratified
 pop1=EUR
 for pop2 in $(echo EUR_test EAS AMR AFR SAS); do
@@ -1427,6 +1581,7 @@ sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_inter
 sbatch --array 1-1 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_sbatch.sh
 
 ```
+</details>
 
 ***
 
@@ -1436,6 +1591,7 @@ sbatch --array 1-1 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_
 
 #### EUR
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 # Check prediction in EUR sample using unstratified PRS for comparison
 pheno=$(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt)
@@ -1473,6 +1629,7 @@ sbatch -p brc,shared --mem 10G /users/k1806347/brc_scratch/Software/Rscript.sh /
 done
 
 ```
+</details>
 
 ***
 
@@ -1480,8 +1637,9 @@ done
 
 ***
 
-#### cov, cor, Fst seperately
+#### cov, cor, Fst, random seperately
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 pheno=$(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt)
 pop1=EUR
@@ -1534,11 +1692,13 @@ sleep 600
 done
 
 ```
+</details>
 
 ***
 
 #### cov, cor, Fst together
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 pheno=$(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt)
 
@@ -1610,10 +1770,12 @@ done
 done
 
 ```
+</details>
 
 ***
 #### cov, cor, Fst together with random
 
+<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 pheno=$(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt)
 
@@ -1696,11 +1858,13 @@ done
 done
 
 ```
+</details>
 
 ***
 
 ### Plot results
 
+<details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 library(data.table)
 library(ggplot2)
@@ -1902,6 +2066,9 @@ bitmap('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_res_summary
 dev.off()
 
 ```
+</details>
+
+***
 
 Results are looking promising:
 
@@ -1909,6 +2076,9 @@ Results are looking promising:
 * Stratified PRS improve prediction in most instances
 * Each type of stratification can work, but combining all approaches improves prediction the most
 
+***
+
+<details><summary>Show code</summary>
 ```{R, eval=F, echo=F}
 # Read in the pred_comp results
 library(data.table)
@@ -2023,5 +2193,6 @@ ggplot(res_comp_all_port, aes(x=Population, y=R2_perc_diff*100, fill=Method)) +
 # The improvement is largest in AFR 18-36%. Improvements are generall small. This should be run including random stratification for comparison.
 
 ```
+</details>
 
-
+***
