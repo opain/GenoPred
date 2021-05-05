@@ -240,9 +240,9 @@ if(!is.na(opt$test)){
 # Read in the scores
 # fix issue with changed names:
 if (file.exists(paste0(opt$output,'ref_score.all.score'))){
- prsice_score <- file.exists(paste0(opt$output,'ref_score.all.score'))
+ prsice_score <- paste0(opt$output,'ref_score.all.score')
  } else {
- prsice_score <- file.exists(paste0(opt$output,'ref_score.all_score'))
+ prsice_score <- paste0(opt$output,'ref_score.all_score')
  stopifnot(file.exists(prsice_score))
 }
 
