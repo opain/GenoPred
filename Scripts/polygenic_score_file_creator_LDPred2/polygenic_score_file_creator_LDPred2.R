@@ -27,7 +27,9 @@ make_option("--test", action="store", default=NA, type='character',
 make_option("--binary", action="store", default=F, type='logical',
     help="Specify T if GWAS phenotyp is binary [optional]"),
 make_option("--sumstats", action="store", default=NA, type='character',
-		help="GWAS summary statistics [required]")
+		help="GWAS summary statistics [required]"),
+make_option("--ldpred2_ref_precomputed", action="store", default=F, type='logical',
+    help="Use pre-computed LD panel provided by LDPred2 developers [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -50,7 +52,6 @@ if(!is.na(opt$test)){
     opt$test<-as.numeric(opt$test)
   }
 }
-
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
@@ -75,8 +76,18 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Reading in reference.\n')
 sink()
 
-# Attach the "bigSNP" object in R session
-ref <- snp_attach(paste0(opt$ref_plink,".rds"))
+
+if (file.exists(paste0(opt$ref_plink,".rds"))){
+    # Attach the "bigSNP" object in R session
+    ref <- snp_attach(paste0(opt$ref_plink,".rds"))
+} else {
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('generating RDS file, this might take a while...\n')
+    sink()
+    filepath <- snp_readBed2(paste0(opt$ref_plink,".bed"))
+    ref <- snp_attach(filepath)
+}
+
 
 EUR_keep<-read.table(opt$ref_keep, header=F, stringsAsFactors=F)
 ind_keep<-which(ref$fam$family.ID %in% EUR_keep$V1)
@@ -86,6 +97,7 @@ CHR <- ref$map$chromosome
 POS <- ref$map$physical.pos
 y   <- ref$fam$affection - 1
 NCORES <- opt$n_cores
+
 
 #####
 # Read in sumstats
@@ -101,6 +113,7 @@ str(sumstats)
 sumstats<-sumstats[complete.cases(sumstats),]
 sumstats<-sumstats[sumstats$SE != 0,]
 
+
 # Extract subset if testing
 if(!is.na(opt$test)){
   if(single_chr_test == F){
@@ -115,7 +128,6 @@ if(!is.na(opt$test)){
       GWAS_tmp<-GWAS_tmp[1:opt$test,]
       GWAS_test<-rbind(GWAS_test,GWAS_tmp)
     }
-    
     sumstats<-GWAS_test
     sumstats<-sumstats[complete.cases(sumstats),]
     rm(GWAS_test)
@@ -140,6 +152,7 @@ if(sum(names(sumstats) == 'OR') == 1){
   sumstats$BETA<-log(sumstats$OR)
 }
 
+
 # Format sumstats for as in LDPred2 tutorial
 if(sum(names(sumstats) == 'Ncas') == 1 & sum(names(sumstats) == 'Ncon') == 1){
   sumstats$n_eff <- 4 / (1 / sumstats$Ncas + 1 / sumstats$Ncon)
@@ -158,62 +171,54 @@ if(!is.na(opt$test)){
   sink()
 }
 
+
 # Harmonise with the reference
 map <- ref$map[-(2:3)]
 names(map) <- c("chr", "pos", "a1", "a0")
 info_snp <- snp_match(sumstats, map)
+
+setnames(info_snp, c('_NUM_ID_.ss','_NUM_ID_'), c('idx_ss','idx_G'))
+
+if (opt$ldpred2_ref_precomputed){
+    # LD reference and target sample do not necessarily use the same SNPs!
+    tmp_map <- readRDS(paste0(opt$ldpred2_ref_dir,'/map.rds'))
+    info_snp <- snp_match(info_snp, tmp_map)
+    info_snp$`_NUM_ID_.ss` <- NULL
+    setnames(info_snp, '_NUM_ID_', 'idx_ld')
+    rm(tmp_map)
+} else {
+    # LD reference and target sample are assumed to use the same SNPs!
+    info_snp$idx_ld <- info_snp$idx_G
+}
 
 #####
 # Perform additional suggested QC for LDPred2
 #####
 
 if(opt$sd_check == T){
-  # Read in reference genotype SD
-  sd<-readRDS(paste0(opt$ldpred2_ref_dir,'/sd.rds'))
-  
-  # Remove SDss<0.5???SDval or SDss>0.1+SDval or SDss<0.1 or SDval<0.05
-  sd_val <- sd[info_snp$`_NUM_ID_`]
-
-  if(opt$binary == F){
-    sd_y_est = median(sd_val * info_snp$beta_se * sqrt(info_snp$n_eff))
-    sd_ss = with(info_snp, sd_y_est / sqrt(n_eff * beta_se^2))
-  } else {
-    sd_ss <- with(info_snp, 2 / sqrt(n_eff * beta_se^2))
-  }
-  
-  is_bad <-sd_ss < (0.5 * sd_val) | sd_ss > (sd_val + 0.1) | sd_ss < 0.1 | sd_val < 0.05
-  
-  library(ggplot2)
-  bitmap(paste0(opt$output_dir,'/LDPred2_sd_qc.png'), res=300, unit='px',height=2000, width=2000)
-  print(qplot(sd_val, sd_ss, color = is_bad) +
-    theme_bigstatsr() +
-    coord_equal() +
-    scale_color_viridis_d(direction = -1) +
-    geom_abline(linetype = 2, color = "red") +
-    labs(x = "Standard deviations in the validation set",
-         y = "Standard deviations derived from the summary statistics",
-         color = "Removed?"))
-  dev.off()
-  
-  # If more than half the variants have the wrong SD then the N is probably inaccurate
-  # Recompute N based on BETA and SE
-  if(sum(is_bad) > (length(is_bad)*0.5)){
-    n_eff_imp<-sd_val^2/info_snp$beta_se^2
     
-    n_eff_imp<-((2/sd_val)^2)/(info_snp$beta_se^2)
-    info_snp$n_eff<-median(n_eff_imp)
+    if (opt$ldpred2_ref_precomputed){
+        # assuming we are using the pre-computed LD reference provided by LDPred2 developers
+        # TODO: make this handle the case where the column has a different name, so it generalizes better
+        info_snp$sd <- sqrt(2 * info_snp$af_UKBB * (1 - info_snp$af_UKBB))
+        sd_val <- info_snp$sd
+    } else {
+        # Read in reference genotype SD (calculated from the data used to generate the LD reference)
+        sd<-readRDS(paste0(opt$ldpred2_ref_dir,'/sd.rds'))
+        sd_val <- sd[ info_snp$idx_ld ]
+    }
+  
+    if(opt$binary == F){
+      sd_y_est = median(sd_val * info_snp$beta_se * sqrt(info_snp$n_eff))
+      sd_ss = with(info_snp, sd_y_est / sqrt(n_eff * beta_se^2))
+    } else {
+      sd_ss <- with(info_snp, 2 / sqrt(n_eff * beta_se^2))
+    }
     
-    sd_ss <- with(info_snp, 2 / sqrt(n_eff * beta_se^2))
     is_bad <-sd_ss < (0.5 * sd_val) | sd_ss > (sd_val + 0.1) | sd_ss < 0.1 | sd_val < 0.05
     
-    sink(file = paste(opt$output,'.log',sep=''), append = T)
-    test_start.time <- Sys.time()
-    cat('More than half the variants had a discordant SD.\n')
-    cat('Median imputed N estimate: ', median(n_eff_imp),'.\n',sep='')
-    sink()
-    
     library(ggplot2)
-    bitmap(paste0(opt$output_dir,'/LDPred2_sd_qc_impN.png'), res=300, unit='px',height=2000, width=2000)
+    bitmap(paste0(opt$output_dir,'/LDPred2_sd_qc.png'), res=300, unit='px',height=2000, width=2000)
     print(qplot(sd_val, sd_ss, color = is_bad) +
       theme_bigstatsr() +
       coord_equal() +
@@ -224,13 +229,42 @@ if(opt$sd_check == T){
            color = "Removed?"))
     dev.off()
     
-  }
-  
-  sumstats<-info_snp[!is_bad, ]
-  
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('Sumstats contains',dim(sumstats)[1],'after additional genotype SD check.\n')
-  sink()
+    # If more than half the variants have the wrong SD then the N is probably inaccurate
+    # Recompute N based on BETA and SE
+    if(sum(is_bad) > (length(is_bad)*0.5)){
+      n_eff_imp<-sd_val^2/info_snp$beta_se^2
+      
+      n_eff_imp<-((2/sd_val)^2)/(info_snp$beta_se^2)
+      info_snp$n_eff<-median(n_eff_imp)
+      
+      sd_ss <- with(info_snp, 2 / sqrt(n_eff * beta_se^2))
+      is_bad <-sd_ss < (0.5 * sd_val) | sd_ss > (sd_val + 0.1) | sd_ss < 0.1 | sd_val < 0.05
+      
+      sink(file = paste(opt$output,'.log',sep=''), append = T)
+      test_start.time <- Sys.time()
+      cat('More than half the variants had a discordant SD.\n')
+      cat('Median imputed N estimate: ', median(n_eff_imp),'.\n',sep='')
+      sink()
+      
+      library(ggplot2)
+      bitmap(paste0(opt$output_dir,'/LDPred2_sd_qc_impN.png'), res=300, unit='px',height=2000, width=2000)
+      print(qplot(sd_val, sd_ss, color = is_bad) +
+        theme_bigstatsr() +
+        coord_equal() +
+        scale_color_viridis_d(direction = -1) +
+        geom_abline(linetype = 2, color = "red") +
+        labs(x = "Standard deviations in the validation set",
+             y = "Standard deviations derived from the summary statistics",
+             color = "Removed?"))
+      dev.off()
+      
+    }
+    
+    sumstats<-info_snp[!is_bad, ]
+    
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Sumstats contains',dim(sumstats)[1],'after additional genotype SD check.\n')
+    sink()
 }
 
 #######
@@ -243,7 +277,10 @@ sink()
 
 # Read in LD score estimates
 ld_score<-readRDS(paste0(opt$ldpred2_ref_dir,'/map.rds'))
-ld_score<-ld_score[info_snp$`_NUM_ID_`,]
+
+chr_ld_map <- ld_score$chr
+
+ld_score<-ld_score[info_snp$idx_ld,]
 ld_score<-ld_score[!is_bad, ]
 
 ldsc <- with(sumstats, snp_ldsc(ld_score$ld, length(ld_score$ld), chi2 = (beta / beta_se)^2, sample_size = n_eff, blocks = NULL))
@@ -254,6 +291,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Estimated SNP-based heritability =',h2_est,'\n')
 sink()
 
+
 if(!is.na(opt$test) & h2_est < 0.05){
   h2_est<-0.05
 }
@@ -262,16 +300,17 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Creating genome-wide sparse matrix.\n')
 sink()
 
+
 # Create genome-wide sparse LD matrix
 for (chr in CHROMS) {
   print(chr)
   
   ## indices in 'sumstats'
   ind.chr <- which(sumstats$chr == chr)
-  ## indices in 'map'
-  ind.chr2 <- sumstats$`_NUM_ID_`[ind.chr]
-  ## indices in 'corr_chr'
-  ind.chr3 <- match(ind.chr2, which(map$chr == chr))
+  ## indices in 'map' (the target genotypes)
+  ind.chr2 <- sumstats$idx_G[ind.chr]
+  ## indices in 'corr_chr' (the LD matrix)
+  ind.chr3 <- match(sumstats$idx_ld[ind.chr], which(chr_ld_map == chr))
   
   corr0 <- readRDS(paste0(opt$ldpred2_ref_dir,'/LD_chr', chr, ".rds"))[ind.chr3, ind.chr3]
 
@@ -281,6 +320,7 @@ for (chr in CHROMS) {
     corr$add_columns(corr0, nrow(corr))
   }
 }
+
 
 #####
 # Run LDPred2
@@ -323,8 +363,8 @@ beta_auto <- sapply(multi_auto, function(auto) auto$beta_est)
 
 summary(beta_auto)
 
-pred_auto <- big_prodMat(G, beta_auto, ind.row = ind_keep,
-                         ind.col = sumstats[["_NUM_ID_"]])
+# used to be sumstats[["_NUM_ID_"]]
+pred_auto <- big_prodMat(G, beta_auto, ind.row = ind_keep, ind.col = sumstats[["idx_G"]])
 
 summary(pred_auto)
 
@@ -427,3 +467,4 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Analysis finished at',as.character(end.time),'\n')
 cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
 sink()
+
