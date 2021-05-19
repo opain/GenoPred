@@ -434,6 +434,18 @@ if(sum(names(GWAS) == 'SE') == 0){
   sink()
 }
 
+
+#####
+# Insert OR column
+#####
+if(sum(names(GWAS) == 'OR') == 0){
+    GWAS$OR<-exp(GWAS$BETA)
+
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('OR column inserted based on BETA.\n', sep='')
+  sink()
+}
+
 #####
 # Remove SNPs with SE == 0
 #####

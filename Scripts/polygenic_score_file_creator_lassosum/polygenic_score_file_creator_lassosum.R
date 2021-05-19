@@ -30,7 +30,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
 library(lassosum)
-setwd(system.file("data", package="lassosum"))
+#setwd(system.file("data", package="lassosum"))
 
 tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
@@ -70,6 +70,7 @@ sink()
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Reading in GWAS and harmonising with reference.\n')
 sink()
+
 
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats), nThread=1)
 GWAS<-GWAS[complete.cases(GWAS),]
