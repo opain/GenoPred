@@ -21,10 +21,15 @@ option_list = list(
   make_option("--gz", action="store", default=T, type='logical',
               help="Set to T to gzip summary statistics [optional]"),
   make_option("--output", action="store", default='./Output', type='character',
-              help="Path for output files [optional]")
+              help="Path for output files [optional]"),
+  make_option('--ss_freq_col', action='store', default='FREQ')
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
+
+# Remo: this script originally assumed summary stats MAF column was called "FREQ", however, most of the time it appears to be "FRQ" (?)
+#       for this reason, an alternative column name to use can be passed here:
+freq_col = opt$ss_freq_col
 
 library(data.table)
 
@@ -196,8 +201,13 @@ GWAS$BP<-as.numeric(GWAS$BP)
 GWAS$N<-as.numeric(GWAS$N)
 GWAS$P<-as.numeric(GWAS$P)
 
-if(sum(names(GWAS) == 'FREQ') == 1){
-  GWAS$FREQ<-as.numeric(GWAS$FREQ)
+if(sum(names(GWAS) == freq_col) == 1){
+  # added by Remo:
+  # get the allele frequency by parsing the column defined --ss_freq_col
+  GWAS$FREQ<-as.numeric(unlist(GWAS[,..freq_col]))
+  if (freq_col != 'FREQ'){
+    GWAS[,(freq_col):=NULL]
+  }
 }
 
 if(sum(names(GWAS) == 'OR') == 1){
