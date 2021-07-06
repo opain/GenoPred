@@ -804,136 +804,7 @@ sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/lassosum/todo
 
 ## Prepare score and scale files for polygenic scoring using PRScs
 
-Here we create reference files for polygenic scores calculated by PRScs, a method for performing Bayesian continuous shrinkage to GWAS sumstats to account for LD and winners curse. More information on PRScs can be found [here](https://github.com/getian107/PRScs). The PRScs developers provide reference LD data based on European individuals in the 1KG sample. To make this directly comparable to other methods I will create my own LD reference data. A comparison will be made to when using the PRScs-provided LD reference as well.
-
-### Prepare PRScs LD reference
-Instructions were provided by Tian Ge.
-
-We need to divide the reference genetic data into LD blocks. Previously defined LD blocks have been downloaded from here: https://bitbucket.org/nygcresearch/ldetect-data/src/master/
-
-First, we need to create a SNPlist for each LD block.
-
-<details><summary>Show code</summary>
-```{bash, eval=F, echo=T}
-. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
-
-mkdir -p ${Geno_1KG_dir}/PRScs_LD_matrix/LD_Blocks
-mkdir -p ${Geno_1KG_dir}/PRScs_LD_matrix/EUR
-
-module load apps/R/3.6.0
-R
-
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
-
-library(data.table)
-
-# Read in bim file for reference
-bim_all<-NULL
-for(i in 1:22){
-	bim<-fread(paste0(Geno_1KG_dir,'/1KGPhase3.w_hm3.chr',i,'.bim'))
-	bim_all<-rbind(bim_all, bim)
-}
-
-# Read in the freq files to create the snpinfo file
-frq_all<-NULL
-for(i in 1:22){
-	frq<-fread(paste0(Geno_1KG_dir,'/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr',i,'.frq'))
-	frq_all<-rbind(frq_all, frq)
-}
-
-# Create snpinfo file
-frq_bim<-merge(bim_all, frq_all[,c('SNP','MAF','NCHROBS')], by.x='V2', by.y='SNP')
-names(frq_bim)<-c('SNP','CHR','POS','BP','A1','A2','MAF','NCHROBS')
-frq_bim<-frq_bim[,c('CHR','SNP','BP','A1','A2','MAF','NCHROBS')]
-frq_bim<-frq_bim[order(frq_bim$CHR, frq_bim$BP),]
-
-# Remove SNPs with a MAF < 0.01
-frq_bim<-frq_bim[frq_bim$MAF > 0.01,]
-# Remove SNPs with a missingness > 0.01
-frq_bim<-frq_bim[frq_bim$NCHROBS > (max(frq_bim$NCHROBS)*0.99),]
-frq_bim$NCHROBS<-NULL
-
-# Extract snplist for each range in LD Block bed files
-bed<-fread('/users/k1806347/brc_scratch/Data/LDetect/EUR/fourier_ls-all.bed')
-bed$chr<-as.numeric(gsub('chr','',bed$chr))
-
-blk_chr<-bed$chr
-write.table(blk_chr,paste0(Geno_1KG_dir,'/PRScs_LD_matrix/LD_Blocks/blk_chr'), col.names=F, row.names=F, quote=F)
-
-blk_size<-NULL
-snpinfo_1kg_hm3<-NULL
-for(i in 1:dim(bed)[1]){
-  frq_bim_i<-frq_bim[frq_bim$CHR == bed$chr[i] & frq_bim$BP > bed$start[i] & frq_bim$BP < bed$stop[i],]
-  blk_size<-c(blk_size,dim(frq_bim_i)[1])
-  snpinfo_1kg_hm3<-rbind(snpinfo_1kg_hm3,frq_bim_i)
-  write.table(frq_bim_i$SNP,paste0(Geno_1KG_dir,'/PRScs_LD_matrix/LD_Blocks/Block_',i,'.snplist'), col.names=F, row.names=F, quote=F)
-}
-
-write.table(blk_size,paste0(Geno_1KG_dir,'/PRScs_LD_matrix/LD_Blocks/blk_size'), col.names=F, row.names=F, quote=F)
-
-write.table(snpinfo_1kg_hm3, paste0(Geno_1KG_dir,'/PRScs_LD_matrix/EUR/snpinfo_1kg_hm3'), col.names=T, row.names=F, quote=F)
-
-q()
-n
-```
-</details>
-
-Then, we need to calculate LD within each block using PLINK.
-
-<details><summary>Show code</summary>
-```{bash, eval=F, echo=T}
-. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
-
-for block in $(seq 1 1703);do 
-sbatch -p brc,shared ${plink1_9} \
-    --bfile ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
-    --extract ${Geno_1KG_dir}/PRScs_LD_matrix/LD_Blocks/Block_${block}.snplist \
-    --r square \
-    --keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
-    --out ${Geno_1KG_dir}/PRScs_LD_matrix/LD_Blocks/1KGPhase3.w_hm3.EUR.Block_${block}
-done
-
-for block in $(seq 1 1703);do 
-if [ ! -f ${Geno_1KG_dir}/PRScs_LD_matrix/LD_Blocks/1KGPhase3.w_hm3.EUR.Block_${block}.ld ]; then
-echo $block
-fi
-done
-
-# Block 1187 doesn't contain any SNPs
-
-module load apps/R/3.6.0
-R
-
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config')
-
-library(data.table)
-
-for(i in c(1:1186,1189:1703)){
-  LD_mat<-as.matrix(fread(paste0(Geno_1KG_dir,'/PRScs_LD_matrix/LD_Blocks/1KGPhase3.w_hm3.EUR.Block_',i,'.ld')))
-  if(sum(!is.finite(LD_mat)) > 0){
-    print(i)
-  }
-}
-
-q()
-n
-
-```
-</details>
-
-Lastly, we need to store the LD information in HDF5 format. Tian Ge sent a script called write_ldblk.py to do this. I have edited the paths to work for my file structure.
-
-<details><summary>Show code</summary>
-```{bash, eval=F, echo=T}
-. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
-
-# Create blk_chr indicating which chromosome each block belongs to
-module add devtools/anaconda/2019.3-python2.7.16
-export HDF5_USE_FILE_LOCKING='FALSE'
-python /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/PRScs_ldblk/write_ldblk_1KG_EUR.py
-
-```
-</details>
+Here we create polygenic scores calculated by PRScs, a method for performing Bayesian continuous shrinkage to GWAS sumstats to account for LD and winners curse. More information on PRScs can be found [here](https://github.com/getian107/PRScs). The PRScs developers provide reference LD data based on European individuals in the 1KG sample (and recently UK Biobank). I will use the PRScs provided LD matrices based on 1KG as this should be comparable to other methods. There is minimal documentation of how th LD reference was created. PRScs developers also report a minimal improvement when using the larger UKB reference (although their recent addition of the UKB reference to GitHub may suggest is it offers some advantages).
 
 <br/>
 
@@ -986,10 +857,6 @@ echo ${gwas}
 EOF
 
 sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/todo.txt | cut -d' ' -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/PRScs/sbatch.sh
-
-# The PRScs score for BODY11 is lower when I use my 1KG reference. The analysis also took twice as long to run. Rerun BODY11 analysis using PRScs reference to check to check whether the results are consistent with previous results, and to see how long it takes. It s possible the analysis is running slurm becuase we are now using Rosalind2. I would not expect this to affect the results though. Saloni did say she had gotten unexpected results though.
-
-# I am really struggling with this. Even using the PRScs reference, it is taking twice as long to run and the results are different! I have gone through everything. Nothing has changed. Even when I use an old pull of the PRScs repo. I think I should contact Rosalind admin to see whether this is even possible.
 
 ```
 </details>
