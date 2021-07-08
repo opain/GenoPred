@@ -27,7 +27,9 @@ make_option("--assoc", action="store", default=T, type='logical',
 make_option("--n_perm", action="store", default=1000, type='numeric',
 		help="Number of permutations for model comparison [optional]"),
 make_option("--compare_predictors", action="store", default=F, type='logical',
-		help="Option to assign each predictor to own group [optional]"),
+    help="Option to assign each predictor to own group [optional]"),
+make_option("--interaction", action="store", default=F, type='logical',
+    help="Option to include interaction terms between predictors in each group [optional]"),
 make_option("--pred_miss", action="store", default=0.1, type='numeric',
 		help="Proportion of missing values allowed in predictor [optional]")		
 )
