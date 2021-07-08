@@ -150,7 +150,10 @@ ui <- fluidPage(
         
         # Show plot
         mainPanel(
-            plotOutput("Plot", height = "650px", width = "600px")
+            h3("Relative Risk"),
+            plotOutput("Plot_rel", height = "325px", width = "600px"),
+            h3("Absolute Risk"),
+            plotOutput("Plot_abs", height = "350px", width = "600px")
         )
     )
 )
@@ -158,16 +161,37 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
     
-    output$Plot <- renderPlot({
+    output$Plot_rel <- renderPlot({
+        PRS_z_score<-input$z_score
+
+        prs_dist<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
+            stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) +
+            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
+                          geom = "area", fill = "#CC66FF", alpha = .4) +
+            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
+                          geom = "area", fill = "#FF6633", alpha = .4) +
+            geom_vline(xintercept=PRS_z_score, linetype='dashed') +
+            geom_text(label=paste0(round(pnorm(PRS_z_score)*100,1),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#CC66FF', hjust='right', vjust=0.8, size=5) +
+            geom_text(label=paste0(round(100-(pnorm(PRS_z_score)*100),1),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#FF6633', hjust='left', vjust=0.8, size=5) +
+            scale_y_continuous(breaks = NULL) +
+            theme_half_open() +
+            xlim(-5,5) +
+            labs(y='Number of people', x='Polygenic Score', title='Distribution of polygenic scores') +
+            theme(plot.title = element_text(hjust = 0.5))
+        
+        plot_grid(prs_dist, ncol = 1)
+        
+    })
+    
+    output$Plot_abs <- renderPlot({
         # Define parameters
-        trait<-'trait'
         PRS_z_score<-input$z_score
         PRS_R2=input$r2/100
         Outcome_mean=input$pop_mean
         Outcome_sd=input$pop_sd
         conf_int=input$ci/100
         n_quant<-1000
-
+        
         # Run analysis
         quant<-which_quant(PRS_z_score = PRS_z_score, n_quantile = n_quant)
         
@@ -191,25 +215,10 @@ server <- function(input, output) {
         lowCI<-qnorm((1-conf_int)/2,indiv_result_all$x_mean,indiv_result_all$x_sd)
         highCI<-qnorm(1-((1-conf_int)/2),indiv_result_all$x_mean,indiv_result_all$x_sd)
         
-        prs_dist<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
-            stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) +
-            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
-                          geom = "area", fill = "#84CA72", alpha = .4) +
-            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
-                          geom = "area", fill = "#0066CC", alpha = .4) +
-            geom_vline(xintercept=PRS_z_score, linetype='dashed') +
-            geom_text(label=paste0(round(pnorm(PRS_z_score)*100,1),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#84CA72', hjust='right', vjust=0.8, size=5) +
-            geom_text(label=paste0(round(100-(pnorm(PRS_z_score)*100),1),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#0066CC', hjust='left', vjust=0.8, size=5) +
-            scale_y_continuous(breaks = NULL) +
-            theme_half_open() +
-            xlim(-5,5) +
-            labs(y='Number of people', x='Polygenic Score', title='Distribution of polygenic scores') +
-            theme(plot.title = element_text(hjust = 0.5))
-        
         abs_dist<-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
             geom_area(alpha=0.4, colour='black') +
             scale_fill_manual(values=c("#84CA72","#0066CC")) +
-            labs(y='Number of people', x='Trait', title='You compared to general population') +
+            labs(y='Number of people', x='Trait', title='You compared to general population', fill=NULL) +
             geom_segment(aes(x = indiv_result_all$x_mean , y = 0, xend = indiv_result_all$x_mean, yend = 0.4), color="black") +
             geom_segment(aes(x = lowCI , y = 0, xend = lowCI, yend = 0.38), color="#0066CC", linetype="dashed") +
             geom_segment(aes(x = highCI , y = 0, xend = highCI, yend = 0.38), color="#0066CC", linetype="dashed") +
@@ -217,9 +226,9 @@ server <- function(input, output) {
             geom_text(label=paste0(conf_int*100,'% CI = ',round(lowCI,2),' – ',round(highCI,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='#0066CC', hjust='left', vjust=2.5, size=5, check_overlap = TRUE) +
             scale_y_continuous(breaks = NULL) +
             theme_half_open() +
-            theme(plot.title = element_text(hjust = 0.5))
-        
-        plot_grid(prs_dist, abs_dist, ncol = 1)
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(legend.position=c(0.01,0.95), legend.box = "horizontal")
+        plot_grid(abs_dist, ncol = 1)
         
     })
 }
