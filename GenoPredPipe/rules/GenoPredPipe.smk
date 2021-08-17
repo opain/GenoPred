@@ -31,7 +31,7 @@ rule download_plink:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir resources/software/plink; wget -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; rm resources/software/plink/plink_linux_x86_64_20210606.zip"
+    "mkdir -p resources/software/plink; wget -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; rm resources/software/plink/plink_linux_x86_64_20210606.zip"
 
 # Download LDSC
 rule download_ldsc:
@@ -99,6 +99,8 @@ rule install_ggchicklet:
 
 # Download and format 1kg reference data
 rule prep_1kg:
+  resources: 
+    mem_mb=20000
   input:
     rules.download_hm3_snplist.output
   output:
@@ -106,7 +108,7 @@ rule prep_1kg:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "Rscript resources/scripts/prep_1kg.R"
+    "Rscript scripts/prep_1kg.R"
 
 # Create GW merged version of 1kg refrence data
 rule merge_1kg_GW:
@@ -162,7 +164,7 @@ gwas_list_df = pd.read_table(config["gwas_list"], sep=' ')
 
 rule sumstat_prep:
   input:
-    ref=rules.prep_1kg.output
+    rules.prep_1kg.output
   output:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz"
   conda:
@@ -171,7 +173,7 @@ rule sumstat_prep:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
   shell:
-    "Rscript ../Scripts/sumstat_cleaner/sumstat_cleaner.R --sumstats {params.path} --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_freq_chr resources/data/1kg/freq_files/{params.population}/1KGPhase3.w_hm3.{params.population}.chr --output resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned"
+    "Rscript ../Scripts/sumstat_cleaner/sumstat_cleaner.R --sumstats {params.path} --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_freq_chr resources/data/1kg/freq_files/{params.population}/1KGPhase3.w_hm3.{params.population}.chr --output resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned"
     
 rule run_sumstat_prep:
   input: expand("resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz", gwas=gwas_list_df['name'])
@@ -182,16 +184,16 @@ rule run_sumstat_prep:
 
 rule prs_scoring_ptclump:
   input:
-    ref=rules.prep_1kg.output
+    rules.prep_1kg.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz"
   output:
     "resources/data/1kg/prs_score_files/pt_clump/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats {params.path} --plink plink --output resources/data/1kg/prs_score_files/pt_clump/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+    "Rscript ../Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz --plink plink --output resources/data/1kg/prs_score_files/pt_clump/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} --ref_pop_scale resources/data/1kg/super_pop_keep.list"
 
 rule run_prs_scoring_ptclump:
   input: expand("resources/data/1kg/prs_score_files/pt_clump/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
@@ -203,6 +205,7 @@ rule run_prs_scoring_ptclump:
 rule prs_scoring_dbslmm:
   input:
     rules.prep_1kg.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_ldsc.output,
     rules.dowload_ldsc_ref.output,
     rules.download_dbslmm.output,
@@ -214,20 +217,13 @@ rule prs_scoring_dbslmm:
     "../envs/GenoPredPipe.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM.R --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats {params.path} --plink resources/software/plink/plink --ld_blocks resources/data/ld_blocks/{params.population} --rscript Rscript --dbslmm resources/software/dbslmm/software --munge_sumstats resources/software/ldsc/munge_sumstats.py --ldsc resources/software/ldsc/ldsc.py --ldsc_ref resources/data/ldsc_ref/eur_w_ld_chr --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist --sample_prev {params.sampling} --pop_prev {params.prevalence} --output resources/data/1kg/prs_score_files/dbslmm/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+    "Rscript ../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM.R --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz --plink resources/software/plink/plink --ld_blocks resources/data/ld_blocks/{params.population} --rscript Rscript --dbslmm resources/software/dbslmm/software --munge_sumstats resources/software/ldsc/munge_sumstats.py --ldsc resources/software/ldsc/ldsc.py --ldsc_ref resources/data/ldsc_ref/eur_w_ld_chr --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist --sample_prev {params.sampling} --pop_prev {params.prevalence} --output resources/data/1kg/prs_score_files/dbslmm/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} --ref_pop_scale resources/data/1kg/super_pop_keep.list"
 
 rule run_prs_scoring_dbslmm:
   input: expand("resources/data/1kg/prs_score_files/dbslmm/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
-
-rule run_pipeline_prep:
-  input:
-    expand("resources/data/1kg/pc_score_files/{population}/1KGPhase3.w_hm3.{population}.scale", population=populations),
-    expand("resources/data/1kg/prs_score_files/dbslmm/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name']),
-    expand("resources/data/1kg/prs_score_files/pt_clump/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
 
 ##
 # Estimate R2/AUC of PRS using lassosum pseudovalidate
@@ -236,6 +232,7 @@ rule run_pipeline_prep:
 rule pseudovalidate_prs:
   input:
     rules.merge_1kg_GW.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.install_lassosum.output
   output:
     "resources/data/1kg/prs_pseudoval/{gwas}/lassosum_pseudo_{gwas}.pseudovalidate.png"
@@ -243,12 +240,18 @@ rule pseudovalidate_prs:
     "../envs/GenoPredPipe.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
   shell:
-    "Rscript ../Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R --ref_plink_gw resources/data/1kg/1KGPhase3.w_hm3.GW --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats {params.path} --prune_mhc T --output resources/data/1kg/prs_pseudoval/{wildcards.gwas}/lassosum_pseudo_{wildcards.gwas} --plink plink --n_cores 1"
+    "Rscript ../Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R --ref_plink_gw resources/data/1kg/1KGPhase3.w_hm3.GW --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz --prune_mhc T --output resources/data/1kg/prs_pseudoval/{wildcards.gwas}/lassosum_pseudo_{wildcards.gwas} --plink plink --n_cores 1"
 
 rule run_pseudovalidate_prs:
   input: expand("resources/data/1kg/prs_pseudoval/{gwas}/lassosum_pseudo_{gwas}.pseudovalidate.png", gwas=gwas_list_df['name'])
+
+rule pipeline_prep:
+  input:
+    rules.run_super_pop_pc_scoring.input,
+    rules.run_prs_scoring_ptclump.input,
+    rules.run_prs_scoring_dbslmm.input,
+    rules.run_pseudovalidate_prs.input
 
 ##########
 # Target sample processing
@@ -355,10 +358,6 @@ rule target_super_population:
 rule run_target_super_population:
   input: expand("resources/data/target/{name}/ancestry/{name}.Ancestry.SAS.eigenvec", name=target_list_df['name'])
 
-#########################################
-# GOT TO HERE: Need to think about how I can bring together the ancestry reporter step for single and multiple sample datatsets.
-#########################################
-
 # Create a file listing target samples and super population assignments
 rule ancestry_reporter:
   input:
@@ -369,7 +368,7 @@ rule ancestry_reporter:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "Rscript resources/scripts/ancestry_reporter.R {wildcards.name}"
+    "Rscript scripts/ancestry_reporter.R {wildcards.name}"
 
 rule run_ancestry_reporter:
   input: expand("resources/data/target/{name}/ancestry_report.txt", name=target_list_df['name'])
@@ -488,15 +487,16 @@ rule create_individual_report:
     "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
     "resources/data/target/{name}/ancestry_pop.done",
     lambda w: expand("resources/data/target/{name}/projected_pc/{name}_target_pc.done", name=w.name),
-    lambda w: expand("resources/data/target/{name}/prs/pt_clump/target_prs_ptclump_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
-    lambda w: expand("resources/data/target/{name}/prs/dbslmm/target_prs_dbslmm_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
-    rules.run_pseudovalidate_prs.input
+    lambda w: expand("resources/data/target/{name}/prs/target_prs_ptclump_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
+    lambda w: expand("resources/data/target/{name}/prs/target_prs_dbslmm_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
+    rules.run_pseudovalidate_prs.input,
+    rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target/{name}/{name}_indiv_report.done') 
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "Rscript -e \"rmarkdown::render(\'resources/scripts/indiv_report_creator.Rmd\', output_file = \'../../resources/data/target/{wildcards.name}/{wildcards.name}_report.html\', params = list(name = \'{wildcards.name}\'))\""
+    "Rscript -e \"rmarkdown::render(\'scripts/indiv_report_creator.Rmd\', output_file = \'../resources/data/target/{wildcards.name}/{wildcards.name}_report.html\', params = list(name = \'{wildcards.name}\'))\""
 
 rule run_create_individual_report:
   input: expand('resources/data/target/{name}/{name}_indiv_report.done', name=target_list_df_23andMe['name'])
@@ -513,13 +513,14 @@ rule create_sample_report:
     lambda w: expand("resources/data/target/{name}/projected_pc/{name}_target_pc.done", name=w.name),
     lambda w: expand("resources/data/target/{name}/prs/target_prs_ptclump_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
     lambda w: expand("resources/data/target/{name}/prs/target_prs_dbslmm_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
-    rules.run_pseudovalidate_prs.input
+    rules.run_pseudovalidate_prs.input,
+    rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target/{name}/{name}_samp_report.done')
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "Rscript -e \"rmarkdown::render(\'resources/scripts/samp_report_creator.Rmd\', output_file = \'../../resources/data/target/{wildcards.name}/{wildcards.name}_report.html\', params = list(name = \'{wildcards.name}\'))\""
+    "Rscript -e \"rmarkdown::render(\'scripts/samp_report_creator.Rmd\', output_file = \'../resources/data/target/{wildcards.name}/{wildcards.name}_report.html\', params = list(name = \'{wildcards.name}\'))\""
 
 rule run_create_sample_report:
   input: expand('resources/data/target/{name}/{name}_samp_report.done', name=target_list_df_samp_imp['name'])
