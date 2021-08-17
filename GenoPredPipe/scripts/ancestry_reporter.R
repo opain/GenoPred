@@ -2,7 +2,7 @@
 args = commandArgs(trailingOnly=TRUE)
 
 # Read in samples file
-config<-read.table('config_test.yaml', header=F)
+config<-read.table('config.yaml', header=F)
 target_list<-read.table(as.character(config$V2[config$V1 == 'target_list:']), header=T)
 
 # Identify which super populations each target contain
