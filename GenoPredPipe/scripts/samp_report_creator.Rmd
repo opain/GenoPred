@@ -1,0 +1,231 @@
+---
+title: "GenoPredPipe"
+params:
+  name: ""
+output:
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+    toc_float: true
+    fig_caption: yes
+
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '../')
+
+library(data.table)
+library(knitr)
+library(ggplot2)
+library(cowplot)
+library(ggchicklet)
+library(kableExtra)
+library(stringr)
+
+knit_hooks$set(optipng = hook_optipng)
+knit_hooks$set(pngquant = hook_pngquant)
+
+```
+
+***
+
+<font size="4"> 
+ID: `r gsub('_',' ',params$name)`
+</font>
+
+***
+
+# Descriptives
+
+```{R, eval=T, echo=F}
+
+harmoniser_log<-readLines(paste0('resources/data/target/',params$name,'/',params$name,'.1KGphase3.hm3.chr.hm3_harmoniser.log'))
+
+fam<-fread(paste0('resources/data/target/',params$name,'/',params$name,'.1KGphase3.hm3.chr22.fam'))
+
+ref_bim<-fread('resources/data/1kg/1KGPhase3.w_hm3.GW.bim')
+nvar_in_ref<-nrow(ref_bim)
+
+ref_overlap<-gsub('%.*','%',harmoniser_log[grepl('of variants in reference are in the target.',harmoniser_log)])
+
+ref_overlap_after_imp<-gsub('%.*','%',harmoniser_log[grepl('of variants in reference are in the target.',harmoniser_log)])
+
+```
+
+This sample contains `r nrow(fam)` individuals. The sample had undergone genotype imputation in advance of GenoPredPipe. Of the `r nvar_in_ref` variants in the reference, `r ref_overlap_after_imp` were available as hard calls in the target.
+
+***
+
+# Ancestry
+
+## Super Population Classification
+
+```{R, eval=T, echo=F, message=F, warning=F}
+# Read in 1KG population codes
+pop_codes<-fread('resources/data/1kg/1kg_pop_codes.tsv')
+pop_codes<-pop_codes[,1:3]
+names(pop_codes)<-c('pop','code','super_code')
+pop_codes<-pop_codes[pop_codes$code != '',]
+
+super_pop_codes<-fread('resources/data/1kg/1kg_super_pop_codes.tsv')
+names(super_pop_codes)<-c('pop','code')
+
+model_pred<-fread(paste0('resources/data/target/',params$name,'/ancestry/',params$name,'.Ancestry.model_pred'))
+probs_melt<-melt(model_pred[,-1:-2])
+
+model_pred$max_prob<-apply(model_pred[,-1:-2], 1, max)
+n_hard_call<-sum(model_pred$max_prob > 0.5)
+model_pred<-model_pred[model_pred$max_prob > 0.5,]
+model_pred$max_prob<-NULL
+
+model_pred_hard<-NULL
+for(i in names(model_pred[,-1:-2])){
+	tmp_keep<-model_pred[apply(model_pred[,-1:-2], 1, function(x) x[i] == max(x)),1:2]
+	model_pred_hard<-rbind(model_pred_hard, data.frame(tmp_keep, Population=i)) 
+}
+
+hard_call_table<-data.frame(melt(table(model_pred_hard$Population)))
+hard_call_table<-merge(hard_call_table, super_pop_codes, by.x='Var1',by.y='code')
+hard_call_table<-hard_call_table[,c('pop','value')]
+names(hard_call_table)<-c('Super Population', 'N')
+
+```
+
+Of the `r nrow(fam)` individuals in the sample, the ancestry model classified `r n_hard_call` individuals to a super population with a probability >50%. The number of individuals assigned to each super population were:
+
+```{r, eval=T, echo=F}
+kable(hard_call_table, align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))
+```
+
+***
+
+```{R, eval=T, echo=F, message=F, warning=F, fig.cap="Distribution of Super Population Probabilities", fig.dim = c(8, 4)}
+
+ggplot(probs_melt, aes(x=value, fill=variable)) + 
+  geom_histogram(alpha=0.5) +
+  labs(x='Probability', y='N', fill='Super Population') +
+  xlim(c(-0.05,1.05)) +
+  theme_minimal_hgrid()
+
+```
+
+***
+
+<details><summary>Show principal component plots</summary>
+
+```{r, echo=FALSE, fig.cap="Principal Component Scores Compared to Reference Super Populations", out.width = '100%'}
+knitr::include_graphics(normalizePath(paste0('resources/data/target/',params$name,'/ancestry/', params$name,'.Ancestry.PCs_plot_super_pop.png')))
+```
+
+```{r, eval=T, echo=F}
+kable(super_pop_codes, align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))
+```
+
+</details>
+
+## Within Super Population Classification
+
+```{R, eval=T, results = "asis", echo=F, message=F, warning=F, fig.cap="Distribution of Population Probabilities", fig.dim = c(8, 4)}
+
+for(population in unique(model_pred_hard$Population)){
+  cat('###',super_pop_codes$pop[super_pop_codes$code == population],'Population Classification \n')
+
+  model_pred<-fread(paste0('resources/data/target/',params$name,'/ancestry_',population,'/',params$name,'.Ancestry.model_pred'))
+  probs_melt<-melt(model_pred[,-1:-2])
+
+  model_pred$max_prob<-apply(model_pred[,-1:-2], 1, max)
+  n_hard_call<-sum(model_pred$max_prob > 0.5)
+  model_pred<-model_pred[model_pred$max_prob > 0.5,]
+  model_pred$max_prob<-NULL
+  
+  model_pred_hard_pop<-NULL
+  for(i in names(model_pred[,-1:-2])){
+  	tmp_keep<-model_pred[apply(model_pred[,-1:-2], 1, function(x) x[i] == max(x)),1:2]
+  	if(nrow(tmp_keep) > 0){
+  	  model_pred_hard_pop<-rbind(model_pred_hard_pop, data.frame(tmp_keep, Population=i)) 
+  	}
+  }
+  
+  hard_call_table<-data.frame(melt(table(model_pred_hard_pop$Population)))
+  hard_call_table<-merge(hard_call_table, pop_codes, by.x='Var1',by.y='code')
+  hard_call_table<-hard_call_table[,c('pop','value')]
+  names(hard_call_table)<-c('Population', 'N')
+  
+  cat("Of the ",nrow(model_pred_hard_pop)," individuals assigned to the ",population," super population, the ancestry model classified ",n_hard_call," individuals to a specific ",super_pop_codes$pop[super_pop_codes$code == population]," population with a probability >50%. The number of individuals assigned to each ",super_pop_codes$pop[super_pop_codes$code == population]," population were: \n", sep='')
+
+  html_table <- knitr::kable(hard_call_table, align = "c") %>%
+                        kable_styling(bootstrap_options = c("striped", "hover", "responsive"))
+  
+  cat(html_table)
+  
+  plot_i<-ggplot(probs_melt, aes(x=value, fill=variable)) + 
+          geom_histogram(alpha=0.5) +
+          labs(x='Probability', y='N', fill='Population') +
+          xlim(c(-0.05,1.05)) +
+          theme_minimal_hgrid()
+  
+  print(plot_i)
+  
+  cat(' \n \n')
+}
+
+```
+
+***
+
+# Polygenic Scores
+
+```{R, eval=T, echo=F, message=F, warning=F}
+config<-read.table('config.yaml')
+
+# Read in gwas_list
+gwas_list<-fread(as.character(config$V2[config$V1 == 'gwas_list:']))
+
+# Read in prs
+dbslmm_prs_list<-list()
+for(population in unique(model_pred_hard$Population)){
+dbslmm_prs<-NULL
+for(gwas_i in gwas_list$name){
+  prs_i<-fread(paste0('resources/data/target/',params$name,'/prs/',population,'/dbslmm/',gwas_i,'/',params$name,'.',gwas_i,'.',population,'.DBSLMM_profiles'))
+  dbslmm_prs<-rbind(dbslmm_prs, data.frame(gwas=gwas_i,
+                                           FID=prs_i$FID,
+                                           IID=prs_i$IID,
+                                           prs_z=prs_i[[paste0(gwas_i,'_DBSLMM')]]))
+}
+dbslmm_prs_list[[population]]<-dbslmm_prs
+}
+```
+
+```{R, eval=T, echo=F, message=F, warning=F, fig.cap="Distribution of DBSLMM PRS", fig.dim = c(8, 2*nrow(gwas_list))}
+
+dbslmm_prs_all<-do.call(rbind, dbslmm_prs_list)
+dbslmm_prs_all<-merge(dbslmm_prs_all, model_pred_hard, by=c('FID','IID'))
+dbslmm_prs_all<-merge(dbslmm_prs_all, super_pop_codes, by.x='Population',by.y='code')
+dbslmm_prs_all<-merge(dbslmm_prs_all, gwas_list[,c('name','label')], by.x='gwas', by.y='name')
+dbslmm_prs_all_2<-dbslmm_prs_all
+dbslmm_prs_all_2$label<-'All'
+dbslmm_prs_all_2$pop<-'All'
+dbslmm_prs_all<-rbind(dbslmm_prs_all,dbslmm_prs_all_2)
+
+dbslmm_prs_all$pop_wrap = str_wrap(dbslmm_prs_all$pop, width = 15)
+dbslmm_prs_all$label_wrap = str_wrap(dbslmm_prs_all$label, width = 10)
+
+dbslmm_prs_all$pop_wrap<-factor(dbslmm_prs_all$pop_wrap, levels=unique(dbslmm_prs_all$pop_wrap))
+dbslmm_prs_all$label_wrap<-factor(dbslmm_prs_all$label_wrap, levels=unique(dbslmm_prs_all$label_wrap))
+
+ggplot(dbslmm_prs_all, aes(x=prs_z, fill=1)) + 
+  geom_histogram(alpha=0.5) +
+  labs(x='Probability', y='N') +
+  theme_minimal_hgrid() +
+  panel_border() +
+  facet_grid(label_wrap ~ pop_wrap) +
+  theme(legend.position = "none")
+
+
+```
+

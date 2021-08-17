@@ -61,6 +61,9 @@ registerDoMC(opt$n_core)
 
 # If compressed, decompress
 if(substr(opt$geno,(nchar(opt$geno)+1)-4,nchar(opt$geno)) == '.zip'){
+  if(file.exists(paste0(gsub('.zip','',opt$geno),'.txt'))){
+    system(paste0('rm ',gsub('.zip','',opt$geno),'.txt'))
+  }
   system(paste0("unzip -d ",dirname(opt$geno)," ",opt$geno))
   opt$geno<-sub('.zip','.txt',opt$geno)
   sink(file = paste(opt$out,'.23andMe_imputer.log',sep=''), append = T)
@@ -70,6 +73,10 @@ if(substr(opt$geno,(nchar(opt$geno)+1)-4,nchar(opt$geno)) == '.zip'){
 
 # Convert to PLINK format using plink
 system(paste0(opt$plink,' --23file ',opt$geno,' ', opt$FID,' ',opt$IID,' ',opt$Sex,' ',opt$Pheno,' ',opt$PID,' ',opt$MID,' --out ',opt$out,' --recode --memory 2000'))
+
+if(substr(opt$geno,(nchar(opt$geno)+1)-4,nchar(opt$geno)) == '.zip'){
+  system(paste0('rm ',opt$geno))
+}
 
 # Count the number of SNPs
 n_geno<-system(paste0('wc -l ',opt$out,'.map'),intern=T)
@@ -91,7 +98,7 @@ cat('Harmonsing and phasing genetic data using shapeit...')
 sink()
 
 # Loop over each chromosomes
-foreach(i=CHROMS, .combine=c) %dopar% {
+foreach(i=CHROMS, .combine=c, .options.multicore=list(preschedule=FALSE)) %dopar% {
 	
 	#First in loop - extract only one specific chromosome
 	log1<-system(paste0(opt$plink,' --file ',opt$out,' --chr ',i,' --recode --out ',opt$out,'.chr',i,' --exclude ',opt$out,'_duplicates.snplist'))
@@ -195,7 +202,7 @@ sink()
 system(paste0('mkdir ',opt$out,'.impute2.logs'))
 
 # Look up length of each chromosome
-maxPos_table<-foreach(i=CHROMS, .combine=rbind) %dopar% {
+maxPos_table<-foreach(i=CHROMS, .combine=rbind, .options.multicore=list(preschedule=FALSE)) %dopar% {
 	if(i == 'X'){
 		data.frame(CHR=i,maxPos=system(paste0('zcat ',opt$ref,'/1000GP_Phase3_chr',i,"_NONPAR.legend.gz | tail -n 1 | cut -d ' ' -f 2"),intern=T), stringsAsFactors=F)
 	} else {
@@ -211,7 +218,7 @@ for(i in CHROMS){
   chunks<-rbind(chunks,data.frame(CHR=i, Start=starts, End=ends))
 }
 
-foreach(i=1:dim(chunks)[1], .combine=c) %dopar% {
+foreach(i=1:dim(chunks)[1], .combine=c, .options.multicore=list(preschedule=FALSE)) %dopar% {
 	if(chunks$CHR[i] == 'X'){
     imp_log<-system(paste0(opt$impute2,' -m ',opt$ref,'/genetic_map_chr',chunks$CHR[i],'_nonPAR_combined_b37.txt -h ',opt$ref,'/1000GP_Phase3_chr',chunks$CHR[i],'_NONPAR.hap.gz -l ',opt$ref,'/1000GP_Phase3_chr',chunks$CHR[i],'_NONPAR.legend.gz -known_haps_g ',opt$out,'.chr',chunks$CHR[i],'.harmonised.haps -int ',chunks$Start[i],' ',chunks$End[i],' -Ne 20000 -o ',opt$out,'.chr',chunks$CHR[i],'.',chunks$Start[i],'_',chunks$End[i]))
 	} else {
@@ -225,7 +232,7 @@ foreach(i=1:dim(chunks)[1], .combine=c) %dopar% {
 	}
 }
 
-foreach(i=CHROMS, .combine=c) %dopar% {
+foreach(i=CHROMS, .combine=c, .options.multicore=list(preschedule=FALSE)) %dopar% {
   # Combine the chunks into per chromosome files
   starts<-chunks$Start[chunks$CHR == i]
   ends<-chunks$End[chunks$CHR == i]
@@ -263,7 +270,7 @@ cat("Reformatting...")
 sink()
 
 # Update rsids, and save as a plink file and remove missing SNPs
-foreach(i=CHROMS, .combine=c) %dopar% {
+foreach(i=CHROMS, .combine=c, .options.multicore=list(preschedule=FALSE)) %dopar% {
 	# Insert chromosome number
 	gen<-fread(paste0(opt$out,'.chr',i,'.gen'))
 	gen$V1<-as.character(i)
@@ -315,7 +322,7 @@ cat("Done!\n")
 sink()
 
 # Delete the log file folders
-system(paste0('rm -r ',opt$out,'.impute2.logs'))
+#system(paste0('rm -r ',opt$out,'.impute2.logs'))
 
 # Delete the remaining temporary files
 system(paste0('rm ',opt$out,'.ped'))
