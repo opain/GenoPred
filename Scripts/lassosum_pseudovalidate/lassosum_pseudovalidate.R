@@ -30,7 +30,7 @@ library(data.table)
 library(lassosum)
 library(parallel)
 cl <- makeCluster(opt$n_cores)
-setwd(system.file("data", package="lassosum"))
+orig_wd<-getwd()
 
 tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
@@ -163,10 +163,14 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Running lassosum pipeline...')
 sink()
 
+setwd(system.file("data", package="lassosum"))
+
 out<-lassosum.pipeline(cor=cor, chr=GWAS$CHR, pos=GWAS$BP, 
                        A1=GWAS$A1, A2=GWAS$A2,
-                       ref.bfile=opt$ref_plink_subset, 
+                       ref.bfile=paste0(orig_wd,'/',opt$ref_plink_subset), 
                        LDblocks = 'EUR.hg19', cluster=cl)
+
+setwd(orig_wd)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -183,7 +187,9 @@ cat('Idenitfying best parameters via pseudovalidation...')
 sink()
 
 bitmap(paste0(opt$output,'.pseudovalidate.png'), unit='px', res=300, height=2000, width=2000)
+setwd(system.file("data", package="lassosum"))
 v <- pseudovalidate(out, cluster=cl)
+setwd(orig_wd)
 dev.off()
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)

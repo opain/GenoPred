@@ -8,6 +8,8 @@ make_option("--target_plink_chr", action="store", default=NA, type='character',
     help="Path to per chromosome target PLINK files [required]"),
 make_option("--target_plink", action="store", default=NA, type='character',
     help="Path to per chromosome target PLINK files [required]"),
+make_option("--target_keep", action="store", default=NA, type='character',
+    help="Path to file listing individuals in the target sample to retain [optional]"),
 make_option("--ref_plink_chr", action="store", default=NA, type='character',
     help="Path to per chromosome reference PLINK files [required]"),
 make_option("--target_fam", action="store", default=NA, type='character',
@@ -74,25 +76,88 @@ if(is.na(opt$ref_pop_scale)){
 	q()
 }
 
+if(!is.na(opt$target_keep)){
+  ###########
+  # Extract target keep
+  ###########
+  if(is.na(opt$target_fam)){
+    if(is.na(opt$target_plink)){
+      for(i in 1:22){
+        system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --threads 1 --keep ',opt$target_keep,' --make-bed --out ',opt$output_dir,'target_subset.chr',i,' --memory ',floor(opt$memory*0.7)))
+      }
+      opt$target_plink_chr<-paste0(opt$output_dir,'target_subset.chr')
+    } else {
+      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --threads 1 --keep ',opt$target_keep,' --make-bed --out ',opt$output_dir,'target_subset --memory ',floor(opt$memory*0.7)))
+      opt$target_plink<-paste0(opt$output_dir,'target_subset')
+    }
+  } else {
+    if(is.na(opt$target_plink)){
+      for(i in 1:22){
+        system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --fam ',opt$target_fam,' --threads 1 --keep ',opt$target_keep,' --make-bed --out ',opt$output_dir,'target_subset.chr',i,' --memory ',floor(opt$memory*0.7)))
+      }
+      opt$target_plink_chr<-paste0(opt$output_dir,'target_subset.chr')
+      opt$target_fam<-NA
+    } else {
+      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --threads 1 --keep ',opt$target_keep,' --make-bed --out ',opt$output_dir,'target_subset --memory ',floor(opt$memory*0.7)))
+      opt$target_plink<-paste0(opt$output_dir,'target_subset')
+      opt$target_fam<-NA
+    }
+  }
+}
+
 ###########
 # Perform QC of target sample genotypes
 ###########
+# If target sample size is > 100, only apply SNP missingness parameter
+if(!is.na(opt$target_fam)){
+  fam<-fread(opt$target_fam)
+} else {
+  if(!is.na(opt$target_plink_chr)){
+    fam<-fread(paste0(opt$target_plink_chr,'22.fam'))
+  } else {
+    fam<-fread(paste0(opt$target_plink,'.fam'))
+  }
+}
 
-if(is.na(opt$target_fam)){
-  if(is.na(opt$target_plink)){
-    for(i in 1:22){
-      system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+if(nrow(fam) > 100){
+  if(is.na(opt$target_fam)){
+    if(is.na(opt$target_plink)){
+      for(i in 1:22){
+        system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+      }
+    } else {
+      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     }
   } else {
-    system(paste0(opt$plink,' --bfile ',opt$target_plink,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+    if(is.na(opt$target_plink)){
+      for(i in 1:22){
+        system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --fam ',opt$target_fam,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+      }
+    } else {
+        system(paste0(opt$plink,' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+    }
   }
 } else {
-  if(is.na(opt$target_plink)){
-    for(i in 1:22){
-      system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --fam ',opt$target_fam,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('Target sample size is <100 so only applying genotype missingness QC in target sample.\n')
+  sink()
+  
+  if(is.na(opt$target_fam)){
+    if(is.na(opt$target_plink)){
+      for(i in 1:22){
+        system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --threads 1 --geno ',opt$geno,' --write-snplist --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+      }
+    } else {
+      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --threads 1 --geno ',opt$geno,' --write-snplist --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     }
   } else {
-      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --threads 1 --geno ',opt$geno,' --maf ',opt$maf,' --hwe ',opt$hwe,' --write-snplist --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+    if(is.na(opt$target_plink)){
+      for(i in 1:22){
+        system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,i,' --fam ',opt$target_fam,' --threads 1 --geno ',opt$geno,' --write-snplist --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+      }
+    } else {
+      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --threads 1 --geno ',opt$geno,' --write-snplist --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+    }
   }
 }
 
@@ -484,6 +549,13 @@ gc()
 ###
 
 system(paste0('rm ',opt$output_dir,'profiles*'))
+if(!is.na(opt$target_keep)){
+  if(is.na(opt$target_plink)){
+    system(paste0('ls ', opt$target_plink,'*'))
+  } else {
+    system(paste0('ls ', opt$target_plink_chr,'*'))
+  }
+}
 
 ###
 # Create plot PC scores of target sample compared to the reference
