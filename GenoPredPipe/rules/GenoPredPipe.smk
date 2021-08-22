@@ -259,14 +259,23 @@ rule pipeline_prep:
 
 import pandas as pd
 target_list_df = pd.read_table(config["target_list"], sep=' ')
+
 target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
-target_list_df_samp_imp = target_list_df.loc[target_list_df['type'] == 'samp_imp']
+target_list_df_samp_imp_plink1 = target_list_df.loc[target_list_df['type'] == 'samp_imp_plink1']
+target_list_df_samp_imp_bgen = target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen']
+target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen')]
+
 target_list_df['pre_harm_path'] = target_list_df['path']
-target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = "resources/data/target/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3.chr"
+target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = "resources/data/target/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
+target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = "resources/data/target/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
 
 ####
-# Format and impute input data
+# Format target data
 ####
+
+##
+# 23andMe
+##
 # Largely based on Impute.Me by Lasse Folkersen
 
 rule format_impute_23andme_target:
@@ -306,6 +315,10 @@ rule run_format_impute_23andme_target:
 # i.e. grep -IRiL "There are no SNPs\|Imputation accuracy assessment" *_summary
 ##
 
+##
+# samp_imp_plink1
+##
+
 # Touch non-23andMe data
 rule touch_imp:
   output:
@@ -318,7 +331,52 @@ rule touch_imp:
     "ls {params.path}*"
 
 rule run_touch_imp:
-  input: expand("resources/data/target/{name}/touch_imp.done", name=target_list_df_samp_imp['name'])
+  input: expand("resources/data/target/{name}/touch_imp.done", name=target_list_df_samp_imp_plink1['name'])
+
+##
+# samp_imp_bgen
+##
+
+# Estimate MAF and INFO
+rule compute_snp_stats_target:
+  input:
+    rules.download_qctool2.output
+  output:
+    "resources/data/target/{name}/{name}_snp_stats_chr{chr}.txt"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    path=lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
+  shell:
+    "resources/software/qctool2/qctool -g {params.path}.chr{wildcards.chr}.bgen -s {params.path}.sample -snp-stats -osnp resources/data/target/{wildcards.name}/{wildcards.name}_snp_stats_chr{wildcards.chr}.txt"
+
+rule run_compute_snp_stats_target:
+  input: expand("resources/data/target/{name}/{name}_snp_stats_chr{chr}.txt", name=target_list_df_samp_imp_bgen['name'], chr=range(1, 23))
+
+# NOTE. I do not implement the run_compute_snp_stats_target rule as target sample size may be too small to accurately estimate INFO and MAF. I suggest people perform this QC in advance, if at all. The use of HapMap3 variants in subsequent analyses should make these filters far less important.
+
+# Convert to plink1 binary
+rule convert_bgen_target:
+  input:
+    rules.download_qctool2.output
+  output:
+    "resources/data/target/{name}/{name}.w_hm3.chr{chr}.bed"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    path=lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
+  shell:
+    "resources/software/qctool2/qctool -g {params.path}.chr{wildcards.chr}.bgen -s {params.path}.sample -incl-rsids resources/data/hm3_snplist/w_hm3.snplist -ofiletype binary_ped -og resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr} -threshold 0.9; awk \'$1=$2\' resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam > resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp; mv resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam"
+
+rule run_convert_bgen_target:
+  input: 
+    lambda w: expand("resources/data/target/{name}/{name}.w_hm3.chr{chr}.bed", name=w.name, chr=range(1, 23))
+  output:
+    touch("resources/data/target/{name}/converted_to_plink.done")
+
+rule run_convert_bgen_target_2:
+  input: 
+    expand("resources/data/target/{name}/converted_to_plink.done", name=target_list_df_samp_imp_bgen['name'])
 
 ####
 # Harmonise with reference
@@ -327,7 +385,7 @@ rule run_touch_imp:
 rule harmonise_target_with_ref:
   input:
     rules.prep_1kg.output,
-    lambda w: "resources/data/target/" + w.name + "/" + w.name + ".sample" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else "resources/data/target/{name}/touch_imp.done"
+    lambda w: "resources/data/target/" + w.name + "/" + w.name + ".sample" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target/{name}/converted_to_plink.done")
   output:
     "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed"
   conda:
@@ -335,7 +393,7 @@ rule harmonise_target_with_ref:
   params:
     path=lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0]
   shell:
-    "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R --target {params.path} --ref resources/data/1kg/1KGPhase3.w_hm3.chr --plink plink --out resources/data/target/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr"
+    "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R --target {params.path}.chr --ref resources/data/1kg/1KGPhase3.w_hm3.chr --plink plink --out resources/data/target/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr"
 
 rule run_harmonise_target_with_ref:
   input: expand("resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed", name=target_list_df['name'])
@@ -401,6 +459,55 @@ rule target_population:
 
 rule run_target_population:
   input: expand("resources/data/target/{name}/ancestry_pop.done", name=target_list_df['name'])
+
+##########
+# Create ancestry-only reports
+##########
+
+## 
+# Individual ancestry reports
+##
+
+rule create_individual_ancestry_report:
+  input:
+    rules.install_ggchicklet.output,
+    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
+    "resources/data/target/{name}/ancestry_pop.done",
+    rules.download_1kg_pop_codes.output
+  output:
+    touch('resources/data/target/{name}/{name}_indiv_ancestry_report.done') 
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript -e \"rmarkdown::render(\'scripts/indiv_ancestry_report_creator.Rmd\', output_file = \'../resources/data/target/{wildcards.name}/{wildcards.name}_ancestry_report.html\', params = list(name = \'{wildcards.name}\'))\""
+
+rule run_create_individual_ancestry_report:
+  input: expand('resources/data/target/{name}/{name}_indiv_ancestry_report.done', name=target_list_df_23andMe['name'])
+
+##
+# Sample ancestry reports
+##
+
+rule create_sample_ancestry_report:
+  input:
+    rules.install_ggchicklet.output,
+    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
+    "resources/data/target/{name}/ancestry_pop.done",
+    rules.download_1kg_pop_codes.output
+  output:
+    touch('resources/data/target/{name}/{name}_samp_ancestry_report.done')
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript -e \"rmarkdown::render(\'scripts/samp_ancestry_report_creator.Rmd\', output_file = \'../resources/data/target/{wildcards.name}/{wildcards.name}_ancestry_report.html\', params = list(name = \'{wildcards.name}\'))\""
+
+rule run_create_sample_ancestry_report:
+  input: expand('resources/data/target/{name}/{name}_samp_ancestry_report.done', name=target_list_df_samp_imp['name'])
+
+rule run_create_ancestry_reports:
+  input: 
+    rules.run_create_individual_ancestry_report.input,
+    rules.run_create_sample_ancestry_report.input
 
 ##########
 # Target sample scoring
@@ -474,7 +581,7 @@ rule run_target_prs_dbslmm:
   input: expand("resources/data/target/{name}/prs/target_prs_dbslmm_{gwas}.done", name=target_list_df_23andMe['name'], gwas=gwas_list_df['name'])
 
 ##########
-# Create reports
+# Create full reports
 ##########
 
 ## 

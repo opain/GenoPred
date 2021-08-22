@@ -210,7 +210,7 @@ cat('value =', v$validation.table$value[v$validation.table$lambda == v$best.lamb
 sink()
 
 if(!is.na(opt$ref_keep)){
-  system(paste0('rm ',opt$output_dir,'lassosum_ref_gw'))
+  system(paste0('rm ',opt$output_dir,'lassosum_ref_gw*'))
 }
 
 end.time <- Sys.time()
