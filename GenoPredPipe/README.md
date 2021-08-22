@@ -49,7 +49,7 @@ Prepare a snakemake profile for parallel computing. Follow instructions [here](h
 Download test data.
 
 ```bash
-wget -O test_data.tar.gz https://zenodo.org/record/5205711/files/test_data.tar.gz?download=1
+wget -O test_data.tar.gz https://zenodo.org/record/5233141/files/test_data.tar.gz?download=1
 tar -xf test_data.tar.gz
 rm test_data.tar.gz
 ```
