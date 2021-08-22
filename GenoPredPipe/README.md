@@ -56,7 +56,7 @@ rm test_data.tar.gz
 
 #### Step 2
 
-Run full pipeline.
+Run full pipeline for all target samples.
 
 ```bash
 snakemake --profile slurm --use-conda run_create_reports
@@ -64,17 +64,17 @@ snakemake --profile slurm --use-conda run_create_reports
 
 ***
 
-### Using your own data
+## Using your own data
 
 You must specify a file listing target samples (target_list) and a file listing of GWAS summary statistics (gwas_list) for the pipeline to use. The location of these files should be specified in the config.yaml file. The column names for the gwas_list and target_list files should be as follows:
 
-#### target_list
+### target_list
 
 - name: Name of the target sample
-- path: File path to the target genotype data
-- type: Either '23andMe' for 23andMe formatted data for an individual, or 'samp_imp' for PLINK1 binary format data (.bed/.bim/.fam) for a sample that has already undergone genotype imputation.
+- path: File path to the target genotype data. For type '23andMe', provide full file name either zipped (.zip) or uncompressed (.txt). For types 'samp_imp_plink1' and 'samp_imp_bgen', per-chromosome genotype data should be provided with the following filename format: \<prefix>.chr\<1-22>.\<.bed/.bim/.fam/.bgen>. If type 'samp_imp_bgen', the sample file should be called \<prefix>.sample.  
+- type: Either '23andMe', 'samp_imp_plink1', or 'samp_imp_bgen'. '23andMe' = 23andMe formatted data for an individual. 'samp_imp_plink1' = Preimputed PLINK1 binary format data (.bed/.bim/.fam) for a group of individuals. 'samp_imp_bgen' = Preimputed Oxford format data (.bgen/.sample) for a group of individuals.
 
-#### gwas_list
+### gwas_list
 
 - name: Short name for the GWAS
 - path: File path to the GWAS summary statistics (uncompressed or gzipped)
@@ -85,7 +85,7 @@ You must specify a file listing target samples (target_list) and a file listing 
 - sd: The phenotype sd in the general population (if continuous, otherwise NA)
 - label: A human readable name for the GWAS phenotype. Wrap in quotes if multiple words. For example, "Body Mass Index".
 
-#### GWAS summary statistic format
+### GWAS summary statistic format
 
 The following column names are expected in the GWAS summary statistics files:
 
@@ -100,6 +100,72 @@ The following column names are expected in the GWAS summary statistics files:
 - FREQ: Allele frequency in GWAS sample (optional)
 - INFO: Imputation quality (optional)
 
+***
+
+## Running parts of the pipeline
+
+It is possible to only run specific parts of the pipeline for all target samples. For example:
+
+```bash
+# Harmonise with the reference only
+snakemake --profile slurm --use-conda run_harmonise_target_with_ref
+
+# Create ancestry report only
+snakemake --profile slurm --use-conda run_ancestry_create_reports
+
+# Calculate reference-projected principal components only
+snakemake --profile slurm --use-conda run_target_pc
+
+# Calculate pT+clump polygenic scores only
+snakemake --profile slurm --use-conda run_target_prs_ptclump
+
+# Calculate DBSLMM polygenic scores only
+snakemake --profile slurm --use-conda run_target_prs_dbslmm
+
+```
+
+Furthermore, you can request specific outputs for specific target samples. For example:
+
+```bash
+# Run full pipeline for specific target sample. 
+# Replace <name> with name of target sample in the target_list file.
+snakemake --profile slurm --use-conda resources/data/target/<name>/<name>_samp_report.done
+
+# Calculate pT+clump polygenic scores for specific target sample and specific GWAS. 
+# Replace <name> with name of a target sample in the target_list file. 
+# Replace <gwas> with the name of a gwas in the gwas_list file.
+snakemake --profile slurm --use-conda resources/data/target/<name>/prs/target_prs_ptclump_<gwas>.done
+
+# Look inside the rules/GenoPredPipe.smk file to see all available rules.
+
+```
+
+***
+
+## Output
+
+Potentially useful GenoPredPipe outputs can be found in the following locations:
+
+- 1KG Phase 3 reference data restricted to HapMap3 variants in PLINK1 binary format (.bed/.bim/.fam)
+-- Per chromosome: resources/data/1kg/1KGPhase3.w_hm3.chr<chr>.<bed/bim/fam>
+-- Genome-wide: resources/data/1kg/1KGPhase3.w_hm3.GW.<.bed/.bim/.fam>
+-- Super population and population keep files: resources/data/1kg/keep_files/<pop>_sample.keep
+-- Allele frequency files split by population: resources/data/1kg/freq_files/<pop>/1KGPhase3.w_hm3.<pop>.chr<chr>.frq
+
+- Quality controlled and formatted GWAS summary statistics: resources/data/gwas_sumstat/<gwas>/<gwas>.cleaned.gz
+- Lassosum pseudovalidation results: resources/data/1kg/prs_pseudoval/<gwas>
+- Projected principal component .score files: resources/data/1kg/prs_score_files/<method>/<gwas>
+- Polygenic score .score files: resources/data/1kg/prs_score_files/<method>/<gwas>
+
+- Target sample outputs
+-- Imputed genotype data (if 23andMe input): resources/data/target/<name>/<name>.<gen/sample>
+-- Genotype data restricted to HapMap3 SNPs and harmonised with reference: resources/data/target/<name>/<name>.1KGPhase3.w_hm3.chr<chr>.<bed/bim/fam>
+-- Super population ancestry results
+-- Within super population ancestr results
+-- Projected principal components
+-- Polygenic scores
+-- Individual-level report (if 23andMe input)
+-- Sample-level report (if imp_samp_plink1 or imp_samp_bgen input)
 
 ***
 
