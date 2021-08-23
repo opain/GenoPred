@@ -139,7 +139,7 @@ if(opt$compare_predictors == F){
 
 Outcome<-fread(opt$pheno)
 Outcome<-Outcome[complete.cases(Outcome),]
-names(Outcome)[3]<-'Outcome_var'
+names(Outcome)<-c('FID','IID','Outcome_var')
 
 if(opt$test == T){
   Outcome<-Outcome[sample(1:dim(Outcome)[1],1000),]
@@ -292,6 +292,7 @@ if(opt$test == T & dim(predictors_list_new)[1] > 10){
 ###########
 # Merge the phenotype and predictor variables
 ###########
+
 Outcome_Predictors <- data.frame(merge(Outcome,Predictors, by='IID'))
 
 rm(Outcome,Predictors)
@@ -446,6 +447,10 @@ seeds[[opt$n_fold+1]]<-sample.int(n=1000, 1)
 
 Prediction_summary_all<-NULL
 
+
+#print('451:')
+#print(predictors_list_new)
+
 # Create a model for each group, and using all predictors
 predictors_list_new<-rbind(predictors_list_new,data.frame(predictor='All',
                                                           group='.'))
@@ -548,6 +553,11 @@ if(opt$model_comp == T){
 		rm(Outcome_Predictors_train_x_group,Outcome_Predictors_test_x_group)
 		gc()
 		
+        
+        #print('557')
+        #print(Prediction_summary_all)
+        #print(colnames(Prediction_summary_all))
+        #print(colnames(Prediction_summary))
 		Prediction_summary_all<-rbind(Prediction_summary_all,Prediction_summary)
 	
 		if(opt$save_group_model == T){

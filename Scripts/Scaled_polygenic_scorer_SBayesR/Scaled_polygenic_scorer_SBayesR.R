@@ -27,10 +27,19 @@ make_option("--memory", action="store", default=5000, type='numeric',
 opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
+library(foreach)
+library(doMC)
+registerDoMC(opt$n_cores)
 
 tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
+
+if (!endsWith(opt$output_dir,'/')){
+    # RM: bugfix
+    opt$output_dir <- paste0(opt$output_dir, '/')
+}
+
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
@@ -54,35 +63,52 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in the target sample...')
 sink()
 
-if(is.na(opt$target_keep)){
-	for(i in 1:22){
-		system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' 2 4 6 sum --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
-	}
-} else {
-	for(i in 1:22){
-		system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' 2 4 6 sum --out ',opt$output_dir,'profiles.chr',i,' --memory ',floor(opt$memory*0.9)))
-	}
+
+# List parameters to use in scoring
+tmp<-sub('.*/','',opt$ref_score)
+opt$ref_score_dir<-sub(paste0(tmp,'*.'),'',opt$ref_score)
+
+score_files<-list.files(path=opt$ref_score_dir, pattern='.*GW\\.snpRes')
+score_files_param<-gsub('.GW.snpRes','',gsub('GWAS_sumstats_SBayesR','',score_files))
+
+
+foreach(param_i=score_files_param, file=score_files, .combine=c) %dopar% {
+    if(is.na(opt$target_keep)){
+        for(i in 1:22){
+            system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score_dir, file,' 2 4 6 sum --out ',opt$output_dir,'profiles',param_i,'.chr',i,' --memory ',floor(opt$memory*0.9)))
+        }
+    } else {
+        for(i in 1:22){
+            system(paste0(opt$plink, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score_dir, file,' 2 4 6 sum --out ',opt$output_dir,'profiles',param_i,'.chr',i,' --memory ',floor(opt$memory*0.9)))
+        }
+    }
 }
 
 # Add up the scores across chromosomes
 profile_example<-list.files(path=opt$output_dir, pattern='*.profile')[1]
 scores<-fread(paste0(opt$output_dir,profile_example))
-scores<-scores[,1:2]
+scores<-scores[,1:2] # FID, IID
 
-SCORE_temp<-0
-for(i in 1:22){
-  if(file.exists(paste0(opt$output_dir,'profiles.chr',i,'.profile'))){
-      profile<-fread(paste0(opt$output_dir,'profiles.chr',i,'.profile'))
-      SCORE_temp<-SCORE_temp+profile$SCORESUM
+
+for(param_i in score_files_param){    
+  SCORE_temp<-0
+  for(i in 1:22){
+    profile<-fread(paste0(opt$output_dir,'profiles',param_i,'.chr',i,'.profile'))
+    SCORE_temp<-SCORE_temp+profile$SCORESUM
+    stopifnot(all(profile[,1:2] == scores[,1:2]))
   }
+  scores<-cbind(scores, SCORE_temp)
+  if (param_i == ''){
+      param_i <- 'default'
+  }
+  param_i <- gsub('^\\.','',param_i)
+  names(scores)[grepl('SCORE_temp',names(scores))]<-paste0('SCORE_',param_i)
 }
-scores<-cbind(scores, SCORE_temp)
-
-names(scores)[grepl('SCORE_temp',names(scores))]<-'SCORE_SBayesR'
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
+
 
 ###
 # Scale the polygenic scores based on the reference
@@ -94,9 +120,11 @@ sink()
 
 ref_scale<-fread(opt$ref_scale)
 
-scores$SCORE_SBayesR<-scores$SCORE_SBayesR-ref_scale$Mean
-scores$SCORE_SBayesR<-scores$SCORE_SBayesR/ref_scale$SD
-scores$SCORE_SBayesR<-round(scores$SCORE_SBayesR,3)
+for(i in names(scores[,-1:-2])){
+    scores[[i]]<-scores[[i]]-ref_scale$Mean[ref_scale$Param == i]
+    scores[[i]]<-scores[[i]]/ref_scale$SD[ref_scale$Param == i]
+    scores[[i]]<-round(scores[[i]],3)
+}
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -107,20 +135,21 @@ sink()
 ###
 
 if(!is.na(opt$pheno_name)){
-	names(scores)<-gsub('SCORE',opt$pheno_name,names(scores))
+    names(scores)[-1:-2]<-paste0(opt$pheno_name,'_',names(scores)[-1:-2])
 }
 
-fwrite(scores, paste0(opt$output,'.SBayesR_profiles'), sep=' ')
+fwrite(scores, paste0(opt$output,'.sbayesr_profiles'), sep=' ', na='NA', quote=F)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Saved polygenic scores to: ',opt$output,'.SBayesR_profiles.\n',sep='')
+cat('Saved polygenic scores to: ',opt$output,'.sbayesr_profiles.\n',sep='')
 sink()
 
-###
-# Clean up temporary files
-###
+# clean up temporary files
+system(paste0('rm ',opt$output_dir,'profiles.*chr*.profile'))
+system(paste0('rm ',opt$output_dir,'profiles.*chr*.nosex'))
+system(paste0('rm ',opt$output_dir,'profiles.*chr*.nopred'))
 
-system(paste0('rm ',opt$output_dir,'profiles*'))
+
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

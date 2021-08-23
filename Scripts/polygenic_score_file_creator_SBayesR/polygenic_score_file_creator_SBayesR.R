@@ -393,7 +393,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-foreach(setting=settings) %dopar% {
+scales <- foreach(setting=settings, .combine=rbind) %dopar% {
     
     if (setting == ''){
         prefix <- 'GWAS_sumstats_SBayesR'
@@ -413,19 +413,29 @@ foreach(setting=settings) %dopar% {
     # Calculate the mean and sd of scores for each population specified in pop_scale
     pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
     
-    for(k in 1:dim(pop_keep_files)[1]){
-      pop<-pop_keep_files$V1[k]
-      keep<-fread(pop_keep_files$V2[k], header=F)
-      scores_keep<-scores[(scores$FID %in% keep$V1),]
-      ref_scale<-data.frame('Mean'=round(mean(scores_keep$SCORESUM),3), 'SD'=round(sd(scores_keep$SCORESUM),3))
-      if (setting == ''){
-          scale_out <- paste0(opt$output,'.',pop,'.scale')
-      } else {
-          scale_out <- paste0(opt$output,'.',setting,'.',pop,'.scale')
-      }
-      fwrite(ref_scale, scale_out, sep=' ')
-    }    
+    # this is an ugly hack...
+    if (setting == ''){
+        name_out <- 'SCORE_default'
+    } else {
+        name_out <- paste0('SCORE_',setting)
+    }
+    
+    wrap_mean_sd <- function(k){
+        pop<-pop_keep_files$V1[k]
+        keep<-fread(pop_keep_files$V2[k], header=F)
+        scores_keep<-scores[(scores$FID %in% keep$V1),]
+        ref_scale<-data.frame('Pop'=pop,'Param'=name_out,'Mean'=round(mean(scores_keep$SCORESUM),3), 'SD'=round(sd(scores_keep$SCORESUM),3))
+        return(ref_scale)
+    }
+        
+    ref_scores <- do.call(rbind, lapply(1:dim(pop_keep_files)[1], wrap_mean_sd))
+    ref_scores
 }
+
+for (pop in unique(scales$Pop)){
+    fwrite(scales[scales$Pop == pop,2:ncol(scales)], paste0(opt$output,'.',pop,'.scale'), sep=' ')
+}
+
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')

@@ -47,6 +47,11 @@ tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
 
+if (!endsWith(opt$output_dir,'/')){
+    # RM: bugfix
+    opt$output_dir <- paste0(opt$output_dir, '/')
+}
+
 CHROMS<-1:22
 
 if(!is.na(opt$test)){

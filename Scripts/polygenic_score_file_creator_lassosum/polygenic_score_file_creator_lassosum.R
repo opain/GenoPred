@@ -247,8 +247,8 @@ for(k in 1:dim(pop_keep_files)[1]){
 	scores_keep<-scores[(scores$FID %in% keep$V1),]
 
 	ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-													Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
-													SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
+	Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
+	SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
 
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
