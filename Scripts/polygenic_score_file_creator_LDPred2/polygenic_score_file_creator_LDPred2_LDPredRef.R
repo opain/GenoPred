@@ -164,8 +164,8 @@ if(!is.na(opt$test)){
 }
 
 # Harmonise with the reference
-map <- ref$map[-(2:3)]
-names(map) <- c("chr", "pos", "a1", "a0")
+map<-readRDS(paste0(opt$ldpred2_ref_dir,'/map.rds'))
+map<-map[,c('chr','pos','a0','a1','af_UKBB','ld')]
 info_snp <- snp_match(sumstats, map)
 
 #####
@@ -173,12 +173,9 @@ info_snp <- snp_match(sumstats, map)
 #####
 
 if(opt$sd_check == T){
-  # Read in reference genotype SD
-  sd<-readRDS(paste0(opt$ldpred2_ref_dir,'/sd.rds'))
-  
   # Remove SDss<0.5???SDval or SDss>0.1+SDval or SDss<0.1 or SDval<0.05
-  sd_val <- sd[info_snp$`_NUM_ID_`]
-
+  sd_val <- with(info_snp, sqrt(2 * af_UKBB * (1 - af_UKBB)))
+  
   if(opt$binary == F){
     sd_y_est = median(sd_val * info_snp$beta_se * sqrt(info_snp$n_eff))
     sd_ss = with(info_snp, sd_y_est / sqrt(n_eff * beta_se^2))
@@ -242,16 +239,7 @@ if(opt$sd_check == T){
 # Estimate heritability
 #######
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Reading in reference LD scores.\n')
-sink()
-
-# Read in LD score estimates
-ld_score<-readRDS(paste0(opt$ldpred2_ref_dir,'/map.rds'))
-ld_score<-ld_score[info_snp$`_NUM_ID_`,]
-ld_score<-ld_score[!is_bad, ]
-
-ldsc <- with(sumstats, snp_ldsc(ld_score$ld, length(ld_score$ld), chi2 = (beta / beta_se)^2, sample_size = n_eff, blocks = NULL))
+ldsc <- with(sumstats, snp_ldsc(ld, nrow(map), chi2 = (beta / beta_se)^2, sample_size = n_eff, blocks = NULL))
 
 h2_est <- ldsc[["h2"]]
 
