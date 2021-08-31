@@ -13,7 +13,10 @@ rule download_qctool2:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/software/qctool2/; wget -O resources/software/qctool2/qctool2.tgz https://www.well.ox.ac.uk/~gav/resources/qctool_v2.0.8-CentOS_Linux7.6.1810-x86_64.tgz; tar -zxvf resources/software/qctool2/qctool2.tgz -C resources/software/qctool2/ --strip-components=1; rm resources/software/qctool2/qctool2.tgz"
+    "mkdir -p resources/software/qctool2/; \
+     wget -O resources/software/qctool2/qctool2.tgz https://www.well.ox.ac.uk/~gav/resources/qctool_v2.0.8-CentOS_Linux7.6.1810-x86_64.tgz; \
+     tar -zxvf resources/software/qctool2/qctool2.tgz -C resources/software/qctool2/ --strip-components=1; \
+     rm resources/software/qctool2/qctool2.tgz"
 
 # Download impute2_data
 rule download_impute2_data:
@@ -22,7 +25,13 @@ rule download_impute2_data:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/impute2/; wget -O resources/data/impute2/1000GP_Phase3.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz; tar -zxvf resources/data/impute2/1000GP_Phase3.tgz -C resources/data/impute2/; rm resources/data/impute2/1000GP_Phase3.tgz; wget -O resources/data/impute2/1000GP_Phase3_chrX.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz; tar -zxvf resources/data/impute2/1000GP_Phase3_chrX.tgz -C resources/data/impute2/1000GP_Phase3/; rm resources/data/impute2/1000GP_Phase3_chrX.tgz"
+    "mkdir -p resources/data/impute2/; \
+     wget -O resources/data/impute2/1000GP_Phase3.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz; \
+     tar -zxvf resources/data/impute2/1000GP_Phase3.tgz -C resources/data/impute2/; \
+     rm resources/data/impute2/1000GP_Phase3.tgz; \
+     wget -O resources/data/impute2/1000GP_Phase3_chrX.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz; \
+     tar -zxvf resources/data/impute2/1000GP_Phase3_chrX.tgz -C resources/data/impute2/1000GP_Phase3/; \
+     rm resources/data/impute2/1000GP_Phase3_chrX.tgz"
 
 # Download PLINK. DBSLMM requires the binary to be specified, which is challenging with conda environments.
 rule download_plink:
@@ -31,7 +40,10 @@ rule download_plink:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/software/plink; wget -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; rm resources/software/plink/plink_linux_x86_64_20210606.zip"
+    "mkdir -p resources/software/plink; \
+     wget -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
+     unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; \
+     rm resources/software/plink/plink_linux_x86_64_20210606.zip"
 
 # Download LDSC
 rule download_ldsc:
@@ -49,7 +61,10 @@ rule dowload_ldsc_ref:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/ldsc_ref; wget -O resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/eur_w_ld_chr.tar.bz2; tar -jxvf resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 -C resources/data/ldsc_ref/; rm resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2"
+    "mkdir -p resources/data/ldsc_ref; \
+     wget -O resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/eur_w_ld_chr.tar.bz2; \
+     tar -jxvf resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 -C resources/data/ldsc_ref/; \
+     rm resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2"
 
 # Download hapmap3 snplist
 rule download_hm3_snplist:
@@ -58,7 +73,9 @@ rule download_hm3_snplist:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/hm3_snplist; wget -O resources/data/hm3_snplist/w_hm3.snplist.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2; bunzip2 resources/data/hm3_snplist/w_hm3.snplist.bz2"
+    "mkdir -p resources/data/hm3_snplist; \
+     wget -O resources/data/hm3_snplist/w_hm3.snplist.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2; \
+     bunzip2 resources/data/hm3_snplist/w_hm3.snplist.bz2"
 
 # Download DBSLMM
 # Specifying old commit as developer has deleted dbslmm binary (accidentally?)
@@ -68,7 +85,10 @@ rule download_dbslmm:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "git clone git@github.com:biostat0903/DBSLMM.git {output}; cd {output}; git reset --hard aa6e7ad5b8a7d3b6905556a4007c4a1fa2925b7d; chmod a+x software/dbslmm"
+    "git clone git@github.com:biostat0903/DBSLMM.git {output}; \
+     cd {output}; \
+     git reset --hard aa6e7ad5b8a7d3b6905556a4007c4a1fa2925b7d; \
+     chmod a+x software/dbslmm"
 
 # Download LD block data
 rule download_ld_blocks:
@@ -88,6 +108,15 @@ rule install_lassosum:
   shell:
     "Rscript -e 'remotes::install_github(\"tshmak/lassosum\")'"
 
+# install bigsnpr
+rule install_bigsnpr:
+  output:
+    touch("resources/software/install_bigsnpr.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript -e 'remotes::install_github(\"privefl/bigsnpr\")'"
+
 # install ggchicklet
 rule install_ggchicklet:
   output:
@@ -96,6 +125,71 @@ rule install_ggchicklet:
     "../envs/GenoPredPipe.yaml"
   shell:
     "Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet\")'"
+
+# Download PRScs reference
+rule download_prscs_ref_1kg_eur:
+  output:
+    "resources/data/prscs_ref/ldblk_1kg_eur/ldblk_1kg_chr1.hdf5"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/prscs_ref; \
+     wget -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
+     tar -zxvf resources/data/prscs_ref/ldblk_1kg_eur.tar.gz -C resources/data/prscs_ref/; \
+     rm resources/data/prscs_ref/ldblk_1kg_eur.tar.gz"
+
+# Download PRScs software
+rule download_prscs_software:
+  output:
+    directory("resources/software/prscs/")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "git clone https://github.com/getian107/PRScs.git {output}"
+
+# Download gctb reference
+rule download_gctb_ref:
+  output:
+    directory("resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/gctb_ref; wget -O resources/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; unzip resources/data/gctb_ref/ukbEURu_hm3_sparse.zip -d resources/data/gctb_ref; for chr in $(seq 1 22);do mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; done; rm resources/data/gctb_ref/ukbEURu_hm3_sparse.zip"
+
+# Download GCTB
+rule download_gctb_software:
+  output:
+    "resources/software/gctb/gctb_2.03beta_Linux/gctb"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/software/gctb; \
+     wget -O resources/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
+     unzip resources/software/gctb/gctb_2.03beta_Linux.zip -d resources/software/gctb; \
+     rm resources/software/gctb/gctb_2.03beta_Linux.zip"
+
+# Download 7z
+rule download_7z:
+  output:
+    "resources/software/7z/7zz"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/software/7z; \
+     wget -O resources/software/7z/7z2103-linux-x64.tar.xz https://www.7-zip.org/a/7z2103-linux-x64.tar.xz; \
+     tar -xf resources/software/7z/7z2103-linux-x64.tar.xz -C resources/software/7z/; \
+     rm resources/software/7z/7z2103-linux-x64.tar.xz"
+
+# Download LDpred2 reference
+rule download_ldpred2_ref:
+  input:
+    rules.download_7z.output
+  output:
+    directory("resources/data/ldpred2_ref")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/ldpred2_ref; wget -O resources/data/ldpred2_ref/download.zip https://ndownloader.figshare.com/articles/13034123/versions/3; resources/software/7z/7zz e resources/data/ldpred2_ref/download.zip -oresources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
 
 # Download and format 1kg reference data
 rule prep_1kg:
@@ -119,7 +213,12 @@ rule merge_1kg_GW:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "ls resources/data/1kg/1KGPhase3.w_hm3.chr*.bed | sed -e 's/\.bed//g' > resources/data/1kg/merge_list.txt; plink --merge-list resources/data/1kg/merge_list.txt --make-bed --out resources/data/1kg/1KGPhase3.w_hm3.GW; rm resources/data/1kg/merge_list.txt"
+    "ls resources/data/1kg/1KGPhase3.w_hm3.chr*.bed | sed -e 's/\.bed//g' > resources/data/1kg/merge_list.txt; \
+     plink \
+       --merge-list resources/data/1kg/merge_list.txt \
+       --make-bed \
+       --out resources/data/1kg/1KGPhase3.w_hm3.GW; \
+     rm resources/data/1kg/merge_list.txt"
 
 # Download 1kg population code definitions
 rule download_1kg_pop_codes:
@@ -129,7 +228,8 @@ rule download_1kg_pop_codes:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "wget -O resources/data/1kg/1kg_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.populations.tsv; wget -O resources/data/1kg/1kg_super_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.superpopulations.tsv"
+    "wget -O resources/data/1kg/1kg_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.populations.tsv; \
+     wget -O resources/data/1kg/1kg_super_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.superpopulations.tsv"
 
 ####
 # Principal Component (Ancestry) Scoring
@@ -144,7 +244,13 @@ rule super_pop_pc_scoring:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "Rscript ../Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_keep resources/data/1kg/keep_files/{wildcards.population}_samples.keep --plink plink --plink2 plink2 --n_pcs 100 --output resources/data/1kg/pc_score_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}"
+    "Rscript ../Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R \
+      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --ref_keep resources/data/1kg/keep_files/{wildcards.population}_samples.keep \
+      --plink plink \
+      --plink2 plink2 \
+      --n_pcs 100 \
+      --output resources/data/1kg/pc_score_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}"
 
 populations=["AFR","AMR","EAS","EUR","SAS"]
 
@@ -161,6 +267,7 @@ rule run_super_pop_pc_scoring:
 
 import pandas as pd
 gwas_list_df = pd.read_table(config["gwas_list"], sep=' ')
+gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
 
 rule sumstat_prep:
   input:
@@ -173,7 +280,11 @@ rule sumstat_prep:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
   shell:
-    "Rscript ../Scripts/sumstat_cleaner/sumstat_cleaner.R --sumstats {params.path} --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_freq_chr resources/data/1kg/freq_files/{params.population}/1KGPhase3.w_hm3.{params.population}.chr --output resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned"
+    "Rscript ../Scripts/sumstat_cleaner/sumstat_cleaner.R \
+      --sumstats {params.path} \
+      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --ref_freq_chr resources/data/1kg/freq_files/{params.population}/1KGPhase3.w_hm3.{params.population}.chr \
+      --output resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned"
     
 rule run_sumstat_prep:
   input: expand("resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz", gwas=gwas_list_df['name'])
@@ -182,7 +293,7 @@ rule run_sumstat_prep:
 # pT+clump (sparse, nested)
 ##
 
-rule prs_scoring_ptclump:
+rule prs_scoring_pt_clump:
   input:
     rules.prep_1kg.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz"
@@ -193,9 +304,16 @@ rule prs_scoring_ptclump:
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz --plink plink --output resources/data/1kg/prs_score_files/pt_clump/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} --ref_pop_scale resources/data/1kg/super_pop_keep.list"
-
-rule run_prs_scoring_ptclump:
+    "Rscript ../Scripts/polygenic_score_file_creator/polygenic_score_file_creator_plink2.R \
+      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep \
+      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+      --plink1 plink \
+      --plink2 plink2 \
+      --output resources/data/1kg/prs_score_files/pt_clump/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+  
+rule run_prs_scoring_pt_clump:
   input: expand("resources/data/1kg/prs_score_files/pt_clump/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
 
 ##
@@ -220,10 +338,160 @@ rule prs_scoring_dbslmm:
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM.R --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz --plink resources/software/plink/plink --ld_blocks resources/data/ld_blocks/{params.population} --rscript Rscript --dbslmm resources/software/dbslmm/software --munge_sumstats resources/software/ldsc/munge_sumstats.py --ldsc resources/software/ldsc/ldsc.py --ldsc_ref resources/data/ldsc_ref/eur_w_ld_chr --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist --sample_prev {params.sampling} --pop_prev {params.prevalence} --output resources/data/1kg/prs_score_files/dbslmm/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+    "Rscript ../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM_plink2.R \
+      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep \
+      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+      --plink resources/software/plink/plink \
+      --ld_blocks resources/data/ld_blocks/{params.population} \
+      --rscript Rscript \
+      --dbslmm resources/software/dbslmm/software \
+      --munge_sumstats resources/software/ldsc/munge_sumstats.py \
+      --ldsc resources/software/ldsc/ldsc.py \
+      --ldsc_ref resources/data/ldsc_ref/eur_w_ld_chr \
+      --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist \
+      --sample_prev {params.sampling} \
+      --pop_prev {params.prevalence} \
+      --output resources/data/1kg/prs_score_files/dbslmm/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list"
 
 rule run_prs_scoring_dbslmm:
   input: expand("resources/data/1kg/prs_score_files/dbslmm/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
+
+##
+# PRScs
+##
+
+rule prs_scoring_prscs:
+  resources: 
+    mem_mb=80000,
+    cpus=10,
+    time_min=800
+  input:
+    rules.prep_1kg.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
+    rules.download_plink.output,
+    rules.download_prscs_ref_1kg_eur.output,
+    rules.download_prscs_software.output
+  output:
+    "resources/data/1kg/prs_score_files/prscs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "export MKL_NUM_THREADS=1; \
+     export NUMEXPR_NUM_THREADS=1; \
+     export OMP_NUM_THREADS=1; \
+     Rscript ../Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs_plink2.R \
+      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+      --plink2 plink2 \
+      --memory 5000 \
+      --output resources/data/1kg/prs_score_files/prscs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list \
+      --PRScs_path resources/software/prscs/PRScs.py \
+      --PRScs_ref_path resources/data/prscs_ref/ldblk_1kg_eur \
+      --n_cores {resources.cpus} \
+      --phi_param 1e-6,1e-4,1e-2,1,auto \
+      --seed 1"
+
+rule run_prs_scoring_prscs:
+  input: expand("resources/data/1kg/prs_score_files/prscs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
+
+##
+# SBayesR
+##
+
+rule prs_scoring_sbayesr:
+  resources: 
+    mem_mb=80000,
+    cpus=10
+  input:
+    rules.prep_1kg.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
+    rules.download_plink.output,
+    rules.download_gctb_ref.output,
+    rules.download_gctb_software.output
+  output:
+    "resources/data/1kg/prs_score_files/sbayesr/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript ../Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR_plink2.R \
+      --ref_plink resources/data/1kg/1KGPhase3.w_hm3.GW \
+      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+      --plink plink \
+      --gctb resources/software/gctb/gctb_2.03beta_Linux/gctb \
+      --ld_matrix_chr resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
+      --memory {resources.mem_mb} \
+      --robust T \
+      --n_cores {resources.cpus} \
+      --output resources/data/1kg/prs_score_files/sbayesr/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+
+rule run_prs_scoring_sbayesr:
+  input: expand("resources/data/1kg/prs_score_files/sbayesr/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
+
+##
+# lassosum
+##
+
+rule prs_scoring_lassosum:
+  input:
+    rules.prep_1kg.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
+    rules.download_plink.output,
+    rules.install_lassosum.output
+  output:
+    "resources/data/1kg/prs_score_files/lassosum/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+  shell:
+    "Rscript ../Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum_plink2.R \
+     --ref_plink_gw resources/data/1kg/1KGPhase3.w_hm3.GW \
+     --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep \
+     --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+     --output resources/data/1kg/prs_score_files/lassosum/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+     --plink2 plink2 \
+     --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+    
+rule run_prs_scoring_lassosum:
+  input: expand("resources/data/1kg/prs_score_files/lassosum/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
+
+##
+# LDpred2
+##
+
+rule prs_scoring_ldpred2:
+  resources: 
+    mem_mb=80000,
+    cpus=10,
+    time_min=800
+  input:
+    rules.prep_1kg.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
+    rules.download_plink.output,
+    rules.install_bigsnpr.output,
+    rules.download_ldpred2_ref.output
+  output:
+    "resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript ../Scripts/polygenic_score_file_creator_LDPred2/polygenic_score_file_creator_LDPred2_LDPredRef_plink2.R \
+      --ref_plink resources/data/1kg/1KGPhase3.w_hm3.GW \
+      --ref_keep resources/data/1kg/keep_files/EUR_samples.keep \
+      --ldpred2_ref_dir resources/data/ldpred2_ref \
+      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+      --plink2 plink2 \
+      --memory {resources.mem_mb} \
+      --n_cores {resources.cpus} \
+      --output resources/data/1kg/prs_score_files/ldpred2/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+    
+rule run_prs_scoring_ldpred2:
+  input: expand("resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
 
 ##
 # Estimate R2/AUC of PRS using lassosum pseudovalidate
@@ -241,7 +509,14 @@ rule pseudovalidate_prs:
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
   shell:
-    "Rscript ../Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R --ref_plink_gw resources/data/1kg/1KGPhase3.w_hm3.GW --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz --prune_mhc T --output resources/data/1kg/prs_pseudoval/{wildcards.gwas}/lassosum_pseudo_{wildcards.gwas} --plink plink --n_cores 1"
+    "Rscript ../Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R \
+      --ref_plink_gw resources/data/1kg/1KGPhase3.w_hm3.GW \
+      --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep \
+      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+      --prune_mhc T \
+      --output resources/data/1kg/prs_pseudoval/{wildcards.gwas}/lassosum_pseudo_{wildcards.gwas} \
+      --plink plink \
+      --n_cores 1"
 
 rule run_pseudovalidate_prs:
   input: expand("resources/data/1kg/prs_pseudoval/{gwas}/lassosum_pseudo_{gwas}.pseudovalidate.png", gwas=gwas_list_df['name'])
@@ -249,7 +524,7 @@ rule run_pseudovalidate_prs:
 rule pipeline_prep:
   input:
     rules.run_super_pop_pc_scoring.input,
-    rules.run_prs_scoring_ptclump.input,
+    rules.run_prs_scoring_pt_clump.input,
     rules.run_prs_scoring_dbslmm.input,
     rules.run_pseudovalidate_prs.input
 
@@ -266,8 +541,8 @@ target_list_df_samp_imp_bgen = target_list_df.loc[target_list_df['type'] == 'sam
 target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen')]
 
 target_list_df['pre_harm_path'] = target_list_df['path']
-target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = "resources/data/target/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
-target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = "resources/data/target/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
+target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = "resources/data/target_checks/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
+target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = "resources/data/target_checks/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
 
 ####
 # Format target data
@@ -286,17 +561,28 @@ rule format_impute_23andme_target:
     rules.download_impute2_data.output,
     rules.download_qctool2.output
   output:
-    "resources/data/target/{name}/{name}.sample"
+    touch("resources/data/target_checks/{name}/format_impute_23andme_target.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
     path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "Rscript ../Scripts/23andMe_imputer/23andMe_imputer.R --FID {params.name} --IID {params.name} --geno {params.path} --plink plink --out resources/data/target/{params.name}/{params.name} --ref resources/data/impute2/1000GP_Phase3 --shapeit shapeit --impute2 impute2 --n_core {resources.cpus} --qctool resources/software/qctool2/qctool"
+    "Rscript ../Scripts/23andMe_imputer/23andMe_imputer.R \
+      --FID {params.name} \
+      --IID {params.name} \
+      --geno {params.path} \
+      --plink plink \
+      --out {params.output}/{params.name}/{params.name} \
+      --ref resources/data/impute2/1000GP_Phase3 \
+      --shapeit shapeit \
+      --impute2 impute2 \
+      --n_core {resources.cpus} \
+      --qctool resources/software/qctool2/qctool"
 
 rule run_format_impute_23andme_target:
-  input: expand("resources/data/target/{name}/{name}.sample", name=target_list_df_23andMe['name'])
+  input: expand("resources/data/target_checks/{name}/format_impute_23andme_target_{name}.done", name=target_list_df_23andMe['name'])
 
 #opt$FID<-'Oliver_Pain'
 #opt$IID<-'Oliver_Pain'
@@ -322,16 +608,17 @@ rule run_format_impute_23andme_target:
 # Touch non-23andMe data
 rule touch_imp:
   output:
-    touch("resources/data/target/{name}/touch_imp.done")
+    touch("resources/data/target_checks/{name}/touch_imp.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path=lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "ls {params.path}*"
 
 rule run_touch_imp:
-  input: expand("resources/data/target/{name}/touch_imp.done", name=target_list_df_samp_imp_plink1['name'])
+  input: expand("resources/data/target_checks/{name}/touch_imp.done", name=target_list_df_samp_imp_plink1['name'])
 
 ##
 # samp_imp_bgen
@@ -342,16 +629,21 @@ rule compute_snp_stats_target:
   input:
     rules.download_qctool2.output
   output:
-    "resources/data/target/{name}/{name}_snp_stats_chr{chr}.txt"
+    touch("resources/data/target_checks/{name}/compute_snp_stats_target.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path=lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "resources/software/qctool2/qctool -g {params.path}.chr{wildcards.chr}.bgen -s {params.path}.sample -snp-stats -osnp resources/data/target/{wildcards.name}/{wildcards.name}_snp_stats_chr{wildcards.chr}.txt"
+    "resources/software/qctool2/qctool \
+      -g {params.path}.chr{wildcards.chr}.bgen \
+      -s {params.path}.sample \
+      -snp-stats \
+      -osnp {params.output}/{wildcards.name}/{wildcards.name}_snp_stats_chr{wildcards.chr}.txt"
 
 rule run_compute_snp_stats_target:
-  input: expand("resources/data/target/{name}/{name}_snp_stats_chr{chr}.txt", name=target_list_df_samp_imp_bgen['name'], chr=range(1, 23))
+  input: expand("resources/data/target_checks/{name}/{name}_snp_stats_chr{chr}.txt", name=target_list_df_samp_imp_bgen['name'], chr=range(1, 23))
 
 # NOTE. I do not implement the run_compute_snp_stats_target rule as target sample size may be too small to accurately estimate INFO and MAF. I suggest people perform this QC in advance, if at all. The use of HapMap3 variants in subsequent analyses should make these filters far less important.
 
@@ -360,23 +652,32 @@ rule convert_bgen_target:
   input:
     rules.download_qctool2.output
   output:
-    "resources/data/target/{name}/{name}.w_hm3.chr{chr}.bed"
+    touch("resources/data/target_checks/{name}/convert_bgen_target.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path=lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "resources/software/qctool2/qctool -g {params.path}.chr{wildcards.chr}.bgen -s {params.path}.sample -incl-rsids resources/data/hm3_snplist/w_hm3.snplist -ofiletype binary_ped -og resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr} -threshold 0.9; awk \'$1=$2\' resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam > resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp; mv resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp resources/data/target/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam"
+    "resources/software/qctool2/qctool \
+      -g {params.path}.chr{wildcards.chr}.bgen \
+      -s {params.path}.sample \
+      -incl-rsids resources/data/hm3_snplist/w_hm3.snplist \
+      -ofiletype binary_ped \
+      -og {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr} \
+      -threshold 0.9; \
+     awk \'$1=$2\' {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam > {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp; \
+     mv {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam"
 
 rule run_convert_bgen_target:
   input: 
-    lambda w: expand("resources/data/target/{name}/{name}.w_hm3.chr{chr}.bed", name=w.name, chr=range(1, 23))
+    lambda w: expand("resources/data/target_checks/{name}/convert_bgen_target.done", name=w.name)
   output:
-    touch("resources/data/target/{name}/converted_to_plink.done")
+    touch("resources/data/target_checks/{name}/converted_to_plink.done")
 
 rule run_convert_bgen_target_2:
   input: 
-    expand("resources/data/target/{name}/converted_to_plink.done", name=target_list_df_samp_imp_bgen['name'])
+    expand("resources/data/target_checks/{name}/converted_to_plink.done", name=target_list_df_samp_imp_bgen['name'])
 
 ####
 # Harmonise with reference
@@ -385,18 +686,23 @@ rule run_convert_bgen_target_2:
 rule harmonise_target_with_ref:
   input:
     rules.prep_1kg.output,
-    lambda w: "resources/data/target/" + w.name + "/" + w.name + ".sample" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target/{name}/converted_to_plink.done")
+    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target_checks/{name}/converted_to_plink.done")
   output:
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed"
+    touch("resources/data/target_checks/{name}/harmonise_target_with_ref.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path=lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0]
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R --target {params.path}.chr --ref resources/data/1kg/1KGPhase3.w_hm3.chr --plink plink --out resources/data/target/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr"
+    "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R \
+      --target {params.path}.chr \
+      --ref resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --plink plink \
+      --out {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr"
 
 rule run_harmonise_target_with_ref:
-  input: expand("resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed", name=target_list_df['name'])
+  input: expand("resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'])
 
 ####
 # Identify super_population
@@ -404,65 +710,96 @@ rule run_harmonise_target_with_ref:
 
 rule target_super_population:
   input:
-    rules.prep_1kg.output,
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed"
+    "resources/data/target_checks/{name}/harmonise_target_with_ref.done"
   output:
-    "resources/data/target/{name}/ancestry/{name}.Ancestry.SAS.eigenvec"
+    touch("resources/data/target_checks/{name}/target_super_population.done")
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R --target_plink_chr resources/data/target/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --n_pcs 6 --plink plink --plink2 plink2 --output resources/data/target/{wildcards.name}/ancestry/{wildcards.name}.Ancestry --ref_pop_scale resources/data/1kg/super_pop_keep.list --pop_data resources/data/1kg/ref_pop_dat.txt --prob_thresh 0.5"
+    "Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --n_pcs 6 \
+      --plink plink \
+      --plink2 plink2 \
+      --output {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list \
+      --pop_data resources/data/1kg/ref_pop_dat.txt \
+      --prob_thresh 0.5"
 
 rule run_target_super_population:
-  input: expand("resources/data/target/{name}/ancestry/{name}.Ancestry.SAS.eigenvec", name=target_list_df['name'])
+  input: expand("resources/data/target_checks/{name}/target_super_population.done", name=target_list_df['name'])
 
 # Create a file listing target samples and super population assignments
-rule ancestry_reporter:
+checkpoint ancestry_reporter:
   input:
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
-    "resources/data/target/{name}/ancestry/{name}.Ancestry.SAS.eigenvec"
+    "resources/data/target_checks/{name}/target_super_population.done"
   output:
-    "resources/data/target/{name}/ancestry_report.txt"
+    touch("resources/data/target_checks/{name}/ancestry_reporter.done")
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "Rscript scripts/ancestry_reporter.R {wildcards.name}"
+    "Rscript scripts/ancestry_reporter.R {wildcards.name} {params.output}"
 
 rule run_ancestry_reporter:
-  input: expand("resources/data/target/{name}/ancestry_report.txt", name=target_list_df['name'])
+  input: expand("resources/data/target_checks/{name}/ancestry_reporter.done", name=target_list_df['name'])
 
 ####
 # Identify population within super population
 ####
 
 from pathlib import Path
-  
+
 def ancestry_munge(x):
-  my_file = Path("".join(["resources/data/target/",x,"/ancestry_report.txt"]))
-  if my_file.is_file():
-    ancestry_report_df = pd.read_table("".join(["resources/data/target/",x,"/ancestry_report.txt"]), sep=' ')
+    checkpoint_output = checkpoints.ancestry_reporter.get(name=x).output[0]
+    checkpoint_output = target_list_df.loc[target_list_df['name'] == x, 'output'].iloc[0] + "/" + x + "/ancestry/ancestry_report.txt"
+    ancestry_report_df = pd.read_table(checkpoint_output, sep=' ')
     return ancestry_report_df['population'].tolist()
 
 rule target_population:
   input:
-    rules.prep_1kg.output,
-    "resources/data/target/{name}/ancestry_report.txt",
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed"
+    "resources/data/target_checks/{name}/ancestry_reporter.done"
   output:
-    touch("resources/data/target/{name}/ancestry_pop.done")
-  params:
-    population=lambda w: ancestry_munge("{}".format(w.name))
+    touch("resources/data/target_checks/{name}/target_population_{population}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "for population in $(echo {params.population}); do Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R --target_plink_chr resources/data/target/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr --target_keep resources/data/target/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.${{population}}.keep --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr --n_pcs 6 --plink plink --plink2 plink2 --output resources/data/target/{wildcards.name}/ancestry_${{population}}/{wildcards.name}.Ancestry --ref_pop_scale resources/data/1kg/pop_keep_for_${{population}}.list --pop_data resources/data/1kg/ref_pop_dat_for_${{population}}.txt --prob_thresh 0.5; done"
+    "Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --n_pcs 6 \
+      --plink plink \
+      --plink2 plink2 \
+      --output {params.output}/{wildcards.name}/ancestry/ancestry_{wildcards.population}/{wildcards.name}.Ancestry \
+      --ref_pop_scale resources/data/1kg/pop_keep_for_{wildcards.population}.list \
+      --pop_data resources/data/1kg/ref_pop_dat_for_{wildcards.population}.txt \
+      --prob_thresh 0.5"
 
-rule run_target_population:
-  input: expand("resources/data/target/{name}/ancestry_pop.done", name=target_list_df['name'])
+rule run_target_population_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_population_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_population_all_pop.done")
+
+rule run_target_population_all:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_population_all_pop.done", name=target_list_df['name'])
 
 ##########
 # Create ancestry-only reports
 ##########
+
+def report_output_munge(x):
+    output = target_list_df.loc[target_list_df['name'] == x, 'output'].iloc[0]
+    report_output=output if output[0] == "/" else "../" + output
+    return report_output
 
 ## 
 # Individual ancestry reports
@@ -470,19 +807,23 @@ rule run_target_population:
 
 rule create_individual_ancestry_report:
   input:
-    rules.install_ggchicklet.output,
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
-    "resources/data/target/{name}/ancestry_pop.done",
+    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
     rules.download_1kg_pop_codes.output
   output:
-    touch('resources/data/target/{name}/{name}_indiv_ancestry_report.done') 
+    touch('resources/data/target_checks/{name}/indiv_ancestry_report.done') 
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
   shell:
-    "Rscript -e \"rmarkdown::render(\'scripts/indiv_ancestry_report_creator.Rmd\', output_file = \'../resources/data/target/{wildcards.name}/{wildcards.name}_ancestry_report.html\', params = list(name = \'{wildcards.name}\'))\""
+    "Rscript -e \"rmarkdown::render(\'scripts/indiv_ancestry_report_creator.Rmd\', \
+     output_file = \'{params.report_output}/{wildcards.name}/{wildcards.name}_ancestry_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_individual_ancestry_report:
-  input: expand('resources/data/target/{name}/{name}_indiv_ancestry_report.done', name=target_list_df_23andMe['name'])
+  input: 
+    expand('resources/data/target_checks/{name}/indiv_ancestry_report.done', name=target_list_df_23andMe['name'])
 
 ##
 # Sample ancestry reports
@@ -490,19 +831,23 @@ rule run_create_individual_ancestry_report:
 
 rule create_sample_ancestry_report:
   input:
-    rules.install_ggchicklet.output,
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
-    "resources/data/target/{name}/ancestry_pop.done",
+    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
     rules.download_1kg_pop_codes.output
   output:
-    touch('resources/data/target/{name}/{name}_samp_ancestry_report.done')
+    touch('resources/data/target_checks/{name}/samp_ancestry_report.done')
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
   shell:
-    "Rscript -e \"rmarkdown::render(\'scripts/samp_ancestry_report_creator.Rmd\', output_file = \'../resources/data/target/{wildcards.name}/{wildcards.name}_ancestry_report.html\', params = list(name = \'{wildcards.name}\'))\""
+    "Rscript -e \"rmarkdown::render(\'scripts/samp_ancestry_report_creator.Rmd\', \
+    output_file = \'{params.report_output}/{wildcards.name}/{wildcards.name}_ancestry_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_sample_ancestry_report:
-  input: expand('resources/data/target/{name}/{name}_samp_ancestry_report.done', name=target_list_df_samp_imp['name'])
+  input: 
+    expand('resources/data/target_checks/{name}/samp_ancestry_report.done', name=target_list_df_samp_imp['name'])
 
 rule run_create_ancestry_reports:
   input: 
@@ -519,20 +864,35 @@ rule run_create_ancestry_reports:
 
 rule target_pc:
   input:
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
-    "resources/data/target/{name}/ancestry_report.txt",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     rules.run_super_pop_pc_scoring.input
   output:
-    touch("resources/data/target/{name}/projected_pc/{name}_target_pc.done")
-  params:
-    population=lambda w: ancestry_munge("{}".format(w.name))
+    touch("resources/data/target_checks/{name}/target_pc_{population}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "for population in $(echo {params.population}); do Rscript ../Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R --target_plink_chr resources/data/target/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr --target_keep resources/data/target/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.${{population}}.keep --ref_freq_chr resources/data/1kg/freq_files/${{population}}/1KGPhase3.w_hm3.${{population}}.chr --ref_score resources/data/1kg/pc_score_files/${{population}}/1KGPhase3.w_hm3.${{population}}.eigenvec.var --ref_eigenvec resources/data/1kg/pc_score_files/${{population}}/1KGPhase3.w_hm3.${{population}}.eigenvec --ref_scale resources/data/1kg/pc_score_files/${{population}}/1KGPhase3.w_hm3.${{population}}.scale --plink2 plink2 --output resources/data/target/{wildcards.name}/projected_pc/${{population}}/{wildcards.name} --pop_data resources/data/1kg/ref_pop_dat.txt; done"
+    "Rscript ../Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --ref_score resources/data/1kg/pc_score_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.eigenvec.var \
+      --ref_eigenvec resources/data/1kg/pc_score_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.eigenvec \
+      --ref_scale resources/data/1kg/pc_score_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.scale \
+      --plink2 plink2 \
+      --output {params.output}/{wildcards.name}/projected_pc/{wildcards.population}/{wildcards.name} \
+      --pop_data resources/data/1kg/ref_pop_dat.txt"
 
-rule run_target_pc:
-  input: expand("resources/data/target/{name}/projected_pc/{name}_target_pc.done", name=target_list_df['name'])
+rule run_target_pc_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_pc_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_pc_all_pop.done")
+
+rule run_target_pc_all:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=target_list_df['name'])
 
 ####
 # Polygenic scoring
@@ -542,22 +902,44 @@ rule run_target_pc:
 # pt+clump
 ##
 
-rule target_prs_ptclump:
+rule target_prs_pt_clump:
   input:
-    "resources/data/target/{name}/ancestry_report.txt",
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     "resources/data/1kg/prs_score_files/pt_clump/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   output:
-    touch("resources/data/target/{name}/prs/target_prs_ptclump_{gwas}.done")
-  params:
-    population=lambda w: ancestry_munge("{}".format(w.name))
+    touch("resources/data/target_checks/{name}/target_prs_pt_clump_{population}_{gwas}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "for population in $(echo {params.population}); do Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R --target_plink_chr resources/data/target/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr --target_keep resources/data/target/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.${{population}}.keep --ref_score resources/data/1kg/prs_score_files/pt_clump/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} --ref_scale resources/data/1kg/prs_score_files/pt_clump/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.${{population}}.scale --ref_freq_chr resources/data/1kg/freq_files/${{population}}/1KGPhase3.w_hm3.${{population}}.chr --plink plink --pheno_name {wildcards.gwas} --output resources/data/target/{wildcards.name}/prs/${{population}}/pt_clump/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.${{population}}; done"
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score resources/data/1kg/prs_score_files/pt_clump/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.score.gz \
+      --ref_scale resources/data/1kg/prs_score_files/pt_clump/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/pt_clump/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
 
-rule run_target_prs_ptclump:
-  input: expand("resources/data/target/{name}/prs/target_prs_ptclump_{gwas}.done", name=target_list_df['name'], gwas=gwas_list_df['name'])
+rule run_target_prs_pt_clump_all_gwas:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_pt_clump_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_gwas_{population}.done")
+
+rule run_target_prs_pt_clump_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done")
+
+rule run_target_prs_pt_clump_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_pt_clump.done")
 
 ##
 # DBSLMM
@@ -565,20 +947,232 @@ rule run_target_prs_ptclump:
 
 rule target_prs_dbslmm:
   input:
-    "resources/data/target/{name}/ancestry_report.txt",
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     "resources/data/1kg/prs_score_files/dbslmm/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   output:
-    touch("resources/data/target/{name}/prs/target_prs_dbslmm_{gwas}.done")
-  params:
-    population=lambda w: ancestry_munge("{}".format(w.name))
+    touch("resources/data/target_checks/{name}/target_prs_dbslmm_{population}_{gwas}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "for population in $(echo {params.population}); do Rscript ../Scripts/Scaled_polygenic_scorer_DBSLMM/Scaled_polygenic_scorer_DBSLMM.R --target_plink_chr resources/data/target/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr --target_keep resources/data/target/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.${{population}}.keep --ref_score resources/data/1kg/prs_score_files/dbslmm/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.dbslmm.GW.txt --ref_scale resources/data/1kg/prs_score_files/dbslmm/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.${{population}}.scale --ref_freq_chr resources/data/1kg/freq_files/${{population}}/1KGPhase3.w_hm3.${{population}}.chr --plink plink --pheno_name {wildcards.gwas} --output resources/data/target/{wildcards.name}/prs/${{population}}/dbslmm/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.${{population}}; done"
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score resources/data/1kg/prs_score_files/dbslmm/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.score \
+      --ref_scale resources/data/1kg/prs_score_files/dbslmm/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/dbslmm/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
 
-rule run_target_prs_dbslmm:
-  input: expand("resources/data/target/{name}/prs/target_prs_dbslmm_{gwas}.done", name=target_list_df_23andMe['name'], gwas=gwas_list_df['name'])
+rule run_target_prs_dbslmm_all_gwas:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_dbslmm_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_gwas_{population}.done")
+
+rule run_target_prs_dbslmm_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done")
+
+rule run_target_prs_dbslmm_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_dbslmm.done")
+
+##
+# PRScs
+##
+
+rule target_prs_prscs:
+  input:
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "resources/data/1kg/prs_score_files/prscs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  output:
+    touch("resources/data/target_checks/{name}/target_prs_prscs_{population}_{gwas}.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score resources/data/1kg/prs_score_files/prscs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.score.gz \
+      --ref_scale resources/data/1kg/prs_score_files/prscs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/prscs/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
+
+rule run_target_prs_prscs_all_gwas:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_prscs_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_prscs_all_gwas_{population}.done")
+
+rule run_target_prs_prscs_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_prscs_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_prscs_all_pop.done")
+
+rule run_target_prs_prscs_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_prscs_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_prscs.done")
+
+##
+# lassosum
+##
+
+rule target_prs_lassosum:
+  input:
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "resources/data/1kg/prs_score_files/lassosum/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  output:
+    touch("resources/data/target_checks/{name}/target_prs_lassosum_{population}_{gwas}.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score resources/data/1kg/prs_score_files/lassosum/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.score.gz \
+      --ref_scale resources/data/1kg/prs_score_files/lassosum/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/lassosum/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
+
+rule run_target_prs_lassosum_all_gwas:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_lassosum_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_lassosum_all_gwas_{population}.done")
+
+rule run_target_prs_lassosum_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_lassosum_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_lassosum_all_pop.done")
+
+rule run_target_prs_lassosum_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_lassosum_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_lassosum.done")
+
+##
+# SBayesR
+##
+
+rule target_prs_sbayesr:
+  input:
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "resources/data/1kg/prs_score_files/sbayesr/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  output:
+    touch("resources/data/target_checks/{name}/target_prs_sbayesr_{population}_{gwas}.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score resources/data/1kg/prs_score_files/sbayesr/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.score \
+      --ref_scale resources/data/1kg/prs_score_files/sbayesr/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/sbayesr/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
+
+rule run_target_prs_sbayesr_all_gwas:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_sbayesr_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_gwas_{population}.done")
+
+rule run_target_prs_sbayesr_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_pop.done")
+
+rule run_target_prs_sbayesr_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_sbayesr.done")
+
+##
+# LDpred2
+##
+
+rule target_prs_ldpred2:
+  input:
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  output:
+    touch("resources/data/target_checks/{name}/target_prs_ldpred2_{population}_{gwas}.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score resources/data/1kg/prs_score_files/ldpred2/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.score.gz \
+      --ref_scale resources/data/1kg/prs_score_files/ldpred2/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/ldpred2/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
+     
+rule run_target_prs_ldpred2_all_gwas:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_ldpred2_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_gwas_{population}.done")
+
+rule run_target_prs_ldpred2_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_pop.done")
+
+rule run_target_prs_ldpred2_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_ldpred2.done")
+
+##
+# Calculate PRS using all methods
+##
+
+rule target_prs_all:
+  input:
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_prscs_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_lassosum_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_pop.done", name=w.name)
+  output:
+    touch('resources/data/target_checks/{name}/target_prs_all.done')
+
+rule run_target_prs_all:
+  input: expand('resources/data/target_checks/{name}/target_prs_all.done', name=target_list_df['name'])
 
 ##########
 # Create full reports
@@ -591,22 +1185,26 @@ rule run_target_prs_dbslmm:
 rule create_individual_report:
   input:
     rules.install_ggchicklet.output,
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
-    "resources/data/target/{name}/ancestry_pop.done",
-    lambda w: expand("resources/data/target/{name}/projected_pc/{name}_target_pc.done", name=w.name),
-    lambda w: expand("resources/data/target/{name}/prs/target_prs_ptclump_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
-    lambda w: expand("resources/data/target/{name}/prs/target_prs_dbslmm_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
+    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.run_pseudovalidate_prs.input,
     rules.download_1kg_pop_codes.output
   output:
-    touch('resources/data/target/{name}/{name}_indiv_report.done') 
+    touch('resources/data/target_checks/{name}/create_individual_report.done') 
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
   shell:
-    "Rscript -e \"rmarkdown::render(\'scripts/indiv_report_creator.Rmd\', output_file = \'../resources/data/target/{wildcards.name}/{wildcards.name}_report.html\', params = list(name = \'{wildcards.name}\'))\""
+    "Rscript -e \"rmarkdown::render(\'scripts/indiv_report_creator.Rmd\', \
+     output_file = \'{params.report_output}/{wildcards.name}/{wildcards.name}_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_individual_report:
-  input: expand('resources/data/target/{name}/{name}_indiv_report.done', name=target_list_df_23andMe['name'])
+  input: expand('resources/data/target_checks/{name}/create_individual_report.done', name=target_list_df_23andMe['name'])
 
 ##
 # Sample reports
@@ -615,24 +1213,61 @@ rule run_create_individual_report:
 rule create_sample_report:
   input:
     rules.install_ggchicklet.output,
-    "resources/data/target/{name}/{name}.1KGphase3.hm3.chr22.bed",
-    "resources/data/target/{name}/ancestry_pop.done",
-    lambda w: expand("resources/data/target/{name}/projected_pc/{name}_target_pc.done", name=w.name),
-    lambda w: expand("resources/data/target/{name}/prs/target_prs_ptclump_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
-    lambda w: expand("resources/data/target/{name}/prs/target_prs_dbslmm_{gwas}.done", name=w.name, gwas=gwas_list_df['name']),
-    rules.run_pseudovalidate_prs.input,
+    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.download_1kg_pop_codes.output
   output:
-    touch('resources/data/target/{name}/{name}_samp_report.done')
+    touch('resources/data/target_checks/{name}/create_sample_report.done')
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
   shell:
-    "Rscript -e \"rmarkdown::render(\'scripts/samp_report_creator.Rmd\', output_file = \'../resources/data/target/{wildcards.name}/{wildcards.name}_report.html\', params = list(name = \'{wildcards.name}\'))\""
+    "Rscript -e \"rmarkdown::render(\'scripts/samp_report_creator.Rmd\', \
+     output_file = \'{params.report_output}/{wildcards.name}/{wildcards.name}_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_sample_report:
-  input: expand('resources/data/target/{name}/{name}_samp_report.done', name=target_list_df_samp_imp['name'])
+  input: expand('resources/data/target_checks/{name}/create_sample_report.done', name=target_list_df_samp_imp['name'])
 
 rule run_create_reports:
   input: 
     rules.run_create_individual_report.input,
     rules.run_create_sample_report.input
+
+##################
+# Output useful data for research
+##################
+
+####
+# Super population outlier detection and target sample specific PC calculation
+####
+
+rule target_super_population_outlier_detection:
+  input:
+    "resources/data/target_checks/{name}/ancestry_reporter.done"
+  output:
+    touch('resources/data/target_checks/{name}/target_super_population_outlier_detection.done')
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "ls {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.*.keep > {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.keep_list; Rscript ../Scripts/Population_outlier/Population_outlier.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.keep_list \
+      --n_pcs 10 \
+      --maf 0.05 \
+      --geno 0.02 \
+      --hwe 1e-6 \
+      --memory {resources.mem_mb} \
+      --plink plink \
+      --plink2 plink2 \
+      --output {params.output}/{wildcards.name}/ancestry/outlier_detection/{wildcards.name}.outlier_detection"
+
+rule run_target_super_population_outlier_detection:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_super_population_outlier_detection.done", name=w.name)
