@@ -8,8 +8,9 @@ target_list<-read.table(as.character(config$V2[config$V1 == 'target_list:']), he
 # Identify which super populations each target contain
 ancestry_report<-NULL
 target<-args[1]
+output<-target_list$output[target_list$name == target]
 
-path<-paste0('resources/data/target/',target,'/ancestry/ancestry_all')
+path<-paste0(output,'/',target,'/ancestry/ancestry_all')
 files<-list.files(path=path)
 keep_files<-files[grepl('.keep$',files) & grepl('model_pred',files)]
 
@@ -19,5 +20,5 @@ not_empty = rownames(info[info$size != 0, ])
 ancestry_report<-rbind(ancestry_report, data.frame(name=target,
                                                    population=gsub('.keep','',gsub('.*model_pred.','',not_empty))))
 
-write.table(ancestry_report,paste0('resources/data/target/',target,'/ancestry/ancestry_report.txt'), col.names=T, row.names=F, quote=F)
+write.table(ancestry_report,paste0(output,'/',target,'/ancestry/ancestry_report.txt'), col.names=T, row.names=F, quote=F)
 
