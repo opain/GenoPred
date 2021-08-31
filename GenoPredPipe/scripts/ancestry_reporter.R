@@ -1,14 +1,10 @@
 #!/usr/bin/env Rscript
 args = commandArgs(trailingOnly=TRUE)
 
-# Read in samples file
-config<-read.table('config.yaml', header=F)
-target_list<-read.table(as.character(config$V2[config$V1 == 'target_list:']), header=T)
-
 # Identify which super populations each target contain
 ancestry_report<-NULL
 target<-args[1]
-output<-target_list$output[target_list$name == target]
+output<-args[2]
 
 path<-paste0(output,'/',target,'/ancestry/ancestry_all')
 files<-list.files(path=path)
