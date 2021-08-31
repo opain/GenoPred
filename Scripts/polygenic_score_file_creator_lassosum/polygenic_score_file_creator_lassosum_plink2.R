@@ -14,8 +14,8 @@ option_list = list(
 	    help="Minor allele frequency threshold to be applied based on ref_freq_chr [optional]"),
 	make_option("--ref_pop_scale", action="store", default=NA, type='character',
 			help="File containing the population code and location of the keep file [required]"),
-	make_option("--plink", action="store", default='plink', type='character',
-	    help="Path PLINK software binary [required]"),
+	make_option("--plink2", action="store", default='plink2', type='character',
+	    help="Path PLINK v2 software binary [required]"),
 	make_option("--output", action="store", default='./Output', type='character',
 			help="Path for output files [required]"),
 	make_option("--memory", action="store", default=5000, type='numeric',
@@ -199,19 +199,25 @@ rm(v)
 gc()
 
 # Write out a score file
-score_file<-data.frame(SNP=GWAS$SNP[out$sumstats$order],
-                       out$sumstats[c('chr','pos','A1','A2')])
-score_file<-score_file[,c('chr','SNP','pos','A1','A2')]
-names(score_file)<-c('CHR','SNP','pos','A1','A2')
+score_file<-data.table(SNP=GWAS$SNP[out$sumstats$order],
+                       out$sumstats[c('A1')])
+score_file<-score_file[,c('SNP','A1'),with=F]
 
 for(i in 1:length(out$s)){
   for(k in 1:length(out$lambda)){
-    score_file_tmp<-data.frame(out$beta[[i]][,k])
-    names(score_file_tmp)<-paste0('s',out$s[i],'_lambda',out$lambda[k])
-    score_file_tmp<-cbind(score_file,score_file_tmp)
-    write.table(score_file_tmp, paste0(opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.score'), col.names=F, row.names=F, quote=F)
+    score_file_tmp<-data.table(out$beta[[i]][,k])
+    names(score_file_tmp)<-paste0('SCORE_s',out$s[i],'_lambda',out$lambda[k])
+    score_file<-cbind(score_file,score_file_tmp)
   }
 }
+
+fwrite(score_file, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+
+if(file.exists(paste0(opt$output,'.score.gz'))){
+  system(paste0('rm ',opt$output,'.score.gz'))
+}
+
+system(paste0('gzip ',opt$output,'.score'))
 
 if(!is.na(opt$test)){
   end.time <- Sys.time()
@@ -235,23 +241,23 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-for(i in 1:length(out$s)){
-  for(k in 1:length(out$lambda)){
-    system(paste0(opt$plink, ' --bfile ',opt$ref_plink_gw,' --score ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.score 2 4 6 sum --out ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],' --memory ',floor(opt$memory*0.7)))
+if(ncol(score_file)-2 == 1){
+  for(i in CHROMS){
+    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_gw,' --score ',opt$output,'.score.gz header-read --out ',opt$output,'.profiles.GW --memory ',floor(opt$memory*0.7)))
+  }
+} else {
+  for(i in CHROMS){
+    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_gw,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',2+ncol(score_file)-2,' --out ',opt$output,'.profiles.GW --memory ',floor(opt$memory*0.7)))
   }
 }
 
-fam<-fread(paste0(opt$ref_plink_gw,'.fam'))
-scores<-fam[,1:2]
-names(scores)<-c('FID','IID')
+sscore<-fread(paste0(opt$output,'.profiles.GW.sscore'))
+fam<-sscore[,1:2,with=F]
+scores<-sscore[,grepl('SCORE_', names(sscore)),with=F]
+scores<-scores*sscore$NMISS_ALLELE_CT
+scores<-cbind(fam,scores)
 
-for(i in 1:length(out$s)){
-  for(k in 1:length(out$lambda)){
-    profile<-fread(paste0(opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.profile'))
-    scores<-cbind(scores, profile$SCORESUM)
-    names(scores)[grepl('V2',names(scores))]<-paste0('SCORE_s',out$s[i],'_lambda',out$lambda[k])
-  }
-}
+names(scores)<-c('FID','IID',names(score_file)[-1:-2])
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -274,17 +280,10 @@ for(k in 1:dim(pop_keep_files)[1]){
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 
-for(i in 1:length(out$s)){
-  for(k in 1:length(out$lambda)){
-    system(paste0('rm ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.profile'))
-    system(paste0('rm ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.nosex'))
-    system(paste0('rm ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.log'))
-  }
-}
-
 if(!is.na(opt$ref_keep)){
   system(paste0('rm ',opt$output_dir,'lassosum_ref_gw*'))
 }
+system(paste0('rm ',opt$output,'.profiles*'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
