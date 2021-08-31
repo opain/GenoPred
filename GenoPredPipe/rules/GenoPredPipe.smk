@@ -740,8 +740,10 @@ checkpoint ancestry_reporter:
     touch("resources/data/target_checks/{name}/ancestry_reporter.done")
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "Rscript scripts/ancestry_reporter.R {wildcards.name}"
+    "Rscript scripts/ancestry_reporter.R {wildcards.name} {params.output}"
 
 rule run_ancestry_reporter:
   input: expand("resources/data/target_checks/{name}/ancestry_reporter.done", name=target_list_df['name'])
@@ -794,24 +796,30 @@ rule run_target_population_all:
 # Create ancestry-only reports
 ##########
 
+def report_output_munge(x):
+    output = target_list_df.loc[target_list_df['name'] == x, 'output'].iloc[0]
+    report_output=output if output[0] == "/" else "../" + output
+    return report_output
+
 ## 
 # Individual ancestry reports
 ##
 
 rule create_individual_ancestry_report:
   input:
-    "resources/data/target_checks/{name}/ancestry/ancestry_all_pop.done",
+    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
     rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target_checks/{name}/indiv_ancestry_report.done') 
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
   shell:
     "Rscript -e \"rmarkdown::render(\'scripts/indiv_ancestry_report_creator.Rmd\', \
-     output_file = \'../{params.output}/{wildcards.name}/{wildcards.name}_ancestry_report.html\', \
-     params = list(name = \'{wildcards.name}\'))\""
+     output_file = \'{params.report_output}/{wildcards.name}/{wildcards.name}_ancestry_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_individual_ancestry_report:
   input: 
@@ -823,18 +831,19 @@ rule run_create_individual_ancestry_report:
 
 rule create_sample_ancestry_report:
   input:
-    "resources/data/target_checks/{name}/ancestry/ancestry_all_pop.done",
+    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
     rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target_checks/{name}/samp_ancestry_report.done')
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
   shell:
     "Rscript -e \"rmarkdown::render(\'scripts/samp_ancestry_report_creator.Rmd\', \
-    output_file = \'../{params.output}/{wildcards.name}/{wildcards.name}_ancestry_report.html\', \
-    params = list(name = \'{wildcards.name}\'))\""
+    output_file = \'{params.report_output}/{wildcards.name}/{wildcards.name}_ancestry_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_sample_ancestry_report:
   input: 
@@ -1187,11 +1196,12 @@ rule create_individual_report:
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
   shell:
     "Rscript -e \"rmarkdown::render(\'scripts/indiv_report_creator.Rmd\', \
-     output_file = \'../{params.output}/{wildcards.name}/{wildcards.name}_report.html\', \
-     params = list(name = \'{wildcards.name}\'))\""
+     output_file = \'{params.report_output}/{wildcards.name}/{wildcards.name}_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_individual_report:
   input: expand('resources/data/target_checks/{name}/create_individual_report.done', name=target_list_df_23andMe['name'])
@@ -1213,11 +1223,12 @@ rule create_sample_report:
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
   shell:
     "Rscript -e \"rmarkdown::render(\'scripts/samp_report_creator.Rmd\', \
-     output_file = \'../{params.output}/{wildcards.name}/{wildcards.name}_report.html\', \
-     params = list(name = \'{wildcards.name}\'))\""
+     output_file = \'{params.report_output}/{wildcards.name}/{wildcards.name}_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_sample_report:
   input: expand('resources/data/target_checks/{name}/create_sample_report.done', name=target_list_df_samp_imp['name'])
@@ -1226,3 +1237,37 @@ rule run_create_reports:
   input: 
     rules.run_create_individual_report.input,
     rules.run_create_sample_report.input
+
+##################
+# Output useful data for research
+##################
+
+####
+# Super population outlier detection and target sample specific PC calculation
+####
+
+rule target_super_population_outlier_detection:
+  input:
+    "resources/data/target_checks/{name}/ancestry_reporter.done"
+  output:
+    touch('resources/data/target_checks/{name}/target_super_population_outlier_detection.done')
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "ls {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.*.keep > {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.keep_list; Rscript ../Scripts/Population_outlier/Population_outlier.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.keep_list \
+      --n_pcs 10 \
+      --maf 0.05 \
+      --geno 0.02 \
+      --hwe 1e-6 \
+      --memory {resources.mem_mb} \
+      --plink plink \
+      --plink2 plink2 \
+      --output {params.output}/{wildcards.name}/ancestry/outlier_detection/{wildcards.name}.outlier_detection"
+
+rule run_target_super_population_outlier_detection:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/target_super_population_outlier_detection.done", name=w.name)
