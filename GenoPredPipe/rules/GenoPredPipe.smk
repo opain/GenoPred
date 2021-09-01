@@ -650,16 +650,18 @@ rule run_compute_snp_stats_target:
 # Convert to plink1 binary
 rule convert_bgen_target:
   input:
-    rules.download_qctool2.output
+    rules.download_qctool2.output,
+    rules.download_hm3_snplist.output
   output:
-    touch("resources/data/target_checks/{name}/convert_bgen_target.done")
+    touch("resources/data/target_checks/{name}/convert_bgen_target_{chr}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
     output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "resources/software/qctool2/qctool \
+    "mkdir -p {params.output}/{wildcards.name}/; \
+     resources/software/qctool2/qctool \
       -g {params.path}.chr{wildcards.chr}.bgen \
       -s {params.path}.sample \
       -incl-rsids resources/data/hm3_snplist/w_hm3.snplist \
@@ -671,13 +673,13 @@ rule convert_bgen_target:
 
 rule run_convert_bgen_target:
   input: 
-    lambda w: expand("resources/data/target_checks/{name}/convert_bgen_target.done", name=w.name)
+    lambda w: expand("resources/data/target_checks/{name}/convert_bgen_target_{chr}.done", name=w.name, chr=range(1, 23))
   output:
-    touch("resources/data/target_checks/{name}/converted_to_plink.done")
+    touch("resources/data/target_checks/{name}/run_convert_bgen_target.done")
 
 rule run_convert_bgen_target_2:
   input: 
-    expand("resources/data/target_checks/{name}/converted_to_plink.done", name=target_list_df_samp_imp_bgen['name'])
+    expand("resources/data/target_checks/{name}/run_convert_bgen_target.done", name=target_list_df_samp_imp_bgen['name'])
 
 ####
 # Harmonise with reference
@@ -686,7 +688,7 @@ rule run_convert_bgen_target_2:
 rule harmonise_target_with_ref:
   input:
     rules.prep_1kg.output,
-    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target_checks/{name}/converted_to_plink.done")
+    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target_checks/{name}/run_convert_bgen_target.done")
   output:
     touch("resources/data/target_checks/{name}/harmonise_target_with_ref.done")
   conda:
