@@ -407,6 +407,7 @@ rule prs_scoring_sbayesr:
     cpus=10
   input:
     rules.prep_1kg.output,
+    rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
     rules.download_gctb_ref.output,
@@ -438,6 +439,7 @@ rule run_prs_scoring_sbayesr:
 rule prs_scoring_lassosum:
   input:
     rules.prep_1kg.output,
+    rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
     rules.install_lassosum.output
@@ -470,6 +472,7 @@ rule prs_scoring_ldpred2:
     time_min=800
   input:
     rules.prep_1kg.output,
+    rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
     rules.install_bigsnpr.output,
@@ -541,8 +544,8 @@ target_list_df_samp_imp_bgen = target_list_df.loc[target_list_df['type'] == 'sam
 target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen')]
 
 target_list_df['pre_harm_path'] = target_list_df['path']
-target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = "resources/data/target_checks/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
-target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = "resources/data/target_checks/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
+target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = target_list_df.loc[target_list_df['type'] == '23andMe', 'output'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
+target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'output'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
 
 ####
 # Format target data
@@ -694,7 +697,7 @@ rule harmonise_target_with_ref:
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0],
     output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R \
@@ -705,6 +708,19 @@ rule harmonise_target_with_ref:
 
 rule run_harmonise_target_with_ref:
   input: expand("resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'])
+  
+# Delete temporary files
+rule delete_temp_target_samp_bgen_files:
+  input:
+    "resources/data/target_checks/{name}/harmonise_target_with_ref.done"
+  output:
+    touch("resources/data/target_checks/{name}/delete_temp_target_samp_bgen_files.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0]
+  shell:
+    "rm {params.path}.chr*"
 
 ####
 # Identify super_population
@@ -712,7 +728,8 @@ rule run_harmonise_target_with_ref:
 
 rule target_super_population:
   input:
-    "resources/data/target_checks/{name}/harmonise_target_with_ref.done"
+    "resources/data/target_checks/{name}/harmonise_target_with_ref.done",
+    lambda w: "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_bgen_files.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done"
   output:
     touch("resources/data/target_checks/{name}/target_super_population.done")
   conda:
