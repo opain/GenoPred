@@ -1051,6 +1051,8 @@ rule run_target_prs_prscs_all_name:
 ##
 
 rule target_prs_lassosum:
+  resources: 
+    mem_mb=30000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     "resources/data/1kg/prs_score_files/lassosum/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
@@ -1137,6 +1139,8 @@ rule run_target_prs_sbayesr_all_name:
 ##
 
 rule target_prs_ldpred2:
+  resources: 
+    mem_mb=30000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     "resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
