@@ -36,7 +36,7 @@ mamba install -c bioconda -c conda-forge snakemake-minimal==5.32.2
 
 ### Step 3
 
-Prepare a snakemake profile for parallel computing. Follow instructions [here](https://snakemake.readthedocs.io/en/stable/executing/cli.html#profiles). 
+Prepare a snakemake profile for parallel computing. I have provided an example for users using a slurm scheduler called 'example_slurm_profile_config.yaml'. Slurm users should create a folder called 'slurm' in '$HOME/.config/snakemake', and then copy in the example_slurm_profile_config.yaml, renaming it to config.yaml. More information about profiles in snakemake can be found [here](https://snakemake.readthedocs.io/en/stable/executing/cli.html#profiles). 
 
 ***
 
