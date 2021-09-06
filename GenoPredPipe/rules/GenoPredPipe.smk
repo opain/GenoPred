@@ -33,7 +33,7 @@ rule download_impute2_data:
      tar -zxvf resources/data/impute2/1000GP_Phase3_chrX.tgz -C resources/data/impute2/1000GP_Phase3/; \
      rm resources/data/impute2/1000GP_Phase3_chrX.tgz"
 
-# Download PLINK. DBSLMM requires the binary to be specified, which is challenging with conda environments.
+# Download PLINK. DBSLMM requires the binary to be specified, which is challenging with conda environments. I have tried to avoid this again but no joy. The conda environment may not exist when the snakemake is executed which will cause problems if trying to access the conda environment manually.
 rule download_plink:
   output:
     "resources/software/plink/plink"

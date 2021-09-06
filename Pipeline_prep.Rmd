@@ -1823,6 +1823,82 @@ sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/DBSLMM/todo.t
 
 ***
 
+## Prepare score and scale files for polygenic scoring using LDAK
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01 INFB01 DEPR07)
+
+# Create directory
+mkdir ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK
+
+# Create file listing GWAS that haven't been processed.
+> ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/todo.txt
+for i in $(seq 1 16);do
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale ]; then
+echo ${gwas_i} >> ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 20G
+#SBATCH -n 5
+#SBATCH --nodes 1
+#SBATCH -J LDAK
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/todo.txt)
+
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ldak_mega_prs/ldak_mega_prs.R \
+--ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+--plink1 ${plink1_9} \
+--plink2 ${plink2} \
+--ldak /users/k1806347/brc_scratch/Software/ldak5.1.linux \
+--ldak_map /users/k1806347/brc_scratch/Data/LDAK/genetic_map_b37 \
+--ldak_tag /users/k1806347/brc_scratch/Data/LDAK/bld/ \
+--ldak_highld /users/k1806347/brc_scratch/Data/LDAK/highld.txt \
+--memory 5000 \
+--n_cores 5 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+
+EOF
+
+opt$ref_plink<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW'
+opt$ref_keep<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/EUR_samples.keep'
+opt$sumstats<-'/users/k1806347/brc_scratch/Data/GWAS_sumstats/prs_comparison/cleaned/DEPR06.cleaned.gz'
+opt$plink1<-'/users/k1806347/brc_scratch/Software/plink1.9.sh'
+opt$plink2<-'/users/k1806347/brc_scratch/Software/plink2'
+opt$ldak<-'/users/k1806347/brc_scratch/Software/ldak5.1.linux'
+opt$ldak_map<-'/users/k1806347/brc_scratch/Data/LDAK/genetic_map_b37'
+opt$ldak_tag<-'/users/k1806347/brc_scratch/Data/LDAK/bld/'
+opt$ldak_highld<-'/users/k1806347/brc_scratch/Data/LDAK/highld.txt'
+opt$n_cores<-5
+opt$memory<-5000
+opt$output<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/LDAK/DEPR06/1KGPhase3.w_hm3.DEPR06'
+opt$ref_pop_scale<-'/users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list'
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/todo.txt | cut -d' ' -f1)%3 ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/sbatch.sh
+
+```
+</details>
+
+<br/>
+
+***
+
 # Functionally-informed polygenic scoring
 
 <br/>
