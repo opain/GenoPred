@@ -225,7 +225,7 @@ cat('Calculating predictor-predictor correlations.\n')
 sink()
 
 for(chr in CHROMS){
-  system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_full',chr,' --bfile ',opt$output_dir,'/ref --window-kb 3 --chr ',chr,' --max-threads ',opt$n_cores))
+  system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_full',chr,' --bfile ',opt$output_dir,'/ref --window-cm 3 --chr ',chr,' --max-threads ',opt$n_cores))
 }
 
 write.table(paste0(opt$output_dir,'/cors_full',CHROMS), paste0(opt$output_dir,'/cors_full_list.txt'), col.names=F, row.names=F, quote=F)
@@ -240,10 +240,9 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Running MegaPRS models.\n')
 sink()
 
-system(paste0(opt$ldak,' --mega-prs ',opt$output_dir,'/mega_full --model mega --bfile ',opt$output_dir,'/ref --cors ',opt$output_dir,'/cors_full --ind-hers ',opt$output_dir,'/bld.ldak.ind.hers --summary ',opt$output_dir,'GWAS_sumstats_temp.txt --one-sums YES --window-kb 1 --allow-ambiguous YES --max-threads ',opt$n_cores))
+system(paste0(opt$ldak,' --mega-prs ',opt$output_dir,'/mega_full --model mega --bfile ',opt$output_dir,'/ref --cors ',opt$output_dir,'/cors_full --ind-hers ',opt$output_dir,'/bld.ldak.ind.hers --summary ',opt$output_dir,'GWAS_sumstats_temp.txt --one-sums YES --window-cm 1 --allow-ambiguous YES --max-threads ',opt$n_cores))
 
 # Sum of per SNP heritability is different from SNP-heritability, due to removal of variants with non-positive heritability
-# 20Gb RAM whe using mega
 
 ################
 # Run using subset reference for pseudovalidation
@@ -272,7 +271,7 @@ cat('Calculating predictor-predictor correlations.\n')
 sink()
 
 for(chr in CHROMS){
-  system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_subset',chr,' --bfile ',opt$output_dir,'/ref --window-kb 3 --keep ',opt$output_dir,'/keepb --chr ',chr,' --max-threads ',opt$n_cores))
+  system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_subset',chr,' --bfile ',opt$output_dir,'/ref --window-cm 3 --keep ',opt$output_dir,'/keepb --chr ',chr,' --max-threads ',opt$n_cores))
 }
 
 write.table(paste0(opt$output_dir,'/cors_subset',CHROMS), paste0(opt$output_dir,'/cors_subset_list.txt'), col.names=F, row.names=F, quote=F)
@@ -287,10 +286,9 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Running MegaPRS models.\n')
 sink()
 
-system(paste0(opt$ldak,' --mega-prs ',opt$output_dir,'/mega_subset --model mega --bfile ',opt$output_dir,'/ref --cors ',opt$output_dir,'/cors_subset --ind-hers ',opt$output_dir,'/bld.ldak.ind.hers --summary ',opt$output_dir,'GWAS_sumstats_temp.txt --summary2 ',opt$output_dir,'GWAS_sumstats_temp.pseudo.train.summaries --window-kb 1 --allow-ambiguous YES --max-threads ',opt$n_cores))
+system(paste0(opt$ldak,' --mega-prs ',opt$output_dir,'/mega_subset --model mega --bfile ',opt$output_dir,'/ref --cors ',opt$output_dir,'/cors_subset --ind-hers ',opt$output_dir,'/bld.ldak.ind.hers --summary ',opt$output_dir,'GWAS_sumstats_temp.txt --summary2 ',opt$output_dir,'GWAS_sumstats_temp.pseudo.train.summaries --window-cm 1 --allow-ambiguous YES --max-threads ',opt$n_cores))
 
 # Sum of per SNP heritability is different from SNP-heritability, due to removal of variants with non-positive heritability
-# 20Gb RAM whe using mega
 
 ######
 # Test training prediction models
