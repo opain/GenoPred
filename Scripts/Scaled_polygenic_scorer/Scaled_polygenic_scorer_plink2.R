@@ -24,6 +24,8 @@ make_option("--target_covar", action="store", default=NA, type='character',
 		help="Target sample covariates data [optional]"),
 make_option("--pheno_name", action="store", default=NA, type='character',
     help="Name of phenotype to be added to column names. Default is SCORE. [optional]"),
+make_option("--n_cores", action="store", default=1, type='numeric',
+    help="Number of cores to use [optional]"),
 make_option("--extract", action="store", default=NA, type='character',
     help="SNP list to extract before scoring [optional]"),
 make_option("--memory", action="store", default=5000, type='numeric',
@@ -72,17 +74,17 @@ if(n_scores > 1){
   if(is.na(opt$target_keep)){
   	for(i in 1:22){
   	  if(is.na(opt$extract)){
-  		  system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.9)))
+  		  system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  } else {
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  }
   	}
   } else {
   	for(i in 1:22){
   	  if(is.na(opt$extract)){
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  } else {
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  }
   	}
   }
@@ -90,17 +92,17 @@ if(n_scores > 1){
   if(is.na(opt$target_keep)){
     for(i in 1:22){
       if(is.na(opt$extract)){
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       } else {
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       }
     }
   } else {
     for(i in 1:22){
       if(is.na(opt$extract)){
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       } else {
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       }
     }
   }  

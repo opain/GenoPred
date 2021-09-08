@@ -33,7 +33,7 @@ rule download_impute2_data:
      tar -zxvf resources/data/impute2/1000GP_Phase3_chrX.tgz -C resources/data/impute2/1000GP_Phase3/; \
      rm resources/data/impute2/1000GP_Phase3_chrX.tgz"
 
-# Download PLINK. DBSLMM requires the binary to be specified, which is challenging with conda environments.
+# Download PLINK. DBSLMM requires the binary to be specified, which is challenging with conda environments. I have tried to avoid this again but no joy. The conda environment may not exist when the snakemake is executed which will cause problems if trying to access the conda environment manually.
 rule download_plink:
   output:
     "resources/software/plink/plink"
@@ -407,6 +407,7 @@ rule prs_scoring_sbayesr:
     cpus=10
   input:
     rules.prep_1kg.output,
+    rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
     rules.download_gctb_ref.output,
@@ -438,6 +439,7 @@ rule run_prs_scoring_sbayesr:
 rule prs_scoring_lassosum:
   input:
     rules.prep_1kg.output,
+    rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
     rules.install_lassosum.output
@@ -470,6 +472,7 @@ rule prs_scoring_ldpred2:
     time_min=800
   input:
     rules.prep_1kg.output,
+    rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
     rules.install_bigsnpr.output,
@@ -541,8 +544,8 @@ target_list_df_samp_imp_bgen = target_list_df.loc[target_list_df['type'] == 'sam
 target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen')]
 
 target_list_df['pre_harm_path'] = target_list_df['path']
-target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = "resources/data/target_checks/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
-target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = "resources/data/target_checks/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
+target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = target_list_df.loc[target_list_df['type'] == '23andMe', 'output'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
+target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'output'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
 
 ####
 # Format target data
@@ -650,16 +653,18 @@ rule run_compute_snp_stats_target:
 # Convert to plink1 binary
 rule convert_bgen_target:
   input:
-    rules.download_qctool2.output
+    rules.download_qctool2.output,
+    rules.download_hm3_snplist.output
   output:
-    touch("resources/data/target_checks/{name}/convert_bgen_target.done")
+    touch("resources/data/target_checks/{name}/convert_bgen_target_{chr}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
     output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "resources/software/qctool2/qctool \
+    "mkdir -p {params.output}/{wildcards.name}/; \
+     resources/software/qctool2/qctool \
       -g {params.path}.chr{wildcards.chr}.bgen \
       -s {params.path}.sample \
       -incl-rsids resources/data/hm3_snplist/w_hm3.snplist \
@@ -671,13 +676,13 @@ rule convert_bgen_target:
 
 rule run_convert_bgen_target:
   input: 
-    lambda w: expand("resources/data/target_checks/{name}/convert_bgen_target.done", name=w.name)
+    lambda w: expand("resources/data/target_checks/{name}/convert_bgen_target_{chr}.done", name=w.name, chr=range(1, 23))
   output:
-    touch("resources/data/target_checks/{name}/converted_to_plink.done")
+    touch("resources/data/target_checks/{name}/run_convert_bgen_target.done")
 
 rule run_convert_bgen_target_2:
   input: 
-    expand("resources/data/target_checks/{name}/converted_to_plink.done", name=target_list_df_samp_imp_bgen['name'])
+    expand("resources/data/target_checks/{name}/run_convert_bgen_target.done", name=target_list_df_samp_imp_bgen['name'])
 
 ####
 # Harmonise with reference
@@ -686,13 +691,13 @@ rule run_convert_bgen_target_2:
 rule harmonise_target_with_ref:
   input:
     rules.prep_1kg.output,
-    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target_checks/{name}/converted_to_plink.done")
+    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target_checks/{name}/run_convert_bgen_target.done")
   output:
     touch("resources/data/target_checks/{name}/harmonise_target_with_ref.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0],
     output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R \
@@ -703,6 +708,19 @@ rule harmonise_target_with_ref:
 
 rule run_harmonise_target_with_ref:
   input: expand("resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'])
+  
+# Delete temporary files
+rule delete_temp_target_samp_bgen_files:
+  input:
+    "resources/data/target_checks/{name}/harmonise_target_with_ref.done"
+  output:
+    touch("resources/data/target_checks/{name}/delete_temp_target_samp_bgen_files.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0]
+  shell:
+    "rm {params.path}.chr*"
 
 ####
 # Identify super_population
@@ -710,7 +728,8 @@ rule run_harmonise_target_with_ref:
 
 rule target_super_population:
   input:
-    "resources/data/target_checks/{name}/harmonise_target_with_ref.done"
+    "resources/data/target_checks/{name}/harmonise_target_with_ref.done",
+    lambda w: "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_bgen_files.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done"
   output:
     touch("resources/data/target_checks/{name}/target_super_population.done")
   conda:
@@ -1032,6 +1051,8 @@ rule run_target_prs_prscs_all_name:
 ##
 
 rule target_prs_lassosum:
+  resources: 
+    mem_mb=30000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     "resources/data/1kg/prs_score_files/lassosum/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
@@ -1118,6 +1139,8 @@ rule run_target_prs_sbayesr_all_name:
 ##
 
 rule target_prs_ldpred2:
+  resources: 
+    mem_mb=30000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     "resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
