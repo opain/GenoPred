@@ -327,7 +327,7 @@ if(opt$insert_ref_maf == T & !is.na(opt$ref_freq_chr) & sum(names(GWAS) == 'FREQ
 # Remove SNPs with out-of-bounds p-values
 #####
 
-GWAS<-GWAS[GWAS$P <= 1 | GWAS$P >= 0]
+GWAS<-GWAS[GWAS$P <= 1 & GWAS$P > 0,]
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('After removal of SNPs with out-of-bound P values, ',dim(GWAS)[1],' variants remain.\n', sep='')
@@ -373,7 +373,7 @@ if(sum(names(GWAS) == 'SE') == 1){
     GWAS$Z<-NULL
     GWAS$BETA<-NULL
     
-    if(abs(mean(GWAS$P) - mean(GWAS$P_check)) > 0.01){
+    if(abs(mean(GWAS$P[!is.na(GWAS$P_check)]) - mean(GWAS$P_check[!is.na(GWAS$P_check)])) > 0.01){
        GWAS$P<-GWAS$P_check
        GWAS$P_check<-NULL
       
@@ -393,7 +393,7 @@ if(sum(names(GWAS) == 'SE') == 1){
     GWAS$P_check<-2*pnorm(-abs(GWAS$Z))
     GWAS$Z<-NULL
 
-    if(abs(mean(GWAS$P) - mean(GWAS$P_check)) > 0.01){
+    if(abs(mean(GWAS$P[!is.na(GWAS$P_check)]) - mean(GWAS$P_check[!is.na(GWAS$P_check)])) > 0.01){
       GWAS$P<-GWAS$P_check
       GWAS$P_check<-NULL
       
