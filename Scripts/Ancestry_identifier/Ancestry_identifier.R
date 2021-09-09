@@ -550,11 +550,7 @@ gc()
 
 system(paste0('rm ',opt$output_dir,'profiles*'))
 if(!is.na(opt$target_keep)){
-  if(is.na(opt$target_plink)){
-    system(paste0('ls ', opt$target_plink,'*'))
-  } else {
-    system(paste0('ls ', opt$target_plink_chr,'*'))
-  }
+  system(paste0('rm ', opt$output_dir,'target_subset*'))
 }
 
 ###
