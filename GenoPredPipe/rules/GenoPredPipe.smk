@@ -1425,6 +1425,8 @@ rule run_create_reports:
 ####
 
 rule target_super_population_outlier_detection:
+  resources: 
+    mem_mb=15000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done"
   output:
@@ -1445,7 +1447,3 @@ rule target_super_population_outlier_detection:
       --plink plink \
       --plink2 plink2 \
       --output {params.output}/{wildcards.name}/ancestry/outlier_detection/{wildcards.name}.outlier_detection"
-
-rule run_target_super_population_outlier_detection:
-  input: 
-    lambda w: expand("resources/data/target_checks/{name}/target_super_population_outlier_detection.done", name=w.name)
