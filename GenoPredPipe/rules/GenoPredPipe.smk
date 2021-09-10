@@ -474,7 +474,6 @@ rule prs_scoring_ldpred2:
     rules.prep_1kg.output,
     rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    rules.download_plink.output,
     rules.install_bigsnpr.output,
     rules.download_ldpred2_ref.output
   output:
@@ -495,6 +494,39 @@ rule prs_scoring_ldpred2:
     
 rule run_prs_scoring_ldpred2:
   input: expand("resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
+
+##
+# Process externally created score files
+##
+
+# Read in list of external score files
+score_list_file = Path(config["score_list"])
+if score_list_file.is_file():
+  score_list_df = pd.read_table(config["score_list"], sep=' ')
+else:
+  score_list_df = pd.DataFrame(columns = ["name", "path", "population", "sampling", "prevalence", "mean", "sd", "label"])
+
+rule prs_scoring_external:
+  input:
+    rules.prep_1kg.output,
+    lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
+  output:
+    "resources/data/1kg/prs_score_files/external/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  params:
+    score= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
+    population= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript ../Scripts/external_score_processor/external_score_processor_plink2.R \
+      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --score {params.score} \
+      --plink2 plink2 \
+      --output resources/data/1kg/prs_score_files/external/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+    
+rule run_prs_scoring_external:
+  input: expand("resources/data/1kg/prs_score_files/external/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=score_list_df['name'])
 
 ##
 # Estimate R2/AUC of PRS using lassosum pseudovalidate
@@ -943,7 +975,8 @@ rule target_prs_pt_clump:
       --output {params.output}/{wildcards.name}/prs/{wildcards.population}/pt_clump/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
 
 rule run_target_prs_pt_clump_all_gwas:
-  input: 
+  input:
+    config["gwas_list"],
     lambda w: expand("resources/data/target_checks/{name}/target_prs_pt_clump_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
   output:
     touch("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_gwas_{population}.done")
@@ -986,7 +1019,8 @@ rule target_prs_dbslmm:
       --output {params.output}/{wildcards.name}/prs/{wildcards.population}/dbslmm/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
 
 rule run_target_prs_dbslmm_all_gwas:
-  input: 
+  input:
+    config["gwas_list"],
     lambda w: expand("resources/data/target_checks/{name}/target_prs_dbslmm_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
   output:
     touch("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_gwas_{population}.done")
@@ -1029,7 +1063,8 @@ rule target_prs_prscs:
       --output {params.output}/{wildcards.name}/prs/{wildcards.population}/prscs/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
 
 rule run_target_prs_prscs_all_gwas:
-  input: 
+  input:
+    config["gwas_list"],
     lambda w: expand("resources/data/target_checks/{name}/target_prs_prscs_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
   output:
     touch("resources/data/target_checks/{name}/run_target_prs_prscs_all_gwas_{population}.done")
@@ -1074,7 +1109,8 @@ rule target_prs_lassosum:
       --output {params.output}/{wildcards.name}/prs/{wildcards.population}/lassosum/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
 
 rule run_target_prs_lassosum_all_gwas:
-  input: 
+  input:
+    config["gwas_list"],
     lambda w: expand("resources/data/target_checks/{name}/target_prs_lassosum_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
   output:
     touch("resources/data/target_checks/{name}/run_target_prs_lassosum_all_gwas_{population}.done")
@@ -1117,7 +1153,8 @@ rule target_prs_sbayesr:
       --output {params.output}/{wildcards.name}/prs/{wildcards.population}/sbayesr/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
 
 rule run_target_prs_sbayesr_all_gwas:
-  input: 
+  input:
+    config["gwas_list"],
     lambda w: expand("resources/data/target_checks/{name}/target_prs_sbayesr_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
   output:
     touch("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_gwas_{population}.done")
@@ -1162,7 +1199,8 @@ rule target_prs_ldpred2:
       --output {params.output}/{wildcards.name}/prs/{wildcards.population}/ldpred2/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
      
 rule run_target_prs_ldpred2_all_gwas:
-  input: 
+  input:
+    config["gwas_list"],
     lambda w: expand("resources/data/target_checks/{name}/target_prs_ldpred2_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
   output:
     touch("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_gwas_{population}.done")
@@ -1180,6 +1218,54 @@ rule run_target_prs_ldpred2_all_name:
     touch("resources/data/target_checks/prs_ldpred2.done")
 
 ##
+# Externally created score files
+##
+
+rule target_prs_external:
+  resources: 
+    mem_mb=30000
+  input:
+    lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "resources/data/1kg/prs_score_files/external/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  output:
+    touch("resources/data/target_checks/{name}/target_prs_external_{population}_{gwas}.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    score= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score {params.score} \
+      --ref_scale resources/data/1kg/prs_score_files/external/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/external/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
+     
+rule run_target_prs_external_all_gwas:
+  input: 
+    config["score_list"],
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_external_{population}_{gwas}.done", name=w.name, gwas=score_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_external_all_gwas_{population}.done")
+
+rule run_target_prs_external_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_external_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_external_all_pop.done")
+
+rule run_target_prs_external_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_external_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_external.done")
+
+##
 # Calculate PRS using all methods
 ##
 
@@ -1190,7 +1276,8 @@ rule target_prs_all:
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_prscs_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_lassosum_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_pop.done", name=w.name)
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_external_all_pop.done", name=w.name)
   output:
     touch('resources/data/target_checks/{name}/target_prs_all.done')
 
