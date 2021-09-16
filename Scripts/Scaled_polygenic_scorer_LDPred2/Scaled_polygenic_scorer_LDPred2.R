@@ -74,6 +74,12 @@ sink()
 
 CHROMS<-1:22
 
+# RM : bugfix
+param <- param[file.exists(paste0(opt$ref_score,'.',param,'.SCORE'))]
+if (length(param)==0){
+    stop("Error: can't locate .SCORE files!")
+}
+
 foreach(param_i=param, .combine=c)%dopar%{
   if(is.na(opt$target_keep)){
 		for(i in CHROMS){
