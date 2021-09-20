@@ -138,6 +138,15 @@ for(pop in keep_list$pop){
 
   # Identify LD independent QC'd SNPs using a random subset 1000 individuals
   keep_file<-fread(keep_list$file[keep_list$pop == pop])
+  if(nrow(keep_file) < 100){
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Skipped due to insufficient sample size.\n')
+    cat('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
+    sink()
+    
+    next
+  }
+  
   keep_file_subset<-keep_file[sample(1000),]
   write.table(keep_file_subset, paste0(opt$output_dir,pop,'_subset.keep'), col.names=F, row.names=F, quote=F)
   
@@ -176,20 +185,20 @@ for(pop in keep_list$pop){
   if(is.na(opt$target_fam)){
     if(is.na(opt$target_plink)){
       # Create merge list
-      ref_merge_list<-paste0(opt$target_plink,1:22)
+      ref_merge_list<-paste0(opt$target_plink_chr,1:22)
       write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
       
-      system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+      system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     } else {
       system(paste0(opt$plink,' --bfile ',opt$target_plink,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1 --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     }
   } else {
     if(is.na(opt$target_plink)){
       # Create merge list
-      ref_merge_list<-paste0(opt$target_plink,1:22)
+      ref_merge_list<-paste0(opt$target_plink_chr,1:22)
       write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
       
-      system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --fam ',opt$target_fam,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC.chr',i,' --memory ',floor(opt$memory*0.7)))
+      system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --fam ',opt$target_fam,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     } else {
       system(paste0(opt$plink,' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1 --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --chr 1-22 --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     }
@@ -229,13 +238,13 @@ for(pop in keep_list$pop){
     scores<-fread(cmd=paste0('cut -f 1-2 ',opt$output_dir,'profiles.chr22.sscore'))
     names(scores)<-c('FID','IID')
     
-    var_list<-fread(paste0(opt$output,'.eigenvec.var'))
+    var_list<-fread(paste0(opt$output_dir,'target.QC.eigenvec.var'))
     nsnp_all<-0
     for(i in 1:22){
     	profile<-data.frame(fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore')))
     	profile<-as.matrix(profile[,grepl('PC',names(profile))])
     	bim<-fread(paste0(opt$target_plink_chr,i,'.bim'))
-    	nsnp<-sum(bim$V2 %in% var_list$ID)
+    	nsnp<-sum(bim$V2 %in% var_list$SNP)
     	nsnp_all<-nsnp_all+nsnp
     	profile<-profile*nsnp
     	if(i == 1){
@@ -248,7 +257,6 @@ for(pop in keep_list$pop){
     
     profile_all<-profile_all/nsnp_all
   } else {
-    # Add up the scores across chromosomes
     scores<-fread(cmd=paste0('cut -f 1-2 ',opt$output_dir,'profiles.sscore'))
     names(scores)<-c('FID','IID')
   
@@ -305,12 +313,14 @@ for(pop in keep_list$pop){
   cat('Defining number of centroids...\n')
   sink()
   
+  png(paste0(opt$output,'.',pop,'.NbClust.png'), units='px', res=300, width=3000, height=3000)
   # Define centroids
   if(dim(targ_PCs)[1] > 1000){
   	n_clust_sol<-NbClust(data = targ_PCs[sample(1000),-1:-2], distance = "euclidean", min.nc = 2, max.nc = 10, method = 'kmeans', index='all')
   } else {
   	n_clust_sol<-NbClust(data = targ_PCs[,-1:-2], distance = "euclidean", min.nc = 2, max.nc = 10, method = 'kmeans', index='all')
   }
+  dev.off()
   
   n_clust_opt<-length(unique(n_clust_sol$Best.partition))
   
