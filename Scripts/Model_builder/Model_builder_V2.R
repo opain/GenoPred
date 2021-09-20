@@ -694,3 +694,4 @@ sink(file = paste(opt$out,'.log',sep=''), append = T)
 cat('Analysis finished at',as.character(end.time),'\n')
 cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
 sink()
+
