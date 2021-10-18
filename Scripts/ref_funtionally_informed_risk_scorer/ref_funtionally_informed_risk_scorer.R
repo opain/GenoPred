@@ -42,8 +42,7 @@ if(opt$coloc == T){
 
 opt$pTs<- as.numeric(unlist(strsplit(opt$pTs,',')))
 
-tmp<-sub('.*/','',opt$output)
-opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
+opt$output_dir<-dirname(opt$output)
 
 if(file.exists(paste(opt$output,'.profiles',sep=''))){
 	cat('A file named',paste(opt$output,'.profiles',sep=''),'already exists.\n')
