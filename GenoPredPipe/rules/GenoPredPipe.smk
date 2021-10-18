@@ -126,6 +126,13 @@ rule install_ggchicklet:
   shell:
     "Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet\")'"
 
+# Install Rpackages manually
+rule install_manual_Rpackages:
+  input:
+    rules.install_ggchicklet.output,
+    rules.install_bigsnpr.output,
+    rules.install_lassosum.output
+
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
   output:

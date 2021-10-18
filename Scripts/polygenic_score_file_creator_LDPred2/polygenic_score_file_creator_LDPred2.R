@@ -35,8 +35,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 library(data.table)
 library(bigsnpr)
 
-tmp<-sub('.*/','',opt$output)
-opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
+opt$output_dir<-dirname(opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
 
 CHROMS<-1:22
@@ -326,18 +325,12 @@ multi_auto <- snp_ldpred2_auto(corr, sumstats, h2_init = h2_est,
 
 beta_auto <- sapply(multi_auto, function(auto) auto$beta_est)
 
-summary(beta_auto)
-
 pred_auto <- big_prodMat(G, beta_auto, ind.row = ind_keep,
                          ind.col = sumstats[["_NUM_ID_"]])
-
-summary(pred_auto)
 
 sc <- apply(pred_auto, 2, sd)
 keep <- abs(sc - median(sc)) < 3 * mad(sc)
 final_beta_auto <- rowMeans(beta_auto[, keep])
-
-summary(final_beta_auto)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Auto model complete at',as.character(Sys.time()),'\n')
@@ -372,6 +365,8 @@ if(!is.na(opt$test)){
   sink()
   system(paste0('rm ',opt$output_dir,'*.SCORE'))
   system(paste0('rm ',opt$output_dir,'LD_GW_sparse.sbk'))
+  system(paste0('rm ',opt$output_dir,'ref.rds'))
+  system(paste0('rm ',opt$output_dir,'ref.bk'))
   q()
 }
 

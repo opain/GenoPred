@@ -3851,14 +3851,18 @@ meta_res_eval_diff_plots_cross<-list()
 meta_res_eval_diff_plots_indep<-list()
 meta_res_eval_diff_matrix_cross<-list()
 meta_res_eval_diff_matrix_indep<-list()
+res_LDAK<-list()
 
 for(file in 1:length(Files)){
   if(Samples[file] == 'UKBB'){
     pheno<-c('Depression','Intelligence','Height','BMI','T2D','CAD','IBD', 'MultiScler','RheuArth','Prostate_Cancer','Breast_Cancer')
     gwas<-c('DEPR06','COLL01','HEIG03','BODY04','DIAB05','COAD01','CROH01','SCLE03','RHEU02','PRCA01','BRCA01')
+    gwas_prev=c(0.28,NA,NA,NA,0.168,0.33,0.285,0.36,0.246,0.564,0.537)
+
   } else {
     pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
     gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
+    gwas_prev=c(NA,NA,NA,0.364)
   }
     
   ##################
@@ -3873,6 +3877,7 @@ for(file in 1:length(Files)){
   res_eval_diff_plots_indep<-list()
   res_eval_diff_matrix_cross<-list()
   res_eval_diff_matrix_indep<-list()
+  
   for(i in 1:length(pheno)){
     if(grepl('UKBB_ref',Files[file])){
       res_eval_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'.EUR-PRSs.AllMethodComp_inclLDAK.pred_eval.txt'), header=T, stringsAsFactors=F)
@@ -3882,6 +3887,74 @@ for(file in 1:length(Files)){
       res_eval_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp_inclLDAK.pred_eval.txt'), header=T, stringsAsFactors=F)
   
       res_comp_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp_inclLDAK.pred_comp.txt'), header=T, stringsAsFactors=F)
+    }
+    
+    # Check LDAK performance across parameters and pseudovalidation accuracy
+    if(!grepl('UKBB_ref',Files[file])){
+      res_eval_i_LDAK<-res_eval_i[grepl('LDAK.Pred',res_eval_i$Model),]
+      res_eval_i_LDAK$LDAK_model<-gsub('_group','',gsub('.*ldak.Model','',res_eval_i_LDAK$Model))
+      samp_prev<-res_eval_i_LDAK$IndepVal_Ncas[1]/res_eval_i_LDAK$IndepVal_N[1]
+      
+      res_eval_i_LDAK<-res_eval_i_LDAK[,c('LDAK_model','IndepVal_R')]
+      names(res_eval_i_LDAK)<-c('LDAK_model','obs_R')
+
+      ldak_param<-read.table(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/LDAK/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.model_param.txt'), header=T,stringsAsFactors = F)
+      
+      ldak_assoc<-merge(res_eval_i_LDAK, ldak_param, by.x='LDAK_model', by.y='Model')
+      ldak_assoc<-ldak_assoc[,c('LDAK_model','Type','Her','Lasso_lambda','Lasso_s','Bolt_p','Bolt_f2','BayesR_p1','BayesR_p2','BayesR_p3','BayesR_p4','obs_R')]
+      ldak_assoc<-ldak_assoc[order(as.numeric(ldak_assoc$LDAK_model)),]
+      
+      ldak_pseudo<-read.table(paste0('/users/k1806347/brc_scratch/Data/1KG/Phase3/Score_files_for_polygenic/LDAK/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.pseudoval.txt'), header=F,stringsAsFactors = F)
+      names(ldak_pseudo)<-c('LDAK_model','pseudo_R')
+      ldak_pseudo$LDAK_model<-gsub('.*_','',ldak_pseudo$LDAK_model)
+      
+      if(length(samp_prev) != 0){
+        
+        gwas_prev_i<-gwas_prev[i]
+  
+        r2_d<-function(d,p){
+          n_case<-p
+          n_con<-1-p
+          a<-(n_case+n_con)^2/(n_case*n_con)
+          r=d/sqrt(a+d^2)
+          r2<-r^2
+          r2
+        }
+  
+        d_r2<-function(r2,p){
+            r<-sqrt(r2)
+            n_case<-p
+            n_con<-1-p
+            a<-(n_case+n_con)^2/(n_case*n_con)
+            d<-sqrt(a)*r/sqrt(1-r^2)
+            d
+        }
+        
+        ldak_pseudo$pseudo_R<-sqrt(r2_d(d=d_r2(r2=ldak_pseudo$pseudo_R^2, p=gwas_prev_i), p=samp_prev))
+      }
+      
+      ldak_assoc<-merge(ldak_assoc, ldak_pseudo, by='LDAK_model')
+      ldak_assoc<-ldak_assoc[order(ldak_assoc$LDAK_model),]
+      
+      library(ggplot2)
+      library(cowplot)
+      
+      png(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs.LDAK.param_res.png'), units = 'px', res=300, width=2000, height=2000)
+      print(ggplot(ldak_assoc, aes(x=obs_R, y=pseudo_R, colour=Type)) +
+        geom_point() +
+        ylim(c(min(c(ldak_assoc$obs_R, ldak_assoc$pseudo_R)),max(c(ldak_assoc$obs_R, ldak_assoc$pseudo_R)))) +
+        xlim(c(min(c(ldak_assoc$obs_R, ldak_assoc$pseudo_R)),max(c(ldak_assoc$obs_R, ldak_assoc$pseudo_R)))) +
+        theme_half_open() +
+        background_grid())
+      dev.off()
+      
+      write.csv(ldak_assoc, paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs.LDAK.param_res.csv'), row.names = F, quote = F)
+      
+      ldak_assoc_top<-ldak_assoc[ldak_assoc$pseudo_R == max(ldak_assoc$pseudo_R),]
+      
+      res_LDAK<-rbind(res_LDAK, data.frame(sample=Samples[file],
+                                           gwas=gwas[i],
+                                           ldak_assoc_top))
     }
     
     # Idenitfy model names for 10FCVal, multi-PRS and pseudoval
@@ -4623,6 +4696,19 @@ dev.off()
 tiff('/scratch/users/k1806347/Analyses/PRS_comparison/PRS_method_comp_diff_UKB_1KG_IndepVal_meta_withLDAK.tiff', units='px', res=300, width=2000, height=2000, compression = 'lzw')
 meta_res_eval_diff_matrix_indep[[1]] + labs(title=NULL)
 dev.off()
+
+# Plot LDAK pseudoval results
+res_LDAK_plot<-res_LDAK[,c('sample','gwas','obs_R','pseudo_R')]
+res_LDAK_plot<-melt(res_LDAK_plot)
+
+library(ggplot2)
+
+png('/scratch/users/k1806347/Analyses/PRS_comparison/LDAK_pseudo_comp.png', units='px', res=300, width=3000, height=2000)
+ggplot(res_LDAK_plot, aes(x=paste0(sample,'_',gwas), y=value, fill=variable)) + 
+  geom_bar(position="dodge",stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+dev.off()
+
 
 ```
 </details>
@@ -6418,253 +6504,19 @@ kable(res, rownames = FALSE, caption='Difference between methods in TEDS with UK
 
 </details>
 
-<br/>
+## Further analysis of LDAK's Mega-PRS
 
-## Further analysis of GCTB
+```{R, eval=F, echo=T}
+library(data.table)
 
-<details><summary>Show SBayesR approaches used</summary>
-
-```{r, echo=F, eval=T, results='asis'}
-res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison/SBayesR_H2_comp.csv")
-
-res$h2<-paste0(res$SBayesR_H2_est, " (", res$SBayesR_H2_se, ")")
-res<-res[,c('GWAS','Ref','Process','h2','perVar','Complete','Converge','Use')]
-
-names(res)<-c('GWAS','Reference','Process',"h2 (SE)","perVariant",'Complete','Converge',"Used")
-
-library(knitr)
-kable(res, rownames = FALSE, caption='Information used to avoid convergence issues in SBayesR')
-```
-
-</details>
-
-<details><summary>Compare SBayesR results</summary>
-```{r, echo=T, eval=F}
-# Create a table indicating whether per variant sample size is available
-Files<-c('UKBB','TEDS')
-Samples<-c('UKBB','TEDS')
-
-source('/users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config')
-
-for(file in 1:length(Files)){
-    if(Samples[file] == 'UKBB'){
-      pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
-      gwas<-c('DEPR06','COLL01','BODY04','HEIG03','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
-    } else {
-      pheno<-c('Height21', 'BMI21', 'GCSE', 'ADHD')
-      gwas<-c('HEIG03', 'BODY11', 'EDUC03', 'ADHD04')
-    }
-
-  res<-NULL
-
-  for(i in 1:length(pheno)){
-      res_eval_1KG_i<-NULL
-      res_eval_1KG_P4_i<-NULL
-      res_eval_1KG_GCTB_203_i<-NULL
-      res_eval_1KG_GCTB_203_robust_i<-NULL
-      res_eval_UKBB_i<-NULL
-      res_eval_UKBB_P4_i<-NULL
-      res_eval_UKBB_GCTB_203_i<-NULL
-      res_eval_UKBB_GCTB_203_robust_i<-NULL
-      res_eval_GCTB_i<-NULL
-      res_eval_GCTB_P4_i<-NULL
-      res_eval_GCTB_GCTB_203_i<-NULL
-      res_eval_GCTB_GCTB_203_robust_i<-NULL
-
-      # 1KG ref
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_1KG_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_1KG_i<-res_eval_1KG_i[2,]
-        res_eval_1KG_i$Model<-"v2.02 (Default)"
-        res_eval_1KG_i$Ref<-'1KG'
-      }
-
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_P4.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_1KG_P4_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_P4.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_1KG_P4_i<-res_eval_1KG_P4_i[2,]
-        res_eval_1KG_P4_i$Model<-"v2.02 (P<0.4)"
-        res_eval_1KG_P4_i$Ref<-'1KG'
-      }
-
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTB_203.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_1KG_GCTB_203_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTB_203.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_1KG_GCTB_203_i<-res_eval_1KG_GCTB_203_i[2,]
-        res_eval_1KG_GCTB_203_i$Model<-"v2.03 (Default)"
-        res_eval_1KG_GCTB_203_i$Ref<-'1KG'
-      }
-      
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTB_203_robust.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_1KG_GCTB_203_robust_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTB_203_robust.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_1KG_GCTB_203_robust_i<-res_eval_1KG_GCTB_203_robust_i[2,]
-        res_eval_1KG_GCTB_203_robust_i$Model<-"v2.03 (Robust)"
-        res_eval_1KG_GCTB_203_robust_i$Ref<-'1KG'
-      }
-      
-      # UKB ref
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_UKBB_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_UKBB_i<-res_eval_UKBB_i[2,]
-        res_eval_UKBB_i$Model<-"v2.02 (Default)"
-        res_eval_UKBB_i$Ref<-'UKB'
-      }
-
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'_P4.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_UKBB_P4_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'_P4.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_UKBB_P4_i<-res_eval_UKBB_P4_i[2,]
-        res_eval_UKBB_P4_i$Model<-"v2.02 (P<0.4)"
-        res_eval_UKBB_P4_i$Ref<-'UKB'
-      }
-
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'_GCTB_203.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_UKBB_GCTB_203_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'_GCTB_203.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_UKBB_GCTB_203_i<-res_eval_UKBB_GCTB_203_i[2,]
-        res_eval_UKBB_GCTB_203_i$Model<-"v2.03 (Default)"
-        res_eval_UKBB_GCTB_203_i$Ref<-'UKB'
-      }
-
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'_GCTB_203_robust.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_UKBB_GCTB_203_robust_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.UKBB_ref.',gwas[i],'_GCTB_203_robust.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_UKBB_GCTB_203_robust_i<-res_eval_UKBB_GCTB_203_robust_i[2,]
-        res_eval_UKBB_GCTB_203_robust_i$Model<-"v2.03 (Robust)"
-        res_eval_UKBB_GCTB_203_robust_i$Ref<-'UKB'
-      }
-
-      # GCTB ref
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTBref.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_GCTB_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTBref.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_GCTB_i<-res_eval_GCTB_i[2,]
-        res_eval_GCTB_i$Model<-"v2.02 (Default)"
-        res_eval_GCTB_i$Ref<-'GCTB'
-      }
+# Read in the LDAK assoc results
+ldak_res<-list()
+for(i in pheno){
   
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTBref_P4.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_GCTB_P4_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTBref_P4.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_GCTB_P4_i<-res_eval_GCTB_P4_i[2,]
-        res_eval_GCTB_P4_i$Model<-"v2.02 (P<0.4)"
-        res_eval_GCTB_P4_i$Ref<-'GCTB'
-      }
-
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTBref_GCTB_203.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_GCTB_GCTB_203_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTBref_GCTB_203.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_GCTB_GCTB_203_i<-res_eval_GCTB_GCTB_203_i[2,]
-        res_eval_GCTB_GCTB_203_i$Model<-"v2.03 (Default)"
-        res_eval_GCTB_GCTB_203_i$Ref<-'GCTB'
-      }
-
-      if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTBref_GCTB_203_robust.EUR-PRSs_SBayesR.pred_eval.txt'))){
-        res_eval_GCTB_GCTB_203_robust_i<-read.table(paste0('/users/k1806347/brc_scratch/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/',pheno[i],'/Association_withPRSs/',Samples[file],'.w_hm3.',gwas[i],'_GCTBref_GCTB_203_robust.EUR-PRSs_SBayesR.pred_eval.txt'), header=T, stringsAsFactors=F)
-        res_eval_GCTB_GCTB_203_robust_i<-res_eval_GCTB_GCTB_203_robust_i[2,]
-        res_eval_GCTB_GCTB_203_robust_i$Model<-"v2.03 (Robust)"
-        res_eval_GCTB_GCTB_203_robust_i$Ref<-'GCTB'
-      }
-          
-      res_i<-do.call(rbind, list(res_eval_1KG_i,res_eval_1KG_P4_i, res_eval_1KG_GCTB_203_i,res_eval_1KG_GCTB_203_robust_i,res_eval_UKBB_i,res_eval_UKBB_P4_i,res_eval_UKBB_GCTB_203_i,res_eval_UKBB_GCTB_203_robust_i,res_eval_GCTB_i,res_eval_GCTB_P4_i,res_eval_GCTB_GCTB_203_i,res_eval_GCTB_GCTB_203_robust_i))
-      res_i$Phenotype<-pheno[i]
-      res_i$Cross_LiabR2<-NULL
-      res_i$Indep_LiabR2<-NULL
-      res_i$CrossVal_pval<-NULL
-      res_i$IndepVal_pval<-NULL
-      res_i$Cross_AUC<-NULL
-      res_i$Indep_AUC<-NULL
-      res_i$CrossVal_OR<-NULL
-      res_i$IndepVal_OR<-NULL
-      res_i$CrossVal_HighCI<-NULL
-      res_i$IndepVal_HighCI<-NULL
-      res_i$CrossVal_LowCI<-NULL
-      res_i$IndepVal_LowCI<-NULL
-      res_i$CrossVal_Ncas<-NULL
-      res_i$IndepVal_Ncas<-NULL
-      res_i$CrossVal_Ncon<-NULL
-      res_i$IndepVal_Ncon<-NULL
-    
-      res<-rbind(res, res_i)
-  }
-  
-  write.csv(res, paste0('/scratch/users/k1806347/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/PRS_SBayesR_',Samples[file],'.csv'), row.names=F)
-  
-  res$Ref<-factor(res$Ref, levels=c('1KG','UKB','GCTB'))
-  res$Model<-factor(res$Model, levels=c("v2.02 (Default)","v2.02 (P<0.4)","v2.03 (Default)","v2.03 (Robust)"))
-  
-  plots_CrossVal<-list()
-  plots_IndepVal<-list()
-  for(i in 1:length(pheno)){
-    plots_CrossVal[[pheno[i]]] <- ggplot( res[res$Phenotype==pheno[i],], aes(x=Ref, y=CrossVal_R, fill=Model)) +
-                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
-                          geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
-                          labs(y="Correlation (SE)", x='', title=pheno[i]) +
-                          coord_cartesian(ylim=c(min(res$CrossVal_R[res$Phenotype==pheno[i]])-0.05, max(res$CrossVal_R[res$Phenotype==pheno[i]])+0.05), clip="on") +
-                          theme_half_open() +
-                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-                          background_grid(major = 'y', minor = 'y')
-    
-    plots_IndepVal[[pheno[i]]] <- ggplot( res[res$Phenotype==pheno[i],], aes(x=Ref, y=IndepVal_R, fill=Model)) +
-                          geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
-                          geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.4, position=position_dodge(width = 0.7, preserve = "single")) +
-                          labs(y="Correlation (SE)", x='', title=pheno[i]) +
-                          coord_cartesian(ylim=c(min(res$IndepVal_R[res$Phenotype==pheno[i]])-0.05, max(res$IndepVal_R[res$Phenotype==pheno[i]])+0.05), clip="on") +
-                          theme_half_open() +
-                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-                          background_grid(major = 'y', minor = 'y')
-  }
-
-  png(paste0('/scratch/users/k1806347/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/PRS_SBayesR_CrossVal_',Samples[file],'.png'), units='px', res=300, width=2250, height=800*ceiling(length(pheno)/2))
-  print(plot_grid(plotlist=plots_CrossVal, ncol = 2))
-  dev.off()
-
-  png(paste0('/scratch/users/k1806347/Analyses/PRS_comparison/',Samples[file],'_outcomes_for_prediction/PRS_SBayesR_IndepVal_',Samples[file],'.png'), units='px', res=300, width=2250, height=800*ceiling(length(pheno)/2))
-  print(plot_grid(plotlist=plots_IndepVal, ncol = 2))
-  dev.off()
-
 }
-
-# This sensitivity analysis shows the new robust implementation of SBayesR is more reliable, though can perform worse when using the smaller 1KG Phase 3 reference. I think we should compare methods using the robust implmentation of SBayesR.
-
+  
+  
 ```
-
-</details>
-
-```{bash, eval=T, echo=F}
-cp /scratch/users/k1806347/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/PRS_SBayesR_CrossVal_UKBB.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
-
-cp /scratch/users/k1806347/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/PRS_SBayesR_IndepVal_UKBB.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
-
-cp /scratch/users/k1806347/Analyses/PRS_comparison/TEDS_outcomes_for_prediction/PRS_SBayesR_CrossVal_TEDS.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
-
-cp /scratch/users/k1806347/Analyses/PRS_comparison/TEDS_outcomes_for_prediction/PRS_SBayesR_IndepVal_TEDS.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
-
-```
-
-<details><summary>Show UKBB cross-validation results</summary>
-
-<center>
-
-![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_CrossVal_UKBB.png)
-
-</details>
-
-<details><summary>Show UKBB test-validation results</summary>
-
-![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_IndepVal_UKBB.png)
-
-\center
-
-</details>
-
-<details><summary>Show TEDS cross-validation results</summary>
-
-<center>
-
-![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_CrossVal_TEDS.png)
-
-</details>
-
-<details><summary>Show TEDS test-validation results</summary>
-
-![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_SBayesR_IndepVal_TEDS.png)
-
-\center
-
-</details>
 
 <br/>
 

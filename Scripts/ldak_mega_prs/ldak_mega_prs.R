@@ -30,6 +30,8 @@ option_list = list(
               help="Path to ldak highld data [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
               help="Number of cores for parallel computing [optional]"),
+  make_option("--prs_model", action="store", default='mega', type='character',
+              help="Model used for deriving SNP-weights [optional]"),
   make_option("--test", action="store", default=NA, type='character',
               help="Specify number of SNPs to include [optional]")
 )
@@ -38,8 +40,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
 
-tmp<-sub('.*/','',opt$output)
-opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
+opt$output_dir<-dirname(opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
 
 CHROMS<-1:22
@@ -153,11 +154,9 @@ system(paste0('cp ', opt$ref_plink,'.fam ',opt$output_dir,'/ref.fam'))
 system(paste0("awk < ", opt$ref_plink,".bim '{$2=$1\":\"$4;print $0}' > ", opt$output_dir,'/ref.bim'))
 
 # Insert genetic distances
-for(chr in CHROMS){
-  system(paste0(opt$plink1,' --bfile ',opt$output_dir,'/ref --cm-map ',opt$ldak_map,'/genetic_map_chr@_combined_b37.txt --make-bed --out ',opt$output_dir,'/map',chr))
-}
+system(paste0(opt$plink1,' --bfile ',opt$output_dir,'/ref --cm-map ',opt$ldak_map,'/genetic_map_chr@_combined_b37.txt --make-bed --out ',opt$output_dir,'/map'))
 
-system(paste0("cat ", opt$output_dir,"/map{1..22}.bim | awk '{print $2, $3}' > ", opt$output_dir,"/map.all"))
+system(paste0("cat ", opt$output_dir,"/map.bim | awk '{print $2, $3}' > ", opt$output_dir,"/map.all"))
 
 system(paste0("awk '(NR==FNR){arr[$1]=$2;next}{print $1, $2, arr[$2], $4, $5, $6}' ",opt$output_dir,"/map.all ",opt$output_dir,"/ref.bim > ",opt$output_dir,"/tmp.bim; mv ",opt$output_dir,"/tmp.bim ",opt$output_dir,"/ref.bim"))
 
@@ -193,8 +192,12 @@ system(paste0('mkdir ',opt$output_dir,'/bld'))
 system(paste0('cp ',opt$ldak_tag,'/* ',opt$output_dir,'/bld/'))
 system(paste0('mv ',opt$output_dir,'/sections/weights.short ',opt$output_dir,'/bld/bld65'))
 
-# Calculate taggings (this can be split by chromosome)
-system(paste0(opt$ldak,' --calc-tagging ',opt$output_dir,'/bld.ldak --bfile ',opt$output_dir,'/ref --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ',opt$output_dir,'/bld/bld --window-cm 1 --save-matrix YES --max-threads ',opt$n_cores))
+# Calculate taggings
+if(length(CHROMS) != 1){
+  system(paste0(opt$ldak,' --calc-tagging ',opt$output_dir,'/bld.ldak --bfile ',opt$output_dir,'/ref --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ',opt$output_dir,'/bld/bld --window-cm 1 --save-matrix YES --max-threads ',opt$n_cores))
+} else {
+  system(paste0(opt$ldak,' --calc-tagging ',opt$output_dir,'/bld.ldak --bfile ',opt$output_dir,'/ref --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ',opt$output_dir,'/bld/bld --window-cm 1 --chr ',CHROMS,' --save-matrix YES --max-threads ',opt$n_cores))
+}
 
 # Calculate Per-Predictor Heritabilities.
 system(paste0(opt$ldak,' --sum-hers ',opt$output_dir,'/bld.ldak --tagfile ',opt$output_dir,'/bld.ldak.tagging --summary ',opt$output_dir,'GWAS_sumstats_temp.txt --matrix ',opt$output_dir,'/bld.ldak.matrix --max-threads ',opt$n_cores))
@@ -224,23 +227,30 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating predictor-predictor correlations.\n')
 sink()
 
-for(chr in CHROMS){
-  system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_full',chr,' --bfile ',opt$output_dir,'/ref --window-cm 3 --chr ',chr,' --max-threads ',opt$n_cores))
+if(length(CHROMS) !=1){
+  for(chr in CHROMS){
+    system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_full',chr,' --bfile ',opt$output_dir,'/ref --window-cm 3 --chr ',chr,' --max-threads ',opt$n_cores))
+  }
+  
+  write.table(paste0(opt$output_dir,'/cors_full',CHROMS), paste0(opt$output_dir,'/cors_full_list.txt'), col.names=F, row.names=F, quote=F)
+  
+  system(paste0(opt$ldak,' --join-cors ',opt$output_dir,'/cors_full --corslist ',opt$output_dir,'/cors_full_list.txt --max-threads ',opt$n_cores))
+} else {
+  system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_full --bfile ',opt$output_dir,'/ref --window-cm 3 --chr ',CHROMS,' --max-threads ',opt$n_cores))
 }
-
-write.table(paste0(opt$output_dir,'/cors_full',CHROMS), paste0(opt$output_dir,'/cors_full_list.txt'), col.names=F, row.names=F, quote=F)
-
-system(paste0(opt$ldak,' --join-cors ',opt$output_dir,'/cors_full --corslist ',opt$output_dir,'/cors_full_list.txt --max-threads ',opt$n_cores))
 
 ######
 # Estimate effect sizes for training and full prediction models.
 ######
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Running MegaPRS models.\n')
+cat('Running MegaPRS: ',opt$prs_model,' model.\n', sep='')
 sink()
 
-system(paste0(opt$ldak,' --mega-prs ',opt$output_dir,'/mega_full --model mega --bfile ',opt$output_dir,'/ref --cors ',opt$output_dir,'/cors_full --ind-hers ',opt$output_dir,'/bld.ldak.ind.hers --summary ',opt$output_dir,'GWAS_sumstats_temp.txt --one-sums YES --window-cm 1 --allow-ambiguous YES --max-threads ',opt$n_cores))
+system(paste0(opt$ldak,' --mega-prs ',opt$output_dir,'/mega_full --model ',opt$prs_model,' --bfile ',opt$output_dir,'/ref --cors ',opt$output_dir,'/cors_full --ind-hers ',opt$output_dir,'/bld.ldak.ind.hers --summary ',opt$output_dir,'GWAS_sumstats_temp.txt --one-sums YES --window-cm 1 --allow-ambiguous YES --max-threads ',opt$n_cores))
+
+# Save the parameters file
+system(paste0('cp ',opt$output_dir,'/mega_full.parameters ',opt$output,'.model_param.txt'))
 
 # Sum of per SNP heritability is different from SNP-heritability, due to removal of variants with non-positive heritability
 
@@ -270,23 +280,27 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating predictor-predictor correlations.\n')
 sink()
 
-for(chr in CHROMS){
-  system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_subset',chr,' --bfile ',opt$output_dir,'/ref --window-cm 3 --keep ',opt$output_dir,'/keepb --chr ',chr,' --max-threads ',opt$n_cores))
+if(length(CHROMS) !=1){
+  for(chr in CHROMS){
+    system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_subset',chr,' --bfile ',opt$output_dir,'/ref --window-cm 3 --keep ',opt$output_dir,'/keepb --chr ',chr,' --max-threads ',opt$n_cores))
+  }
+  
+  write.table(paste0(opt$output_dir,'/cors_subset',CHROMS), paste0(opt$output_dir,'/cors_subset_list.txt'), col.names=F, row.names=F, quote=F)
+  
+  system(paste0(opt$ldak,' --join-cors ',opt$output_dir,'/cors_subset --corslist ',opt$output_dir,'/cors_subset_list.txt --max-threads ',opt$n_cores))
+} else {
+  system(paste0(opt$ldak,' --calc-cors ',opt$output_dir,'/cors_subset --bfile ',opt$output_dir,'/ref --window-cm 3 --keep ',opt$output_dir,'/keepb --chr ',CHROMS,' --max-threads ',opt$n_cores))
 }
-
-write.table(paste0(opt$output_dir,'/cors_subset',CHROMS), paste0(opt$output_dir,'/cors_subset_list.txt'), col.names=F, row.names=F, quote=F)
-
-system(paste0(opt$ldak,' --join-cors ',opt$output_dir,'/cors_subset --corslist ',opt$output_dir,'/cors_subset_list.txt --max-threads ',opt$n_cores))
 
 ######
 # Estimate effect sizes for training and full prediction models.
 ######
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Running MegaPRS models.\n')
+cat('Running MegaPRS: ',opt$prs_model,' model.\n', sep='')
 sink()
 
-system(paste0(opt$ldak,' --mega-prs ',opt$output_dir,'/mega_subset --model mega --bfile ',opt$output_dir,'/ref --cors ',opt$output_dir,'/cors_subset --ind-hers ',opt$output_dir,'/bld.ldak.ind.hers --summary ',opt$output_dir,'GWAS_sumstats_temp.txt --summary2 ',opt$output_dir,'GWAS_sumstats_temp.pseudo.train.summaries --window-cm 1 --allow-ambiguous YES --max-threads ',opt$n_cores))
+system(paste0(opt$ldak,' --mega-prs ',opt$output_dir,'/mega_subset --model ',opt$prs_model,' --bfile ',opt$output_dir,'/ref --cors ',opt$output_dir,'/cors_subset --ind-hers ',opt$output_dir,'/bld.ldak.ind.hers --summary ',opt$output_dir,'GWAS_sumstats_temp.pseudo.train.summaries --one-sums YES --window-cm 1 --allow-ambiguous YES --max-threads ',opt$n_cores))
 
 # Sum of per SNP heritability is different from SNP-heritability, due to removal of variants with non-positive heritability
 
@@ -299,14 +313,21 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Running pseudovalidation.\n')
 sink()
 
-system(paste0(opt$ldak,' --calc-scores ',opt$output_dir,'/mega_subset --bfile ',opt$output_dir,'/ref --scorefile ',opt$output_dir,'/mega_subset.effects.train --summary ',opt$output_dir,'GWAS_sumstats_temp.pseudo.test.summaries --power 0 --final-effects ',opt$output_dir,'/mega_subset.effects.final --keep ',opt$output_dir,'/keepc --allow-ambiguous YES --exclude ',opt$output_dir,'/highld/genes.predictors.used --max-threads ',opt$n_cores))
+if(file.exists(paste0(opt$output_dir,'/highld/genes.predictors.used'))){
+  system(paste0(opt$ldak,' --calc-scores ',opt$output_dir,'/mega_subset --bfile ',opt$output_dir,'/ref --scorefile ',opt$output_dir,'/mega_subset.effects --summary ',opt$output_dir,'GWAS_sumstats_temp.pseudo.test.summaries --power 0 --final-effects ',opt$output_dir,'/mega_subset.effects --keep ',opt$output_dir,'/keepc --allow-ambiguous YES --exclude ',opt$output_dir,'/highld/genes.predictors.used --max-threads ',opt$n_cores))
+} else {
+  system(paste0(opt$ldak,' --calc-scores ',opt$output_dir,'/mega_subset --bfile ',opt$output_dir,'/ref --scorefile ',opt$output_dir,'/mega_subset.effects --summary ',opt$output_dir,'GWAS_sumstats_temp.pseudo.test.summaries --power 0 --final-effects ',opt$output_dir,'/mega_subset.effects --keep ',opt$output_dir,'/keepc --allow-ambiguous YES --max-threads ',opt$n_cores))
+}
 
 # Identify the best fitting model
 ldak_res_cors<-fread(paste0(opt$output_dir,'/mega_subset.cors'), nThread=opt$n_cores)
 best_score<-ldak_res_cors[ldak_res_cors$V2 == max(ldak_res_cors$V2),]
 
+# Save the pseudovalidation results
+system(paste0('cp ',opt$output_dir,'/mega_subset.cors ',opt$output,'.pseudoval.txt'))
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Model ',gsub('Score_','',best_score$V1),' is identified as the best with correlation of ',best_score$V2,'.\n', sep='')
+
+cat('Model ',gsub('Score_','',best_score$V1[1]),' is identified as the best with correlation of ',best_score$V2,'.\n', sep='')
 sink()
 
 if(!is.na(opt$test)){

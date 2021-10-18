@@ -31,8 +31,7 @@ if(file.exists(paste0(opt$output,'.predictions.gz'))){
 	q()
 }
 	
-tmp<-sub('.*/','',opt$output)
-opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
+opt$output_dir<-dirname(opt$output)
 system(paste('mkdir -p ',opt$output_dir))
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)

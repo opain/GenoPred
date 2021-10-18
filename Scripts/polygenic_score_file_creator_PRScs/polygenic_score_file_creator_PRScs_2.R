@@ -34,8 +34,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
 
-tmp<-sub('.*/','',opt$output)
-opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
+opt$output_dir<-dirname(opt$output)
 system(paste0('mkdir -p ',opt$output_dir))
 
 phi_param<-unlist(strsplit(opt$phi_param,','))
