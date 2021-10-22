@@ -2,6 +2,8 @@
 
 This is a snakemake pipeline for running the GenoPred scripts. The pipeline currently identifies the ancestry of each individual, calculates ancestry-matched reference-projected principal components, and calculates polygenic scores using a range of methods standardised using an ancestry matched reference. Finally, the pipeline provides a report of the results either for each individual or the sample overall.
 
+The pipeline's ability to calculate polygenic scores has been validated [here](https://opain.github.io/GenoPred/Determine_optimal_polygenic_scoring_approach_GenoPredPipe.html) in UK Biobank.
+
 ***
 
 ## Getting started

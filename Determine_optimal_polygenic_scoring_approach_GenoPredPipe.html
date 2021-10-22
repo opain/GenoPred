@@ -11,7 +11,7 @@
 
 
 
-<title>Comparison of polygenic scoring methods</title>
+<title>Replicating previous polygenic score methods comparison using GenoPred pipeline (GenoPredPipe)</title>
 
 <script src="site_libs/jquery-1.11.3/jquery.min.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -367,7 +367,7 @@ div.tocify {
 
 
 
-<h1 class="title toc-ignore">Comparison of polygenic scoring methods</h1>
+<h1 class="title toc-ignore">Replicating previous polygenic score methods comparison using GenoPred pipeline (GenoPredPipe)</h1>
 
 </div>
 
@@ -386,303 +386,32 @@ pre code, pre, code {
 }
 </style>
 <hr />
-<div id="introduction" class="section level1">
-<h1><span class="header-section-number">1</span> Introduction</h1>
-<p>In this study we compare a range of polygenic scoring approaches within a reference standardised framework, whereby the polygenic scores are derived using a previously defined set of variants, and LD and minor allele frequency (MAF) are estimated using an ancestry matched reference genotype data sample. This ensures the performance of the methods will hold true when implementing them within a clinical context, which will require reference-standardisation of polygenic scoring.</p>
-<p>This is an updated version using polygenic scores from GenoPredPipe, to check it is working as it should. I only use the top performing methods and pT+clump, and only use one recommended reference for each method. We will only use UKB as the target sample.</p>
-<p><br/></p>
+<p>This page replicates the results of our <a href="https://doi.org/10.1371/journal.pgen.1009021">previous study</a> comparing polygenic scoring methods, but using the <a href="https://github.com/opain/GenoPred/tree/master/GenoPredPipe">GenoPredPipe</a> implementation of the GenoPred scripts. We only replicate the results in the UK Biobank sample. There are only minor differences in GenoPredPipe implementation compared to the original polygenic score methods comparison study. These include:</p>
+<ul>
+<li>The output of all polygenic scoring methods are stored in a standardised .score file format</li>
+<li>PLINK2 is used to calculate polygenic scores in target samples, improving the computational efficiency</li>
+<li>The 1KG Phase 3 data is used for all methods, except where methods developers provide an LD-reference to be used with their software (e.g. SBayesR, LDpred2, PRScs)</li>
+</ul>
+<p>As expected, the results are highly concordant to the original results. See below for further details.</p>
 <hr />
-<div id="gwas-summary-statistics" class="section level2">
-<h2><span class="header-section-number">1.1</span> GWAS summary statistics</h2>
-<p>For each target phenotype, the largest independent phenotype-matched GWAS was selected for calculating polygenic scores. More information can be found in the table below.</p>
-<details>
-<p><summary>Preparing GWAS sumstats table for UK Biobank phenotypes</summary></p>
-<pre class="r"><code>library(data.table)
-gwas_list&lt;-fread(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/GenoPred/GenoPredPipe/gwas_list_ukb_test.txt&#39;)
-
-pheno&lt;-fread(&#39;/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_270121.csv&#39;)
-
-pheno_ukb&lt;-pheno[(pheno$code %in% gwas_list$name),]
-pheno_ukb&lt;-pheno_ukb[,c(&#39;code&#39;,&#39;phenotype_name&#39;,&#39;reference_year&#39;,&#39;pmid&#39;,&#39;n_cases&#39;,&#39;n_controls&#39;,&#39;n_total&#39;)]
-names(pheno_ukb)&lt;-c(&#39;code&#39;,&#39;trait&#39;,&#39;year&#39;,&#39;PMID&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sample_size_discovery&#39;)
-
-pheno_ukb$ldsc_h2_observed&lt;-NA
-pheno_ukb$ldsc_h2_se&lt;-NA
-pheno_ukb$ldsc_lambda_GC&lt;-NA
-pheno_ukb$ldsc_intercept&lt;-NA
-pheno_ukb$ldsc_intercept_se&lt;-NA
-
-ldsc_logs&lt;-list.files(path=&#39;/scratch/groups/ukbiobank/sumstats/munged&#39;, pattern=&#39;_herit.log&#39;)
-ldsc_logs&lt;-gsub(&#39;_herit.log&#39;,&#39;&#39;,ldsc_logs)
-
-for(i in 1:dim(pheno_ukb)[1]){
-  if((pheno_ukb$code[i] %in% ldsc_logs)){
-    ldsc_logs_i&lt;-read.fwf(paste0(gwas_rep_munged,&#39;/&#39;,pheno_ukb$code[i],&#39;_herit.log&#39;),widths = 1000000)
-        
-    pheno_ukb$ldsc_h2_observed[i]&lt;-as.numeric(gsub(&#39; .*&#39;,&#39;&#39;, gsub(&#39;Total Observed scale h2: &#39;,&#39;&#39;,ldsc_logs_i[grepl(&#39;Total Observed scale h2: &#39;, ldsc_logs_i$V1),])))
-    pheno_ukb$ldsc_h2_se[i]&lt;-as.numeric(gsub(&quot;\\)&quot;,&#39;&#39;, gsub(&quot;.*\\(&quot;,&#39;&#39;, gsub(&#39;Total Observed scale h2: &#39;,&#39;&#39;,ldsc_logs_i[grepl(&#39;Total Observed scale h2: &#39;, ldsc_logs_i$V1),]))))
-    pheno_ukb$ldsc_lambda_GC[i]&lt;-as.numeric(gsub(&#39;Lambda GC: &#39;,&#39;&#39;,ldsc_logs_i[grepl(&#39;Lambda GC: &#39;, ldsc_logs_i$V1),]))
-    pheno_ukb$ldsc_intercept[i]&lt;-as.numeric(gsub(&#39; .*&#39;,&#39;&#39;, gsub(&quot;Intercept: &quot;,&#39;&#39;,ldsc_logs_i[grepl(&quot;Intercept: &quot;, ldsc_logs_i$V1),])))
-    pheno_ukb$ldsc_intercept_se[i]&lt;-as.numeric(gsub(&quot;\\)&quot;,&#39;&#39;, gsub(&quot;.*\\(&quot;,&#39;&#39;, gsub(&quot;Intercept: &quot;,&#39;&#39;,ldsc_logs_i[grepl(&quot;Intercept: &quot;, ldsc_logs_i$V1),]))))
-  }
-}
-
-pheno_ukb$pop_prev&lt;-gwas_list$prevalence[match(pheno_ukb$code, gwas_list$name)]
-pheno_ukb$Target_Phenotype&lt;-gwas_list$label[match(pheno_ukb$code, gwas_list$name)]
-pheno_ukb$Ncases&lt;-as.numeric(gsub(&#39;,&#39;,&#39;&#39;,pheno_ukb$Ncases))
-pheno_ukb$Ncontrols&lt;-as.numeric(gsub(&#39;,&#39;,&#39;&#39;,pheno_ukb$Ncontrols))
-pheno_ukb$samp_prev&lt;-pheno_ukb$Ncases/(pheno_ukb$Ncases+pheno_ukb$Ncontrols)
-
-h2l_R2 &lt;- function(k, r2, p) {
-  # K baseline disease risk
-  # r2 from a linear regression model attributable to genomic profile risk score
-  # P proportion of sample that are cases
-  # calculates proportion of variance explained on the liability scale
-  #from ABC at http://www.complextraitgenomics.com/software/
-  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
-  x= qnorm(1-k)
-  z= dnorm(x)
-  i=z/k
-  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
-  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
-  h2l_R2 = C*r2 / (1 + C*theta*r2)
-}
-
-se_h2l_R2 &lt;- function(k,h2,se, p) {
-  # K baseline disease risk
-  # r2 from a linear regression model attributable to genomic profile risk score
-  # P proportion of sample that are cases
-  # calculates proportion of variance explained on the liability scale
-  #from ABC at http://www.complextraitgenomics.com/software/
-  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
-
-  #SE on the liability (From a Taylor series expansion)
-  #var(h2l_r2) = [d(h2l_r2)/d(R2v)]^2*var(R2v) with d being calculus differentiation
-  x= qnorm(1-k)
-  z= dnorm(x)
-  i=z/k
-  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
-  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
-  se_h2l_R2 = C*(1-h2*theta)*se
-}
-
-pheno_ukb$ldsc_h2_observed&lt;-as.numeric(pheno_ukb$ldsc_h2_observed)
-pheno_ukb$ldsc_h2_se&lt;-as.numeric(pheno_ukb$ldsc_h2_se)
-
-pheno_ukb$h2_liab&lt;-round(h2l_R2(k=pheno_ukb$pop_prev, r2=pheno_ukb$ldsc_h2_observed, p=pheno_ukb$samp_prev),3)
-pheno_ukb$h2_liab_se&lt;-round(se_h2l_R2(k=pheno_ukb$pop_prev, h2=pheno_ukb$ldsc_h2_observed, se=pheno_ukb$ldsc_h2_se, p=pheno_ukb$samp_prev),3)
-
-pheno_ukb$ldsc_h2_observed&lt;-paste0(pheno_ukb$ldsc_h2_observed,&quot; (&quot;, pheno_ukb$ldsc_h2_se,&quot;)&quot;)
-pheno_ukb$ldsc_h2_se&lt;-NULL
-pheno_ukb$h2_liab[!is.na(pheno_ukb$Ncases)]&lt;-paste0(pheno_ukb$h2_liab[!is.na(pheno_ukb$Ncases)],&quot; (&quot;, pheno_ukb$h2_liab_se[!is.na(pheno_ukb$Ncases)],&quot;)&quot;)
-pheno_ukb$h2_liab_se&lt;-NULL
-pheno_ukb$ldsc_intercept&lt;-paste0(pheno_ukb$ldsc_intercept,&quot; (&quot;, pheno_ukb$ldsc_intercept_se,&quot;)&quot;)
-pheno_ukb$ldsc_intercept_se&lt;-NULL
-
-pheno_ukb$Trait&lt;-c(&#39;BMI&#39;,&#39;CAD&#39;,&#39;Intelligence&#39;,&quot;Crohn&#39;s Disease&quot;,&#39;Major Depression&#39;,&#39;T2D&#39;,&#39;Height&#39;,&#39;RheuArth&#39;,&#39;MultiScler&#39;,&#39;Prostate Cancer&#39;,&#39;Breast Cancer&#39;)
-pheno_ukb&lt;-pheno_ukb[match(gwas_list$name,pheno_ukb$code),]
-
-pheno_ukb&lt;-pheno_ukb[,c(&#39;Trait&#39;,&#39;code&#39;,&#39;trait&#39;,&#39;year&#39;,&#39;PMID&#39;,&#39;Ncases&#39;,&#39;Ncontrols&#39;,&#39;sample_size_discovery&#39;,&#39;ldsc_h2_observed&#39;,&#39;h2_liab&#39;,&#39;ldsc_intercept&#39;,&#39;ldsc_lambda_GC&#39;)]
-names(pheno_ukb)&lt;-c(&#39;Target Phenotype&#39;,&#39;Code&#39;,&#39;GWAS Phenotype&#39;,&#39;Year&#39;,&#39;PMID&#39;,&#39;Ncase&#39;,&#39;Ncontrol&#39;,&#39;N&#39;,&#39;h2_obs&#39;,&#39;h2_liab&#39;,&#39;Intercept&#39;,&#39;Lambda&#39;)
-
-write.csv(pheno_ukb, &#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/UKBB_phenotype_GWAS_descrip.csv&#39;, row.names=F, quote=F)</code></pre>
-</details>
-<details>
-<p><summary>Show GWAS for UK Biobank phenotypes</summary></p>
-<table>
-<caption>GWAS used for each UK Biobank phenotype</caption>
-<thead>
-<tr class="header">
-<th align="left">Target Phenotype</th>
-<th align="left">Code</th>
-<th align="left">GWAS Phenotype</th>
-<th align="right">Year</th>
-<th align="right">PMID</th>
-<th align="right">Ncase</th>
-<th align="right">Ncontrol</th>
-<th align="right">N</th>
-<th align="left">h2-obs (SE)</th>
-<th align="left">h2-liab (SE)</th>
-<th align="left">Intercept</th>
-<th align="right">Lambda</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td align="left">Major Depression</td>
-<td align="left">DEPR06</td>
-<td align="left">major depressive disorder</td>
-<td align="right">2018</td>
-<td align="right">29700475</td>
-<td align="right">116404</td>
-<td align="right">314990</td>
-<td align="right">431394</td>
-<td align="left">0.0551 (0.0023)</td>
-<td align="left">0.085 (0.004)</td>
-<td align="left">1.0169 (0.0088)</td>
-<td align="right">1.3894</td>
-</tr>
-<tr class="even">
-<td align="left">Intelligence</td>
-<td align="left">COLL01</td>
-<td align="left">college completion</td>
-<td align="right">2013</td>
-<td align="right">23722424</td>
-<td align="right">NA</td>
-<td align="right">NA</td>
-<td align="right">95427</td>
-<td align="left">0.1048 (0.0075)</td>
-<td align="left">NA</td>
-<td align="left">1.0214 (0.0086)</td>
-<td align="right">1.1940</td>
-</tr>
-<tr class="odd">
-<td align="left">BMI</td>
-<td align="left">BODY04</td>
-<td align="left">BMI</td>
-<td align="right">2015</td>
-<td align="right">25673413</td>
-<td align="right">NA</td>
-<td align="right">NA</td>
-<td align="right">322154</td>
-<td align="left">0.1297 (0.0056)</td>
-<td align="left">NA</td>
-<td align="left">0.6729 (0.0076)</td>
-<td align="right">1.0772</td>
-</tr>
-<tr class="even">
-<td align="left">Height</td>
-<td align="left">HEIG03</td>
-<td align="left">height</td>
-<td align="right">2014</td>
-<td align="right">25282103</td>
-<td align="right">NA</td>
-<td align="right">NA</td>
-<td align="right">253288</td>
-<td align="left">0.312 (0.0141)</td>
-<td align="left">NA</td>
-<td align="left">1.3254 (0.0185)</td>
-<td align="right">2.0007</td>
-</tr>
-<tr class="odd">
-<td align="left">T2D</td>
-<td align="left">DIAB05</td>
-<td align="left">diabetes type 2</td>
-<td align="right">2017</td>
-<td align="right">28566273</td>
-<td align="right">26676</td>
-<td align="right">132532</td>
-<td align="right">159208</td>
-<td align="left">0.0781 (0.0053)</td>
-<td align="left">0.124 (0.008)</td>
-<td align="left">0.9984 (0.0083)</td>
-<td align="right">1.1459</td>
-</tr>
-<tr class="even">
-<td align="left">CAD</td>
-<td align="left">COAD01</td>
-<td align="left">coronary artery disease</td>
-<td align="right">2015</td>
-<td align="right">26343387</td>
-<td align="right">60801</td>
-<td align="right">123504</td>
-<td align="right">184305</td>
-<td align="left">0.0661 (0.0045)</td>
-<td align="left">0.057 (0.004)</td>
-<td align="left">0.8875 (0.0074)</td>
-<td align="right">1.0466</td>
-</tr>
-<tr class="odd">
-<td align="left">Crohn’s Disease</td>
-<td align="left">CROH01</td>
-<td align="left">crohn disease</td>
-<td align="right">2015</td>
-<td align="right">26192919</td>
-<td align="right">5956</td>
-<td align="right">14927</td>
-<td align="right">20883</td>
-<td align="left">0.4751 (0.0538)</td>
-<td align="left">0.542 (0.059)</td>
-<td align="left">1.0316 (0.0092)</td>
-<td align="right">1.1396</td>
-</tr>
-<tr class="even">
-<td align="left">MultiScler</td>
-<td align="left">SCLE03</td>
-<td align="left">multiple sclerosis</td>
-<td align="right">2011</td>
-<td align="right">21833088</td>
-<td align="right">9772</td>
-<td align="right">17376</td>
-<td align="right">27148</td>
-<td align="left">0.0493 (0.0262)</td>
-<td align="left">0.021 (0.012)</td>
-<td align="left">1.0599 (0.0085)</td>
-<td align="right">1.0375</td>
-</tr>
-<tr class="odd">
-<td align="left">RheuArth</td>
-<td align="left">RHEU02</td>
-<td align="left">rheumatoid arthritis</td>
-<td align="right">2014</td>
-<td align="right">24390342</td>
-<td align="right">14361</td>
-<td align="right">43923</td>
-<td align="right">58284</td>
-<td align="left">0.1406 (0.0176)</td>
-<td align="left">0.102 (0.013)</td>
-<td align="left">0.9511 (0.0076)</td>
-<td align="right">1.0466</td>
-</tr>
-<tr class="even">
-<td align="left">Breast Cancer</td>
-<td align="left">BRCA01</td>
-<td align="left">breast cancer</td>
-<td align="right">2017</td>
-<td align="right">29059683</td>
-<td align="right">122977</td>
-<td align="right">105974</td>
-<td align="right">228951</td>
-<td align="left">0.1326 (0.0108)</td>
-<td align="left">0.157 (0.013)</td>
-<td align="left">1.1001 (0.0125)</td>
-<td align="right">1.3581</td>
-</tr>
-<tr class="odd">
-<td align="left">Prostate Cancer</td>
-<td align="left">PRCA01</td>
-<td align="left">prostate cancer</td>
-<td align="right">2017</td>
-<td align="right">29892016</td>
-<td align="right">79148</td>
-<td align="right">61106</td>
-<td align="right">140254</td>
-<td align="left">0.1635 (0.0238)</td>
-<td align="left">0.198 (0.029)</td>
-<td align="left">1.0804 (0.0153)</td>
-<td align="right">1.2201</td>
-</tr>
-</tbody>
-</table>
-</details>
-<p><br/></p>
-</div>
-<div id="polygenic-scoring" class="section level2">
-<h2><span class="header-section-number">1.2</span> Polygenic scoring</h2>
-<p>Polygenic scores were derived using the following methods:</p>
-<ol style="list-style-type: decimal">
-<li>p-value thresholding and clumping (pT + clump).</li>
-<li>lassosum - Lasso-based shrinkage method.</li>
-<li>PRScs - Bayesian shrinkage method.</li>
-<li>SBayesR - Bayesian shrinkage method</li>
-<li>DBSLMM - Bayesian shrinkage method</li>
-<li>LDpred2 - Bayesian shrinkage method</li>
-</ol>
-<p>Polygenic scores were derived using a reference standardised pipeline. Here, they were calculated using GenoPredPipe.</p>
-<p><br/></p>
+<div id="methods" class="section level1">
+<h1><span class="header-section-number">1</span> Methods</h1>
+<hr />
+<div id="genopredpipe" class="section level2">
+<h2><span class="header-section-number">1.1</span> GenoPredPipe</h2>
+<p>The imputed genotype data from UKB was processed using <a href="https://github.com/opain/GenoPred/tree/master/GenoPredPipe">GenoPredPipe</a>, a snakemake pipeline implementing all the required GenoPred scripts. In summary these include:</p>
+<ul>
+<li>Harmonisation with the the 1KG Phase 3 reference restrcited to HapMap3 variants</li>
+<li>Ancestry classification into super populations</li>
+<li>Implementation of polygenic scoring methods across GWAS sumstats</li>
+<li>Calculation of polygenic scores in UKB</li>
+</ul>
+<p>This entire process was run using a single line of code:</p>
+<pre class="bash"><code>snakemake --profile slurm --use-conda run_target_prs_all</code></pre>
+<hr />
 </div>
 <div id="prepare-phenotype-data" class="section level2">
-<h2><span class="header-section-number">1.3</span> Prepare phenotype data</h2>
+<h2><span class="header-section-number">1.2</span> Prepare phenotype data</h2>
 <details>
 <p><summary>Update IDs in phenotype files to match GenoPredPipe output</summary></p>
 <pre class="r"><code>pheno&lt;-c(&#39;Depression&#39;, &#39;Intelligence&#39;, &#39;BMI&#39;, &#39;Height&#39;, &#39;T2D&#39;, &#39;CAD&#39;, &#39;IBD&#39;, &#39;MultiScler&#39;, &#39;RheuArth&#39;, &#39;Breast_Cancer&#39;, &#39;Prostate_Cancer&#39;)
@@ -702,10 +431,10 @@ for(pheno_i in pheno){
   fwrite(pheno_dat, paste0(&#39;/users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.&#39;,pheno_i,&#39;.rowID.txt&#39;), sep=&#39; &#39;, na=&#39;NA&#39;)
 }</code></pre>
 </details>
-<p><br/></p>
+<hr />
 </div>
 <div id="estimating-predictive-ability" class="section level2">
-<h2><span class="header-section-number">1.4</span> Estimating predictive ability</h2>
+<h2><span class="header-section-number">1.3</span> Estimating predictive ability</h2>
 <p>Models containing a single predictor were derived using generalised linear model (GLM). Models containing multiple predictors were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process.</p>
 <p>Model building and evaluation was performed using an Rscript called Model_builder_V2.R (more information <a href="https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder">here</a>).</p>
 <details>
@@ -766,7 +495,6 @@ sbatch --mem 30G -n 3 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript
 done
 </code></pre>
 </details>
-<p><br/></p>
 <hr />
 </div>
 </div>
@@ -1075,19 +803,19 @@ write.csv(res_eval, &#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/V
 write.csv(res_comp, &#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff.csv&#39;, row.names=F, quote=F)
 
 png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_CrossVal_GenoPredPipe.png&#39;, units=&#39;px&#39;, res=300, width=2450, height=1000*ceiling(length(res_eval_plots_cross)/2))
-print(res_eval_plots_cross)
+print(plot_grid(plotlist=res_eval_plots_cross, ncol = 2))
 dev.off()
 
 png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_IndepVal_GenoPredPipe.png&#39;, units=&#39;px&#39;, res=300, width=2450, height=1000*ceiling(length(res_eval_plots_cross)/2))
-print(res_eval_plots_indep)
+print(plot_grid(plotlist=res_eval_plots_indep, ncol = 2))
 dev.off()
 
 png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_CrossVal_GenoPredPipe.png&#39;, units=&#39;px&#39;, res=300, width=2450, height=1000*ceiling(length(res_eval_plots_cross)/2))
-print(res_eval_diff_plots_cross)
+print(plot_grid(plotlist=res_eval_diff_plots_cross, ncol = 2))
 dev.off()
 
 png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_IndepVal_GenoPredPipe.png&#39;, units=&#39;px&#39;, res=300, width=2450, height=1000*ceiling(length(res_eval_plots_cross)/2))
-print(res_eval_diff_plots_indep, ncol = 2)
+print(plot_grid(plotlist=res_eval_diff_plots_indep, ncol = 2))
 dev.off()
 
 png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff_CrossVal.png&#39;, units=&#39;px&#39;, res=300, width=2450, height=1750*length(res_eval_diff_matrix_cross))
@@ -1438,15 +1166,15 @@ png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_me
 meta_res_eval_diff_plots_indep
 dev.off()
 
-png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_diff_CrossVal_meta_GenoPredPipe.png&#39;, units=&#39;px&#39;, res=300, width=2000, height=1000)
+png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_diff_CrossVal_meta_GenoPredPipe.png&#39;, units=&#39;px&#39;, res=300, width=2500, height=1500)
 meta_res_eval_diff_matrix_cross
 dev.off()
 
-png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_diff_IndepVal_meta_GenoPredPipe.png&#39;, units=&#39;px&#39;, res=300, width=2000, height=1000)
+png(&#39;/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_diff_IndepVal_meta_GenoPredPipe.png&#39;, units=&#39;px&#39;, res=300, width=2500, height=1500)
 meta_res_eval_diff_matrix_indep
 dev.off()</code></pre>
 </details>
-<p></br></p>
+<hr />
 <div id="phenotype-specific-results" class="section level2">
 <h2><span class="header-section-number">2.1</span> Phenotype-specific results</h2>
 <details>
@@ -37191,7 +36919,7 @@ dev.off()</code></pre>
 </div>
 
 </details>
-<p><br/></p>
+<hr />
 </div>
 <div id="average-performance" class="section level2">
 <h2><span class="header-section-number">2.2</span> Average performance</h2>
@@ -37211,7 +36939,7 @@ dev.off()</code></pre>
 </div>
 
 </details>
-<p><br/></p>
+<hr />
 </div>
 <div id="average-performance-relative-to-ptclump" class="section level2">
 <h2><span class="header-section-number">2.3</span> Average performance relative to pT+clump</h2>
@@ -37231,7 +36959,7 @@ dev.off()</code></pre>
 </div>
 
 </details>
-<p><br/></p>
+<hr />
 </div>
 <div id="average-performance-difference-across-all-methods" class="section level2">
 <h2><span class="header-section-number">2.4</span> Average performance difference across all methods</h2>
@@ -39975,6 +39703,11 @@ dev.off()</code></pre>
 </details>
 <hr />
 </div>
+</div>
+<div id="conclusion" class="section level1">
+<h1><span class="header-section-number">3</span> Conclusion</h1>
+<p>The results based on polygenic scores derived using <a href="https://github.com/opain/GenoPred/tree/master/GenoPredPipe">GenoPredPipe</a> are highly concordant those in the <a href="https://opain.github.io/GenoPred/Determine_optimal_polygenic_scoring_approach.html#4_results">previous study</a>. Results for pT+clump, lassosum, PRScs and DBSLMM are most comparable to the 1KG reference based results in the previous study, as the same reference data is used here. The results for SBayesR and LDpred2 are most similar to the UKB reference based results in the previous study, as here we are using UKB based reference data provided by the software developers. The 10-fold cross validation results are near identical, but the reduced sample size and random partitioning of the sample for test-set validation leads to some minor changes. The conclusions are unaffected though. In conclusion, the results have been replicated, supporting that GenoPredPipe is a realiable pipeline for calculating polygenic scores.</p>
+<hr />
 </div>
 
 
