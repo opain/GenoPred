@@ -36,7 +36,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
 
-opt$output_dir<-dirname(opt$output)
+opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)

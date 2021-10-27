@@ -133,6 +133,15 @@ rule install_manual_Rpackages:
     rules.install_bigsnpr.output,
     rules.install_lassosum.output
 
+# Download liftover
+rule install_liftover:
+  output:
+    touch("resources/software/install_liftover.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/software/liftover/; wget -O resources/software/liftover/liftover https://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/liftOver"
+
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
   output:
@@ -580,12 +589,9 @@ target_list_df = pd.read_table(config["target_list"], sep=' ')
 target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
 target_list_df_samp_imp_plink1 = target_list_df.loc[target_list_df['type'] == 'samp_imp_plink1']
 target_list_df_samp_imp_bgen = target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen']
-target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen')]
+target_list_df_samp_imp_vcf = target_list_df.loc[target_list_df['type'] == 'samp_imp_vcf']
+target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen') | (target_list_df['type'] == 'samp_imp_vcf')]
 target_list_df_samp_imp_indiv_report = target_list_df_samp_imp.loc[(target_list_df['indiv_report'] == 'T')]
-
-target_list_df['pre_harm_path'] = target_list_df['path']
-target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = target_list_df.loc[target_list_df['type'] == '23andMe', 'output'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
-target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'output'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
 
 ####
 # Format target data
@@ -645,84 +651,53 @@ rule run_format_impute_23andme_target:
 ##
 
 ##
-# samp_imp_plink1
+# Formatting without imputation
 ##
+# Here we will use a script that can accept multiple genetic data formats, insert RSIDs if not present, extract HapMap3 SNPs and output plink hard-call binaries.
 
-# Touch non-23andMe data
-rule touch_imp:
-  output:
-    touch("resources/data/target_checks/{name}/touch_imp.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
-  shell:
-    "ls {params.path}*"
-
-rule run_touch_imp:
-  input: expand("resources/data/target_checks/{name}/touch_imp.done", name=target_list_df_samp_imp_plink1['name'])
-
-##
-# samp_imp_bgen
-##
-
-# Estimate MAF and INFO
-rule compute_snp_stats_target:
+rule format_target:
   input:
-    rules.download_qctool2.output
-  output:
-    touch("resources/data/target_checks/{name}/compute_snp_stats_target.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
-  shell:
-    "resources/software/qctool2/qctool \
-      -g {params.path}.chr{wildcards.chr}.bgen \
-      -s {params.path}.sample \
-      -snp-stats \
-      -osnp {params.output}/{wildcards.name}/{wildcards.name}_snp_stats_chr{wildcards.chr}.txt"
-
-rule run_compute_snp_stats_target:
-  input: expand("resources/data/target_checks/{name}/{name}_snp_stats_chr{chr}.txt", name=target_list_df_samp_imp_bgen['name'], chr=range(1, 23))
-
-# NOTE. I do not implement the run_compute_snp_stats_target rule as target sample size may be too small to accurately estimate INFO and MAF. I suggest people perform this QC in advance, if at all. The use of HapMap3 variants in subsequent analyses should make these filters far less important.
-
-# Convert to plink1 binary
-rule convert_bgen_target:
-  input:
+    rules.prep_1kg.output,
     rules.download_qctool2.output,
-    rules.download_hm3_snplist.output
+    rules.download_hm3_snplist.output,
+    rules.install_liftover.output
   output:
-    touch("resources/data/target_checks/{name}/convert_bgen_target_{chr}.done")
+    touch("resources/data/target_checks/{name}/format_target_{chr}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    type= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'type'].iloc[0]
   shell:
-    "mkdir -p {params.output}/{wildcards.name}/; \
-     resources/software/qctool2/qctool \
-      -g {params.path}.chr{wildcards.chr}.bgen \
-      -s {params.path}.sample \
-      -incl-rsids resources/data/hm3_snplist/w_hm3.snplist \
-      -ofiletype binary_ped \
-      -og {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr} \
-      -threshold 0.9; \
-     awk \'$1=$2\' {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam > {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp; \
-     mv {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam"
+    "Rscript ../Scripts/geno_to_plink/geno_to_plink.R \
+      --target {params.path}.chr{wildcards.chr} \
+      --format {params.type} \
+      --ref resources/data/1kg/1KGPhase3.w_hm3.chr{wildcards.chr} \
+      --plink2 plink2 \
+      --qctool2 resources/software/qctool2/qctool \
+      --liftover resources/software/liftover/liftover \
+      --out {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr{wildcards.chr}"
 
-rule run_convert_bgen_target:
+rule run_format_target:
   input: 
-    lambda w: expand("resources/data/target_checks/{name}/convert_bgen_target_{chr}.done", name=w.name, chr=range(1, 23))
+    lambda w: expand("resources/data/target_checks/{name}/format_target_{chr}.done", name=w.name, chr=range(1, 23))
   output:
-    touch("resources/data/target_checks/{name}/run_convert_bgen_target.done")
+    touch("resources/data/target_checks/{name}/format_target.done")
 
-rule run_convert_bgen_target_2:
+rule run_format_target_2:
   input: 
-    expand("resources/data/target_checks/{name}/run_convert_bgen_target.done", name=target_list_df_samp_imp_bgen['name'])
+    expand("resources/data/target_checks/{name}/format_target.done", name=target_list_df_samp_imp['name'])
+
+# /mnt/lustre/users/k1806347/Software/MyGit/GenoPred/GenoPredPipe/.snakemake/conda/a9615942
+# 
+# opt$target<-'test_data/target/imputed_sample_bgen/example.chr2'
+# opt$format<-'samp_imp_bgen'
+# opt$ref<-'resources/data/1kg/1KGPhase3.w_hm3.chr2'
+# opt$plink2<-'plink2'
+# opt$qctool2<-'resources/software/qctool2/qctool'
+# opt$liftover<-'resources/software/liftover/liftover'
+# opt$out<-'resources/data/target_output/example_bgen/example_bgen.hm3.chr2'
 
 ####
 # Harmonise with reference
@@ -731,17 +706,16 @@ rule run_convert_bgen_target_2:
 rule harmonise_target_with_ref:
   input:
     rules.prep_1kg.output,
-    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target_checks/{name}/run_convert_bgen_target.done")
+    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/{name}/format_target.done"))
   output:
     touch("resources/data/target_checks/{name}/harmonise_target_with_ref.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0],
     output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R \
-      --target {params.path}.chr \
+      --target {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr \
       --ref resources/data/1kg/1KGPhase3.w_hm3.chr \
       --plink plink \
       --out {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr"
@@ -750,17 +724,17 @@ rule run_harmonise_target_with_ref:
   input: expand("resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'])
   
 # Delete temporary files
-rule delete_temp_target_samp_bgen_files:
+rule delete_temp_target_samp_files:
   input:
     "resources/data/target_checks/{name}/harmonise_target_with_ref.done"
   output:
-    touch("resources/data/target_checks/{name}/delete_temp_target_samp_bgen_files.done")
+    touch("resources/data/target_checks/{name}/delete_temp_target_samp_files.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0]
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "rm {params.path}.chr*"
+    "rm {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr*"
 
 ####
 # Identify super_population
@@ -769,7 +743,7 @@ rule delete_temp_target_samp_bgen_files:
 rule target_super_population:
   input:
     "resources/data/target_checks/{name}/harmonise_target_with_ref.done",
-    lambda w: "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_bgen_files.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done"
+    lambda w: "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_files.done"
   output:
     touch("resources/data/target_checks/{name}/target_super_population.done")
   conda:
