@@ -16,7 +16,7 @@ make_option("--out", action="store", default=NA, type='character',
 
 opt = parse_args(OptionParser(option_list=option_list))
 
-opt$out_dir<-dirname(opt$out)
+opt$out_dir<-paste0(dirname(opt$out),'/')
 system(paste0('mkdir -p ',opt$out_dir))
 
 sink(file = paste(opt$out,'.hm3_harmoniser.log',sep=''), append = F)
