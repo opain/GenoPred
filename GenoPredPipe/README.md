@@ -51,7 +51,7 @@ Prepare a snakemake profile for parallel computing. I have provided an example f
 Download test data.
 
 ```bash
-wget -O test_data.tar.gz https://zenodo.org/record/5499799/files/test_data.tar.gz?download=1
+wget -O test_data.tar.gz https://zenodo.org/record/5604200/files/test_data.tar.gz?download=1
 tar -xf test_data.tar.gz
 rm test_data.tar.gz
 ```
@@ -75,8 +75,8 @@ You must specify a file listing target samples (target_list) and a file listing 
 ### target_list (required)
 
 - name: Name of the target sample
-- path: File path to the target genotype data. For type '23andMe', provide full file name either zipped (.zip) or uncompressed (.txt). For types 'samp_imp_plink1' and 'samp_imp_bgen', per-chromosome genotype data should be provided with the following filename format: \<prefix>.chr\<1-22>.\<.bed/.bim/.fam/.bgen>. If type 'samp_imp_bgen', the sample file should be called \<prefix>.sample.  
-- type: Either '23andMe', 'samp_imp_plink1', or 'samp_imp_bgen'. '23andMe' = 23andMe formatted data for an individual. 'samp_imp_plink1' = Preimputed PLINK1 binary format data (.bed/.bim/.fam) for a group of individuals. 'samp_imp_bgen' = Preimputed Oxford format data (.bgen/.sample) for a group of individuals.
+- path: File path to the target genotype data. For type '23andMe', provide full file name either zipped (.zip) or uncompressed (.txt). For types 'samp_imp_plink1', 'samp_imp_bgen', and 'samp_imp_vcf', per-chromosome genotype data should be provided with the following filename format: \<prefix>.chr\<1-22>.\<.bed/.bim/.fam/.bgen/.vcf.gz>. If type 'samp_imp_bgen', the sample file should be called \<prefix>.sample.
+- type: Either '23andMe', 'samp_imp_plink1', 'samp_imp_bgen', or 'samp_imp_vcf'. '23andMe' = 23andMe formatted data for an individual. 'samp_imp_plink1' = Preimputed PLINK1 binary format data (.bed/.bim/.fam) for a group of individuals. 'samp_imp_bgen' = Preimputed Oxford format data (.bgen/.sample) for a group of individuals. 'samp_imp_vcf' = Preimputed gzipped VCF format data (.vcf.gz) for a group of individuals.
 - output: The desired output directory for target sample. The <name> of the target sample will automically be appended to the end. i.e. when output='test' and name='Joe_Bloggs', the output will written in a folder called 'test/Joe_Bloggs'.
 - indiv_report: Either 'T' or 'F'. 'T' = Individual-specific ancestry and polygenic score reports will be created. Use with caution if target sample contains many individuals, as it will create an .html report for each individual.
 
