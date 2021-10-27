@@ -32,7 +32,7 @@ library(parallel)
 cl <- makeCluster(opt$n_cores)
 orig_wd<-getwd()
 
-opt$output_dir<-dirname(opt$output)
+opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
 CHROMS<-1:22
