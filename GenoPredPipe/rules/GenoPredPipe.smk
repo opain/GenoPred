@@ -14,7 +14,7 @@ rule download_qctool2:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/software/qctool2/; \
-     wget -O resources/software/qctool2/qctool2.tgz https://www.well.ox.ac.uk/~gav/resources/qctool_v2.0.8-CentOS_Linux7.6.1810-x86_64.tgz; \
+     wget --no-check-certificate -O resources/software/qctool2/qctool2.tgz https://www.well.ox.ac.uk/~gav/resources/qctool_v2.0.8-CentOS_Linux7.6.1810-x86_64.tgz; \
      tar -zxvf resources/software/qctool2/qctool2.tgz -C resources/software/qctool2/ --strip-components=1; \
      rm resources/software/qctool2/qctool2.tgz"
 
@@ -26,10 +26,10 @@ rule download_impute2_data:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/impute2/; \
-     wget -O resources/data/impute2/1000GP_Phase3.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz; \
+     wget --no-check-certificate -O resources/data/impute2/1000GP_Phase3.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz; \
      tar -zxvf resources/data/impute2/1000GP_Phase3.tgz -C resources/data/impute2/; \
      rm resources/data/impute2/1000GP_Phase3.tgz; \
-     wget -O resources/data/impute2/1000GP_Phase3_chrX.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz; \
+     wget --no-check-certificate -O resources/data/impute2/1000GP_Phase3_chrX.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz; \
      tar -zxvf resources/data/impute2/1000GP_Phase3_chrX.tgz -C resources/data/impute2/1000GP_Phase3/; \
      rm resources/data/impute2/1000GP_Phase3_chrX.tgz"
 
@@ -41,7 +41,7 @@ rule download_plink:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/software/plink; \
-     wget -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
+     wget --no-check-certificate -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
      unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; \
      rm resources/software/plink/plink_linux_x86_64_20210606.zip"
 
@@ -62,7 +62,7 @@ rule dowload_ldsc_ref:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/ldsc_ref; \
-     wget -O resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/eur_w_ld_chr.tar.bz2; \
+     wget --no-check-certificate -O resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/eur_w_ld_chr.tar.bz2; \
      tar -jxvf resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 -C resources/data/ldsc_ref/; \
      rm resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2"
 
@@ -74,7 +74,7 @@ rule download_hm3_snplist:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/hm3_snplist; \
-     wget -O resources/data/hm3_snplist/w_hm3.snplist.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2; \
+     wget --no-check-certificate -O resources/data/hm3_snplist/w_hm3.snplist.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2; \
      bunzip2 resources/data/hm3_snplist/w_hm3.snplist.bz2"
 
 # Download DBSLMM
@@ -140,7 +140,7 @@ rule install_liftover:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/software/liftover/; wget -O resources/software/liftover/liftover https://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/liftOver"
+    "mkdir -p resources/software/liftover/; wget --no-check-certificate -O resources/software/liftover/liftover https://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/liftOver"
 
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
@@ -150,7 +150,7 @@ rule download_prscs_ref_1kg_eur:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/prscs_ref; \
-     wget -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
+     wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
      tar -zxvf resources/data/prscs_ref/ldblk_1kg_eur.tar.gz -C resources/data/prscs_ref/; \
      rm resources/data/prscs_ref/ldblk_1kg_eur.tar.gz"
 
@@ -170,7 +170,7 @@ rule download_gctb_ref:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/gctb_ref; wget -O resources/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; unzip resources/data/gctb_ref/ukbEURu_hm3_sparse.zip -d resources/data/gctb_ref; for chr in $(seq 1 22);do mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; done; rm resources/data/gctb_ref/ukbEURu_hm3_sparse.zip"
+    "mkdir -p resources/data/gctb_ref; wget --no-check-certificate -O resources/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; unzip resources/data/gctb_ref/ukbEURu_hm3_sparse.zip -d resources/data/gctb_ref; for chr in $(seq 1 22);do mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; done; rm resources/data/gctb_ref/ukbEURu_hm3_sparse.zip"
 
 # Download GCTB
 rule download_gctb_software:
@@ -180,7 +180,7 @@ rule download_gctb_software:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/software/gctb; \
-     wget -O resources/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
+     wget --no-check-certificate -O resources/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
      unzip resources/software/gctb/gctb_2.03beta_Linux.zip -d resources/software/gctb; \
      rm resources/software/gctb/gctb_2.03beta_Linux.zip"
 
@@ -192,7 +192,7 @@ rule download_7z:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/software/7z; \
-     wget -O resources/software/7z/7z2103-linux-x64.tar.xz https://www.7-zip.org/a/7z2103-linux-x64.tar.xz; \
+     wget --no-check-certificate -O resources/software/7z/7z2103-linux-x64.tar.xz https://www.7-zip.org/a/7z2103-linux-x64.tar.xz; \
      tar -xf resources/software/7z/7z2103-linux-x64.tar.xz -C resources/software/7z/; \
      rm resources/software/7z/7z2103-linux-x64.tar.xz"
 
@@ -205,7 +205,7 @@ rule download_ldpred2_ref:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/ldpred2_ref; wget -O resources/data/ldpred2_ref/download.zip https://ndownloader.figshare.com/articles/13034123/versions/3; resources/software/7z/7zz e resources/data/ldpred2_ref/download.zip -oresources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
+    "mkdir -p resources/data/ldpred2_ref; wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://ndownloader.figshare.com/articles/13034123/versions/3; resources/software/7z/7zz e resources/data/ldpred2_ref/download.zip -oresources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
 
 # Download and format 1kg reference data
 rule prep_1kg:
@@ -244,8 +244,8 @@ rule download_1kg_pop_codes:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "wget -O resources/data/1kg/1kg_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.populations.tsv; \
-     wget -O resources/data/1kg/1kg_super_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.superpopulations.tsv"
+    "wget --no-check-certificate -O resources/data/1kg/1kg_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.populations.tsv; \
+     wget --no-check-certificate -O resources/data/1kg/1kg_super_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.superpopulations.tsv"
 
 ####
 # Principal Component (Ancestry) Scoring
