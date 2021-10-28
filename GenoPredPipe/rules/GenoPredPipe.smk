@@ -660,7 +660,8 @@ rule format_target:
     rules.prep_1kg.output,
     rules.download_qctool2.output,
     rules.download_hm3_snplist.output,
-    rules.install_liftover.output
+    rules.install_liftover.output,
+    rules.install_bigsnpr.output
   output:
     touch("resources/data/target_checks/{name}/format_target_{chr}.done")
   conda:
