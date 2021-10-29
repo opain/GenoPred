@@ -13,7 +13,7 @@ The pipeline's ability to calculate polygenic scores has been validated [here](h
 Clone the repository
 
 ```bash
-git clone git@github.com:https://github.com/opain/GenoPred.git
+git clone https://github.com/opain/GenoPred.git
 cd GenoPred/GenoPredPipe
 ```
 
