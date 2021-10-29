@@ -16,6 +16,8 @@ make_option("--qctool2", action="store", default=NA, type='character',
     help="Path to qctool v2 [required]"),
 make_option("--liftover", action="store", default=NA, type='character',
     help="Path to liftover [required]"),
+make_option("--liftover_track", action="store", default=NA, type='character',
+    help="Path to liftover track [required]"),
 make_option("--out", action="store", default=NA, type='character',
 		help="Path for output files [required]")
 )
@@ -55,8 +57,29 @@ ref[['GRCh37']]$V3<-NULL
 names(ref[['GRCh37']])<-c('chr','snp','pos','a1','a2')
 CHR<-ref[['GRCh37']]$chr[1]
 
+# Create snp_modifyBuild_offline
+snp_modifyBuild_offline<-function (info_snp, liftOver, chain, from = "hg18", to = "hg19"){
+  if (!all(c("chr", "pos") %in% names(info_snp)))
+    stop2("Please use proper names for variables in 'info_snp'. Expected %s.",
+          "'chr' and 'pos'")
+  liftOver <- normalizePath(liftOver)
+  BED <- tempfile(fileext = ".BED")
+  info_BED <- with(info_snp, data.frame(paste0("chr", chr),
+                                        pos0 = pos - 1L, pos, id = rows_along(info_snp)))
+  bigreadr::fwrite2(info_BED, BED, col.names = FALSE, sep = " ")
+  lifted<-paste0(opt$out,'.lifted')
+  unmapped<-paste0(opt$out,'.unmapped')
+  system(paste(liftOver, BED, chain, lifted, unmapped))
+  new_pos <- bigreadr::fread2(lifted)
+  bad <- grep("^#", readLines(unmapped), value = TRUE, invert = TRUE)
+  print(paste0(length(bad)," variants have not been mapped."))
+  info_snp$pos <- NA
+  info_snp$pos[new_pos$V4] <- new_pos$V3
+  info_snp
+}
+
 # Liftover BP to GRCh38
-ref[['GRCh38']]<-snp_modifyBuild(ref[['GRCh37']], liftOver=opt$liftover, from = "hg18", to = "hg19")
+ref[['GRCh38']]<-snp_modifyBuild_offline(ref[['GRCh37']], liftOver=opt$liftover, chain=opt$liftover_track, from = "hg18", to = "hg19")
 
 names(ref[['GRCh37']])<-c('CHR','SNP','BP','A1','A2')
 names(ref[['GRCh38']])<-c('CHR','SNP','BP','A1','A2')

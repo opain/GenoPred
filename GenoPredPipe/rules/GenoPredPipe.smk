@@ -142,6 +142,15 @@ rule install_liftover:
   shell:
     "mkdir -p resources/software/liftover/; wget --no-check-certificate -O resources/software/liftover/liftover https://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/liftOver"
 
+# Download liftover track
+rule download_liftover_track:
+  output:
+    touch("resources/software/download_liftover_track.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/liftover/; wget --no-check-certificate -O resources/data/liftover/hg18ToHg19.over.chain.gz ftp://hgdownload.cse.ucsc.edu/goldenPath/hg18/liftOver/hg18ToHg19.over.chain.gz"
+
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
   output:
@@ -661,6 +670,7 @@ rule format_target:
     rules.download_qctool2.output,
     rules.download_hm3_snplist.output,
     rules.install_liftover.output,
+    rules.download_liftover_track.output,
     rules.install_bigsnpr.output
   output:
     touch("resources/data/target_checks/{name}/format_target_{chr}.done")
@@ -678,6 +688,7 @@ rule format_target:
       --plink2 plink2 \
       --qctool2 resources/software/qctool2/qctool \
       --liftover resources/software/liftover/liftover \
+      --liftover_track resources/data/liftover/hg18ToHg19.over.chain.gz \
       --out {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr{wildcards.chr}"
 
 rule run_format_target:
@@ -698,6 +709,7 @@ rule run_format_target_2:
 # opt$plink2<-'plink2'
 # opt$qctool2<-'resources/software/qctool2/qctool'
 # opt$liftover<-'resources/software/liftover/liftover'
+# opt$liftover_track<-'resources/data/liftover/hg18ToHg19.over.chain.gz'
 # opt$out<-'resources/data/target_output/example_bgen/example_bgen.hm3.chr2'
 
 ####
