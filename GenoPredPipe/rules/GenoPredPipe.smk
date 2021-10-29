@@ -52,7 +52,7 @@ rule download_ldsc:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "git clone git@github.com:bulik/ldsc.git resources/software/ldsc/"
+    "git clone https://github.com/bulik/ldsc.git resources/software/ldsc/"
 
 # Download LDSC reference data
 rule dowload_ldsc_ref:
@@ -85,7 +85,7 @@ rule download_dbslmm:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "git clone git@github.com:biostat0903/DBSLMM.git {output}; \
+    "git clone https://github.com/biostat0903/DBSLMM.git {output}; \
      cd {output}; \
      git reset --hard aa6e7ad5b8a7d3b6905556a4007c4a1fa2925b7d; \
      chmod a+x software/dbslmm"
