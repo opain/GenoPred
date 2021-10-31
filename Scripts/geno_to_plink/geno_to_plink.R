@@ -121,7 +121,7 @@ if(opt$format == 'samp_imp_bgen'){
 }
 
 if(opt$format == 'samp_imp_vcf'){
-  target_snp<-fread(paste0(opt$target,'.vcf.gz'), select=1:5)
+  target_snp<-fread(cmd=paste0("zcat ",opt$target,".vcf.gz | cut -f 1-5"))
   names(target_snp)<-c('CHR','BP','SNP','A1','A2')
 }
 
