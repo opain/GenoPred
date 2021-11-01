@@ -216,6 +216,42 @@ rule download_ldpred2_ref:
   shell:
     "mkdir -p resources/data/ldpred2_ref; wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://ndownloader.figshare.com/articles/13034123/versions/3; resources/software/7z/7zz e resources/data/ldpred2_ref/download.zip -oresources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
 
+# Download LDAK
+rule download_ldak:
+  output:
+    directory("resources/software/ldak")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/software/ldak; wget --no-check-certificate -O resources/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; unzip resources/software/ldak/ldak5.1.linux_.zip -d resources/software/ldak/; rm resources/software/ldak/ldak5.1.linux_.zip"
+
+# Download LDAK map data
+rule download_ldak_map:
+  output:
+    directory("resources/data/ldak_map")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/ldak_map; wget --no-check-certificate -O resources/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; unzip resources/data/ldak_map/genetic_map_b37.zip -d resources/data/ldak_map/; rm resources/data/ldak_map/genetic_map_b37.zip"
+
+# Download LDAK bld snp annotations
+rule download_ldak_bld:
+  output:
+    directory("resources/data/ldak_bld")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/ldak_bld; wget --no-check-certificate -O resources/data/ldak_bld/bld.zip https://genetics.ghpc.au.dk/doug/bld.zip; unzip resources/data/ldak_bld/bld.zip -d resources/data/ldak_bld/; rm resources/data/ldak_bld/bld.zip"
+
+# Download LDAK high ld regions file
+rule download_ldak_highld:
+  output:
+    directory("resources/data/ldak_highld")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/ldak_highld; wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt"
+
 # Download and format 1kg reference data
 rule prep_1kg:
   resources: 
@@ -519,6 +555,46 @@ rule prs_scoring_ldpred2:
     
 rule run_prs_scoring_ldpred2:
   input: expand("resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
+
+##
+# LDAK MegaPRS
+##
+
+rule prs_scoring_megaprs:
+  resources: 
+    mem_mb=20000,
+    cpus=5,
+    time_min=800
+  input:
+    rules.prep_1kg.output,
+    rules.merge_1kg_GW.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
+    rules.download_ldak.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output,
+    rules.download_ldak_highld.output
+  output:
+    "resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript ../Scripts/ldak_mega_prs/ldak_mega_prs.R \
+      --ref_plink resources/data/1kg/1KGPhase3.w_hm3.GW \
+      --ref_keep resources/data/1kg/keep_files/EUR_samples.keep \
+      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+      --plink1 plink \
+      --plink2 plink2 \
+      --ldak resources/software/ldak/ldak5.1.linux \
+      --ldak_map resources/data/ldak_map/genetic_map_b37 \
+      --ldak_tag resources/data/ldak_bld \
+      --ldak_highld resources/data/ldak_highld/highld.txt \
+      --memory {resources.mem_mb} \
+      --n_cores {resources.cpus} \
+      --output resources/data/1kg/prs_score_files/megaprs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+    
+rule run_prs_scoring_megaprs:
+  input: expand("resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
 
 ##
 # Process externally created score files
@@ -1247,6 +1323,52 @@ rule run_target_prs_ldpred2_all_name:
     touch("resources/data/target_checks/prs_ldpred2.done")
 
 ##
+# LDAK MegaPRS
+##
+
+rule target_prs_megaprs:
+  resources: 
+    mem_mb=30000
+  input:
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  output:
+    touch("resources/data/target_checks/{name}/target_prs_megaprs_{population}_{gwas}.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score resources/data/1kg/prs_score_files/megaprs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.score.gz \
+      --ref_scale resources/data/1kg/prs_score_files/megaprs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/megaprs/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
+     
+rule run_target_prs_megaprs_all_gwas:
+  input:
+    config["gwas_list"],
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_megaprs_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_megaprs_all_gwas_{population}.done")
+
+rule run_target_prs_megaprs_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_megaprs_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_megaprs_all_pop.done")
+
+rule run_target_prs_megaprs_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_megaprs_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_megaprs.done")
+
+##
 # Externally created score files
 ##
 
@@ -1306,6 +1428,7 @@ rule target_prs_all:
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_lassosum_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_megaprs_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_external_all_pop.done", name=w.name)
   output:
     touch('resources/data/target_checks/{name}/target_prs_all.done')
