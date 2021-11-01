@@ -58,11 +58,16 @@ names(ref[['GRCh37']])<-c('chr','snp','pos','a1','a2')
 CHR<-ref[['GRCh37']]$chr[1]
 
 # Create snp_modifyBuild_offline
+make_executable <- function(exe) {
+  Sys.chmod(exe, mode = (file.info(exe)$mode | "111"))
+}
+
 snp_modifyBuild_offline<-function (info_snp, liftOver, chain, from = "hg18", to = "hg19"){
   if (!all(c("chr", "pos") %in% names(info_snp)))
     stop2("Please use proper names for variables in 'info_snp'. Expected %s.",
           "'chr' and 'pos'")
   liftOver <- normalizePath(liftOver)
+  make_executable(liftOver)
   BED <- tempfile(fileext = ".BED")
   info_BED <- with(info_snp, data.frame(paste0("chr", chr),
                                         pos0 = pos - 1L, pos, id = rows_along(info_snp)))
