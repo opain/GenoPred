@@ -188,51 +188,64 @@ if((nrow(matched[['GRCh38']])/nrow(ref[['GRCh38']])) > 0.7 & (nrow(matched[['GRC
 # Extract overlapping variants in plink format and insert RSIDs
 ###################
 
-if(opt$format == 'samp_imp_plink1'){
-  extract_list<-matched[[target_build]]$SNP.y
-  write.table(extract_list, paste0(opt$out,'_extract_list.txt'), col.names = F, row.names = F, quote=F)
-  
-  id_update<-cbind(matched[[target_build]]$SNP.x, matched[[target_build]]$SNP.y)
-  write.table(id_update, paste0(opt$out,'_id_update.txt'), col.names = F, row.names = F, quote=F)
+# To avoid issues due to duplicate IDs, we must extract variants based on original ID, update IDs manually to the reference RSID, and then extract those SNPs from the PLINK files.
+extract_list_1<-matched[[target_build]]$SNP.x
+extract_list_2<-matched[[target_build]]$SNP.y
 
-  system(paste0('plink2 --bfile ',opt$target, ' --extract ', opt$out,'_extract_list.txt --make-bed --update-name ',opt$out,'_id_update.txt --threads 1 --out ', opt$out))
-  
-  system(paste0('rm ',opt$out,'_id_update.txt'))
-  system(paste0('rm ',opt$out,'_extract_list.txt'))
+write.table(extract_list_1, paste0(opt$out,'_extract_list_1.txt'), col.names = F, row.names = F, quote=F)
+write.table(extract_list_2, paste0(opt$out,'_extract_list_2.txt'), col.names = F, row.names = F, quote=F)
+
+# First extract variants based on original ID
+if(opt$format == 'samp_imp_plink1'){
+  system(paste0('plink2 --bfile ',opt$target, ' --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
 }
 
 if(opt$format == 'samp_imp_bgen'){
-  extract_list<-matched[[target_build]]$SNP.x
-  write.table(extract_list, paste0(opt$out,'_extract_list.txt'), col.names = F, row.names = F, quote=F)
-  
-  id_update<-cbind(matched[[target_build]]$SNP.x, matched[[target_build]]$SNP.y)
-  write.table(id_update, paste0(opt$out,'_id_update.txt'), col.names = F, row.names = F, quote=F)
-  
-  system(paste0(opt$qctool2,' -g ',opt$target,'.bgen -s ',gsub('.chr.*','',opt$target),'.sample -ofiletype binary_ped -og ',opt$out,'_tmp -incl-rsids ',opt$out,'_extract_list.txt -threshold 0.9'))
-  
-  system(paste0('plink2 --bfile ',opt$out,'_tmp --make-bed --update-name ',opt$out,'_id_update.txt --threads 1 --out ', opt$out))
-  
-  fam<-fread(paste0(opt$out,'.fam'))
-  fam$V1<-fam$V2
-  write.table(fam, paste0(opt$out,'.fam'), col.names = F, row.names = F, quote = F)
-  
-  system(paste0('rm ',opt$out,'_id_update.txt'))
-  system(paste0('rm ',opt$out,'_extract_list.txt'))
-  system(paste0('rm ',opt$out,'_tmp.*'))
+  system(paste0(opt$qctool2,' -g ',opt$target,'.bgen -s ',gsub('.chr.*','',opt$target),'.sample -ofiletype binary_ped -og ',opt$out,'_tmp -incl-rsids ',opt$out,'_extract_list_1.txt -threshold 0.9'))
 }
 
 if(opt$format == 'samp_imp_vcf'){
-  extract_list<-matched[[target_build]]$SNP.y
-  write.table(extract_list, paste0(opt$out,'_extract_list.txt'), col.names = F, row.names = F, quote=F)
-  
-  id_update<-cbind(matched[[target_build]]$SNP.x, matched[[target_build]]$SNP.y)
-  write.table(id_update, paste0(opt$out,'_id_update.txt'), col.names = F, row.names = F, quote=F)
-  
-  system(paste0('plink2 --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', opt$out,'_extract_list.txt --make-bed --update-name ',opt$out,'_id_update.txt --threads 1 --out ', opt$out))
-  
-  system(paste0('rm ',opt$out,'_id_update.txt'))
-  system(paste0('rm ',opt$out,'_extract_list.txt'))
+  system(paste0('plink2 --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
 }
+
+# Now edit bim file to update IDs to reference IDs
+targ_bim<-fread(paste0(opt$out,'_tmp.bim'))
+names(targ_bim)<-c('CHR','SNP','POS','BP','A1','A2')
+targ_bim$ID<-paste(targ_bim$CHR, targ_bim$BP, targ_bim$A1, targ_bim$A2, sep=':')
+
+targ_bim_update<-targ_bim
+
+targ_bim_update$IUPAC<-NA
+targ_bim_update$IUPAC[targ_bim_update$A1 == 'A' & targ_bim_update$A2 =='T' | targ_bim_update$A1 == 'T' & targ_bim_update$A2 =='A']<-'W'
+targ_bim_update$IUPAC[targ_bim_update$A1 == 'C' & targ_bim_update$A2 =='G' | targ_bim_update$A1 == 'G' & targ_bim_update$A2 =='C']<-'S'
+targ_bim_update$IUPAC[targ_bim_update$A1 == 'A' & targ_bim_update$A2 =='G' | targ_bim_update$A1 == 'G' & targ_bim_update$A2 =='A']<-'R'
+targ_bim_update$IUPAC[targ_bim_update$A1 == 'C' & targ_bim_update$A2 =='T' | targ_bim_update$A1 == 'T' & targ_bim_update$A2 =='C']<-'Y'
+targ_bim_update$IUPAC[targ_bim_update$A1 == 'G' & targ_bim_update$A2 =='T' | targ_bim_update$A1 == 'T' & targ_bim_update$A2 =='G']<-'K'
+targ_bim_update$IUPAC[targ_bim_update$A1 == 'A' & targ_bim_update$A2 =='C' | targ_bim_update$A1 == 'C' & targ_bim_update$A2 =='A']<-'M'
+
+targ_bim_update<-merge(targ_bim_update, ref[[target_build]], by.x=c('CHR','BP','IUPAC'), by.y=c('CHR','BP','IUPAC'), all.x=T)
+
+# Sort bim to be in the original order
+targ_bim_update<-targ_bim_update[match(targ_bim$ID, targ_bim_update$ID),]
+
+# Set ID for missing variants to the original ID
+targ_bim_update$SNP.y[is.na(targ_bim_update$SNP.y)]<-targ_bim_update$SNP.x[is.na(targ_bim_update$SNP.y)]
+# Set ID to containg _dup if has a duplicate RSID
+targ_bim_update$SNP.y[duplicated(targ_bim_update$SNP.y)]<-paste0(targ_bim_update$SNP.y[duplicated(targ_bim_update$SNP.y)],'_dup')
+
+targ_bim_update_clean<-targ_bim_update[,c('CHR','SNP.y','POS','BP','A1.x','A2.x'),with=F]
+names(targ_bim_update_clean)<-c('CHR','SNP','POS','BP','A1','A2')
+
+write.table(targ_bim_update_clean, paste0(opt$out,'_tmp.bim'), col.names=F, row.names=F, quote=F)
+
+# Extract variants based on new reference RSIDs
+system(paste0('plink2 --bfile ',opt$out,'_tmp --extract ', opt$out,'_extract_list_2.txt --make-bed --memory 5000 --threads 1 --out ', opt$out))
+
+system(paste0('rm ', opt$out,'.log'))
+system(paste0('rm ', opt$out,'_extract*'))
+system(paste0('rm ', opt$out,'_tmp*'))
+system(paste0('rm ', opt$out,'.unmapped'))
+system(paste0('rm ', opt$out,'.lifted'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
