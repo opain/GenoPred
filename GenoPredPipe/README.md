@@ -198,15 +198,15 @@ Potentially useful GenoPredPipe outputs can be found in the following locations:
 
 
 
-- Target sample outputs
+- Target sample outputs (\<output> corresponds to the output specified in the target_list file)
   - Imputed genotype data (if 23andMe input): \<output>/\<name>/\<name>.\<gen/sample>
   - Genotype data restricted to HapMap3 SNPs and harmonised with reference: \<output>/\<name>/\<name>.1KGPhase3.w_hm3.chr\<chr>.\<bed/bim/fam>
-  - Super population ancestry results
-  - Within super population ancestry results
-  - Projected principal components
-  - Polygenic scores
-  - Individual-level report (if 23andMe input)
-  - Sample-level report (if imp_samp_plink1 or imp_samp_bgen input)
+  - Super population ancestry results: \<output>/\<name>/ancestry
+  - Within super population ancestry results: \<output>/\<name>/ancestry/ancestry_\<population>
+  - Projected principal components: \<output>/\<name>/projected_pcs/\<population>
+  - Polygenic scores: \<output>/\<name>/prs/\<population>/\<method>/\<gwas>
+  - Individual-level report: \<output>/\<name>/reports
+  - Sample-level report: \<output>/\<name>/reports
 
 ***
 
