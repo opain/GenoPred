@@ -143,16 +143,16 @@ It is possible to only run specific parts of the pipeline for all target samples
 snakemake --profile slurm --use-conda run_harmonise_target_with_ref
 
 # Create ancestry report only
-snakemake --profile slurm --use-conda run_ancestry_create_reports
+snakemake --profile slurm --use-conda run_create_ancestry_reports
 
 # Calculate reference-projected principal components only
-snakemake --profile slurm --use-conda run_target_pc
+snakemake --profile slurm --use-conda run_target_pc_all
 
 # Calculate pT+clump polygenic scores only
-snakemake --profile slurm --use-conda run_target_prs_ptclump
+snakemake --profile slurm --use-conda run_target_prs_pt_clump_all_name
 
 # Calculate DBSLMM polygenic scores only
-snakemake --profile slurm --use-conda run_target_prs_dbslmm
+snakemake --profile slurm --use-conda run_target_prs_dbslmm_all_name
 
 ```
 
@@ -161,12 +161,17 @@ Furthermore, you can request specific outputs for specific target samples. For e
 ```bash
 # Run full pipeline for specific target sample. 
 # Replace <name> with name of target sample in the target_list file.
-snakemake --profile slurm --use-conda resources/data/target/<name>/<name>_samp_report.done
+snakemake --profile slurm --use-conda resources/data/target_checks/<name>/create_sample_report.done
 
-# Calculate pT+clump polygenic scores for specific target sample and specific GWAS. 
+# Calculate pT+clump polygenic scores for specific population, in a specific target sample, and specific GWAS. 
 # Replace <name> with name of a target sample in the target_list file. 
 # Replace <gwas> with the name of a gwas in the gwas_list file.
-snakemake --profile slurm --use-conda resources/data/target/<name>/prs/target_prs_ptclump_<gwas>.done
+# Replace <population> with the super population ancestry code (e.g. EUR, EAS, AMR, AFR, SAS).
+snakemake --profile slurm --use-conda resources/data/target_checks/<name>/target_prs_pt_clump_<population>_<gwas>.done
+
+
+# To generate polygenic scores using other methods, replace pt_clump in the previous command to either dbslmm, prscs, lassosum, sbayesr, ldpred2, megaprs, or external. For example, to calculate megaprs polygenic scores based on the BODY04 GWAS in the European (EUR) subset of the target sample called example_plink:
+snakemake --profile slurm --use-conda resources/data/target_checks/example_plink1/target_prs_megaprs_EUR_BODY04.done
 
 # Look inside the rules/GenoPredPipe.smk file to see all available rules.
 
@@ -184,14 +189,14 @@ Potentially useful GenoPredPipe outputs can be found in the following locations:
   - Super population and population keep files: resources/data/1kg/keep_files/\<pop>_sample.keep
   - Allele frequency files split by population: resources/data/1kg/freq_files/\<pop>/1KGPhase3.w_hm3.\<pop>.chr\<chr>.frq
 
-\br
+
 
 - Quality controlled and formatted GWAS summary statistics: resources/data/gwas_sumstat/\<gwas>/\<gwas>.cleaned.gz
 - Lassosum pseudovalidation results: resources/data/1kg/prs_pseudoval/\<gwas>
 - Projected principal component .score files: resources/data/1kg/prs_score_files/\<method>/\<gwas>
 - Polygenic score .score files: resources/data/1kg/prs_score_files/\<method>/\<gwas>
 
-\br
+
 
 - Target sample outputs
   - Imputed genotype data (if 23andMe input): \<output>/\<name>/\<name>.\<gen/sample>
