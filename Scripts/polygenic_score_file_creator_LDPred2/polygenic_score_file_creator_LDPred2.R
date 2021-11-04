@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #!/usr/bin/Rscript
 # This script was written by Oliver Pain whilst at King's College London University.
 start.time <- Sys.time()

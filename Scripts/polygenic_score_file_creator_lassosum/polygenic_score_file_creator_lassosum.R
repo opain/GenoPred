@@ -30,7 +30,8 @@ opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
 library(lassosum)
-#setwd(system.file("data", package="lassosum"))
+
+orig_wd<-getwd()
 
 tmp<-sub('.*/','',opt$output)
 opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
@@ -117,6 +118,22 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
 
+if(!is.na(opt$ref_keep)){
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('ref_keep used to subset reference genotype data.\n')
+  sink()
+  
+  #####
+  # Create subset of ref files
+  #####
+  
+  system(paste0(opt$plink,' --bfile ',opt$ref_plink_gw,' --keep ',opt$ref_keep,' --make-bed --out ',opt$output_dir,'lassosum_ref_gw'))
+  
+  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw')
+} else {
+  opt$ref_plink_subset<-opt$ref_plink_gw
+}
+
 if(!is.na(opt$test)){
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   test_start.time <- Sys.time()
@@ -138,10 +155,14 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Running lassosum pipeline...')
 sink()
 
+setwd(system.file("data", package="lassosum"))
+
 out<-lassosum.pipeline(cor=cor, chr=GWAS$CHR, pos=GWAS$BP, 
                        A1=GWAS$A1, A2=GWAS$A2,
-                       ref.bfile=opt$ref_plink_gw, keep.ref=opt$ref_keep, 
+                       ref.bfile=paste0(orig_wd,'/',opt$ref_plink_subset), 
                        LDblocks = 'EUR.hg19')
+
+setwd(orig_wd)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -158,7 +179,9 @@ cat('Idenitfying best parameters via pseudovalidation...')
 sink()
 
 bitmap(paste0(opt$output,'.pseudovalidate.png'), unit='px', res=300, height=2000, width=2000)
+setwd(system.file("data", package="lassosum"))
 v <- pseudovalidate(out)
+setwd(orig_wd)
 dev.off()
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -259,6 +282,10 @@ for(i in 1:length(out$s)){
     system(paste0('rm ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.nosex'))
     system(paste0('rm ',opt$output,'.s',out$s[i],'_lambda',out$lambda[k],'.log'))
   }
+}
+
+if(!is.na(opt$ref_keep)){
+  system(paste0('rm ',opt$output_dir,'lassosum_ref_gw*'))
 }
 
 end.time <- Sys.time()

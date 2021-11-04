@@ -922,6 +922,72 @@ sbatch --array 1-$(wc -l ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/DBSLM
 
 ***
 
+## Prepare score and scale files for polygenic scoring using LDAK
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01)
+
+# Create directory
+mkdir ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK
+
+# Create file listing GWAS that haven't been processed.
+> ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK/todo.txt
+for i in $(seq 1 14);do
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+pop_prev_i=$(echo ${pop_prev} | cut -f ${i} -d ' ')
+sample_prev_i=$(echo ${samp_prev} | cut -f ${i} -d ' ')
+if [ ! -f ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK/${gwas_i}/UKBB.noPheno.EUR.10K.w_hm3.${gwas_i}.EUR.scale ]; then
+echo ${gwas_i} >> ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 20G
+#SBATCH -n 5
+#SBATCH --nodes 1
+#SBATCH -J LDAK
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Target_scoring.config
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK/todo.txt)
+
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ldak_mega_prs/ldak_mega_prs.R \
+--ref_plink ${UKBB_output}/UKBB_ref/genotype/UKBB.noPheno.EUR.10K.GW \
+--ref_keep ${UKBB_output}/UKBB_ref/keep_files/UKBB_noPheno_EUR_10K.keep \
+--sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+--plink1 ${plink1_9} \
+--plink2 ${plink2} \
+--ldak /users/k1806347/brc_scratch/Software/ldak5.1.linux \
+--ldak_map /users/k1806347/brc_scratch/Data/LDAK/genetic_map_b37 \
+--ldak_tag /users/k1806347/brc_scratch/Data/LDAK/bld/ \
+--ldak_highld /users/k1806347/brc_scratch/Data/LDAK/highld.txt \
+--memory 5000 \
+--n_cores 5 \
+--output ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK/${gwas}/UKBB.noPheno.EUR.10K.w_hm3.${gwas} \
+--ref_pop_scale ${UKBB_output}/UKBB_ref/keep_files/keep_file.list
+
+EOF
+
+sbatch --array 1-$(wc -l ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK/todo.txt | cut -d' ' -f1)%5 ${UKBB_output}/UKBB_ref/Score_files_for_polygenic/LDAK/sbatch.sh
+
+```
+</details>
+
+<br/>
+
+***
+
 Session info:
 
 <details><summary>R session</summary>

@@ -1,0 +1,1166 @@
+---
+title: "Comparison of polygenic scoring methods"
+output: 
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+    number_sections: true
+    toc_float: true
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+p.caption {
+  font-size: 1.5em;
+}
+</style>
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+# Introduction
+
+In this study we compare a range of polygenic scoring approaches within a reference standardised framework, whereby the polygenic scores are derived using a previously defined set of variants, and LD and minor allele frequency (MAF) are estimated using an ancestry matched reference genotype data sample. This ensures the performance of the methods will hold true when implementing them within a clinical context, which will require reference-standardisation of polygenic scoring.
+
+This is an updated version using polygenic scores from GenoPredPipe, to check it is working as it should. I only use the top performing methods and pT+clump, and only use one recommended reference for each method. We will only use UKB as the target sample.
+
+<br/>
+
+***
+
+## GWAS summary statistics
+For each target phenotype, the largest independent phenotype-matched GWAS was selected for calculating polygenic scores. More information can be found in the table below.
+
+<details><summary>Preparing GWAS sumstats table for UK Biobank phenotypes</summary>
+```{R, echo=T, eval=F}
+library(data.table)
+gwas_list<-fread('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/GenoPred/GenoPredPipe/gwas_list_ukb_test.txt')
+
+pheno<-fread('/users/k1806347/brc_scratch/Data/GWAS_sumstats/QC_sumstats_list_270121.csv')
+
+pheno_ukb<-pheno[(pheno$code %in% gwas_list$name),]
+pheno_ukb<-pheno_ukb[,c('code','phenotype_name','reference_year','pmid','n_cases','n_controls','n_total')]
+names(pheno_ukb)<-c('code','trait','year','PMID','Ncases','Ncontrols','sample_size_discovery')
+
+pheno_ukb$ldsc_h2_observed<-NA
+pheno_ukb$ldsc_h2_se<-NA
+pheno_ukb$ldsc_lambda_GC<-NA
+pheno_ukb$ldsc_intercept<-NA
+pheno_ukb$ldsc_intercept_se<-NA
+
+ldsc_logs<-list.files(path='/scratch/groups/ukbiobank/sumstats/munged', pattern='_herit.log')
+ldsc_logs<-gsub('_herit.log','',ldsc_logs)
+
+for(i in 1:dim(pheno_ukb)[1]){
+  if((pheno_ukb$code[i] %in% ldsc_logs)){
+    ldsc_logs_i<-read.fwf(paste0(gwas_rep_munged,'/',pheno_ukb$code[i],'_herit.log'),widths = 1000000)
+        
+    pheno_ukb$ldsc_h2_observed[i]<-as.numeric(gsub(' .*','', gsub('Total Observed scale h2: ','',ldsc_logs_i[grepl('Total Observed scale h2: ', ldsc_logs_i$V1),])))
+    pheno_ukb$ldsc_h2_se[i]<-as.numeric(gsub("\\)",'', gsub(".*\\(",'', gsub('Total Observed scale h2: ','',ldsc_logs_i[grepl('Total Observed scale h2: ', ldsc_logs_i$V1),]))))
+    pheno_ukb$ldsc_lambda_GC[i]<-as.numeric(gsub('Lambda GC: ','',ldsc_logs_i[grepl('Lambda GC: ', ldsc_logs_i$V1),]))
+    pheno_ukb$ldsc_intercept[i]<-as.numeric(gsub(' .*','', gsub("Intercept: ",'',ldsc_logs_i[grepl("Intercept: ", ldsc_logs_i$V1),])))
+    pheno_ukb$ldsc_intercept_se[i]<-as.numeric(gsub("\\)",'', gsub(".*\\(",'', gsub("Intercept: ",'',ldsc_logs_i[grepl("Intercept: ", ldsc_logs_i$V1),]))))
+  }
+}
+
+pheno_ukb$pop_prev<-gwas_list$prevalence[match(pheno_ukb$code, gwas_list$name)]
+pheno_ukb$Target_Phenotype<-gwas_list$label[match(pheno_ukb$code, gwas_list$name)]
+pheno_ukb$Ncases<-as.numeric(gsub(',','',pheno_ukb$Ncases))
+pheno_ukb$Ncontrols<-as.numeric(gsub(',','',pheno_ukb$Ncontrols))
+pheno_ukb$samp_prev<-pheno_ukb$Ncases/(pheno_ukb$Ncases+pheno_ukb$Ncontrols)
+
+h2l_R2 <- function(k, r2, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  h2l_R2 = C*r2 / (1 + C*theta*r2)
+}
+
+se_h2l_R2 <- function(k,h2,se, p) {
+  # K baseline disease risk
+  # r2 from a linear regression model attributable to genomic profile risk score
+  # P proportion of sample that are cases
+  # calculates proportion of variance explained on the liability scale
+  #from ABC at http://www.complextraitgenomics.com/software/
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+
+  #SE on the liability (From a Taylor series expansion)
+  #var(h2l_r2) = [d(h2l_r2)/d(R2v)]^2*var(R2v) with d being calculus differentiation
+  x= qnorm(1-k)
+  z= dnorm(x)
+  i=z/k
+  C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+  theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+  se_h2l_R2 = C*(1-h2*theta)*se
+}
+
+pheno_ukb$ldsc_h2_observed<-as.numeric(pheno_ukb$ldsc_h2_observed)
+pheno_ukb$ldsc_h2_se<-as.numeric(pheno_ukb$ldsc_h2_se)
+
+pheno_ukb$h2_liab<-round(h2l_R2(k=pheno_ukb$pop_prev, r2=pheno_ukb$ldsc_h2_observed, p=pheno_ukb$samp_prev),3)
+pheno_ukb$h2_liab_se<-round(se_h2l_R2(k=pheno_ukb$pop_prev, h2=pheno_ukb$ldsc_h2_observed, se=pheno_ukb$ldsc_h2_se, p=pheno_ukb$samp_prev),3)
+
+pheno_ukb$ldsc_h2_observed<-paste0(pheno_ukb$ldsc_h2_observed," (", pheno_ukb$ldsc_h2_se,")")
+pheno_ukb$ldsc_h2_se<-NULL
+pheno_ukb$h2_liab[!is.na(pheno_ukb$Ncases)]<-paste0(pheno_ukb$h2_liab[!is.na(pheno_ukb$Ncases)]," (", pheno_ukb$h2_liab_se[!is.na(pheno_ukb$Ncases)],")")
+pheno_ukb$h2_liab_se<-NULL
+pheno_ukb$ldsc_intercept<-paste0(pheno_ukb$ldsc_intercept," (", pheno_ukb$ldsc_intercept_se,")")
+pheno_ukb$ldsc_intercept_se<-NULL
+
+pheno_ukb$Trait<-c('BMI','CAD','Intelligence',"Crohn's Disease",'Major Depression','T2D','Height','RheuArth','MultiScler','Prostate Cancer','Breast Cancer')
+pheno_ukb<-pheno_ukb[match(gwas_list$name,pheno_ukb$code),]
+
+pheno_ukb<-pheno_ukb[,c('Trait','code','trait','year','PMID','Ncases','Ncontrols','sample_size_discovery','ldsc_h2_observed','h2_liab','ldsc_intercept','ldsc_lambda_GC')]
+names(pheno_ukb)<-c('Target Phenotype','Code','GWAS Phenotype','Year','PMID','Ncase','Ncontrol','N','h2_obs','h2_liab','Intercept','Lambda')
+
+write.csv(pheno_ukb, '/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/UKBB_phenotype_GWAS_descrip.csv', row.names=F, quote=F)
+
+```
+</details>
+
+<details><summary>Show GWAS for UK Biobank phenotypes</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Data/GWAS_sumstats/UKBB_phenotype_GWAS_descrip.csv")
+
+names(res)<-c('Target Phenotype','Code','GWAS Phenotype','Year','PMID','Ncase','Ncontrol','N',"h2-obs (SE)","h2-liab (SE)",'Intercept','Lambda')
+
+library(knitr)
+kable(res, rownames = FALSE, caption='GWAS used for each UK Biobank phenotype')
+```
+
+</details>
+
+<br/>
+
+## Polygenic scoring
+Polygenic scores were derived using the following methods: 
+
+  1. p-value thresholding and clumping (pT + clump).
+  2. lassosum - Lasso-based shrinkage method.
+  3. PRScs - Bayesian shrinkage method.
+  4. SBayesR - Bayesian shrinkage method
+  5. DBSLMM - Bayesian shrinkage method
+  6. LDpred2 - Bayesian shrinkage method
+
+Polygenic scores were derived using a reference standardised pipeline. Here, they were calculated using GenoPredPipe.
+
+<br/>
+
+## Prepare phenotype data
+
+<details><summary>Update IDs in phenotype files to match GenoPredPipe output</summary>
+
+```{r, echo=T, eval=F}
+pheno<-c('Depression', 'Intelligence', 'BMI', 'Height', 'T2D', 'CAD', 'IBD', 'MultiScler', 'RheuArth', 'Breast_Cancer', 'Prostate_Cancer')
+
+library(data.table)
+project_specific_ids<-fread('/scratch/datasets/ukbiobank/ukb18177/imputed/wukb18177_imp_chr1_v3_s487296.sample')
+project_specific_ids<-project_specific_ids[-1,]
+project_specific_ids$row_id<-1:nrow(project_specific_ids)
+project_specific_ids<-project_specific_ids[,c('ID_1','row_id'),with=F]
+
+for(pheno_i in pheno){
+  pheno_dat<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',pheno_i,'.txt'))
+  pheno_col<-names(pheno_dat)[3]
+  pheno_dat<-merge(pheno_dat, project_specific_ids, by.x='IID', by.y='ID_1')
+  pheno_dat<-pheno_dat[,c('row_id','row_id',pheno_col), with=F]
+  names(pheno_dat)<-c('FID','IID',pheno_col)
+  fwrite(pheno_dat, paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',pheno_i,'.rowID.txt'), sep=' ', na='NA')
+}
+
+```
+
+</details>
+
+<br/>
+
+## Estimating predictive ability
+Models containing a single predictor were derived using generalised linear model (GLM). Models containing multiple predictors were derived using elastic-net regularisation to reduce the likelihood of overfitting and account for multicollinearity when modelling highly correlated predictors. 10-fold cross validation was performed using 80% of individuals to identify optimal parameters, with subsequent test-set validation in the remaining 20% of individuals to estimate the predictive utility among individuals not included in the parameter selection process.
+
+Model building and evaluation was performed using an Rscript called Model_builder_V2.R (more information [here](https://github.com/opain/GenoPred/tree/master/Scripts/Model_builder)).
+
+<details><summary>Show code</summary>
+```{R, echo=T, eval=F}
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas<-c('DEPR06','COLL01','BODY04','HEIG03','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+
+for(i in 1:length(pheno)){
+  pred_file<-NULL
+  
+  # pT+clump (sparse)
+  pred_file<-rbind(pred_file,data.frame( predictors=paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/output/ukb/prs/EUR/pt_clump/',gwas[i],'/ukb.',gwas[i],'.EUR.profiles'), 
+group='pt_clump'))
+  
+  # lassosum
+  pred_file<-rbind(pred_file,data.frame( predictors=paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/output/ukb/prs/EUR/lassosum/',gwas[i],'/ukb.',gwas[i],'.EUR.profiles'), 
+group='lassosum'))
+  
+  # PRScs
+  pred_file<-rbind(pred_file,data.frame( predictors=paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/output/ukb/prs/EUR/prscs/',gwas[i],'/ukb.',gwas[i],'.EUR.profiles'), 
+  group='prscs'))
+
+  # SBayesR
+  pred_file<-rbind(pred_file,data.frame( predictors=paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/output/ukb/prs/EUR/sbayesr/',gwas[i],'/ukb.',gwas[i],'.EUR.profiles'), 
+group='sbayesr'))
+
+  # DBSLMM
+  pred_file<-rbind(pred_file,data.frame( predictors=paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/output/ukb/prs/EUR/dbslmm/',gwas[i],'/ukb.',gwas[i],'.EUR.profiles'), 
+group='dbslmm'))
+
+  # LDPred2
+  pred_file<-rbind(pred_file,data.frame( predictors=paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/output/ukb/prs/EUR/ldpred2/',gwas[i],'/ukb.',gwas[i],'.EUR.profiles'), 
+group='ldpred2'))
+           
+  # Write out list of predictors with groups
+  dir.create(paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/',pheno[i]))
+  write.table(pred_file, paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.predictor_groups'), row.names=F, col.names=T, quote=F)
+}
+
+```
+
+```{bash, eval=F, echo=T}
+# Run Model_builder_V2.R
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer)
+gwas=$(echo DEPR06 COLL01 BODY04 HEIG03 DIAB05 COAD01 CROH01 SCLE03 RHEU02 BRCA01 PRCA01)
+prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005 0.125 0.125)
+
+# 1KG reference
+for i in $(seq 1 11);do
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+prev_i=$(echo ${prev} | cut -f ${i} -d ' ')
+
+sbatch --mem 30G -n 3 -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2.R \
+  --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.${pheno_i}.rowID.txt \
+  --out /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/${pheno_i}/UKBB.w_hm3.${gwas_i}.EUR-PRSs.AllMethodComp \
+  --n_core 3 \
+  --compare_predictors T \
+  --assoc T \
+  --outcome_pop_prev ${prev_i} \
+  --predictors /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/${pheno_i}/UKBB.w_hm3.${gwas_i}.EUR-PRSs.AllMethodComp.predictor_groups
+done
+
+```
+</details>
+
+<br/>
+
+***
+
+# Results
+
+<details><summary>Summarise and plot the results</summary>
+
+```{R, echo=T, eval=F}
+
+meta_res_eval<-NULL
+meta_res_comp<-NULL
+meta_res_eval_plots_cross<-list()
+meta_res_eval_plots_indep<-list()
+meta_res_eval_diff_plots_cross<-list()
+meta_res_eval_diff_plots_indep<-list()
+meta_res_eval_diff_matrix_cross<-list()
+meta_res_eval_diff_matrix_indep<-list()
+
+pheno<-c('Depression','Intelligence','Height','BMI','T2D','CAD','IBD', 'MultiScler','RheuArth','Prostate_Cancer','Breast_Cancer')
+gwas<-c('DEPR06','COLL01','HEIG03','BODY04','DIAB05','COAD01','CROH01','SCLE03','RHEU02','PRCA01','BRCA01')
+
+##################
+# Organise, make tables and figures for per phenotype results
+##################
+
+res_eval<-NULL
+res_comp<-NULL
+res_eval_plots_cross<-list()
+res_eval_plots_indep<-list()
+res_eval_diff_plots_cross<-list()
+res_eval_diff_plots_indep<-list()
+res_eval_diff_matrix_cross<-list()
+res_eval_diff_matrix_indep<-list()
+for(i in 1:length(pheno)){
+  res_eval_i<-read.table(paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.pred_eval.txt'), header=T, stringsAsFactors=F)
+
+  res_comp_i<-read.table(paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.AllMethodComp.pred_comp.txt'), header=T, stringsAsFactors=F)
+
+  # Idenitfy model names for 10FCVal, multi-PRS and pseudoval
+  selected_models<-NULL
+  
+  ##
+  # pT+clump (sparse)
+  ##
+  
+  # Identify best pT in 10FCVal
+  res_eval_i_per_pT<-res_eval_i[grepl('pt.clump.PredFile', res_eval_i$Model),]
+  selected_models<-rbind(selected_models,data.frame(Test='pT+clump.10FCVal', Label=
+  res_eval_i_per_pT[res_eval_i_per_pT$CrossVal_R == max(res_eval_i_per_pT$CrossVal_R),]$Model[1]))
+
+  # Identify multi pT
+  selected_models<-rbind(selected_models,data.frame(Test='pT+clump.MultiPRS', Label='pt.clump'))
+
+  ##
+  # lassosum
+  ##
+  
+  # Identify best pT in 10FCVal
+  res_eval_i_per_lassosum<-res_eval_i[grepl('lassosum.PredFile', res_eval_i$Model),]
+  selected_models<-rbind(selected_models,data.frame(Test='lassosum.10FCVal', Label=
+  res_eval_i_per_lassosum[res_eval_i_per_lassosum$CrossVal_R == max(res_eval_i_per_lassosum$CrossVal_R),]$Model[1]))
+
+  # Identify multi pT
+  selected_models<-rbind(selected_models,data.frame(Test='lassosum.MultiPRS', Label='lassosum'))
+
+  # Identify pseudoVal
+  lassosum_val<-read.table(paste0('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/GenoPred/GenoPredPipe/resources/data/1kg/prs_score_files/lassosum/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.log'), sep='&')
+  lassosum_val_s<-as.numeric(gsub('s = ','',lassosum_val$V1[grepl('s = ',lassosum_val$V1)]))
+  lassosum_val_lambda<-as.numeric(gsub('lambda =','',lassosum_val$V1[grepl('lambda =',lassosum_val$V1)]))
+  lassosum_val_param<-paste0('s',lassosum_val_s,'.lambda',lassosum_val_lambda)
+  lassosum_val_param<-substr(lassosum_val_param, 1, nchar(lassosum_val_param)-1) 
+
+  selected_models<-rbind(selected_models,data.frame(Test='lassosum.PseudoVal', Label=res_eval_i[grepl(lassosum_val_param, res_eval_i$Model),]$Model[1]))
+  
+  ##
+  # PRScs
+  ##
+  
+  # Identify best pT in 10FCVal
+  res_eval_i_per_PRScs<-res_eval_i[grepl('prscs.PredFile', res_eval_i$Model),]
+  res_eval_i_per_PRScs<-res_eval_i_per_PRScs[!grepl('phiauto', res_eval_i_per_PRScs$Model),]
+  selected_models<-rbind(selected_models,data.frame(Test='PRScs.10FCVal', Label=res_eval_i_per_PRScs[res_eval_i_per_PRScs$CrossVal_R == max(res_eval_i_per_PRScs$CrossVal_R),]$Model[1]))
+
+  # Identify multi pT
+  selected_models<-rbind(selected_models,data.frame(Test='PRScs.MultiPRS', Label='prscs'))
+
+  # Identify pseudoval
+  res_eval_i_per_PRScs<-res_eval_i[grepl('prscs.PredFile', res_eval_i$Model),]
+  res_eval_i_per_PRScs<-res_eval_i_per_PRScs[grepl('phi.auto', res_eval_i_per_PRScs$Model),]
+  selected_models<-rbind(selected_models,data.frame(Test='PRScs.PseudoVal', Label=res_eval_i_per_PRScs$Model[1]))
+
+  ##
+  # SBayesR
+  ##
+  
+  # Identify PseudoVal
+  selected_models<-rbind(selected_models,data.frame(Test='SBayesR.PseudoVal', Label='sbayesr'))
+
+  ##
+  # LDPred2
+  ##
+  
+  # Identify best pT in 10FCVal
+  res_eval_i_per_LDPred2<-res_eval_i[grepl('ldpred2.PredFile', res_eval_i$Model),]
+  res_eval_i_per_LDPred2<-res_eval_i_per_LDPred2[!grepl('beta.inf|beta.auto', res_eval_i_per_LDPred2$Model),]
+  selected_models<-rbind(selected_models,data.frame(Test='LDpred2.10FCVal', Label=res_eval_i_per_LDPred2[res_eval_i_per_LDPred2$CrossVal_R == max(res_eval_i_per_LDPred2$CrossVal_R),]$Model[1]))
+
+  # Identify multi pT
+  selected_models<-rbind(selected_models,data.frame(Test='LDpred2.MultiPRS', Label='ldpred2'))
+
+  # Identify pseudoval
+  res_eval_i_per_LDPred2<-res_eval_i[grepl('ldpred2.PredFile', res_eval_i$Model),]
+  res_eval_i_per_LDPred2<-res_eval_i_per_LDPred2[grepl('beta.inf', res_eval_i_per_LDPred2$Model),]
+  selected_models<-rbind(selected_models,data.frame(Test='LDpred2.Inf', Label=res_eval_i_per_LDPred2$Model))
+
+  res_eval_i_per_LDPred2<-res_eval_i[grepl('ldpred2.PredFile', res_eval_i$Model),]
+  res_eval_i_per_LDPred2<-res_eval_i_per_LDPred2[grepl('beta.auto', res_eval_i_per_LDPred2$Model),]
+  selected_models<-rbind(selected_models,data.frame(Test='LDpred2.PseudoVal', Label=res_eval_i_per_LDPred2$Model))
+
+  ##
+  # DBSLMM
+  ##
+  
+  # Identify PseudoVal
+  selected_models<-rbind(selected_models,data.frame(Test='DBSLMM.PseudoVal', Label='dbslmm'))
+
+  ##
+  # All methods
+  ##
+  
+  selected_models<-rbind(selected_models,data.frame(Test='All.MultiPRS', Label='All'))
+
+  ###
+  # Subset selected models and format
+  ###
+  
+  # Eval
+  selected_models$Label_2<-paste0(gsub('_group','',selected_models$Label),'_group')
+  res_eval_i_select<-res_eval_i[(res_eval_i$Model %in% selected_models$Label_2),]
+  res_eval_i_select<-merge(res_eval_i_select, selected_models[c('Test','Label_2')], by.x='Model',by.y='Label_2')
+  res_eval_i_select$Phenotype<-pheno[i]
+  if(sum(names(res_eval_i_select) == 'CrossVal_OR') == 0){
+    res_eval_i_select$CrossVal_OR<-NA
+    res_eval_i_select$CrossVal_LowCI<-NA
+    res_eval_i_select$CrossVal_HighCI<-NA
+    res_eval_i_select$Cross_LiabR2<-NA
+    res_eval_i_select$Cross_AUC<-NA
+    res_eval_i_select$CrossVal_Ncas<-NA
+    res_eval_i_select$CrossVal_Ncon<-NA
+    
+    res_eval_i_select$IndepVal_OR<-NA
+    res_eval_i_select$IndepVal_LowCI<-NA
+    res_eval_i_select$IndepVal_HighCI<-NA
+    res_eval_i_select$Indep_LiabR2<-NA
+    res_eval_i_select$Indep_AUC<-NA
+    res_eval_i_select$IndepVal_Ncas<-NA
+    res_eval_i_select$IndepVal_Ncon<-NA
+  }
+  
+  res_eval_i_select<-res_eval_i_select[c('Phenotype','Test',"CrossVal_R","CrossVal_R_SE",'CrossVal_OR','CrossVal_LowCI','CrossVal_HighCI','Cross_LiabR2','Cross_AUC','CrossVal_pval','CrossVal_N','CrossVal_Ncas','CrossVal_Ncon',"IndepVal_R","IndepVal_R_SE",'IndepVal_OR','IndepVal_LowCI','IndepVal_HighCI','Indep_LiabR2','Indep_AUC','IndepVal_pval','IndepVal_N','IndepVal_Ncas','IndepVal_Ncon')]
+  
+  res_eval<-rbind(res_eval,res_eval_i_select)
+  
+  # Comp
+  selected_models$Label_3<-gsub('_group','',selected_models$Label)
+  res_comp_i_select<-res_comp_i[(res_comp_i$Model_1 %in% selected_models$Label_3) & (res_comp_i$Model_2 %in% selected_models$Label_3),]
+  res_comp_i_select<-merge(res_comp_i_select, selected_models[c('Test','Label_3')], by.x='Model_1',by.y='Label_3')
+  names(res_comp_i_select)[names(res_comp_i_select) == 'Test']<-'Model_1_Test'
+  res_comp_i_select<-merge(res_comp_i_select, selected_models[c('Test','Label_3')], by.x='Model_2',by.y='Label_3')
+  names(res_comp_i_select)[names(res_comp_i_select) == 'Test']<-'Model_2_Test'
+  res_comp_i_select$Label<-NULL
+  res_comp_i_select$Phenotype<-pheno[i]
+  res_comp_i_select<-res_comp_i_select[c('Phenotype','Model_1_Test','Model_2_Test','Model_1_Cross_R','Model_2_Cross_R','Cross_R_diff','Cross_R_diff_pval','Model_1_Indep_R','Model_2_Indep_R','Indep_R_diff','Indep_R_diff_pval')]
+
+  res_comp<-rbind(res_comp,res_comp_i_select)
+  
+  ###
+  # Create plot showing performance of each method
+  ###
+  
+  library(ggplot2)
+  library(cowplot)
+  
+  res_eval_i_select$Method<-gsub('\\..*','',res_eval_i_select$Test)
+  res_eval_i_select$Model<-gsub('.*\\.','',res_eval_i_select$Test)
+  
+  res_eval_i_select$Method<-factor(res_eval_i_select$Method, levels=c('pT+clump','lassosum','PRScs','SBayesR','LDpred2','DBSLMM','All'))
+  res_eval_i_select$Model<-factor(res_eval_i_select$Model, levels=c('10FCVal','MultiPRS','PseudoVal','Inf'))
+  
+  res_eval_plots_cross[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=CrossVal_R, fill=Model)) +
+                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+                        geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                        labs(y="Correlation (SE)", x='', title=pheno[i]) +
+                        coord_cartesian(ylim=c(min(res_eval_i_select$CrossVal_R[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$CrossVal_R[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
+                        theme_half_open() +
+              				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                        background_grid(major = 'y', minor = 'y') +
+                        theme(legend.position="top", legend.title = element_blank(), legend.box="vertical", legend.margin=margin()) +
+                        guides(fill=guide_legend(nrow=2))
+              				  
+  res_eval_plots_indep[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=IndepVal_R, fill=Model)) +
+                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+                        geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                        labs(y="Correlation (SE)", x='', title=pheno[i]) +
+                        coord_cartesian(ylim=c(min(res_eval_i_select$IndepVal_R[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$IndepVal_R[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
+                        theme_half_open() +
+              				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                        background_grid(major = 'y', minor = 'y') +
+                        theme(legend.position="top", legend.title = element_blank(), legend.box="vertical", legend.margin=margin()) +
+                        guides(fill=guide_legend(nrow=2))
+
+  ###
+  # Create plot showing performance of each method compared to pT+clump
+  ###
+
+  res_eval_i_select$CrossVal_R_diff<-res_eval_i_select$CrossVal_R-res_eval_i_select$CrossVal_R[res_eval_i_select$Test == "pT+clump.10FCVal"]
+  
+  res_eval_diff_plots_cross[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=CrossVal_R_diff, fill=Model)) +
+                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+                        geom_errorbar(aes(ymin=CrossVal_R_diff-CrossVal_R_SE, ymax=CrossVal_R_diff+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                        labs(y="Correlation (SE)", x='', title=pheno[i]) +
+                        coord_cartesian(ylim=c(min(res_eval_i_select$CrossVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$CrossVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
+                        theme_half_open() +
+              				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                        background_grid(major = 'y', minor = 'y') +
+                        theme(legend.position="top", legend.title = element_blank(), legend.box="vertical", legend.margin=margin()) +
+                        guides(fill=guide_legend(nrow=2))
+  
+  res_eval_i_select$IndepVal_R_diff<-res_eval_i_select$IndepVal_R-res_eval_i_select$IndepVal_R[res_eval_i_select$Test == "pT+clump.10FCVal"]
+            				  
+  res_eval_diff_plots_indep[[pheno[i]]] <- ggplot( res_eval_i_select, aes(x=Method, y=IndepVal_R_diff, fill=Model)) +
+                        geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+                        geom_errorbar(aes(ymin=IndepVal_R_diff-IndepVal_R_SE, ymax=IndepVal_R_diff+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                        labs(y="Correlation (SE)", x='', title=pheno[i]) +
+                        coord_cartesian(ylim=c(min(res_eval_i_select$IndepVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])-0.02, max(res_eval_i_select$IndepVal_R_diff[res_eval_i_select$Phenotype==pheno[i]])+0.025), clip="on") +
+                        theme_half_open() +
+              				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                        background_grid(major = 'y', minor = 'y') +
+                        theme(legend.position="top", legend.title = element_blank(), legend.box="vertical", legend.margin=margin()) +
+                        guides(fill=guide_legend(nrow=2))
+
+  ###
+  # Create plot showing matrix of differences with significance
+  ###
+
+  library(reshape2)
+  
+  res_comp_i_select$Cross_R_diff[res_comp_i_select$Model_1_Test == res_comp_i_select$Model_2_Test]<-NA
+  res_comp_i_select$Indep_R_diff[res_comp_i_select$Model_1_Test == res_comp_i_select$Model_2_Test]<-NA
+
+  res_comp_i_select$Cross_R_diff_catagory<-'NA'
+  res_comp_i_select$Cross_R_diff_catagory[res_comp_i_select$Cross_R_diff < -0.002]<-'-0.025 - -0.002'
+  res_comp_i_select$Cross_R_diff_catagory[res_comp_i_select$Cross_R_diff < -0.025]<-'-0.08 - -0.025'
+  res_comp_i_select$Cross_R_diff_catagory[res_comp_i_select$Cross_R_diff < -0.08]<-'< -0.08'
+  res_comp_i_select$Cross_R_diff_catagory[res_comp_i_select$Cross_R_diff > -0.002 & res_comp_i_select$Cross_R_diff < 0.002]<-'-0.002 - 0.002'
+  res_comp_i_select$Cross_R_diff_catagory[res_comp_i_select$Cross_R_diff > 0.002]<-'0.002 - 0.025'
+  res_comp_i_select$Cross_R_diff_catagory[res_comp_i_select$Cross_R_diff > 0.025]<-'0.025 - 0.08'
+  res_comp_i_select$Cross_R_diff_catagory[res_comp_i_select$Cross_R_diff > 0.08]<-'> 0.08'
+  
+  res_comp_i_select$Cross_R_diff_catagory<-factor(res_comp_i_select$Cross_R_diff_catagory, level=rev(c('< -0.08','-0.08 - -0.025','-0.025 - -0.002','-0.002 - 0.002','0.002 - 0.025','0.025 - 0.08','> 0.08')))
+
+  res_comp_i_select$Indep_R_diff_catagory<-'NA'
+  res_comp_i_select$Indep_R_diff_catagory[res_comp_i_select$Indep_R_diff < -0.002]<-'-0.025 - -0.002'
+  res_comp_i_select$Indep_R_diff_catagory[res_comp_i_select$Indep_R_diff < -0.025]<-'-0.08 - -0.025'
+  res_comp_i_select$Indep_R_diff_catagory[res_comp_i_select$Indep_R_diff < -0.08]<-'< -0.08'
+  res_comp_i_select$Indep_R_diff_catagory[res_comp_i_select$Indep_R_diff > -0.002 & res_comp_i_select$Indep_R_diff < 0.002]<-'-0.002 - 0.002'
+  res_comp_i_select$Indep_R_diff_catagory[res_comp_i_select$Indep_R_diff > 0.002]<-'0.002 - 0.025'
+  res_comp_i_select$Indep_R_diff_catagory[res_comp_i_select$Indep_R_diff > 0.025]<-'0.025 - 0.08'
+  res_comp_i_select$Indep_R_diff_catagory[res_comp_i_select$Indep_R_diff > 0.08]<-'> 0.08'
+  
+  res_comp_i_select$Indep_R_diff_catagory<-factor(res_comp_i_select$Indep_R_diff_catagory, level=rev(c('< -0.08','-0.08 - -0.025','-0.025 - -0.002','-0.002 - 0.002','0.002 - 0.025','0.025 - 0.08','> 0.08')))
+
+  res_comp_i_select$cross_star<-' '
+  res_comp_i_select$cross_star[res_comp_i_select$Cross_R_diff_pval < 0.05]<-'*'
+  res_comp_i_select$cross_star[res_comp_i_select$Cross_R_diff_pval < 1e-3]<-'**'
+  res_comp_i_select$cross_star[res_comp_i_select$Cross_R_diff_pval < 1e-6]<-'***'
+
+  res_comp_i_select$indep_star<-' '
+  res_comp_i_select$indep_star[res_comp_i_select$Indep_R_diff_pval < 0.05]<-'*'
+  res_comp_i_select$indep_star[res_comp_i_select$Indep_R_diff_pval < 1e-3]<-'**'
+  res_comp_i_select$indep_star[res_comp_i_select$Indep_R_diff_pval < 1e-6]<-'***'
+
+  
+  library(RColorBrewer)
+  res_eval_diff_matrix_cross[[pheno[i]]]<-ggplot(data = res_comp_i_select, aes(Model_2_Test, Model_1_Test, fill=Cross_R_diff_catagory))+
+   geom_tile(color = "white")+
+   labs(y='Test', x='Comparison', title=pheno[i], fill='R difference') +
+    theme_minimal()+ 
+   theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+      size = 8, hjust = 1))+
+   coord_fixed() +
+  geom_text(data=res_comp_i_select, aes(Model_2_Test, Model_1_Test, label = cross_star), color = "black", size = 4, angle = 0, vjust=0.8) +
+  scale_fill_brewer(breaks = levels(res_comp_i_select$Indep_R_diff_catagory), palette = "RdBu", drop=F, na.value='grey')
+
+  res_eval_diff_matrix_indep[[pheno[i]]]<-ggplot(data = res_comp_i_select, aes(Model_2_Test, Model_1_Test, fill=Indep_R_diff_catagory))+
+   geom_tile(color = "white")+
+   labs(y='Test', x='Comparison', title=pheno[i], fill='R difference') +
+   theme_minimal()+ 
+   theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+   size = 8, hjust = 1))+
+   coord_fixed() +
+  geom_text(data=res_comp_i_select, aes(Model_2_Test, Model_1_Test, label = indep_star), color = "black", size = 4, angle = 0, vjust=0.8) +
+  scale_fill_brewer(breaks = levels(res_comp_i_select$Indep_R_diff_catagory), palette = "RdBu", drop=F, na.value='grey')
+}
+
+write.csv(res_eval, '/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe.csv', row.names=F, quote=F)
+
+write.csv(res_comp, '/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff.csv', row.names=F, quote=F)
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_CrossVal_GenoPredPipe.png', units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots_cross)/2))
+print(res_eval_plots_cross)
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_IndepVal_GenoPredPipe.png', units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots_cross)/2))
+print(res_eval_plots_indep)
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_CrossVal_GenoPredPipe.png', units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots_cross)/2))
+print(res_eval_diff_plots_cross)
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_IndepVal_GenoPredPipe.png', units='px', res=300, width=2450, height=1000*ceiling(length(res_eval_plots_cross)/2))
+print(res_eval_diff_plots_indep, ncol = 2)
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff_CrossVal.png', units='px', res=300, width=2450, height=1750*length(res_eval_diff_matrix_cross))
+print(plot_grid(plotlist=res_eval_diff_matrix_cross, ncol = 1))
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff_IndepVal.png', units='px', res=300, width=2450, height=1750*length(res_eval_diff_matrix_cross))
+print(plot_grid(plotlist=res_eval_diff_matrix_indep, ncol = 1))
+dev.off()
+
+###################
+# Average results across phenotypes, creates tables and figures
+###################
+
+res_eval$Method<-gsub('\\..*','',res_eval$Test)
+res_eval$Model<-gsub('.*\\.','',res_eval$Test)
+
+res_eval$Phenotype<-factor(res_eval$Phenotype, level=unique(res_eval$Phenotype))
+res_eval$Method<-factor(res_eval$Method, level=c("pT+clump",'lassosum','PRScs','SBayesR','LDpred2','DBSLMM','All'))
+res_eval$Model<-factor(res_eval$Model, level=c('10FCVal','MultiPRS','PseudoVal','Inf'))
+
+res_eval<-res_eval[order(res_eval$Phenotype, res_eval$Method, res_eval$Model),]
+
+library(data.table)
+
+for(pheno_i in 1:length(pheno)){
+  if(pheno_i==1){
+    pheno_i_dat<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',pheno[pheno_i],'.rowID.txt'))
+    names(pheno_i_dat)[3]<-pheno[pheno_i]
+    pheno_dat<-pheno_i_dat
+  } else {
+    pheno_i_dat<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',pheno[pheno_i],'.rowID.txt'))
+    names(pheno_i_dat)[3]<-pheno[pheno_i]
+    pheno_dat<-merge(pheno_dat, pheno_i_dat, by=c('FID','IID'), all=T)
+  }
+}
+
+# Calculate corelation between all phenotypes
+cors<-abs(cor(as.matrix(pheno_dat[,-1:-2]), use='p'))
+cors<-cors[unique(res_eval$Phenotype,),unique(res_eval$Phenotype,)]
+cors[is.na(cors)]<-0
+
+# Run aggregate function
+library(MAd)
+meta_res_eval<-NULL
+for(i in unique(res_eval$Test)){
+  res_eval_i<-res_eval[res_eval$Test == i,]
+  res_eval_i$Sample<-'Target'
+  
+  cors_i<-cors[(dimnames(cors)[[1]] %in% res_eval_i$Phenotype),(dimnames(cors)[[1]] %in% res_eval_i$Phenotype)]
+
+  CrossVal_agg_res_eval_i<-agg(id=Sample, es=CrossVal_R, var=CrossVal_R_SE^2, cor=cors_i, method="BHHR", mod=NULL, data=res_eval_i)
+  IndepVal_agg_res_eval_i<-agg(id=Sample, es=IndepVal_R, var=IndepVal_R_SE^2, cor=cors_i, method="BHHR", mod=NULL, data=res_eval_i)
+
+  meta_res_eval<-rbind(meta_res_eval, data.frame(  Test=i,
+                                         CrossVal_R=CrossVal_agg_res_eval_i$es[1],
+                                         CrossVal_R_SE=sqrt(CrossVal_agg_res_eval_i$var[1]),
+                                         IndepVal_R=IndepVal_agg_res_eval_i$es[1],
+                                         IndepVal_R_SE=sqrt(IndepVal_agg_res_eval_i$var[1])))
+}
+
+# Calculate difference between methods and p-value using aggregate
+# Truncate difference p-values to stop 0 values
+res_comp$Cross_R_diff_pval[res_comp$Cross_R_diff_pval == 0]<-1e-320
+res_comp$Indep_R_diff_pval[res_comp$Indep_R_diff_pval == 0]<-1e-320
+
+meta_res_diff<-NULL
+for(i in unique(res_eval$Test)){
+  for(k in unique(res_eval$Test)){
+    meta_res_eval_i<-meta_res_eval[meta_res_eval$Test == i,]
+    meta_res_eval_k<-meta_res_eval[meta_res_eval$Test == k,]
+
+    res_comp_i_k<-res_comp[res_comp$Model_1_Test == i & res_comp$Model_2_Test == k,]
+    
+    # Calculate diff SE based on p-value
+    for(j in 1:dim(res_comp_i_k)[1]){
+      if(res_comp_i_k$Cross_R_diff_pval[j] == 1){
+        res_comp_i_k$Cross_R_diff_pval[j]<-1-0.001
+      }
+      if(res_comp_i_k$Indep_R_diff_pval[j] == 1){
+        res_comp_i_k$Indep_R_diff_pval[j]<-1-0.001
+      }
+    }
+
+    res_comp_i_k$Cross_R_diff_z<-qnorm(res_comp_i_k$Cross_R_diff_pval/2)
+    res_comp_i_k$Cross_R_diff_SE<-res_comp_i_k$Cross_R_diff/res_comp_i_k$Cross_R_diff_z
+
+    res_comp_i_k$Indep_R_diff_z<-qnorm(res_comp_i_k$Indep_R_diff_pval/2)
+    res_comp_i_k$Indep_R_diff_SE<-res_comp_i_k$Indep_R_diff/res_comp_i_k$Indep_R_diff_z
+    
+    res_comp_i_k$Sample<-'A'
+    
+    cors_i<-cors[(dimnames(cors)[[1]] %in% res_comp_i_k$Phenotype),(dimnames(cors)[[1]] %in% res_comp_i_k$Phenotype)]
+
+    CrossVal_agg_res_comp_i_k<-agg(id=Sample, es=Cross_R_diff, var=Cross_R_diff_SE^2, cor=cors_i, method="BHHR", mod=NULL, data=res_comp_i_k)
+    
+    IndepVal_agg_res_eval_i<-agg(id=Sample, es=Indep_R_diff, var=Indep_R_diff_SE^2, cor=cors_i, method="BHHR", mod=NULL, data=res_comp_i_k)
+  
+    meta_res_diff<-rbind(meta_res_diff, data.frame(Test_ref=i,
+                                                   Test_targ=k,
+                                                   CrossVal_R_diff=CrossVal_agg_res_comp_i_k$es[1],
+                                                   CrossVal_R_diff_SE=sqrt(CrossVal_agg_res_comp_i_k$var[1]),
+                                                   IndepVal_R_diff=IndepVal_agg_res_eval_i$es[1],
+                                                   IndepVal_R_diff_SE=sqrt(IndepVal_agg_res_eval_i$var[1])))
+  }
+}
+                                         
+meta_res_diff$CrossVal_R_diff_Z<-meta_res_diff$CrossVal_R_diff/meta_res_diff$CrossVal_R_diff_SE
+meta_res_diff$CrossVal_R_diff_P<-2*pnorm(-abs(meta_res_diff$CrossVal_R_diff_Z))              
+meta_res_diff$IndepVal_R_diff_Z<-meta_res_diff$IndepVal_R_diff/meta_res_diff$IndepVal_R_diff_SE
+meta_res_diff$IndepVal_R_diff_P<-2*pnorm(-abs(meta_res_diff$IndepVal_R_diff_Z))              
+meta_res_diff<-meta_res_diff[,c("Test_ref","Test_targ","CrossVal_R_diff","CrossVal_R_diff_Z","CrossVal_R_diff_P","IndepVal_R_diff","IndepVal_R_diff_Z","IndepVal_R_diff_P")]
+
+meta_res_diff$CrossVal_R_diff_Z[meta_res_diff$CrossVal_R_diff == 0]<-0
+meta_res_diff$CrossVal_R_diff_P[meta_res_diff$CrossVal_R_diff == 0]<-1
+meta_res_diff$IndepVal_R_diff_Z[meta_res_diff$IndepVal_R_diff == 0]<-0
+meta_res_diff$IndepVal_R_diff_P[meta_res_diff$IndepVal_R_diff == 0]<-1
+
+# Calculate percentage improvement
+meta_res_diff$CrossVal_R_diff_perc<-NA
+for(i in unique(meta_res_diff$Test_ref)){
+  meta_res_diff$CrossVal_R_diff_perc[meta_res_diff$Test_ref == i]<-meta_res_diff$CrossVal_R_diff[meta_res_diff$Test_ref == i]/meta_res_eval$CrossVal_R[meta_res_eval$Test == i]*100
+}
+
+meta_res_diff$IndepVal_R_diff_perc<-NA
+for(i in unique(meta_res_diff$Test_ref)){
+  meta_res_diff$IndepVal_R_diff_perc[meta_res_diff$Test_ref == i]<-meta_res_diff$IndepVal_R_diff[meta_res_diff$Test_ref == i]/meta_res_eval$IndepVal_R[meta_res_eval$Test == i]*100
+}
+
+write.csv(meta_res_eval, '/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_meta.csv', row.names=F, quote=F)
+
+meta_res_diff<-meta_res_diff[,c("Test_ref","Test_targ","CrossVal_R_diff",'CrossVal_R_diff_perc',"CrossVal_R_diff_Z","CrossVal_R_diff_P","IndepVal_R_diff",'IndepVal_R_diff_perc',"IndepVal_R_diff_Z","IndepVal_R_diff_P")]    
+
+write.csv(meta_res_diff, '/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff_meta.csv', row.names=F, quote=F)
+
+###
+# Create plot showing performance of each method
+###
+
+# To avoid unequal groups, insert NA for missing Model/Method pairs
+meta_res_eval$Method<-gsub('\\..*','',meta_res_eval$Test)
+meta_res_eval$Model<-gsub('.*\\.','',meta_res_eval$Test)
+
+meta_res_eval$Method<-factor(meta_res_eval$Method, levels=c("pT+clump",'lassosum','PRScs','SBayesR','LDpred2','DBSLMM','All'))
+meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('10FCVal','MultiPRS','PseudoVal','Inf'))
+
+for(i in unique(meta_res_eval$Method)){
+  for(k in unique(meta_res_eval$Model)){
+    if(dim(meta_res_eval[meta_res_eval$Method == i & meta_res_eval$Model == k,])[1] > 0){
+      next
+    } else {
+      dud<-data.frame(Test=NA,
+                      CrossVal_R=NA,
+                      CrossVal_R_SE=NA,
+                      IndepVal_R=NA,
+                      IndepVal_R_SE=NA,
+                      Method=i,
+                      Model=k)
+      meta_res_eval<-rbind(meta_res_eval,dud)
+    }
+  }
+}
+
+res_eval<-res_eval[,c('Phenotype','Test','CrossVal_R','IndepVal_R','Method','Model')]
+
+for(i in unique(res_eval$Method)){
+  for(k in unique(res_eval$Model)){
+    if(dim(res_eval[res_eval$Method == i & res_eval$Model == k,])[1] > 0){
+      next
+    } else {
+      dud<-data.frame(Phenotype=NA,
+                      Test=paste0(i,'.',k),
+                      CrossVal_R=NA,
+                      IndepVal_R=NA,
+                      Method=i,
+                      Model=k)
+      res_eval<-rbind(res_eval,dud)
+    }
+  }
+}
+
+library(ggplot2)
+library(cowplot)
+
+meta_res_eval_plots_cross <- ggplot( meta_res_eval, aes(x=Method, y=CrossVal_R, fill=Model)) +
+                      geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+                      geom_errorbar(aes(ymin=CrossVal_R-CrossVal_R_SE, ymax=CrossVal_R+CrossVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                      labs(y="Correlation (SE)", x='') +
+                      theme_half_open() +
+            				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+            				  geom_vline(xintercept = 1.5, linetype="dotted") +
+            				  geom_vline(xintercept = 2.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 3.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 4.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 5.5, linetype="dotted") +
+            				  geom_vline(xintercept = 6.5, linetype="dotted") +
+            				  geom_vline(xintercept = 7.5, linetype="dotted") +
+            				  geom_vline(xintercept = 8.5, linetype="dotted") +
+                      background_grid(major = 'y', minor = 'y')
+
+meta_res_eval_plots_indep <- ggplot( meta_res_eval, aes(x=Method, y=IndepVal_R, fill=Model)) +
+                      geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+                      geom_errorbar(aes(ymin=IndepVal_R-IndepVal_R_SE, ymax=IndepVal_R+IndepVal_R_SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+                      labs(y="Correlation (SE)", x='') +
+                      theme_half_open() +
+            				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+            				  geom_vline(xintercept = 1.5, linetype="dotted") +
+            				  geom_vline(xintercept = 2.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 3.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 4.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 5.5, linetype="dotted") +
+            				  geom_vline(xintercept = 6.5, linetype="dotted") +
+            				  geom_vline(xintercept = 7.5, linetype="dotted") +
+            				  geom_vline(xintercept = 8.5, linetype="dotted") +
+                      background_grid(major = 'y', minor = 'y')
+
+meta_res_eval_plots_cross<-meta_res_eval_plots_cross + coord_cartesian(ylim=c(0,0.25), clip="on")
+meta_res_eval_plots_indep<-meta_res_eval_plots_indep + coord_cartesian(ylim=c(0,0.25), clip="on")
+
+###
+# Create plot showing performance of each method compared to pT+clump
+###
+
+# Calculate differences at the average and phenotype specific level
+meta_res_eval$CrossVal_R_diff<-meta_res_eval$CrossVal_R-meta_res_eval$CrossVal_R[which(meta_res_eval$Test == "pT+clump.10FCVal")]
+
+meta_res_eval$IndepVal_R_diff<-meta_res_eval$IndepVal_R-meta_res_eval$IndepVal_R[which(meta_res_eval$Test == "pT+clump.10FCVal")]
+
+res_eval$CrossVal_R_diff<-NA
+res_eval$IndepVal_R_diff<-NA
+for(i in pheno){
+    res_eval$CrossVal_R_diff[which(res_eval$Phenotype == i)]<-res_eval$CrossVal_R[which(res_eval$Phenotype == i)]-res_eval$CrossVal_R[which(res_eval$Test == "pT+clump.10FCVal" & res_eval$Phenotype == i)]
+
+    res_eval$IndepVal_R_diff[which(res_eval$Phenotype == i)]<-res_eval$IndepVal_R[which(res_eval$Phenotype == i)]-res_eval$IndepVal_R[which(res_eval$Test == "pT+clump.10FCVal" & res_eval$Phenotype == i)]
+}
+
+meta_res_eval_diff_plots_cross <- ggplot( meta_res_eval, aes(x=Method, y=CrossVal_R_diff, fill=Model)) +
+                      geom_point(data=res_eval, mapping=aes(x=Method, y=CrossVal_R_diff, colour=Model), position=position_jitterdodge(jitter.width = 0.4, dodge.width = 0.7), alpha=0.3) +
+                    geom_errorbar(aes(ymin=CrossVal_R_diff-CrossVal_R_SE, ymax=CrossVal_R_diff+CrossVal_R_SE), width=0.9, position=position_dodge(width = 0.7)) +
+                      geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23, colour='black') +
+                      labs(y="Difference in\nCorrelations (SE)", x='') +
+                      theme_half_open() +
+            				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+            				  geom_vline(xintercept = 1.5, linetype="dotted") +
+            				  geom_vline(xintercept = 2.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 3.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 4.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 5.5, linetype="dotted") +
+            				  geom_vline(xintercept = 6.5, linetype="dotted") +
+            				  geom_vline(xintercept = 7.5, linetype="dotted") +
+            				  geom_vline(xintercept = 8.5, linetype="dotted") +
+                      background_grid(major = 'y', minor = 'y') +
+                      ylim(c(-0.08,0.12))
+          				  
+meta_res_eval_diff_plots_indep <- ggplot(meta_res_eval, aes(x=Method, y=IndepVal_R_diff, fill=Model)) +
+                      geom_point(data=res_eval, mapping=aes(x=Method, y=IndepVal_R_diff, colour=Model), position=position_jitterdodge(jitter.width = 0.4, dodge.width = 1), alpha=0.3) +
+                      geom_errorbar(aes(ymin=IndepVal_R_diff-IndepVal_R_SE, ymax=IndepVal_R_diff+IndepVal_R_SE), width=0.9, position=position_dodge(width = 1)) +
+                      geom_point(stat="identity", position=position_dodge(1), size=2, shape=23, colour='black') +
+                      labs(y="Difference in\nCorrelations (SE)", x='') +
+                      theme_half_open() +
+            				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+            				  geom_vline(xintercept = 1.5, linetype="dotted") +
+            				  geom_vline(xintercept = 2.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 3.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 4.5, linetype="dotted") + 
+            				  geom_vline(xintercept = 5.5, linetype="dotted") +
+            				  geom_vline(xintercept = 6.5, linetype="dotted") +
+            				  geom_vline(xintercept = 7.5, linetype="dotted") +
+            				  geom_vline(xintercept = 8.5, linetype="dotted") +
+                      background_grid(major = 'y', minor = 'y') +
+                      ylim(c(-0.08,0.12))
+
+###
+# Create plot showing matrix of differences with significance
+###
+
+library(reshape2)
+
+meta_res_diff$CrossVal_R_diff[meta_res_diff$Test_ref == meta_res_diff$Test_targ]<-NA
+meta_res_diff$IndepVal_R_diff[meta_res_diff$Test_ref == meta_res_diff$Test_targ]<-NA
+
+meta_res_diff$Cross_R_diff_catagory<-'NA'
+meta_res_diff$Cross_R_diff_catagory[meta_res_diff$CrossVal_R_diff < -0.002]<-'-0.025 - -0.002'
+meta_res_diff$Cross_R_diff_catagory[meta_res_diff$CrossVal_R_diff < -0.025]<-'-0.08 - -0.025'
+meta_res_diff$Cross_R_diff_catagory[meta_res_diff$CrossVal_R_diff < -0.08]<-'< -0.08'
+meta_res_diff$Cross_R_diff_catagory[meta_res_diff$CrossVal_R_diff > -0.002 & meta_res_diff$CrossVal_R_diff < 0.002]<-'-0.002 - 0.002'
+meta_res_diff$Cross_R_diff_catagory[meta_res_diff$CrossVal_R_diff > 0.002]<-'0.002 - 0.025'
+meta_res_diff$Cross_R_diff_catagory[meta_res_diff$CrossVal_R_diff > 0.025]<-'0.025 - 0.08'
+meta_res_diff$Cross_R_diff_catagory[meta_res_diff$CrossVal_R_diff > 0.08]<-'> 0.08'
+
+meta_res_diff$Cross_R_diff_catagory<-factor(meta_res_diff$Cross_R_diff_catagory, level=rev(c('< -0.08','-0.08 - -0.025','-0.025 - -0.002','-0.002 - 0.002','0.002 - 0.025','0.025 - 0.08','> 0.08')))
+
+meta_res_diff$Indep_R_diff_catagory<-'NA'
+meta_res_diff$Indep_R_diff_catagory[meta_res_diff$IndepVal_R_diff < -0.002]<-'-0.025 - -0.002'
+meta_res_diff$Indep_R_diff_catagory[meta_res_diff$IndepVal_R_diff < -0.025]<-'-0.08 - -0.025'
+meta_res_diff$Indep_R_diff_catagory[meta_res_diff$IndepVal_R_diff < -0.08]<-'< -0.08'
+meta_res_diff$Indep_R_diff_catagory[meta_res_diff$IndepVal_R_diff > -0.002 & meta_res_diff$IndepVal_R_diff < 0.002]<-'-0.002 - 0.002'
+meta_res_diff$Indep_R_diff_catagory[meta_res_diff$IndepVal_R_diff > 0.002]<-'0.002 - 0.025'
+meta_res_diff$Indep_R_diff_catagory[meta_res_diff$IndepVal_R_diff > 0.025]<-'0.025 - 0.08'
+meta_res_diff$Indep_R_diff_catagory[meta_res_diff$IndepVal_R_diff > 0.08]<-'> 0.08'
+
+meta_res_diff$Indep_R_diff_catagory<-factor(meta_res_diff$Indep_R_diff_catagory, level=rev(c('< -0.08','-0.08 - -0.025','-0.025 - -0.002','-0.002 - 0.002','0.002 - 0.025','0.025 - 0.08','> 0.08')))
+
+meta_res_diff$cross_star<-' '
+meta_res_diff$cross_star[meta_res_diff$CrossVal_R_diff_P < 0.05]<-'*'
+meta_res_diff$cross_star[meta_res_diff$CrossVal_R_diff_P < 1e-3]<-'**'
+meta_res_diff$cross_star[meta_res_diff$CrossVal_R_diff_P < 1e-6]<-'***'
+
+meta_res_diff$indep_star<-' '
+meta_res_diff$indep_star[meta_res_diff$IndepVal_R_diff_P < 0.05]<-'*'
+meta_res_diff$indep_star[meta_res_diff$IndepVal_R_diff_P < 1e-3]<-'**'
+meta_res_diff$indep_star[meta_res_diff$IndepVal_R_diff_P < 1e-6]<-'***'
+
+library(RColorBrewer)
+meta_res_eval_diff_matrix_cross<-ggplot(data = meta_res_diff, aes(Test_targ, Test_ref, fill=Cross_R_diff_catagory))+
+ geom_tile(color = "white")+
+ labs(y='Test', x='Comparison', fill='R difference') +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 8, hjust = 1)) +
+ coord_fixed() +
+geom_text(data=meta_res_diff, aes(Test_ref, Test_targ, label = cross_star), color = "black", size = 4, angle = 0, vjust=0.8) +
+  scale_fill_brewer(breaks = levels(meta_res_diff$Cross_R_diff_catagory), palette = "RdBu", drop=F, na.value='grey')
+
+meta_res_eval_diff_matrix_indep<-ggplot(data = meta_res_diff, aes(Test_targ, Test_ref, fill=Indep_R_diff_catagory))+
+ geom_tile(color = "white")+
+ labs(y='Test', x='Comparison', fill='R difference') +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 8, hjust = 1))+
+ coord_fixed() +
+geom_text(data=meta_res_diff, aes(Test_targ, Test_ref, label = indep_star), color = "black", size = 4, angle = 0, vjust=0.8) +
+  scale_fill_brewer(breaks = levels(meta_res_diff$Indep_R_diff_catagory), palette = "RdBu", drop=F, na.value='grey')
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_CrossVal_meta_GenoPredPipe.png', units='px', res=300, width=1750, height=1000)
+meta_res_eval_plots_cross
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_IndepVal_meta_GenoPredPipe.png', units='px', res=300, width=1750, height=1000)
+meta_res_eval_plots_indep
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_CrossVal_meta_GenoPredPipe.png', units='px', res=300, width=1750, height=1000)
+meta_res_eval_diff_plots_cross
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_IndepVal_meta_GenoPredPipe.png', units='px', res=300, width=1750, height=1000)
+meta_res_eval_diff_plots_indep
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_diff_CrossVal_meta_GenoPredPipe.png', units='px', res=300, width=2000, height=1000)
+meta_res_eval_diff_matrix_cross
+dev.off()
+
+png('/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_diff_IndepVal_meta_GenoPredPipe.png', units='px', res=300, width=2000, height=1000)
+meta_res_eval_diff_matrix_indep
+dev.off()
+
+```
+</details>
+
+</br>
+
+## Phenotype-specific results
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_CrossVal_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_IndepVal_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_CrossVal_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_IndepVal_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff_CrossVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff_IndepVal.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_CrossVal_meta_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_IndepVal_meta_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_CrossVal_meta_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_pTDiff_IndepVal_meta_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_diff_CrossVal_meta_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+cp /scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_diff_IndepVal_meta_GenoPredPipe.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Determine_optimal_polygenic_scoring_approach/
+
+```
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal_GenoPredPipe.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal_GenoPredPipe.png)
+
+\center
+
+</details>
+
+<details><summary>Show UKBB results table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe.csv")
+
+res$CrossVal_pval<-format(res$CrossVal_pval, scientific = TRUE, digits = 3)
+res$IndepVal_pval<-format(res$IndepVal_pval, scientific = TRUE, digits = 3)
+res[,!(names(res) %in% c('Phenotype','Test','CrossVal_pval','IndepVal_pval'))]<-round(res[,!(names(res) %in% c('Phenotype','Test','CrossVal_pval','IndepVal_pval'))], 3)
+res$Method<-gsub('\\..*','',res$Test)
+res$Model<-gsub('.*\\.','',res$Test)
+
+res<-res[,c("Phenotype","Method","Model","CrossVal_R","CrossVal_R_SE","CrossVal_OR","CrossVal_LowCI","CrossVal_HighCI","Cross_LiabR2","Cross_AUC","CrossVal_pval","IndepVal_R","IndepVal_R_SE","IndepVal_OR","IndepVal_LowCI","IndepVal_HighCI","Indep_LiabR2","Indep_AUC","IndepVal_pval")]
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Correlation between PRS model predictions and observed values in UK Biobank')
+```
+
+</details>
+
+<details><summary>Show cross-validation results compared to pT+clump</summary>
+
+<center>
+
+![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_pTDiff_CrossVal_GenoPredPipe.png)
+
+</details>
+
+<details><summary>Show test-validation results compared to pT+clump</summary>
+
+![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_pTDiff_IndepVal_GenoPredPipe.png)
+
+\center
+
+</details>
+
+<details><summary>Show difference results table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff.csv")
+
+res$Cross_R_diff_pval<-format(res$Cross_R_diff_pval, scientific = TRUE, digits = 3)
+res$Indep_R_diff_pval<-format(res$Indep_R_diff_pval, scientific = TRUE, digits = 3)
+
+res[,!grepl("Phenotype|_Test|_diff_pval",names(res))]<-round(res[,!grepl("Phenotype|_Test|_diff_pval",names(res))], 3)
+
+names(res)<-c("Phenotype","Model 1 Test","Model 2 Test","Model 1 CrossVal R","Model 2 CrossVal R","CrossVal R Diff","CrossVal R Diff P","Model 1 IndepVal R","Model 2 IndepVal R","IndepVal R Diff","IndepVal R Diff P")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Difference between methods in UKBB with 1KG reference')
+
+```
+
+</details>
+
+<details><summary>Show cross-validation differences between methods</summary>
+
+<center>
+
+![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_GenoPredPipe_diff_CrossVal.png)
+
+</details>
+
+<details><summary>Show test-validation differences between methods</summary>
+
+![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_GenoPredPipe_diff_IndepVal.png)
+
+\center
+
+</details>
+
+<br/>
+
+
+## Average performance
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_CrossVal_meta_GenoPredPipe.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_IndepVal_meta_GenoPredPipe.png)
+
+\center
+
+</details>
+
+<br/>
+
+## Average performance relative to pT+clump
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_pTDiff_CrossVal_meta_GenoPredPipe.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_pTDiff_IndepVal_meta_GenoPredPipe.png)
+
+\center
+
+</details>
+
+<br/>
+
+## Average performance difference across all methods
+
+<details><summary>Show cross-validation results</summary>
+
+<center>
+
+![Predictive utility estimated using 10-fold cross-validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_diff_CrossVal_meta_GenoPredPipe.png)
+
+</details>
+
+<details><summary>Show test-validation results</summary>
+
+![Predictive utility estimated using test set validation](Images/Determine_optimal_polygenic_scoring_approach/PRS_method_comp_diff_IndepVal_meta_GenoPredPipe.png)
+
+\center
+
+</details>
+
+<details><summary>Show table: UKBB </summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/scratch/groups/ukbiobank/usr/ollie_pain/GenoPredPipe/Validation/PRS_method_comp_GenoPredPipe_diff_meta.csv")
+
+res$CrossVal_R_diff_P<-format(res$CrossVal_R_diff_P, scientific = TRUE, digits = 3)
+res$IndepVal_R_diff_P<-format(res$IndepVal_R_diff_P, scientific = TRUE, digits = 3)
+res[,!grepl("Test_|_diff_P",names(res))]<-round(res[,!grepl("Test_|_diff_P",names(res))], 3)
+
+names(res)<-c("Test","Reference","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")
+res<-res[,c("Reference","Test","CrossVal Diff","CrossVal Diff (%)","CrossVal Diff Z","CrossVal Diff P","IndepVal Diff","IndepVal Diff (%)","IndepVal Diff Z","IndepVal Diff P")]
+
+#res[grepl('clump.10FCVal', res$Reference) & grepl('10FCVal', res$Test),c('Reference','Test',"IndepVal Diff (%)", "IndepVal Diff P")]
+
+#res[grepl('LDpred2.10FCVal', res$Test) & grepl('10FCVal', res$Reference),c('Reference','Test',"IndepVal Diff (%)", "IndepVal Diff P")]
+
+#res[grepl('10FCVal', res$Reference) & grepl('MultiPRS', res$Test),c('Reference','Test',"IndepVal Diff (%)","IndepVal Diff P")]
+
+#res[grepl('PseudoVal|Inf', res$Reference) & grepl('PseudoVal|Inf', res$Test),c('Reference','Test',"IndepVal Diff (%)", "IndepVal Diff P")]
+
+#res[grepl('PRScs.PseudoVal', res$Test),c('Reference','Test',"IndepVal Diff (%)", "IndepVal Diff P")]
+
+#res[grepl('MultiPRS', res$Reference) & grepl('All.MultiPRS', res$Test),c('Reference','Test',"IndepVal Diff (%)", "IndepVal Diff P")]
+
+#res[grepl('10FCVal', res$Reference) & grepl('PseudoVal', res$Test),c('Reference','Test',"IndepVal Diff (%)", "IndepVal Diff P")]
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average difference between methods in UKBB with 1KG reference')
+
+```
+
+</details>
+
+***

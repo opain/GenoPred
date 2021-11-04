@@ -236,6 +236,13 @@ for pop2 in $(echo EAS AMR AFR SAS); do
   done
 done
 
+# Create genome-wide files
+pop1=EUR
+for pop2 in $(echo EAS AMR AFR SAS); do
+head -1 /scratch/groups/biomarkers-brc-mh/Reference_data/CrossPop/Populations_${pop1}_${pop2}/chr1/res.chr1.${pop1}.${pop2}.txt > /scratch/groups/biomarkers-brc-mh/Reference_data/CrossPop/Populations_${pop1}_${pop2}/CrossPop.${pop1}.${pop2}.GW.txt
+tail -n +2 -q /scratch/groups/biomarkers-brc-mh/Reference_data/CrossPop/Populations_${pop1}_${pop2}/chr*/res.chr*.${pop1}.${pop2}.txt >> /scratch/groups/biomarkers-brc-mh/Reference_data/CrossPop/Populations_${pop1}_${pop2}/CrossPop.${pop1}.${pop2}.GW.txt
+done
+
 # This scripts works well enough but the memory consumption is high. I am sure bigsnpr/bigstatsr functions could make this more efficient.
 # Also, the output may vary slightly if the sliding window step size is changed due to the inclusion SNPs beyond 3cM. Although these SNPs would have a correlation of 0 due to bigsnpr window size, inclusion of the zero values my slightly influence the result.
 ```
@@ -1295,23 +1302,27 @@ write.table(pheno, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_ph
 
 ***
 
-## Run GWAS in EUR training sample
+## Run GWAS
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 mkdir /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS
 
-for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
-  mkdir /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pheno}
-  for chr in $(seq 1 22); do
-      sbatch -p brc,shared /users/k1806347/brc_scratch/Software/plink1.9.sh \
-        --bfile /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
-        --pheno /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/Residuals/EUR_train/${pheno}_resid.pheno \
-        --assoc \
-        --maf 0.01 \
-        --geno 0.05 \
-        --allow-no-sex \
-        --out /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.chr${chr}
+for pop in $(echo EUR_train AFR AMR EAS SAS); do
+  mkdir /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}
+  for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
+    mkdir /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}/${pheno}
+    for chr in $(seq 1 22); do
+        sbatch -p brc,shared /users/k1806347/brc_scratch/Software/plink1.9.sh \
+          --bfile /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr${chr} \
+          --pheno /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/Residuals/${pop}/${pheno}_resid.pheno \
+          --assoc \
+          --maf 0.01 \
+          --geno 0.05 \
+          --allow-no-sex \
+          --out /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.chr${chr}
+    done
+    sleep 45
   done
 done
 
@@ -1336,30 +1347,34 @@ for(chr in 1:22){
 
 pheno<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', header=F)$V1
 
-for(pheno_i in pheno){
-print(pheno_i)
-gwas_i<-NULL
-  for(chr in 1:22){
-        gwas_i_chr<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.chr',chr,'.qassoc'))
-        gwas_i_chr<-merge(gwas_i_chr, bim, by.x='SNP', by.y='V2')
-        gwas_i_chr<-gwas_i_chr[,c('CHR','SNP','BP','V5','V6','BETA','SE','P','NMISS')]
-        names(gwas_i_chr)<-c('CHR','SNP','ORIGBP','A1','A2','BETA','SE','P','N')
-        gwas_i_chr<-gwas_i_chr[complete.cases(gwas_i_chr),]
-    gwas_i<-rbind(gwas_i, gwas_i_chr)
+pop<-c('EUR_train','EUR_test','AFR','AMR','EAS','SAS')
+
+for(pop_i in pop){
+  for(pheno_i in pheno){
+  print(pheno_i)
+  gwas_i<-NULL
+    for(chr in 1:22){
+          gwas_i_chr<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.chr',chr,'.qassoc'))
+          gwas_i_chr<-merge(gwas_i_chr, bim, by.x='SNP', by.y='V2')
+          gwas_i_chr<-gwas_i_chr[,c('CHR','SNP','BP','V5','V6','BETA','SE','P','NMISS')]
+          names(gwas_i_chr)<-c('CHR','SNP','ORIGBP','A1','A2','BETA','SE','P','N')
+          gwas_i_chr<-gwas_i_chr[complete.cases(gwas_i_chr),]
+      gwas_i<-rbind(gwas_i, gwas_i_chr)
+    }
+    
+    fwrite(gwas_i, paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean'), sep=' ', na='NA', quote=F)
+  
+    # Create manhattan plot
+    # Truncate p values at the minimum p-value that is not equal to 0
+    gwas_i$P[gwas_i$P == 0]<-min(gwas_i$P[gwas_i$P != 0])
+    bitmap(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.Mahattan.png'), res=300, unit='px', width=4000, height=3000)
+    manhattan(gwas_i[gwas_i$P < 1e-4,], bp='ORIGBP')
+    dev.off()
+    
+    # Run GWAS sumstats cleaner
+    system(paste0('/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/sumstat_cleaner/sumstat_cleaner.R --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr --ref_freq_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr --output /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC'))
+  
   }
-  
-  fwrite(gwas_i, paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean'), sep=' ', na='NA', quote=F)
-
-  # Create manhattan plot
-  # Truncate p values at the minimum p-value that is not equal to 0
-  gwas_i$P[gwas_i$P == 0]<-min(gwas_i$P[gwas_i$P != 0])
-  bitmap(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.Mahattan.png'), res=300, unit='px', width=4000, height=3000)
-  manhattan(gwas_i[gwas_i$P < 1e-4,], bp='ORIGBP')
-  dev.off()
-  
-  # Run GWAS sumstats cleaner
-  system(paste0('/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/sumstat_cleaner/sumstat_cleaner.R --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr --ref_freq_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr --output /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC'))
-
 }
 
 ```
@@ -1367,7 +1382,7 @@ gwas_i<-NULL
 
 ***
 
-## Estimate heritability
+## Estimate heritability using LDSC
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
@@ -1377,9 +1392,9 @@ gwas_i<-NULL
 
 for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
   sbatch -p brc,shared ~/brc_scratch/Software/munge_sumstats.sh \
-   --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
+   --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
    --merge-alleles /users/k1806347/brc_scratch/Data/ldsc/w_hm3.snplist \
-   --out /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC
+   --out /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC
 done
 
 ####
@@ -1388,10 +1403,10 @@ done
 
 for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
    sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh \
-     --h2 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.sumstats.gz \
+     --h2 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.sumstats.gz \
      --ref-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ \
      --w-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ \
-     --out /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC
+     --out /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC
 done
 
 ```
@@ -1407,7 +1422,7 @@ pheno<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_na
 
 res<-NULL
 for(pheno_i in pheno){
-      h2_i<-read.table(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC.log'), header=F, sep='&')
+      h2_i<-read.table(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC.log'), header=F, sep='&')
       
       res<-rbind(res, data.frame( biomarker=pheno_i,
                                   h2_obs=gsub('Total Observed scale h2: ','',h2_i$V1[grepl('Total Observed scale h2: ',h2_i$V1)]),
@@ -1428,6 +1443,106 @@ write.csv(res, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv'
 ```
 </details>
 
+<details><summary>Show heritability table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv")
+
+res$h2_obs_p<-format(res$h2_obs_p, scientific = TRUE, digits = 3)
+
+res<-res[,c('biomarker','h2_obs','h2_obs_p','intercept','lambda')]
+names(res)<-c('Phenotype','SNP-h2','p','intercept','lambda')
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Heritability')
+```
+
+</details>
+
+***
+
+
+## Estimate h2 and rG using POPCORN
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+####
+# Munge sumstats for non-EUR
+####
+
+for pop in $(echo AFR AMR EAS SAS);do
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
+  sbatch -p brc,shared ~/brc_scratch/Software/munge_sumstats.sh \
+   --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
+   --merge-alleles /users/k1806347/brc_scratch/Data/ldsc/w_hm3.snplist \
+   --out /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC
+done
+done
+
+####
+# Run POPCORN
+####
+
+for pop2 in $(echo AFR AMR EAS SAS);do
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
+   sbatch -p test ~/brc_scratch/Software/popcorn.sh fit -v 3 \
+     --sfile1 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.sumstats.gz \
+     --sfile2 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop2}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.sumstats.gz \
+     --cfile /scratch/groups/biomarkers-brc-mh/Reference_data/POPCORN/Ollie_Pain/CSCORES/EUR_${pop2}/EUR.${pop2}.GW.scores.gen_effect.txt \
+     --gen_effect \
+     /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/POPCORN_rG/EUR_train_vs_${pop2}_${pheno}_rG_gen_effect
+done
+
+```
+
+```{R, eval=F, echo=T}
+####
+# Tabulate the LDSC results
+####
+
+library(data.table)
+
+pheno<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', header=F)$V1
+
+res<-NULL
+for(pheno_i in pheno){
+      h2_i<-read.table(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC.log'), header=F, sep='&')
+      
+      res<-rbind(res, data.frame( biomarker=pheno_i,
+                                  h2_obs=gsub('Total Observed scale h2: ','',h2_i$V1[grepl('Total Observed scale h2: ',h2_i$V1)]),
+                                  intercept=gsub('Intercept: ','',h2_i$V1[grepl('Intercept: ',h2_i$V1)]),
+                                  lambda=gsub('Lambda GC: ','',h2_i$V1[grepl('Lambda GC: ',h2_i$V1)])))
+                                  
+}
+
+# Calculate P value of heritability
+res$h2_obs_est<-as.numeric(gsub(' .*','',res$h2_obs))
+res$h2_obs_se<-as.numeric(gsub("\\)",'',gsub(".*\\(",'',res$h2_obs)))
+res$h2_obs_p<-pnorm(-abs(res$h2_obs_est/res$h2_obs_se))
+res$h2_obs_est<-NULL
+res$h2_obs_se<-NULL
+
+write.csv(res, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv', row.names=F, quote=F)
+
+```
+</details>
+
+<details><summary>Show heritability table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv")
+
+res$h2_obs_p<-format(res$h2_obs_p, scientific = TRUE, digits = 3)
+
+res<-res[,c('biomarker','h2_obs','h2_obs_p','intercept','lambda')]
+names(res)<-c('Phenotype','SNP-h2','p','intercept','lambda')
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Heritability')
+```
+
+</details>
+
 ***
 
 ## Perform polygenic scoring
@@ -1445,7 +1560,7 @@ for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_phe
   sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
     --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
     --ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/${pop1}_samples.keep \
-    --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
+    --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
     --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
     --output /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/score_files/pt_clump/${pheno}/unstratified/${pop1}_unstratified \
     --ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list
@@ -1489,7 +1604,7 @@ echo ${type}
 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator.R \
         --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
         --ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/${pop1}_samples.keep \
-        --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
+        --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
         --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
         --extract /scratch/groups/biomarkers-brc-mh/Reference_data/CrossPop/Populations_${pop1}_${pop2}/${pop1}_${pop2}.GW.${type}_quant_${quant}.txt \
         --output /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/score_files/pt_clump/${pheno}/${type}/${quant}/${pop2}_quant_${quant} \
@@ -1498,6 +1613,401 @@ echo ${type}
 EOF
 
 sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt | cut -d' ' -f1)%40 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_sbatch.sh
+
+############
+# LD correlation weighted PRS
+############
+
+# Provide variant property file contaiing LD correlation for each variant across populations
+# Then shrink BETA according to LD correlation, using a range of weights
+# BETA*(LD_cor^weight)
+# weight ranging from 0,0.5,1,1.5,2
+
+# Stratified PRS
+pop1=EUR
+> /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt
+for pop2 in $(echo EAS AMR AFR SAS); do
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
+for weight in 0 0.5 1 1.5 2; do
+if [ ! -f /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/score_files/pt_clump/${pheno}/weight/${weight}/${pop2}_${weight}.EUR.scale ]; then
+echo ${pop2} ${pheno} ${weight} >> /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt
+fi
+done
+done
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH -J CrossPop_score
+
+pop1=EUR
+pop2=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt)
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt)
+weight=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $3}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt)
+
+echo ${pop1}
+echo ${pop2}
+echo ${pheno}
+echo ${weight} 
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator_weighted.R \
+        --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
+        --ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/${pop1}_samples.keep \
+        --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
+        --annot /scratch/groups/biomarkers-brc-mh/Reference_data/CrossPop/Populations_${pop1}_${pop2}/CrossPop.${pop1}.${pop2}.GW.txt \
+        --annot_col_name cor_score \
+        --annot_weight ${weight} \
+        --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
+        --output /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/score_files/pt_clump/${pheno}/weight/${weight}/${pop2}_${weight} \
+        --ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt | cut -d' ' -f1)%40 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_sbatch.sh
+
+sbatch --array 1-1 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_sbatch.sh
+
+
+############
+# LD correlation weighted PRS (post-clump)
+############
+
+# Provide variant property file contaiing LD correlation for each variant across populations
+# Then shrink BETA according to LD correlation, using a range of weights
+# BETA*(LD_cor^weight)
+# weight ranging from 0,0.5,1,1.5,2
+
+# Stratified PRS
+pop1=EUR
+> /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt
+for pop2 in $(echo EAS AMR AFR SAS); do
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
+for weight in 0 0.5 1 1.5 2; do
+if [ ! -f /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/score_files/pt_clump/${pheno}/weight_postclump/${weight}/${pop2}_${weight}.EUR.scale ]; then
+echo ${pop2} ${pheno} ${weight} >> /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt
+fi
+done
+done
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH -J CrossPop_score
+
+pop1=EUR
+pop2=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt)
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt)
+weight=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $3}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt)
+
+echo ${pop1}
+echo ${pop2}
+echo ${pheno}
+echo ${weight} 
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator/polygenic_score_file_creator_weighted.R \
+        --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
+        --ref_keep /users/k1806347/brc_scratch/Data/1KG/Phase3/keep_files/${pop1}_samples.keep \
+        --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
+        --annot /scratch/groups/biomarkers-brc-mh/Reference_data/CrossPop/Populations_${pop1}_${pop2}/CrossPop.${pop1}.${pop2}.GW.txt \
+        --annot_col_name cor_score \
+        --annot_weight ${weight} \
+        --postclump T \
+        --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
+        --output /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/score_files/pt_clump/${pheno}/weight_postclump/${weight}/${pop2}_${weight} \
+        --ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_todo.txt | cut -d' ' -f1)%40 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_sbatch.sh
+
+sbatch --array 1-1 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/score_sbatch.sh
+
+```
+</details>
+
+***
+
+### Characterise associations
+
+<details><summary>Show code</summary>
+```{R, eval=F, echo=T}
+library(data.table)
+
+pheno<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', header=F)$V1
+
+pop<-c('AFR','AMR','EAS','SAS')
+
+g_cor_test_all<-NULL
+for(pheno_i in pheno){
+  print(pheno_i)
+  gwas<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC.gz'))
+  gwas<-gwas[order(gwas$CHR, gwas$BP),]
+
+  indep<-NULL
+  for(chr in 1:22){
+    indep<-c(indep, fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/EUR_EUR_test/score_files/pt_clump/',pheno_i,'/unstratified/EUR_unstratified.chr',chr,'.score'))$V1)
+  }
+  
+  gwas_indep<-gwas[(gwas$SNP %in% indep),]
+  
+  for(pop_i in pop){
+      print(pop_i)
+    # Check correlation between LD correlation, Fst and BETA
+    annot<-NULL
+    for(chr in 1:22){
+      annot<-rbind(annot,fread(paste0('/scratch/groups/biomarkers-brc-mh/Reference_data/CrossPop/Populations_EUR_',pop_i,'/chr',chr,'/res.chr',chr,'.EUR.',pop_i,'.txt')))
+    }
+    
+    gwas_annot_match<-merge(gwas_indep, annot[,c('SNP','A1','A2','af_1','af_2','Fst','ldscore_1','ldscore_2','cov_score','cor_score'), with=F], by=c('SNP','A1','A2'))
+    gwas_annot_flip<-merge(gwas_indep, annot[,c('SNP','A1','A2','af_1','af_2','Fst','ldscore_1','ldscore_2','cov_score','cor_score'), with=F], by.x=c('SNP','A1','A2'),by.y=c('SNP','A2','A1'))
+    gwas_annot_flip$af_1<-1-gwas_annot_flip$af_1
+    gwas_annot_flip$af_2<-1-gwas_annot_flip$af_2
+    
+    gwas_annot<-rbind(gwas_annot_match, gwas_annot_flip)
+    gwas_annot<-gwas_annot[order(gwas_annot$CHR, gwas_annot$BP),]
+    
+    # Flip effects to minor allle
+    gwas_annot$A3<-NA
+    gwas_annot$A3[gwas_annot$af_1 > 0.5]<-gwas_annot$A2[gwas_annot$af_1 > 0.5]
+    gwas_annot$A2[gwas_annot$af_1 > 0.5]<-gwas_annot$A1[gwas_annot$af_1 > 0.5]
+    gwas_annot$A1[gwas_annot$af_1 > 0.5]<-gwas_annot$A3[gwas_annot$af_1 > 0.5]
+    gwas_annot$A3<-NULL
+    gwas_annot$BETA[gwas_annot$af_1 > 0.5]<--gwas_annot$BETA[gwas_annot$af_1 > 0.5]
+    gwas_annot$af_1[gwas_annot$af_1 > 0.5]<-1-gwas_annot$af_1[gwas_annot$af_1 > 0.5]
+  
+    cor(gwas_annot$af_1,gwas_annot$af_2)
+    cor(abs(gwas_annot$BETA),gwas_annot$af_1)
+    cor(abs(gwas_annot$BETA),gwas_annot$af_2)
+    summary(lm(scale(abs(gwas_annot$BETA)) ~ scale(gwas_annot$af_1) + scale(gwas_annot$af_2)))
+    cor(abs(gwas_annot$BETA),gwas_annot$Fst)
+    cor(gwas_annot$ldscore_1,gwas_annot$ldscore_2)
+    cor(abs(gwas_annot$BETA),gwas_annot$ldscore_1)
+    cor(abs(gwas_annot$BETA),gwas_annot$ldscore_2)
+    summary(lm(scale(abs(gwas_annot$BETA)) ~ scale(gwas_annot$ldscore_1) + scale(gwas_annot$ldscore_2)))
+    cor(abs(gwas_annot$BETA),gwas_annot$cov_score)
+    cor(abs(gwas_annot$BETA),gwas_annot$cor_score)
+    
+    # Low MAF SNPs have larger abs(BETA)
+    # MAF correlation between ancestries is substantial
+    # Controlling for EUR MAF, abs(BETA) is slightyl larger for high MAF SNPs
+    # LD score highly correlated across ancestries
+    # Small independent correlation between LD score in EUR and AFR ancestries and abs(BETA)
+    # Therefore LD covariance is correlated with BETA
+    # LD correlation and Fst show minimal correlation with abs(BETA)
+    
+    # Therefore stratifying SNPs by LD correlation and Fst is appropriate, as these metrics have a low correlation with abs(BETA) but may reflect the portability of SNPs across populations. Now test whether the Fst and LD_cor influence the correlation between betas across population. This can be modelled as an interaction. e.g. lm(beta_1 ~ beta_2*Fst)
+    
+    # Read in pop_i GWAS results
+    gwas_pop_i<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC.gz'))
+    # Merge with gwas_annot
+    names(gwas_pop_i)<-c('SNP','A1','A2','CHR','BP','BETA_2','SE_2','P_2','N_2','REF.FREQ')
+    gwas_merged_match<-merge(gwas_annot, gwas_pop_i[,c('SNP','A1','A2','BETA_2','SE_2','P_2','N_2')], by=c('SNP','A1','A2'))
+    gwas_merged_flip<-merge(gwas_annot, gwas_pop_i[,c('SNP','A1','A2','BETA_2','SE_2','P_2','N_2')], , by.x=c('SNP','A1','A2'),by.y=c('SNP','A2','A1'))
+    
+    gwas_merged_flip$BETA_2<--gwas_merged_flip$BETA
+    gwas_merged<-rbind(gwas_merged_match, gwas_merged_flip)
+    gwas_merged$same_sign<-F
+    gwas_merged$same_sign[(gwas_merged$BETA > 0 & gwas_merged$BETA_2 >0 )|(gwas_merged$BETA < 0 & gwas_merged$BETA_2 <0)]  <-T
+    
+    # Perform sign test using  range of p-val thresholds 
+    # Test interaction with Fst and LD correlation as well
+    thresh_vec<-c(1,0.5,0.1,0.01,0.001,1e-5,5e-8)
+    thresh_tab<-data.frame(p0=c(thresh_vec[-1],0),
+                           p1=thresh_vec)
+    g_cor_test<-NULL
+    for(thresh_i in 1:nrow(thresh_tab)){
+      gwas_merged_subset<-gwas_merged[gwas_merged$P > thresh_tab$p0[thresh_i] & gwas_merged$P < thresh_tab$p1[thresh_i],]
+      
+      basic<-summary(lm(scale(gwas_merged_subset$BETA) ~ scale(gwas_merged_subset$BETA_2)))
+      Fst_int<-summary(lm(scale(gwas_merged_subset$BETA) ~ scale(gwas_merged_subset$BETA_2)*scale(gwas_merged_subset$Fst)))
+      LDcor_int<-summary(lm(scale(gwas_merged_subset$BETA) ~ scale(gwas_merged_subset$BETA_2)*scale(gwas_merged_subset$cor_score)))
+      
+      g_cor_test<-rbind(g_cor_test, data.frame(p0=thresh_tab$p0[thresh_i],
+                                               p1=thresh_tab$p1[thresh_i],
+                                               thresh=paste0(thresh_tab$p0[thresh_i],' - ',thresh_tab$p1[thresh_i]),
+                                               cor_est=coef(basic)[2,1],
+                                               cor_se=coef(basic)[2,2],
+                                               cor_p=coef(basic)[2,4],
+                                               Fst_int_est=coef(Fst_int)[4,1],
+                                               Fst_int_se=coef(Fst_int)[4,2],
+                                               Fst_int_p=coef(Fst_int)[4,4],
+                                               LDcor_int_est=coef(LDcor_int)[4,1],
+                                               LDcor_int_se=coef(LDcor_int)[4,2],
+                                               LDcor_int_p=coef(LDcor_int)[4,4],
+                                                  sign_test_P=binom.test(sum(gwas_merged_subset$same_sign), nrow(gwas_merged_subset))$ p.value, 
+                                               Nsnp=nrow(gwas_merged_subset)))
+    }
+    
+    # ld cor strongly mediates the association between BETA and BETA2. When including the ld_cor interaction, the association between BETA and BETA2 becomes non-significant.
+    # Fst does not show a strong interaction.
+    
+    # Format for plotting
+    g_cor_test_melt<-NULL
+    for(mod in c('cor','Fst_int','LDcor_int')){
+      tmp<-g_cor_test[,c('thresh',paste0(mod,c('_est','_se','_p')))]
+      names(tmp)<-c('pT','est','se','p')
+      tmp$mod<-mod
+      g_cor_test_melt<-rbind(g_cor_test_melt, tmp)
+    }
+    g_cor_test_melt$pT<-factor(g_cor_test_melt$pT, levels=rev(unique(g_cor_test_melt$pT)))
+    
+    library(ggplot2)
+    library(cowplot)
+    library(RColorBrewer)
+    
+    png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/mod_res.png'), res=300, units = 'px', width=2000, height=1200)  
+print(ggplot(g_cor_test_melt, aes(x=mod, y=est, fill=pT)) +
+      geom_bar(stat="identity", 
+               position=position_dodge()) +
+      geom_errorbar(aes(ymin=est-se, ymax=est+se), width=.2,
+                     position=position_dodge(.9)) +
+      scale_fill_manual(values = rev(brewer.pal(9, "Blues"))) +
+      labs(x='Effect', y='Estimate', title=paste0(pop_i,': ',pheno_i)) +
+  theme_half_open() +
+  background_grid())
+    dev.off()
+    
+    g_cor_test$pop1<-'EUR_train'
+    g_cor_test$pop2<-pop_i
+    g_cor_test$pheno<-pheno_i
+    
+    g_cor_test_all<-rbind(g_cor_test_all, g_cor_test)
+    
+    ## Alter EUR BETA according to LD correlatino
+    ## Then retest correlation and interaction with LD correlation
+    g_cor_test_2<-NULL
+    for(thresh_i in 1:nrow(thresh_tab)){
+        gwas_merged_subset<-gwas_merged[gwas_merged$P > thresh_tab$p0[thresh_i] & gwas_merged$P < thresh_tab$p1[thresh_i],]
+      for(weight in seq(0,2,0.1)){
+        gwas_merged_subset$BETA_mod<-gwas_merged_subset$BETA
+        gwas_merged_subset$BETA_mod<-gwas_merged_subset$BETA*(gwas_merged_subset$cor_score^weight)
+        
+      basic<-summary(lm(scale(gwas_merged_subset$BETA_mod) ~ scale(gwas_merged_subset$BETA_2)))
+      LDcor_int<-summary(lm(scale(gwas_merged_subset$BETA_mod) ~ scale(gwas_merged_subset$BETA_2)*scale(gwas_merged_subset$cor_score)))
+      
+      g_cor_test_2<-rbind(g_cor_test_2, data.frame(p0=thresh_tab$p0[thresh_i],
+                                               p1=thresh_tab$p1[thresh_i],
+                                               thresh=paste0(thresh_tab$p0[thresh_i],' - ',thresh_tab$p1[thresh_i]),
+                                               weight=weight,
+                                               cor_est=coef(basic)[2,1],
+                                               cor_se=coef(basic)[2,2],
+                                               cor_p=coef(basic)[2,4],
+                                               LDcor_int_est=coef(LDcor_int)[4,1],
+                                               LDcor_int_se=coef(LDcor_int)[4,2],
+                                               LDcor_int_p=coef(LDcor_int)[4,4],                                               Nsnp=nrow(gwas_merged_subset)))        
+      }
+    }
+    
+    library(ggplot2)
+    library(cowplot)
+    library(RColorBrewer)
+    
+    g_cor_test_2$pT<-factor(g_cor_test_2$thresh, levels=rev(unique(g_cor_test_2$thresh)))
+
+    png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/mod_res_ldcor_weighted.png'), res=300, units = 'px', width=5000, height=1200)  
+print(ggplot(g_cor_test_2, aes(x=weight, y=cor_est, fill=weight)) +
+      geom_bar(stat="identity", 
+               position=position_dodge()) +
+      geom_errorbar(aes(ymin=cor_est-cor_se, ymax=cor_est+cor_se), width=.1,
+                     position=position_dodge(.9)) +
+      labs(x='Weight', y='Estimate', title=paste0(pop_i,': ',pheno_i)) +
+  theme_half_open() +
+  background_grid() + 
+    facet_grid(. ~ pT))
+
+    dev.off()
+    # This nicely shows that the correlation between BETAs can be increased by weighting variants by LD correlation. This does not change the independent variants selected though, which it would if BETAs are modified prior to LD clumping.
+
+    # Make a plot showing the difference in correlation between BETAs in different LD correlation deciles
+    LD_cor_plot_list<-list()
+    Fst_plot_list<-list()
+    
+    for(thresh_i in 1:nrow(thresh_tab)){
+        gwas_merged_subset<-gwas_merged[gwas_merged$P > thresh_tab$p0[thresh_i] & gwas_merged$P < thresh_tab$p1[thresh_i],]
+    gwas_merged_subset$cor_score_quant<-as.numeric(cut( gwas_merged_subset$cor_score, quantile(gwas_merged_subset$cor_score, prob = seq(0, 1, length = 6), type = 5), include.lowest=T))
+    gwas_merged_subset$Fst_quant<-as.numeric(cut( gwas_merged_subset$Fst, quantile(gwas_merged_subset$Fst, prob = seq(0, 1, length = 6), type = 5), include.lowest=T))
+    
+    library(ggplot2)
+    library(cowplot)
+    LD_cor_plot_list[[as.character(thresh)]]<-ggplot(gwas_merged_subset, aes(x = BETA, y = BETA_2, colour=cor_score_quant, group=cor_score_quant)) + 
+  geom_point() +
+  labs(x="BETA (EUR)", y=paste0("BETA (",pop_i,")"), title=paste0(pheno_i," (pT=",thresh,")"), colour='LD correlation\nQuantile') +
+  stat_smooth(method = "lm") +
+  theme_half_open() +
+  background_grid()
+
+    Fst_plot_list[[as.character(thresh)]]<-ggplot(gwas_merged_subset, aes(x = BETA, y = BETA_2, colour=Fst_quant, group=Fst_quant)) + 
+  geom_point() +
+  labs(x="BETA (EUR)", y=paste0("BETA (",pop_i,")"), title=paste0(pheno_i," (pT=",thresh,")"), colour='Fst Quantile') +
+  stat_smooth(method = "lm") +
+  theme_half_open() +
+  background_grid()
+
+  # This fits with the findings from PRS analysis, that high LD correlation SNPs predict better across populations.
+  # Now what is the best way to harness that information.      
+    }
+  }
+}
+
+  # Output plots
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/LD_cor_int.png'), res=300, units = 'px', width=2000, height=10000)  
+  print(plot_grid(plotlist=LD_cor_plot_list, ncol = 1))
+  dev.off()
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/Fst_int.png'), res=300, units = 'px', width=2000, height=10000)  
+  print(plot_grid(plotlist=Fst_plot_list, ncol = 1))
+  dev.off()
+  }
+}
+
+  # Create miami plot comparing some EUR GWAS hits to non-EUR
+  # Colour points by LD correlation
+  # Show before and after adjusting BETA/P for LD correlation
+  n_examp<-5
+  wind<-0.05e6
+  for(indep_i in gwas_indep[gwas_indep$P < 5e-8,]$SNP[1:n_examp]){
+    EUR_gwas_examp<-gwas[gwas$BP > (gwas$BP[gwas$SNP == indep_i]-wind) & gwas$BP < (gwas$BP[gwas$SNP == indep_i]+wind)]
+    pop_gwas_examp<-gwas_pop_i[gwas_pop_i$BP > (gwas_pop_i$BP[gwas_pop_i$SNP == indep_i]-wind) & gwas_pop_i$BP < (gwas_pop_i$BP[gwas_pop_i$SNP == indep_i]+wind)]
+    
+    EUR_gwas_examp$Population<-'EUR'
+    pop_gwas_examp$Population<-pop_i
+    names(pop_gwas_examp)<-names(EUR_gwas_examp)
+    both_examp<-rbind(EUR_gwas_examp, pop_gwas_examp)
+    both_examp_annot<-merge(both_examp, annot)
+    both_examp_annot<-merge(both_examp, annot[,c('SNP','Fst','cor_score'), with=F], by='SNP')
+    
+    both_examp_annot$minuslog10P<--log10(both_examp_annot$P)
+    both_examp_annot$minuslog10P[both_examp_annot$Population != 'EUR']<--both_examp_annot$minuslog10P[both_examp_annot$Population != 'EUR']
+    
+    print(ggplot(both_examp_annot, aes(x=BP, y=minuslog10P, colour=cor_score)) +
+      geom_point() +
+      scale_color_gradient2(midpoint=0, low="blue", mid="white", high="red", space ="Lab" ) +
+      theme_half_open() +
+      background_grid())
+    
+    # Modify p-value in EUR according to LD_correlation
+    both_examp_annot$Z<-abs(qnorm(both_examp_annot$P/2))
+    for(weight in c(0,0.5,1,2,4)){
+      both_examp_annot$Z2<-both_examp_annot$Z
+      both_examp_annot$Z2[both_examp_annot$Population == 'EUR']<-both_examp_annot$Z[both_examp_annot$Population == 'EUR']*(both_examp_annot$cor_score[both_examp_annot$Population == 'EUR']^weight)
+      both_examp_annot$P2<-2*pnorm(-abs(both_examp_annot$Z2))
+      both_examp_annot$minuslog10P2<--log10(both_examp_annot$P2)
+      both_examp_annot$minuslog10P2[both_examp_annot$Population != 'EUR']<--both_examp_annot$minuslog10P2[both_examp_annot$Population != 'EUR']
+
+      print(ggplot(both_examp_annot, aes(x=BP, y=minuslog10P2, colour=cor_score)) +
+        geom_point() +
+        scale_color_gradient2(midpoint=0, low="blue", mid="white", high="red", space ="Lab" ) +
+        theme_half_open() +
+        background_grid())
+    }
+    # This nicely shows how weighting variants by cor_score changes the lead variant
+}
+}
 
 ```
 </details>
@@ -1578,7 +2088,52 @@ EOF
 
 sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_todo.txt | cut -d' ' -f1)%100 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_sbatch.sh
 
-sbatch --array 1-1 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_sbatch.sh
+########
+# LD cor weighted PRS
+########
+
+pop1=EUR
+> /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_todo.txt
+for pop2 in $(echo EAS AMR AFR SAS); do
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
+for weight in 0 0.5 1 1.5 2; do
+
+if [ ! -f /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/prs/pt_clump/${pheno}/weight/${weight}/${pop2}_${weight}.weight.profiles ]; then
+echo ${pop2} ${pheno} ${weight} >> /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_todo.txt
+fi
+done
+done
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH -J CrossPop_prs
+
+pop1=EUR
+pop2=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_todo.txt)
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_todo.txt)
+weight=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $3}' /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_todo.txt)
+
+echo ${pop1}
+echo ${pop2}
+echo ${pheno}
+echo ${weight} 
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer.R \
+                --target_plink_chr /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+                --target_keep /users/k1806347/brc_scratch/Data/UKBB/DiverseAncestry/QC_pop/UKB.postQC.${pop2}.unrel.keep \
+                --ref_score /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/score_files/pt_clump/${pheno}/weight/${weight}/${pop2}_${weight} \
+                --ref_scale /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/score_files/pt_clump/${pheno}/weight/${weight}/${pop2}_${weight}.${pop2}.scale \
+                --ref_freq_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/${pop2}/1KGPhase3.w_hm3.${pop2}.chr \
+                --plink /users/k1806347/brc_scratch/Software/plink1.9.sh \
+                --output /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/prs/pt_clump/${pheno}/weight/${weight}/${pop2}_${weight}.weight
+    
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_todo.txt | cut -d' ' -f1)%50 /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_sbatch.sh
 
 ```
 </details>
@@ -1773,6 +2328,7 @@ done
 </details>
 
 ***
+
 #### cov, cor, Fst together with random
 
 <details><summary>Show code</summary>
@@ -1860,9 +2416,63 @@ done
 ```
 </details>
 
+#### LDcor weighted
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+pheno=$(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt)
+
+pop1=EUR
+
+for pop2 in $(echo EAS AMR AFR SAS); do
+for i in $(seq 1 $(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt | cut -d' ' -f1)); do
+
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+
+mkdir -p /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/assoc/${pheno_i}/
+
+# Create a file containing the name of the polygenic score file
+cat > /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/assoc/${pheno_i}/prs_LDcorWeighted.txt <<EOF
+predictors group 
+/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/prs/pt_clump/${pheno_i}/unstratified/${pop2}_unstratified.profiles unstratified
+/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/prs/pt_clump/${pheno_i}/weight/0/${pop2}_0.weight.profiles weighted_0
+/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/prs/pt_clump/${pheno_i}/weight/0.5/${pop2}_0.5.weight.profiles weighted_0.5
+/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/prs/pt_clump/${pheno_i}/weight/1/${pop2}_1.weight.profiles weighted_1
+/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/prs/pt_clump/${pheno_i}/weight/1.5/${pop2}_1.5.weight.profiles weighted_1.5
+/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/prs/pt_clump/${pheno_i}/weight/2/${pop2}_2.weight.profiles weighted_2
+
+EOF
+
+done
+done
+
+# Test association between prs and phenotype
+pheno=$(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt)
+
+pop1=EUR
+for pop2 in $(echo EAS AMR AFR SAS); do
+for i in $(seq 1 $(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt | cut -d' ' -f1)); do
+
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+
+sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R \
+      --pheno /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/Residuals/${pop2}/${pheno_i}_resid.pheno \
+      --out /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/assoc/${pheno_i}/prs_LDcorWeighted \
+      --compare_predictors T \
+      --assoc T \
+      --predictors /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/assoc/${pheno_i}/prs_LDcorWeighted.txt
+
+done
+done
+
+```
+</details>
+
 ***
 
-### Plot results
+## Plot results
+
+### Absolute
 
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
@@ -2068,16 +2678,258 @@ dev.off()
 ```
 </details>
 
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop_intern
+
+pheno=$(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt)
+
+for pop1 in $(echo EUR); do
+for pop2 in $(echo EAS AMR AFR SAS); do
+for i in $(seq 1 $(wc -l /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt | cut -d' ' -f1)); do
+
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+
+cp /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/assoc/${pheno_i}/prs_res.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop_intern/${pop1}_${pop2}_${pheno_i}_prs_res.png
+
+done
+
+cp /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/${pop1}_${pop2}/assoc/prs_res_summary.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop_intern/${pop1}_${pop2}_prs_res_summary.png
+
+done
+done
+
+cp /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_res_summary_allpop.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop_intern/
+```
+
+<details><summary>Show detailed figures</summary>
+
+![EUR - AFR](Images/CrossPop_intern/EUR_AFR_prs_res_summary.png)
+![EUR - EAS](Images/CrossPop_intern/EUR_EAS_prs_res_summary.png)
+![EUR - AMR](Images/CrossPop_intern/EUR_AMR_prs_res_summary.png)
+![EUR - SAS](Images/CrossPop_intern/EUR_SAS_prs_res_summary.png)
+
+</details>
+
+<details><summary>Show figure</summary>
+
+![Summary](Images/CrossPop_intern/prs_res_summary_allpop.png)
+
+</details>
+
 ***
 
-Results are looking promising:
+### Portability
 
-* EAS results using cov-stratified PRS match results when using C-scores
-* Stratified PRS improve prediction in most instances
-* Each type of stratification can work, but combining all approaches improves prediction the most
+<details><summary>Show code</summary>
+```{R, eval=F, echo=F}
+# Read in the pred_comp results
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+type=c('cov','cor','Fst')
+pop1='EUR'
+pop2=c('EAS','AMR','AFR','SAS')
+
+# Read in European results and calculate portability improvement.
+EUR_res_all<-NULL
+pheno=read.table('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', header=F)$V1
+for(i in 1:length(pheno)){
+EUR_res<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/EUR_EUR_test/assoc/',pheno[i],'/prs.pred_eval.txt'))
+
+EUR_res<-EUR_res[EUR_res$Model == 'All_group',]
+EUR_res$GWAS<-pheno[i]
+EUR_res_all<-rbind(EUR_res_all, EUR_res)
+}
+
+# Read in the cross pop results
+res_comp_all<-NULL
+
+for(j in 1:length(pop2)){
+for(i in 1:length(pheno)){
+for(k in 1:length(type)){
+  res_comp<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/',pop1,'_',pop2[j],'/assoc/',pheno[i],'/prs_',type[k],'.pred_comp.txt'))
+  
+  res_comp<-res_comp[res_comp$Model_1 == 'All' & res_comp$Model_2 == 'unstratified', ]
+
+  res_comp$GWAS<-pheno[i]
+  res_comp$Population<-pop2[j]
+  res_comp$Method<-type[k]
+  
+  res_comp$EUR_R<-EUR_res_all$R[EUR_res_all$GWAS == pheno[i]]
+  
+  res_comp_all<-rbind(res_comp_all, res_comp)
+  
+}
+res_comp<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/',pop1,'_',pop2[j],'/assoc/',pheno[i],'/prs.pred_comp.txt'))
+
+res_comp<-res_comp[res_comp$Model_1 == 'All' & res_comp$Model_2 == 'unstratified', ]
+
+res_comp$GWAS<-pheno[i]
+res_comp$Population<-pop2[j]
+res_comp$Method<-'All'
+
+res_comp$EUR_R<-EUR_res_all$R[EUR_res_all$GWAS == pheno[i]]
+
+res_comp_all<-rbind(res_comp_all, res_comp)
+
+}
+} 
+
+# Calculate R2 difference
+res_comp_all$Model_1_R2<-res_comp_all$Model_1_R^2
+res_comp_all$Model_2_R2<-res_comp_all$Model_2_R^2
+res_comp_all$R2_diff<-res_comp_all$Model_1_R2 - res_comp_all$Model_2_R2
+
+# Calculate percentage difference
+res_comp_all$R_perc_diff<-(res_comp_all$Model_1_R-res_comp_all$Model_2_R)/res_comp_all$Model_2_R
+res_comp_all$R2_perc_diff<-(res_comp_all$Model_1_R2-res_comp_all$Model_2_R2)/res_comp_all$Model_2_R2
+
+# Calculate portability
+res_comp_all$Model_1_R_port<-res_comp_all$Model_1_R/res_comp_all$EUR_R
+res_comp_all$Model_2_R_port<-res_comp_all$Model_2_R/res_comp_all$EUR_R
+res_comp_all$R_port_perc_diff<-(res_comp_all$Model_1_R_port-res_comp_all$Model_2_R_port)/res_comp_all$Model_2_R_port
+res_comp_all$R_port_diff<-(res_comp_all$Model_1_R_port-res_comp_all$Model_2_R_port)
+
+res_comp_all$Model_1_R2_port<-res_comp_all$Model_1_R2/(res_comp_all$EUR_R^2)
+res_comp_all$Model_2_R2_port<-res_comp_all$Model_2_R2/(res_comp_all$EUR_R^2)
+res_comp_all$R2_port_perc_diff<-(res_comp_all$Model_1_R2_port-res_comp_all$Model_2_R2_port)/res_comp_all$Model_2_R2_port
+res_comp_all$R2_port_diff<-(res_comp_all$Model_1_R2_port-res_comp_all$Model_2_R2_port)
+
+write.csv(res_comp_all, '/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability.csv', row.names=F, quote=F)
+
+# Calculate the average portability across phenotypes
+average_port<-NULL
+type<-c('cov','cor','Fst','All')
+for(k in 1:length(type)){
+  average_port<-rbind(average_port, data.frame(Method=type[k],
+                                               Population='All',
+                                               R_perc_diff=mean(res_comp_all$R_perc_diff[res_comp_all$Method == type[k]]),
+                                               R2_perc_diff=mean(res_comp_all$R2_perc_diff[res_comp_all$Method == type[k]]),
+                                               R_port_perc_diff=mean(res_comp_all$R_port_perc_diff[res_comp_all$Method == type[k]]),
+                                               R2_port_perc_diff=mean(res_comp_all$R2_port_perc_diff[res_comp_all$Method == type[k]]),
+                                               R_port_diff=mean(res_comp_all$R_port_diff[res_comp_all$Method == type[k]]),
+                                               R2_port_diff=mean(res_comp_all$R2_port_diff[res_comp_all$Method == type[k]]),
+                                               All_R_port=mean(res_comp_all$Model_1_R_port[res_comp_all$Method == type[k]]),
+                                               Unstratified_R_port=mean(res_comp_all$Model_2_R_port[res_comp_all$Method == type[k]]),
+                                               All_R2_port=mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == type[k]]),
+                                               Unstratified_R2_port=mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == type[k]])))
+}
+
+# Plot the average portability across phenotypes
+pop2=c('EAS','AMR','AFR','SAS')
+for(k in 1:length(type)){
+for(j in 1:length(pop2)){
+  average_port<-rbind(average_port, data.frame(Method=type[k],
+                                               Population=pop2[j],
+                                               R_perc_diff=mean(res_comp_all$R_perc_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R2_perc_diff=mean(res_comp_all$R2_perc_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R_port_perc_diff=mean(res_comp_all$R_port_perc_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R2_port_perc_diff=mean(res_comp_all$R2_port_perc_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R_port_diff=mean(res_comp_all$R_port_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               R2_port_diff=mean(res_comp_all$R2_port_diff[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               All_R_port=mean(res_comp_all$Model_1_R_port[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               Unstratified_R_port=mean(res_comp_all$Model_2_R_port[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               All_R2_port=mean(res_comp_all$Model_1_R2_port[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]]),
+                                               Unstratified_R2_port=mean(res_comp_all$Model_2_R2_port[res_comp_all$Method == type[k] & res_comp_all$Population == pop2[j]])))
+}
+}
+
+write.csv(average_port, '/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability_average.csv', row.names=F, quote=F)
+
+# Create plot showing results
+port_plot_dat<-average_port[,c('Method', 'Population','All_R_port','Unstratified_R_port','All_R2_port','Unstratified_R2_port')]
+
+port_plot_dat<-melt(port_plot_dat)
+port_plot_dat$Metric<-gsub('.*_','',gsub('_port','', port_plot_dat$variable))
+port_plot_dat$Method2<-NA
+port_plot_dat$Method2[grepl('All', port_plot_dat$variable)]<-paste0('Stratified: ', port_plot_dat$Method[grepl('All', port_plot_dat$variable)])
+port_plot_dat$Method2[!grepl('All', port_plot_dat$variable)]<-'Unstratified'
+port_plot_dat$Method<-port_plot_dat$Method2
+port_plot_dat$Method2<-NULL
+port_plot_dat<-port_plot_dat[!duplicated(port_plot_dat),]
+
+port_plot_dat$Method<-factor(port_plot_dat$Method, levels=unique(c('Unstratified',port_plot_dat$Method)))
+
+library(ggplot2)
+library(cowplot)
+R_plot<-ggplot(port_plot_dat[port_plot_dat$Metric == 'R',], aes(x=Population, y=value, fill=Method)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  labs(y='Portability', title="Average portability (R)") +
+  ylim(c(0,1)) +
+  theme_minimal_hgrid()
+
+R2_plot<-ggplot(port_plot_dat[port_plot_dat$Metric == 'R2',], aes(x=Population, y=value, fill=Method)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  labs(y='Portability', title="Average portability (R2)") +
+  ylim(c(0,1)) +
+  theme_minimal_hgrid()
+
+png('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability_summary.png', units='px', res=300, width=2000, height=1400)
+plot_grid(R_plot, R2_plot, labels = c('A', 'B'), ncol=1)
+dev.off()
+
+```
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop
+
+cp /users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability_summary.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/CrossPop_intern/
+```
+
+<details><summary>Show average portability figure</summary>
+
+![Average portability](Images/CrossPop_intern/prs_portability_summary.png)
+
+</details>
+
+<details><summary>Show portability table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability.csv")
+
+res$R_diff_pval<-format(res$R_diff_pval, scientific = TRUE, digits = 3)
+res[,!grepl("Model_1$|Model_2$|R_diff_pval|GWAS|Population|Method",names(res))]<-round(res[,!grepl("Model_1$|Model_2$|R_diff_pval|GWAS|Population|Method",names(res))], 3)
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Portability')
+```
+
+</details>
+
+<details><summary>Show average portability table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability_average.csv")
+
+res[,!grepl("Population|Method",names(res))]<-round(res[,!grepl("Population|Method",names(res))], 3)
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Average portability')
+```
+
+</details>
 
 ***
 
+# Discussion
+
+The results using internal GWAS summary statistics are far less encouraging. I am not sure why, though the GIANT BMI and Height GWAS havve behaved strangely in the past. This, in combination with the observation that random stratification works almost as well, makes me want to rethink the approach. 
+
+The use of the pT+clump approach, may increase the likelihood of random stratification leading to improved prediction by including many predictors in the elastic net. Perhaps use of a single score method, such as PRScs, SBayesR, or DBSLMM would be a cleaner approach.
+
+Also, use of nested stratification by cov, cor and Fst may be a better approach, as this will retain 'good' SNPs, whilst allowing 'less good' SNPs to be assigned a large effect size. I.e, if a locus has a strong effect that has a high LD cor across populations, it will be used in the PRS, even when allowing SNPs with lower LD cor to be considered. Alternatively, a continuous weight could be applied, so BETAs are shrunk when low cross population LD cor. A cross-validation procedure could be used to determine optimal shrinkage.
+
+Something that would be useful would be a comparison of GW-sig loci across populations. Does LD correlation across populations correlate with GWAS effect size? Examining LD correlation structures would also be useful. Are there LD correlation blocks. Perhaps low LD cor blocks should use the top SNP, assumming it is most likely to be causal. This reminds me that weights by likelihood of causality (PIP) is also a good idea for cross pop prediction. Perhaps LD cor and PIP can be used together.
+
+
+
+***
+***
+***
+
+# OLD
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=F}
 # Read in the pred_comp results
