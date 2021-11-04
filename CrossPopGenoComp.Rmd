@@ -1382,7 +1382,7 @@ for(pop_i in pop){
 
 ***
 
-## Estimate heritability using LDSC
+## Estimate heritability and rG using LDSC and POPCORN
 
 <details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
@@ -1441,42 +1441,22 @@ res$h2_obs_se<-NULL
 write.csv(res, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv', row.names=F, quote=F)
 
 ```
-</details>
 
-<details><summary>Show heritability table</summary>
-
-```{r, echo=F, eval=T, results='asis'}
-res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv")
-
-res$h2_obs_p<-format(res$h2_obs_p, scientific = TRUE, digits = 3)
-
-res<-res[,c('biomarker','h2_obs','h2_obs_p','intercept','lambda')]
-names(res)<-c('Phenotype','SNP-h2','p','intercept','lambda')
-
-library(knitr)
-kable(res, rownames = FALSE, caption='Heritability')
-```
-
-</details>
-
-***
-
-
-## Estimate h2 and rG using POPCORN
-
-<details><summary>Show code</summary>
 ```{bash, eval=F, echo=T}
 ####
-# Munge sumstats for non-EUR
+# Format for POPCORN
 ####
 
 for pop in $(echo AFR AMR EAS SAS);do
 for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
-  sbatch -p brc,shared ~/brc_scratch/Software/munge_sumstats.sh \
-   --sumstats /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz \
-   --merge-alleles /users/k1806347/brc_scratch/Data/ldsc/w_hm3.snplist \
-   --out /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC
+  zcat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz | sed -e '1s/BETA/beta/' -e '1s/REF.FREQ/AF/' | /users/k1806347/brc_scratch/Software/pigz > /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.popcorn.gz
+
 done
+done
+
+for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
+  zcat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.gz | sed -e '1s/BETA/beta/' -e '1s/REF.FREQ/AF/' | /users/k1806347/brc_scratch/Software/pigz > /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.popcorn.gz
+
 done
 
 ####
@@ -1485,19 +1465,21 @@ done
 
 for pop2 in $(echo AFR AMR EAS SAS);do
 for pheno in $(cat /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt); do
-   sbatch -p test ~/brc_scratch/Software/popcorn.sh fit -v 3 \
-     --sfile1 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.sumstats.gz \
-     --sfile2 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop2}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.sumstats.gz \
+   sbatch -p brc,shared --mem 10G ~/brc_scratch/Software/popcorn.sh fit -v 3 \
      --cfile /scratch/groups/biomarkers-brc-mh/Reference_data/POPCORN/Ollie_Pain/CSCORES/EUR_${pop2}/EUR.${pop2}.GW.scores.gen_effect.txt \
+     --sfile1 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.popcorn.gz \
+     --sfile2 /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/${pop2}/${pheno}/UKBB.w_hm3.QCd.AllSNP.${pheno}.GW.qassoc.clean.QC.popcorn.gz \
      --gen_effect \
      /users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/POPCORN_rG/EUR_train_vs_${pop2}_${pheno}_rG_gen_effect
+done
+sleep 300
 done
 
 ```
 
 ```{R, eval=F, echo=T}
 ####
-# Tabulate the LDSC results
+# Tabulate the POPCORN results
 ####
 
 library(data.table)
@@ -1505,29 +1487,35 @@ library(data.table)
 pheno<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', header=F)$V1
 
 res<-NULL
-for(pheno_i in pheno){
-      h2_i<-read.table(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC.log'), header=F, sep='&')
-      
-      res<-rbind(res, data.frame( biomarker=pheno_i,
-                                  h2_obs=gsub('Total Observed scale h2: ','',h2_i$V1[grepl('Total Observed scale h2: ',h2_i$V1)]),
-                                  intercept=gsub('Intercept: ','',h2_i$V1[grepl('Intercept: ',h2_i$V1)]),
-                                  lambda=gsub('Lambda GC: ','',h2_i$V1[grepl('Lambda GC: ',h2_i$V1)])))
-                                  
+for(pop2 in c('AFR','AMR','EAS','SAS')){
+  for(pheno_i in pheno){
+        pop_res_i<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/POPCORN_rG/EUR_train_vs_',pop2,'_',pheno_i,'_rG_gen_effect'))
+        
+        res<-rbind(res, data.frame( biomarker=pheno_i,
+                                    pop1='EUR_train',
+                                    pop2=pop2,
+                                    h2_obs_val_pop1=pop_res_i$`Val (obs)`[1],
+                                    h2_obs_se_pop1=pop_res_i$SE[1],
+                                    h2_obs_z_pop1=pop_res_i$Z[1],
+                                    h2_obs_p_pop1=pop_res_i$`P (Z)`[1],
+                                    h2_obs_val_pop2=pop_res_i$`Val (obs)`[2],
+                                    h2_obs_se_pop2=pop_res_i$SE[2],
+                                    h2_obs_z_pop2=pop_res_i$Z[2],
+                                    h2_obs_p_pop2=pop_res_i$`P (Z)`[2],                                    
+                                    pge_val=pop_res_i$`Val (obs)`[3],
+                                    pge_se=pop_res_i$SE[3],
+                                    pge_z_diff1=pop_res_i$Z[3],
+                                    pge_p_diff1=pop_res_i$`P (Z)`[3]))
+                                    
+  }
 }
 
-# Calculate P value of heritability
-res$h2_obs_est<-as.numeric(gsub(' .*','',res$h2_obs))
-res$h2_obs_se<-as.numeric(gsub("\\)",'',gsub(".*\\(",'',res$h2_obs)))
-res$h2_obs_p<-pnorm(-abs(res$h2_obs_est/res$h2_obs_se))
-res$h2_obs_est<-NULL
-res$h2_obs_se<-NULL
-
-write.csv(res, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv', row.names=F, quote=F)
+write.csv(res, '/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_popcorn_res.csv', row.names=F, quote=F)
 
 ```
 </details>
 
-<details><summary>Show heritability table</summary>
+<details><summary>Show LDSC heritability table</summary>
 
 ```{r, echo=F, eval=T, results='asis'}
 res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_h2.csv")
@@ -1539,6 +1527,21 @@ names(res)<-c('Phenotype','SNP-h2','p','intercept','lambda')
 
 library(knitr)
 kable(res, rownames = FALSE, caption='Heritability')
+```
+
+</details>
+
+<details><summary>Show POPCORN results table</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS_popcorn_res.csv")
+
+res$h2_obs_p_pop1<-format(res$h2_obs_p_pop1, scientific = TRUE, digits = 3)
+res$h2_obs_p_pop2<-format(res$h2_obs_p_pop2, scientific = TRUE, digits = 3)
+res$pge_p_diff1<-format(res$pge_p_diff1, scientific = TRUE, digits = 3)
+
+library(knitr)
+kable(res, rownames = FALSE, caption='POPCORN')
 ```
 
 </details>
@@ -1743,7 +1746,12 @@ pheno<-fread('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_na
 
 pop<-c('AFR','AMR','EAS','SAS')
 
+mod_res_plot<-list()
+mod_res_ldweighted_plot<-list()
+
 g_cor_test_all<-NULL
+g_cor_test_best_LDcor<-NULL
+g_cor_test_best_Fst<-NULL
 for(pheno_i in pheno){
   print(pheno_i)
   gwas<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/EUR_train/',pheno_i,'/UKBB.w_hm3.QCd.AllSNP.',pheno_i,'.GW.qassoc.clean.QC.gz'))
@@ -1757,7 +1765,7 @@ for(pheno_i in pheno){
   gwas_indep<-gwas[(gwas$SNP %in% indep),]
   
   for(pop_i in pop){
-      print(pop_i)
+    print(pop_i)
     # Check correlation between LD correlation, Fst and BETA
     annot<-NULL
     for(chr in 1:22){
@@ -1861,8 +1869,7 @@ for(pheno_i in pheno){
     library(cowplot)
     library(RColorBrewer)
     
-    png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/mod_res.png'), res=300, units = 'px', width=2000, height=1200)  
-print(ggplot(g_cor_test_melt, aes(x=mod, y=est, fill=pT)) +
+    mod_res_plot[[paste0(pop_i,'_',pheno_i)]]<-ggplot(g_cor_test_melt, aes(x=mod, y=est, fill=pT)) +
       geom_bar(stat="identity", 
                position=position_dodge()) +
       geom_errorbar(aes(ymin=est-se, ymax=est+se), width=.2,
@@ -1870,7 +1877,10 @@ print(ggplot(g_cor_test_melt, aes(x=mod, y=est, fill=pT)) +
       scale_fill_manual(values = rev(brewer.pal(9, "Blues"))) +
       labs(x='Effect', y='Estimate', title=paste0(pop_i,': ',pheno_i)) +
   theme_half_open() +
-  background_grid())
+  background_grid()
+    
+    png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/mod_res.png'), res=300, units = 'px', width=2000, height=1200)  
+print(mod_res_plot[[paste0(pop_i,'_',pheno_i)]])
     dev.off()
     
     g_cor_test$pop1<-'EUR_train'
@@ -1878,6 +1888,10 @@ print(ggplot(g_cor_test_melt, aes(x=mod, y=est, fill=pT)) +
     g_cor_test$pheno<-pheno_i
     
     g_cor_test_all<-rbind(g_cor_test_all, g_cor_test)
+    
+    g_cor_test_best_LDcor<-rbind(g_cor_test_best_LDcor, g_cor_test[g_cor_test$LDcor_int_p == min(g_cor_test$LDcor_int_p),])
+    
+    g_cor_test_best_Fst<-rbind(g_cor_test_best_Fst, g_cor_test[g_cor_test$Fst_int_p == min(g_cor_test$Fst_int_p),])
     
     ## Alter EUR BETA according to LD correlatino
     ## Then retest correlation and interaction with LD correlation
@@ -1910,8 +1924,7 @@ print(ggplot(g_cor_test_melt, aes(x=mod, y=est, fill=pT)) +
     
     g_cor_test_2$pT<-factor(g_cor_test_2$thresh, levels=rev(unique(g_cor_test_2$thresh)))
 
-    png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/mod_res_ldcor_weighted.png'), res=300, units = 'px', width=5000, height=1200)  
-print(ggplot(g_cor_test_2, aes(x=weight, y=cor_est, fill=weight)) +
+    mod_res_ldweighted_plot[[paste0(pop_i,'_',pheno_i)]]<-ggplot(g_cor_test_2, aes(x=weight, y=cor_est, fill=weight)) +
       geom_bar(stat="identity", 
                position=position_dodge()) +
       geom_errorbar(aes(ymin=cor_est-cor_se, ymax=cor_est+cor_se), width=.1,
@@ -1919,8 +1932,10 @@ print(ggplot(g_cor_test_2, aes(x=weight, y=cor_est, fill=weight)) +
       labs(x='Weight', y='Estimate', title=paste0(pop_i,': ',pheno_i)) +
   theme_half_open() +
   background_grid() + 
-    facet_grid(. ~ pT))
-
+    facet_grid(. ~ pT)
+    
+    png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/mod_res_ldcor_weighted.png'), res=300, units = 'px', width=5000, height=1200)  
+    print(mod_res_ldweighted_plot[[paste0(pop_i,'_',pheno_i)]])
     dev.off()
     # This nicely shows that the correlation between BETAs can be increased by weighting variants by LD correlation. This does not change the independent variants selected though, which it would if BETAs are modified prior to LD clumping.
 
@@ -1935,16 +1950,16 @@ print(ggplot(g_cor_test_2, aes(x=weight, y=cor_est, fill=weight)) +
     
     library(ggplot2)
     library(cowplot)
-    LD_cor_plot_list[[as.character(thresh)]]<-ggplot(gwas_merged_subset, aes(x = BETA, y = BETA_2, colour=cor_score_quant, group=cor_score_quant)) + 
+    LD_cor_plot_list[[as.character(thresh_i)]]<-ggplot(gwas_merged_subset, aes(x = BETA, y = BETA_2, colour=cor_score_quant, group=cor_score_quant)) + 
   geom_point() +
-  labs(x="BETA (EUR)", y=paste0("BETA (",pop_i,")"), title=paste0(pheno_i," (pT=",thresh,")"), colour='LD correlation\nQuantile') +
+  labs(x="BETA (EUR)", y=paste0("BETA (",pop_i,")"), title=paste0(pheno_i," (pT=",thresh_i,")"), colour='LD correlation\nQuantile') +
   stat_smooth(method = "lm") +
   theme_half_open() +
   background_grid()
 
-    Fst_plot_list[[as.character(thresh)]]<-ggplot(gwas_merged_subset, aes(x = BETA, y = BETA_2, colour=Fst_quant, group=Fst_quant)) + 
+    Fst_plot_list[[as.character(thresh_i)]]<-ggplot(gwas_merged_subset, aes(x = BETA, y = BETA_2, colour=Fst_quant, group=Fst_quant)) + 
   geom_point() +
-  labs(x="BETA (EUR)", y=paste0("BETA (",pop_i,")"), title=paste0(pheno_i," (pT=",thresh,")"), colour='Fst Quantile') +
+  labs(x="BETA (EUR)", y=paste0("BETA (",pop_i,")"), title=paste0(pheno_i," (pT=",thresh_i,")"), colour='Fst Quantile') +
   stat_smooth(method = "lm") +
   theme_half_open() +
   background_grid()
@@ -1954,6 +1969,20 @@ print(ggplot(g_cor_test_2, aes(x=weight, y=cor_est, fill=weight)) +
     }
   }
 }
+
+sum(g_cor_test_best_LDcor$LDcor_int_p < 0.05/nrow(thresh_tab))
+sum(g_cor_test_best_Fst$Fst_int_p < 0.05/nrow(thresh_tab))
+
+for(pop_i in pop){
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/mod_res_all_',pop_i,'.png'), res=300, units = 'px', width=3500, height=length(which(grepl(pop_i, names(mod_res_plot))))*500)  
+  print(plot_grid(plotlist=mod_res_plot[which(grepl(pop_i, names(mod_res_plot)))], ncol = 2))
+  dev.off()
+  
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/mod_res_all_ldcor_weighted_',pop_i,'.png'), res=300, units = 'px', width=5500, height=length(which(grepl(pop_i, names(mod_res_plot))))*500)  
+  print(plot_grid(plotlist=mod_res_ldweighted_plot[which(grepl(pop_i, names(mod_res_plot)))], ncol = 2))
+  dev.off()
+}
+
 
   # Output plots
   png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/GWAS/',pop_i,'/',pheno_i,'/LD_cor_int.png'), res=300, units = 'px', width=2000, height=10000)  
@@ -2562,7 +2591,7 @@ for(k in 1:length(type)){
 
 }
 
-  bitmap(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/',pop1,'_',pop2[j],'/assoc/',pheno[i],'/prs_res.png'), width=5000, height=2000, res=300, units='px')
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/',pop1,'_',pop2[j],'/assoc/',pheno[i],'/prs_res.png'), width=5000, height=2000, res=300, units='px')
   print(plot_grid(plotlist=res_plot, labels = "AUTO", nrow=1))
   dev.off()
 }
@@ -2636,7 +2665,7 @@ res_all_2_i_j<-res_all_2[(res_all_2$Population == pop2[j] | res_all_2$Population
 
 }
 
-  bitmap(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/',pop1,'_',pop2[j],'/assoc/prs_res_summary.png'), width=3000, height=12000, res=300, units='px')
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/',pop1,'_',pop2[j],'/assoc/prs_res_summary.png'), width=3000, height=12000, res=300, units='px')
   print(plot_grid(plotlist=res_plot, labels = "AUTO", ncol=2))
   dev.off()
 }
@@ -2671,7 +2700,7 @@ for(i in 1:length(pheno)){
   
 }
 
-bitmap('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_res_summary_allpop.png', units='px', res=300, width=2000, height=8000)
+png('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_res_summary_allpop.png', units='px', res=300, width=2000, height=8000)
   plot_grid(plotlist=plot_list, ncol = 2)
 dev.off()
 
@@ -2798,6 +2827,29 @@ res_comp_all$R2_port_diff<-(res_comp_all$Model_1_R2_port-res_comp_all$Model_2_R2
 
 write.csv(res_comp_all, '/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability.csv', row.names=F, quote=F)
 
+res_comp_all_nocov<-res_comp_all[res_comp_all$Method != 'cov',]
+sum(res_comp_all$R_diff_pval < 0.05 & res_comp_all$Method == 'All')
+sum(res_comp_all$Method == 'All')
+
+sum(res_comp_all$R_diff_pval < 0.05 & res_comp_all$Method == 'cor')
+sum(res_comp_all$Method == 'cor')
+
+sum(res_comp_all$R_diff_pval < 0.05 & res_comp_all$Method == 'Fst')
+sum(res_comp_all$Method == 'Fst')
+
+library(ggplot2)
+library(cowplot)
+
+gg_qqplot(res_comp_all$R_diff_pval) +
+  theme_bw(base_size = 24) +
+  theme(
+    axis.ticks = element_line(size = 0.5),
+    panel.grid = element_blank()
+    # panel.grid = element_line(size = 0.5, color = "grey80")
+  )
+
+ggplot(res_comp_all, aes(sample=R_diff_pval))+stat_qq()
+
 # Calculate the average portability across phenotypes
 average_port<-NULL
 type<-c('cov','cor','Fst','All')
@@ -2843,13 +2895,16 @@ port_plot_dat<-average_port[,c('Method', 'Population','All_R_port','Unstratified
 port_plot_dat<-melt(port_plot_dat)
 port_plot_dat$Metric<-gsub('.*_','',gsub('_port','', port_plot_dat$variable))
 port_plot_dat$Method2<-NA
-port_plot_dat$Method2[grepl('All', port_plot_dat$variable)]<-paste0('Stratified: ', port_plot_dat$Method[grepl('All', port_plot_dat$variable)])
+port_plot_dat$Method2[grepl('All', port_plot_dat$variable)]<-paste0(port_plot_dat$Method[grepl('All', port_plot_dat$variable)],'-stratified')
 port_plot_dat$Method2[!grepl('All', port_plot_dat$variable)]<-'Unstratified'
 port_plot_dat$Method<-port_plot_dat$Method2
 port_plot_dat$Method2<-NULL
 port_plot_dat<-port_plot_dat[!duplicated(port_plot_dat),]
-
+port_plot_dat$Method<-gsub('cor','LDcor', port_plot_dat$Method)
+port_plot_dat$Method<-gsub('All-stratified','All', port_plot_dat$Method)
+  
 port_plot_dat$Method<-factor(port_plot_dat$Method, levels=unique(c('Unstratified',port_plot_dat$Method)))
+port_plot_dat$Population<-factor(port_plot_dat$Population, levels=c('AFR','AMR','EAS','SAS','All'))
 
 library(ggplot2)
 library(cowplot)
@@ -2867,6 +2922,16 @@ R2_plot<-ggplot(port_plot_dat[port_plot_dat$Metric == 'R2',], aes(x=Population, 
 
 png('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability_summary.png', units='px', res=300, width=2000, height=1400)
 plot_grid(R_plot, R2_plot, labels = c('A', 'B'), ncol=1)
+dev.off()
+
+R2_plot_poster<-ggplot(port_plot_dat[port_plot_dat$Metric == 'R2' & (port_plot_dat$Method == 'LDcor-stratified' | port_plot_dat$Method == 'Fst-stratified' | port_plot_dat$Method == 'Unstratified'),], aes(x=Population, y=value, fill=Method)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  labs(y='Portability') +
+  ylim(c(0,1)) +
+  theme_minimal_hgrid()
+
+png('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/prs_portability_summary_poster.png', units='px', res=300, width=1450, height=800)
+R2_plot_poster
 dev.off()
 
 ```
@@ -2910,6 +2975,95 @@ kable(res, rownames = FALSE, caption='Average portability')
 ```
 
 </details>
+
+### LDweighted
+
+```{R, eval=F, echo=T}
+pop1='EUR'
+pop2=c('EAS','AMR','AFR','SAS')
+pheno=read.table('/users/k1806347/brc_scratch/Misc/Toshiki/Phenotypes/liang_pheno_names.txt', header=F)$V1
+
+for(pop_i in pop2){
+  per_pT_plot<-list()
+  best_pT_plot<-list()
+  best_pT_abs_diff_plot<-list()
+  best_pT_rel_diff_plot<-list()
+  for(pheno_i in pheno){
+    # Read in European results and calculate portability improvement.
+    EUR_res<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/EUR_EUR_test/assoc/',pheno[i],'/prs.assoc.txt'))
+    
+    # Read in pop2 results
+    pop2_res<-fread(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/EUR_',pop_i,'/assoc/',pheno_i,'/prs_LDcorWeighted.assoc.txt'))
+
+    pop2_res$Group<-gsub('.Pred.*','',gsub('Group_','',pop2_res$Predictor))
+    pop2_res$pT<-as.numeric(gsub('e.','e-',gsub('.*SCORE_','',pop2_res$Predictor)))
+    pop2_res$pT<-factor(pop2_res$pT, levels=unique(pop2_res$pT))
+    
+    library(ggplot2)
+    library(cowplot)
+    library(RColorBrewer)
+
+    per_pT_plot[[pheno_i]]<-ggplot(pop2_res, aes(x=pT, y=BETA, fill=pT)) +
+      geom_bar(stat="identity", position=position_dodge()) +
+      geom_errorbar(aes(ymin=BETA-SE, ymax=BETA+SE), width=.2, position=position_dodge(.9)) +
+      labs(x='pT', y="BETA (SE)", title=paste0(pop_i,': ',pheno_i)) +
+      theme_half_open() +
+      background_grid() +
+      facet_wrap(~Group, nrow=1)
+    
+    best_pT<-NULL
+    for(group_i in unique(pop2_res$Group)){
+      best_pT<-rbind(best_pT, pop2_res[pop2_res$Group == group_i & pop2_res$BETA == max(pop2_res$BETA[pop2_res$Group == group_i]),])
+    }
+    
+    best_pT_plot[[pheno_i]]<-ggplot(best_pT, aes(x=Group, y=BETA, fill=Group)) +
+      geom_bar(stat="identity", position=position_dodge()) +
+      geom_errorbar(aes(ymin=BETA-SE, ymax=BETA+SE), width=.2, position=position_dodge(.9)) +
+      labs(x='pT', y="BETA (SE)", title=paste0(pop_i,': ',pheno_i)) +
+      theme_half_open() +
+      background_grid() +
+      theme(axis.text.x = element_text(angle = 45,hjust=1))
+    
+    best_pT$Unstrat_abs_diff_R2<-best_pT$Obs_R2 - best_pT$Obs_R2[best_pT$Group == 'unstratified']
+    best_pT$Unstrat_rel_diff_R2<-best_pT$Unstrat_abs_diff_R2/best_pT$Obs_R2[best_pT$Group == 'unstratified']
+    
+    best_pT_abs_diff_plot[[pheno_i]]<-ggplot(best_pT, aes(x=Group, y=Unstrat_abs_diff_R2, fill=Group)) +
+      geom_bar(stat="identity", position=position_dodge()) +
+      labs(x='pT', y="Absolute improvement R2", title=paste0(pop_i,': ',pheno_i)) +
+      theme_half_open() +
+      background_grid() +
+      theme(axis.text.x = element_text(angle = 45,hjust=1))
+
+    best_pT_rel_diff_plot[[pheno_i]]<-ggplot(best_pT, aes(x=Group, y=Unstrat_rel_diff_R2, fill=Group)) +
+      geom_bar(stat="identity", position=position_dodge()) +
+      labs(x='pT', y="Relative improvement R2", title=paste0(pop_i,': ',pheno_i)) +
+      theme_half_open() +
+      background_grid() +
+      theme(axis.text.x = element_text(angle = 45,hjust=1))
+
+  }
+
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/EUR_',pop_i,'/assoc/EUR_',pop_i,'_per_pT.png'), res=300, units='px', width=5000, height=12000)
+    print(plot_grid(plotlist=per_pT_plot, ncol = 1))
+  dev.off()
+
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/EUR_',pop_i,'/assoc/EUR_',pop_i,'_best_pT.png'), res=300, units='px', width=4000, height=6000)
+    print(plot_grid(plotlist=best_pT_plot, ncol = 2))
+  dev.off()
+  
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/EUR_',pop_i,'/assoc/EUR_',pop_i,'_best_pT_abs.png'), res=300, units='px', width=4000, height=6000)
+    print(plot_grid(plotlist=best_pT_abs_diff_plot, ncol = 2))
+  dev.off()
+  
+  png(paste0('/users/k1806347/brc_scratch/Misc/Toshiki/CrossPop_intern/EUR_',pop_i,'/assoc/EUR_',pop_i,'_best_pT_rel.png'), res=300, units='px', width=4000, height=6000)
+    print(plot_grid(plotlist=best_pT_rel_diff_plot, ncol = 2))
+  dev.off()
+  
+}
+
+# The LD weighted approach isn't working well. Looking back at the evidence of interaction between LDcor and rG between ancestries, I am wondering whether this approach should even work.
+
+```
 
 ***
 

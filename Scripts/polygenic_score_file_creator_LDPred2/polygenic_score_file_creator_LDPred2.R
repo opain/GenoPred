@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 #!/usr/bin/Rscript
 # This script was written by Oliver Pain whilst at King's College London University.
 start.time <- Sys.time()
@@ -38,8 +37,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 library(data.table)
 library(bigsnpr)
 
-tmp<-sub('.*/','',opt$output)
-opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
+opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
 CHROMS<-1:22
@@ -53,6 +51,7 @@ if(!is.na(opt$test)){
     opt$test<-as.numeric(opt$test)
   }
 }
+
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
@@ -153,7 +152,6 @@ if(sum(names(sumstats) == 'OR') == 1){
   sumstats$BETA<-log(sumstats$OR)
 }
 
-
 # Format sumstats for as in LDPred2 tutorial
 if(sum(names(sumstats) == 'Ncas') == 1 & sum(names(sumstats) == 'Ncon') == 1){
   sumstats$n_eff <- 4 / (1 / sumstats$Ncas + 1 / sumstats$Ncon)
@@ -197,7 +195,7 @@ if (opt$ldpred2_ref_precomputed){
 #####
 
 if(opt$sd_check == T){
-    
+
     if (opt$ldpred2_ref_precomputed){
         # assuming we are using the pre-computed LD reference provided by LDPred2 developers
         # TODO: make this handle the case where the column has a different name, so it generalizes better
@@ -215,9 +213,9 @@ if(opt$sd_check == T){
     } else {
       sd_ss <- with(info_snp, 2 / sqrt(n_eff * beta_se^2))
     }
-    
+
     is_bad <-sd_ss < (0.5 * sd_val) | sd_ss > (sd_val + 0.1) | sd_ss < 0.1 | sd_val < 0.05
-    
+
     library(ggplot2)
     bitmap(paste0(opt$output_dir,'/LDPred2_sd_qc.png'), res=300, unit='px',height=2000, width=2000)
     print(qplot(sd_val, sd_ss, color = is_bad) +
@@ -229,24 +227,24 @@ if(opt$sd_check == T){
            y = "Standard deviations derived from the summary statistics",
            color = "Removed?"))
     dev.off()
-    
+
     # If more than half the variants have the wrong SD then the N is probably inaccurate
     # Recompute N based on BETA and SE
     if(sum(is_bad) > (length(is_bad)*0.5)){
       n_eff_imp<-sd_val^2/info_snp$beta_se^2
-      
+
       n_eff_imp<-((2/sd_val)^2)/(info_snp$beta_se^2)
       info_snp$n_eff<-median(n_eff_imp)
-      
+
       sd_ss <- with(info_snp, 2 / sqrt(n_eff * beta_se^2))
       is_bad <-sd_ss < (0.5 * sd_val) | sd_ss > (sd_val + 0.1) | sd_ss < 0.1 | sd_val < 0.05
-      
+
       sink(file = paste(opt$output,'.log',sep=''), append = T)
       test_start.time <- Sys.time()
       cat('More than half the variants had a discordant SD.\n')
       cat('Median imputed N estimate: ', median(n_eff_imp),'.\n',sep='')
       sink()
-      
+
       library(ggplot2)
       bitmap(paste0(opt$output_dir,'/LDPred2_sd_qc_impN.png'), res=300, unit='px',height=2000, width=2000)
       print(qplot(sd_val, sd_ss, color = is_bad) +
@@ -258,11 +256,11 @@ if(opt$sd_check == T){
              y = "Standard deviations derived from the summary statistics",
              color = "Removed?"))
       dev.off()
-      
+
     }
-    
+
     sumstats<-info_snp[!is_bad, ]
-    
+
     sink(file = paste(opt$output,'.log',sep=''), append = T)
     cat('Sumstats contains',dim(sumstats)[1],'after additional genotype SD check.\n')
     sink()
@@ -292,7 +290,6 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Estimated SNP-based heritability =',h2_est,'\n')
 sink()
 
-
 if(!is.na(opt$test) & h2_est < 0.05){
   h2_est<-0.05
 }
@@ -300,7 +297,6 @@ if(!is.na(opt$test) & h2_est < 0.05){
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Creating genome-wide sparse matrix.\n')
 sink()
-
 
 # Create genome-wide sparse LD matrix
 for (chr in CHROMS) {
@@ -321,7 +317,6 @@ for (chr in CHROMS) {
     corr$add_columns(corr0, nrow(corr))
   }
 }
-
 
 #####
 # Run LDPred2
@@ -367,13 +362,9 @@ summary(beta_auto)
 # used to be sumstats[["_NUM_ID_"]]
 pred_auto <- big_prodMat(G, beta_auto, ind.row = ind_keep, ind.col = sumstats[["idx_G"]])
 
-summary(pred_auto)
-
 sc <- apply(pred_auto, 2, sd)
 keep <- abs(sc - median(sc)) < 3 * mad(sc)
 final_beta_auto <- rowMeans(beta_auto[, keep])
-
-summary(final_beta_auto)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Auto model complete at',as.character(Sys.time()),'\n')
@@ -468,4 +459,3 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Analysis finished at',as.character(end.time),'\n')
 cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
 sink()
-

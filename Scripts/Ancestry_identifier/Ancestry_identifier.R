@@ -29,7 +29,7 @@ make_option("--output", action="store", default='./PC_projector_output/Output', 
 make_option("--ref_pop_scale", action="store", default=NA, type='character',
 		help="List of keep files ancestry specific scaling [optional]"),    
 make_option("--pop_data", action="store", default=NA, type='character',
-    help="Population data for the reference samples [optional]"),    
+    help="Population data for the reference samples [required]"),    
 make_option("--model_method", action="store", default='glmnet', type='character',
     help="Method used for generate prediction model [optional]"),    
 make_option("--SD_rule", action="store", default=F, type='logical',
@@ -49,8 +49,7 @@ library(verification)
 library(ggplot2)
 library(cowplot)
 
-tmp<-sub('.*/','',opt$output)
-opt$output_dir<-sub(paste0(tmp,'*.'),'',opt$output)
+opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)

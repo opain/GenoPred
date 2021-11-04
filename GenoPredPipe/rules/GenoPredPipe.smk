@@ -14,7 +14,7 @@ rule download_qctool2:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/software/qctool2/; \
-     wget -O resources/software/qctool2/qctool2.tgz https://www.well.ox.ac.uk/~gav/resources/qctool_v2.0.8-CentOS_Linux7.6.1810-x86_64.tgz; \
+     wget --no-check-certificate -O resources/software/qctool2/qctool2.tgz https://www.well.ox.ac.uk/~gav/resources/qctool_v2.0.8-CentOS_Linux7.6.1810-x86_64.tgz; \
      tar -zxvf resources/software/qctool2/qctool2.tgz -C resources/software/qctool2/ --strip-components=1; \
      rm resources/software/qctool2/qctool2.tgz"
 
@@ -26,10 +26,10 @@ rule download_impute2_data:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/impute2/; \
-     wget -O resources/data/impute2/1000GP_Phase3.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz; \
+     wget --no-check-certificate -O resources/data/impute2/1000GP_Phase3.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz; \
      tar -zxvf resources/data/impute2/1000GP_Phase3.tgz -C resources/data/impute2/; \
      rm resources/data/impute2/1000GP_Phase3.tgz; \
-     wget -O resources/data/impute2/1000GP_Phase3_chrX.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz; \
+     wget --no-check-certificate -O resources/data/impute2/1000GP_Phase3_chrX.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz; \
      tar -zxvf resources/data/impute2/1000GP_Phase3_chrX.tgz -C resources/data/impute2/1000GP_Phase3/; \
      rm resources/data/impute2/1000GP_Phase3_chrX.tgz"
 
@@ -41,7 +41,7 @@ rule download_plink:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/software/plink; \
-     wget -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
+     wget --no-check-certificate -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
      unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; \
      rm resources/software/plink/plink_linux_x86_64_20210606.zip"
 
@@ -52,7 +52,7 @@ rule download_ldsc:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "git clone git@github.com:bulik/ldsc.git resources/software/ldsc/"
+    "git clone https://github.com/bulik/ldsc.git resources/software/ldsc/"
 
 # Download LDSC reference data
 rule dowload_ldsc_ref:
@@ -62,7 +62,7 @@ rule dowload_ldsc_ref:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/ldsc_ref; \
-     wget -O resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/eur_w_ld_chr.tar.bz2; \
+     wget --no-check-certificate -O resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/eur_w_ld_chr.tar.bz2; \
      tar -jxvf resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 -C resources/data/ldsc_ref/; \
      rm resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2"
 
@@ -74,7 +74,7 @@ rule download_hm3_snplist:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/hm3_snplist; \
-     wget -O resources/data/hm3_snplist/w_hm3.snplist.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2; \
+     wget --no-check-certificate -O resources/data/hm3_snplist/w_hm3.snplist.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2; \
      bunzip2 resources/data/hm3_snplist/w_hm3.snplist.bz2"
 
 # Download DBSLMM
@@ -85,7 +85,7 @@ rule download_dbslmm:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "git clone git@github.com:biostat0903/DBSLMM.git {output}; \
+    "git clone https://github.com/biostat0903/DBSLMM.git {output}; \
      cd {output}; \
      git reset --hard aa6e7ad5b8a7d3b6905556a4007c4a1fa2925b7d; \
      chmod a+x software/dbslmm"
@@ -126,6 +126,31 @@ rule install_ggchicklet:
   shell:
     "Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet\")'"
 
+# Install Rpackages manually
+rule install_manual_Rpackages:
+  input:
+    rules.install_ggchicklet.output,
+    rules.install_bigsnpr.output,
+    rules.install_lassosum.output
+
+# Download liftover
+rule install_liftover:
+  output:
+    touch("resources/software/install_liftover.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/software/liftover/; wget --no-check-certificate -O resources/software/liftover/liftover https://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/liftOver"
+
+# Download liftover track
+rule download_liftover_track:
+  output:
+    touch("resources/software/download_liftover_track.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/liftover/; wget --no-check-certificate -O resources/data/liftover/hg18ToHg19.over.chain.gz ftp://hgdownload.cse.ucsc.edu/goldenPath/hg18/liftOver/hg18ToHg19.over.chain.gz"
+
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
   output:
@@ -134,7 +159,7 @@ rule download_prscs_ref_1kg_eur:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/prscs_ref; \
-     wget -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
+     wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
      tar -zxvf resources/data/prscs_ref/ldblk_1kg_eur.tar.gz -C resources/data/prscs_ref/; \
      rm resources/data/prscs_ref/ldblk_1kg_eur.tar.gz"
 
@@ -154,7 +179,7 @@ rule download_gctb_ref:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/gctb_ref; wget -O resources/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; unzip resources/data/gctb_ref/ukbEURu_hm3_sparse.zip -d resources/data/gctb_ref; for chr in $(seq 1 22);do mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; done; rm resources/data/gctb_ref/ukbEURu_hm3_sparse.zip"
+    "mkdir -p resources/data/gctb_ref; wget --no-check-certificate -O resources/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; unzip resources/data/gctb_ref/ukbEURu_hm3_sparse.zip -d resources/data/gctb_ref; for chr in $(seq 1 22);do mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; done; rm resources/data/gctb_ref/ukbEURu_hm3_sparse.zip"
 
 # Download GCTB
 rule download_gctb_software:
@@ -164,7 +189,7 @@ rule download_gctb_software:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/software/gctb; \
-     wget -O resources/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
+     wget --no-check-certificate -O resources/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
      unzip resources/software/gctb/gctb_2.03beta_Linux.zip -d resources/software/gctb; \
      rm resources/software/gctb/gctb_2.03beta_Linux.zip"
 
@@ -176,7 +201,7 @@ rule download_7z:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/software/7z; \
-     wget -O resources/software/7z/7z2103-linux-x64.tar.xz https://www.7-zip.org/a/7z2103-linux-x64.tar.xz; \
+     wget --no-check-certificate -O resources/software/7z/7z2103-linux-x64.tar.xz https://www.7-zip.org/a/7z2103-linux-x64.tar.xz; \
      tar -xf resources/software/7z/7z2103-linux-x64.tar.xz -C resources/software/7z/; \
      rm resources/software/7z/7z2103-linux-x64.tar.xz"
 
@@ -189,7 +214,43 @@ rule download_ldpred2_ref:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/ldpred2_ref; wget -O resources/data/ldpred2_ref/download.zip https://ndownloader.figshare.com/articles/13034123/versions/3; resources/software/7z/7zz e resources/data/ldpred2_ref/download.zip -oresources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
+    "mkdir -p resources/data/ldpred2_ref; wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://ndownloader.figshare.com/articles/13034123/versions/3; resources/software/7z/7zz e resources/data/ldpred2_ref/download.zip -oresources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
+
+# Download LDAK
+rule download_ldak:
+  output:
+    directory("resources/software/ldak")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/software/ldak; wget --no-check-certificate -O resources/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; unzip resources/software/ldak/ldak5.1.linux_.zip -d resources/software/ldak/; rm resources/software/ldak/ldak5.1.linux_.zip"
+
+# Download LDAK map data
+rule download_ldak_map:
+  output:
+    directory("resources/data/ldak_map")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/ldak_map; wget --no-check-certificate -O resources/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; unzip resources/data/ldak_map/genetic_map_b37.zip -d resources/data/ldak_map/; rm resources/data/ldak_map/genetic_map_b37.zip"
+
+# Download LDAK bld snp annotations
+rule download_ldak_bld:
+  output:
+    directory("resources/data/ldak_bld")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/ldak_bld; wget --no-check-certificate -O resources/data/ldak_bld/bld.zip https://genetics.ghpc.au.dk/doug/bld.zip; unzip resources/data/ldak_bld/bld.zip -d resources/data/ldak_bld/; rm resources/data/ldak_bld/bld.zip"
+
+# Download LDAK high ld regions file
+rule download_ldak_highld:
+  output:
+    directory("resources/data/ldak_highld")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "mkdir -p resources/data/ldak_highld; wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt"
 
 # Download and format 1kg reference data
 rule prep_1kg:
@@ -228,8 +289,8 @@ rule download_1kg_pop_codes:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "wget -O resources/data/1kg/1kg_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.populations.tsv; \
-     wget -O resources/data/1kg/1kg_super_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.superpopulations.tsv"
+    "wget --no-check-certificate -O resources/data/1kg/1kg_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.populations.tsv; \
+     wget --no-check-certificate -O resources/data/1kg/1kg_super_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.superpopulations.tsv"
 
 ####
 # Principal Component (Ancestry) Scoring
@@ -496,6 +557,46 @@ rule run_prs_scoring_ldpred2:
   input: expand("resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
 
 ##
+# LDAK MegaPRS
+##
+
+rule prs_scoring_megaprs:
+  resources: 
+    mem_mb=20000,
+    cpus=5,
+    time_min=800
+  input:
+    rules.prep_1kg.output,
+    rules.merge_1kg_GW.output,
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
+    rules.download_ldak.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output,
+    rules.download_ldak_highld.output
+  output:
+    "resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript ../Scripts/ldak_mega_prs/ldak_mega_prs.R \
+      --ref_plink resources/data/1kg/1KGPhase3.w_hm3.GW \
+      --ref_keep resources/data/1kg/keep_files/EUR_samples.keep \
+      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
+      --plink1 plink \
+      --plink2 plink2 \
+      --ldak resources/software/ldak/ldak5.1.linux \
+      --ldak_map resources/data/ldak_map/genetic_map_b37 \
+      --ldak_tag resources/data/ldak_bld \
+      --ldak_highld resources/data/ldak_highld/highld.txt \
+      --memory {resources.mem_mb} \
+      --n_cores {resources.cpus} \
+      --output resources/data/1kg/prs_score_files/megaprs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas} \
+      --ref_pop_scale resources/data/1kg/super_pop_keep.list"
+    
+rule run_prs_scoring_megaprs:
+  input: expand("resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
+
+##
 # Process externally created score files
 ##
 
@@ -573,12 +674,9 @@ target_list_df = pd.read_table(config["target_list"], sep=' ')
 target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
 target_list_df_samp_imp_plink1 = target_list_df.loc[target_list_df['type'] == 'samp_imp_plink1']
 target_list_df_samp_imp_bgen = target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen']
-target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen')]
+target_list_df_samp_imp_vcf = target_list_df.loc[target_list_df['type'] == 'samp_imp_vcf']
+target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen') | (target_list_df['type'] == 'samp_imp_vcf')]
 target_list_df_samp_imp_indiv_report = target_list_df_samp_imp.loc[(target_list_df['indiv_report'] == 'T')]
-
-target_list_df['pre_harm_path'] = target_list_df['path']
-target_list_df.loc[target_list_df['type'] == '23andMe', 'pre_harm_path'] = target_list_df.loc[target_list_df['type'] == '23andMe', 'output'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == '23andMe', 'name'] + ".1KGphase3"
-target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'pre_harm_path'] = target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'output'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + "/" + target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen', 'name'] + ".w_hm3"
 
 ####
 # Format target data
@@ -638,84 +736,57 @@ rule run_format_impute_23andme_target:
 ##
 
 ##
-# samp_imp_plink1
+# Formatting without imputation
 ##
+# Here we will use a script that can accept multiple genetic data formats, insert RSIDs if not present, extract HapMap3 SNPs and output plink hard-call binaries.
 
-# Touch non-23andMe data
-rule touch_imp:
-  output:
-    touch("resources/data/target_checks/{name}/touch_imp.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
-  shell:
-    "ls {params.path}*"
-
-rule run_touch_imp:
-  input: expand("resources/data/target_checks/{name}/touch_imp.done", name=target_list_df_samp_imp_plink1['name'])
-
-##
-# samp_imp_bgen
-##
-
-# Estimate MAF and INFO
-rule compute_snp_stats_target:
+rule format_target:
   input:
-    rules.download_qctool2.output
-  output:
-    touch("resources/data/target_checks/{name}/compute_snp_stats_target.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
-  shell:
-    "resources/software/qctool2/qctool \
-      -g {params.path}.chr{wildcards.chr}.bgen \
-      -s {params.path}.sample \
-      -snp-stats \
-      -osnp {params.output}/{wildcards.name}/{wildcards.name}_snp_stats_chr{wildcards.chr}.txt"
-
-rule run_compute_snp_stats_target:
-  input: expand("resources/data/target_checks/{name}/{name}_snp_stats_chr{chr}.txt", name=target_list_df_samp_imp_bgen['name'], chr=range(1, 23))
-
-# NOTE. I do not implement the run_compute_snp_stats_target rule as target sample size may be too small to accurately estimate INFO and MAF. I suggest people perform this QC in advance, if at all. The use of HapMap3 variants in subsequent analyses should make these filters far less important.
-
-# Convert to plink1 binary
-rule convert_bgen_target:
-  input:
+    rules.prep_1kg.output,
     rules.download_qctool2.output,
-    rules.download_hm3_snplist.output
+    rules.download_hm3_snplist.output,
+    rules.install_liftover.output,
+    rules.download_liftover_track.output,
+    rules.install_bigsnpr.output
   output:
-    touch("resources/data/target_checks/{name}/convert_bgen_target_{chr}.done")
+    touch("resources/data/target_checks/{name}/format_target_{chr}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    type= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'type'].iloc[0]
   shell:
-    "mkdir -p {params.output}/{wildcards.name}/; \
-     resources/software/qctool2/qctool \
-      -g {params.path}.chr{wildcards.chr}.bgen \
-      -s {params.path}.sample \
-      -incl-rsids resources/data/hm3_snplist/w_hm3.snplist \
-      -ofiletype binary_ped \
-      -og {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr} \
-      -threshold 0.9; \
-     awk \'$1=$2\' {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam > {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp; \
-     mv {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam.tmp {params.output}/{wildcards.name}/{wildcards.name}.w_hm3.chr{wildcards.chr}.fam"
+    "Rscript ../Scripts/geno_to_plink/geno_to_plink.R \
+      --target {params.path}.chr{wildcards.chr} \
+      --format {params.type} \
+      --ref resources/data/1kg/1KGPhase3.w_hm3.chr{wildcards.chr} \
+      --plink2 plink2 \
+      --qctool2 resources/software/qctool2/qctool \
+      --liftover resources/software/liftover/liftover \
+      --liftover_track resources/data/liftover/hg18ToHg19.over.chain.gz \
+      --out {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr{wildcards.chr}"
 
-rule run_convert_bgen_target:
+rule run_format_target:
   input: 
-    lambda w: expand("resources/data/target_checks/{name}/convert_bgen_target_{chr}.done", name=w.name, chr=range(1, 23))
+    lambda w: expand("resources/data/target_checks/{name}/format_target_{chr}.done", name=w.name, chr=range(1, 23))
   output:
-    touch("resources/data/target_checks/{name}/run_convert_bgen_target.done")
+    touch("resources/data/target_checks/{name}/format_target.done")
 
-rule run_convert_bgen_target_2:
+rule run_format_target_2:
   input: 
-    expand("resources/data/target_checks/{name}/run_convert_bgen_target.done", name=target_list_df_samp_imp_bgen['name'])
+    expand("resources/data/target_checks/{name}/format_target.done", name=target_list_df_samp_imp['name'])
+
+# /mnt/lustre/users/k1806347/Software/MyGit/GenoPred/GenoPredPipe/.snakemake/conda/a9615942
+# 
+# opt$target<-'test_data/target/imputed_sample_bgen/example.chr2'
+# opt$format<-'samp_imp_bgen'
+# opt$ref<-'resources/data/1kg/1KGPhase3.w_hm3.chr2'
+# opt$plink2<-'plink2'
+# opt$qctool2<-'resources/software/qctool2/qctool'
+# opt$liftover<-'resources/software/liftover/liftover'
+# opt$liftover_track<-'resources/data/liftover/hg18ToHg19.over.chain.gz'
+# opt$out<-'resources/data/target_output/example_bgen/example_bgen.hm3.chr2'
 
 ####
 # Harmonise with reference
@@ -724,17 +795,16 @@ rule run_convert_bgen_target_2:
 rule harmonise_target_with_ref:
   input:
     rules.prep_1kg.output,
-    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/touch_imp.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else "resources/data/target_checks/{name}/run_convert_bgen_target.done")
+    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/{name}/format_target.done"))
   output:
     touch("resources/data/target_checks/{name}/harmonise_target_with_ref.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0],
     output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R \
-      --target {params.path}.chr \
+      --target {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr \
       --ref resources/data/1kg/1KGPhase3.w_hm3.chr \
       --plink plink \
       --out {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr"
@@ -743,17 +813,17 @@ rule run_harmonise_target_with_ref:
   input: expand("resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'])
   
 # Delete temporary files
-rule delete_temp_target_samp_bgen_files:
+rule delete_temp_target_samp_files:
   input:
     "resources/data/target_checks/{name}/harmonise_target_with_ref.done"
   output:
-    touch("resources/data/target_checks/{name}/delete_temp_target_samp_bgen_files.done")
+    touch("resources/data/target_checks/{name}/delete_temp_target_samp_files.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'pre_harm_path'].iloc[0]
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "rm {params.path}.chr*"
+    "rm {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr*"
 
 ####
 # Identify super_population
@@ -762,7 +832,7 @@ rule delete_temp_target_samp_bgen_files:
 rule target_super_population:
   input:
     "resources/data/target_checks/{name}/harmonise_target_with_ref.done",
-    lambda w: "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_bgen_files.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done"
+    lambda w: "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_files.done"
   output:
     touch("resources/data/target_checks/{name}/target_super_population.done")
   conda:
@@ -1253,6 +1323,52 @@ rule run_target_prs_ldpred2_all_name:
     touch("resources/data/target_checks/prs_ldpred2.done")
 
 ##
+# LDAK MegaPRS
+##
+
+rule target_prs_megaprs:
+  resources: 
+    mem_mb=30000
+  input:
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+  output:
+    touch("resources/data/target_checks/{name}/target_prs_megaprs_{population}_{gwas}.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+  shell:
+    "Rscript ../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --ref_score resources/data/1kg/prs_score_files/megaprs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.score.gz \
+      --ref_scale resources/data/1kg/prs_score_files/megaprs/{wildcards.gwas}/1KGPhase3.w_hm3.{wildcards.gwas}.{wildcards.population}.scale \
+      --ref_freq_chr resources/data/1kg/freq_files/{wildcards.population}/1KGPhase3.w_hm3.{wildcards.population}.chr \
+      --plink2 plink2 \
+      --pheno_name {wildcards.gwas} \
+      --output {params.output}/{wildcards.name}/prs/{wildcards.population}/megaprs/{wildcards.gwas}/{wildcards.name}.{wildcards.gwas}.{wildcards.population}"
+     
+rule run_target_prs_megaprs_all_gwas:
+  input:
+    config["gwas_list"],
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_megaprs_{population}_{gwas}.done", name=w.name, gwas=gwas_list_df['name'], population=w.population)
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_megaprs_all_gwas_{population}.done")
+
+rule run_target_prs_megaprs_all_pop:
+  input: 
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_megaprs_all_gwas_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+  output:
+    touch("resources/data/target_checks/{name}/run_target_prs_megaprs_all_pop.done")
+
+rule run_target_prs_megaprs_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_megaprs_all_pop.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/prs_megaprs.done")
+
+##
 # Externally created score files
 ##
 
@@ -1312,6 +1428,7 @@ rule target_prs_all:
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_lassosum_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_megaprs_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_external_all_pop.done", name=w.name)
   output:
     touch('resources/data/target_checks/{name}/target_prs_all.done')
