@@ -205,7 +205,7 @@ if(opt$format == 'samp_imp_bgen'){
 }
 
 if(opt$format == 'samp_imp_vcf'){
-  system(paste0('plink2 --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
+  system(paste0('plink2 --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
 }
 
 # Now edit bim file to update IDs to reference IDs
