@@ -12,8 +12,6 @@ make_option("--format", action="store", default=NA, type='character',
     help="Format of target files [required]"),
 make_option("--plink2", action="store", default=NA, type='character',
     help="Path to plink1.9 [required]"),
-make_option("--qctool2", action="store", default=NA, type='character',
-    help="Path to qctool v2 [required]"),
 make_option("--liftover", action="store", default=NA, type='character',
     help="Path to liftover [required]"),
 make_option("--liftover_track", action="store", default=NA, type='character',
@@ -113,7 +111,7 @@ if(opt$format == 'samp_imp_bgen'){
   write.table(sample_file, paste0(opt$out,'_tmp_keep'), col.names = F, row.names = F, quote = F)
   
   # Convert bgen file to plink format containg data for one individual
-  system(paste0(opt$qctool2,' -g ',opt$target,'.bgen -s ',gsub('.chr.*','',opt$target),'.sample -ofiletype binary_ped -og ',opt$out,'_tmp -incl-samples ',opt$out,'_tmp_keep'))
+  system(paste0('plink2 --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --keep ',opt$out,'_tmp_keep --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
   
   target_snp<-fread(paste0(opt$out,'_tmp.bim'))
   target_snp$V3<-NULL
@@ -201,7 +199,7 @@ if(opt$format == 'samp_imp_plink1'){
 }
 
 if(opt$format == 'samp_imp_bgen'){
-  system(paste0(opt$qctool2,' -g ',opt$target,'.bgen -s ',gsub('.chr.*','',opt$target),'.sample -ofiletype binary_ped -og ',opt$out,'_tmp -incl-rsids ',opt$out,'_extract_list_1.txt -threshold 0.9'))
+  system(paste0('plink2 --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
 }
 
 if(opt$format == 'samp_imp_vcf'){

@@ -743,7 +743,6 @@ rule run_format_impute_23andme_target:
 rule format_target:
   input:
     rules.prep_1kg.output,
-    rules.download_qctool2.output,
     rules.download_hm3_snplist.output,
     rules.install_liftover.output,
     rules.download_liftover_track.output,
@@ -762,7 +761,6 @@ rule format_target:
       --format {params.type} \
       --ref resources/data/1kg/1KGPhase3.w_hm3.chr{wildcards.chr} \
       --plink2 plink2 \
-      --qctool2 resources/software/qctool2/qctool \
       --liftover resources/software/liftover/liftover \
       --liftover_track resources/data/liftover/hg18ToHg19.over.chain.gz \
       --out {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr{wildcards.chr}"
@@ -776,17 +774,6 @@ rule run_format_target:
 rule run_format_target_2:
   input: 
     expand("resources/data/target_checks/{name}/format_target.done", name=target_list_df_samp_imp['name'])
-
-# /mnt/lustre/users/k1806347/Software/MyGit/GenoPred/GenoPredPipe/.snakemake/conda/a9615942
-# 
-# opt$target<-'test_data/target/imputed_sample_bgen/example.chr2'
-# opt$format<-'samp_imp_bgen'
-# opt$ref<-'resources/data/1kg/1KGPhase3.w_hm3.chr2'
-# opt$plink2<-'plink2'
-# opt$qctool2<-'resources/software/qctool2/qctool'
-# opt$liftover<-'resources/software/liftover/liftover'
-# opt$liftover_track<-'resources/data/liftover/hg18ToHg19.over.chain.gz'
-# opt$out<-'resources/data/target_output/example_bgen/example_bgen.hm3.chr2'
 
 ####
 # Harmonise with reference
