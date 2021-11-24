@@ -1,0 +1,751 @@
+---
+title: "Evaluate local rG weighted polygenic scores"
+output: 
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+    number_sections: true
+    toc_float: true
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+p.caption {
+  font-size: 1.5em;
+}
+</style>
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+# Introduction
+
+Here we will test whether weighting PGS by local genetic correlations with the target phenotype improves prediction. We will use three target outcomes: Depression, BMI, and Intelligence. We will collect GWAS for traits geneticaly correlated with the target outcomes, derive polygenic scores using the best PRS method (LDAK MegaPRS), and then evaluate their predictive utility before and after weighting by local genetic correlation (estimated using HESS or LAVA).
+
+***
+
+# Methods
+
+***
+
+## GWAS sumstats
+
+***
+
+### Depression
+
+Target trait GWAS: Wray et al. excl UKB
+
+Secondary GWAS: Schizophreina (PGC2), Bipolar disorder (PGC2), Autism, Smoking, ADHD, Educationtional attainment, Anxiety, age at menarche
+
+***
+
+### BMI 
+
+Target trait GWAS: Locke et al.
+
+Secondary GWAS: Obesity, Childhood obesity, Waist circumference, coronary artery disease, age at menarche, Educationtional attainment, type 2 diabetes, fasting insulin.
+
+***
+
+### Intelligence
+
+Target trait GWAS: Intelligence
+
+Secondary GWAS: Educational attainment, high IQ, Childhood IQ, ADHD, Depression, Schizophrenia, Autism, Longevity
+
+***
+
+```{r, eval=F, echo=T}
+# I need the latest csv of the database to create the table
+gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+```
+
+***
+
+### GWAS Quality Control
+
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create directory
+mkdir -p /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats
+
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt
+for gwas in $(echo DEPR06 SCHI02 BIPO02 AUTI07 SMOK04 ADHD05 COLL01 DIAB05 ANXI02 MENA01F OBES01 WAIS01 COAD01 GLYC05 INTE01 INTE03 BODY04);do
+if [ ! -f /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas}.cleaned.gz ]; then
+echo $gwas >> /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 5G
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(sed "${SLURM_ARRAY_TASK_ID}q;d" /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt)
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/sumstat_cleaner/sumstat_cleaner.R \
+  --sumstats ${gwas_rep_cleaned}/${gwas}.gz \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas}.cleaned
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt | cut -d' ' -f1)%5 /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/sbatch.sh
+
+# GLYC05 contains MAF so FREQ doesn't correspond to particular allele. As a result we are loosing many SNPs. Remove FREQ column and re-QC.
+
+cp ${gwas_rep_cleaned}/GLYC05.gz /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/GLYC05_tmp.gz
+zcat /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/GLYC05_tmp.gz | cut -f 1-3,5-8 | gzip > /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/GLYC05_tmp2.gz
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/sumstat_cleaner/sumstat_cleaner.R \
+  --sumstats /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/GLYC05_tmp2.gz \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+  --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/GLYC05.cleaned
+
+rm /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/GLYC05_tmp.gz
+rm /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/GLYC05_tmp2.gz
+```
+
+***
+
+## Estimate genome-wide and local genetic correlation
+
+```{r, echo=T, eval=F}
+# Create phenotype data.frame
+# Leave number of cases and control as NA since we are not bothered about heritability estimates being on liability scale
+
+gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+pheno<-data.frame(phenotype=gwas,
+                  cases=NA,
+                  controls=NA,
+                  prevalence=NA,
+                  filename=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/', gwas,'.cleaned.gz'))
+
+dir.create('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/')
+write.table(pheno, '/users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/input.info.txt', col.names=T, row.names=F, quote=F)
+
+```
+
+```{bash, echo=T, eval=F}
+##########
+# Prepare sample overlap file
+##########
+
+# Munge all sumstats
+for gwas in $(echo DEPR06 SCHI02 BIPO02 AUTI07 SMOK04 ADHD05 COLL01 DIAB05 ANXI02 MENA01F OBES01 WAIS01 COAD01 GLYC05 INTE01 INTE03 BODY04); do
+  sbatch -p brc,shared ~/brc_scratch/Software/munge_sumstats.sh \
+   --sumstats /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas}.cleaned.gz \
+   --merge-alleles /users/k1806347/brc_scratch/Data/ldsc/w_hm3.snplist \
+   --out /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas}.cleaned
+done
+
+# Run bivariate LDSC for all traits
+mkdir /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/sample_overlap
+
+for gwas1 in $(echo DEPR06 SCHI02 BIPO02 AUTI07 SMOK04 ADHD05 COLL01 DIAB05 ANXI02 MENA01F OBES01 WAIS01 COAD01 GLYC05 INTE01 INTE03 BODY04); do
+for gwas2 in $(echo DEPR06 SCHI02 BIPO02 AUTI07 SMOK04 ADHD05 COLL01 DIAB05 ANXI02 MENA01F OBES01 WAIS01 COAD01 GLYC05 INTE01 INTE03 BODY04); do
+   sbatch -p brc,shared ~/brc_scratch/Software/ldsc.sh \
+     --rg /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas1}.cleaned.sumstats.gz,/users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas2}.cleaned.sumstats.gz \
+     --ref-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ \
+     --w-ld-chr /users/k1806347/brc_scratch/Data/ldsc/eur_w_ld_chr/ \
+     --out /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/sample_overlap/${gwas1}_${gwas2}_rg
+done
+done
+
+# Collate results
+cd /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/sample_overlap/
+FILES=($(ls *_rg.log))
+N=$(echo ${#FILES[@]})
+for I in ${FILES[@]}; do
+        PHEN=$(echo $I | sed 's/_rg\.log//')
+        
+        # subset log files to relevant output
+        tail -n 5 $I | head -n 2 > $PHEN.rg
+        
+        # add to single data set
+        if [[ $I == ${FILES[0]} ]]; then
+        	cat $PHEN.rg > all.rg
+        else
+        	cat $PHEN.rg | sed '1d' >> all.rg
+        fi
+done
+
+```
+
+```{r, eval=F, echo=T}
+scor = read.table("/users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/sample_overlap/all.rg",header=T)              # read in
+scor = scor[,c("p1","p2","gcov_int")]             # retain key headers
+scor$p1 = gsub('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/','',gsub(".cleaned.sumstats.gz","",scor$p1))
+scor$p2 = gsub('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/','',gsub(".cleaned.sumstats.gz","",scor$p2))
+phen = unique(scor$p1)
+n = length(phen)
+mat = matrix(NA,n,n)                    # create matrix
+rownames(mat) = colnames(mat) = phen    # set col/rownames
+for (i in phen) {
+        for (j in phen) {
+                mat[i,j] = subset(scor, p1==i & p2==j)$gcov_int
+        }
+}
+if (!all(t(mat)==mat)) { mat[lower.tri(mat)] = t(mat)[lower.tri(mat)] }  # sometimes there might be small differences in gcov_int depending on which phenotype was analysed as the outcome / predictor
+mat = round(cov2cor(mat),5)                       # standardise
+write.table(mat, "/users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/sample_overlap/sample.overlap.txt", quote=F)   # save
+```
+
+```{bash, echo=T, eval=T}
+#####
+# Create R script to run LAVA across genome
+#####
+
+cat > /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/lava.R << 'EOF'
+# command line arguments, specifying input/output file names and phenotype subset
+arg = commandArgs(T); ref.prefix = arg[1]; loc.file = arg[2]; info.file = arg[3]; sample.overlap.file = arg[4]; phenos = unlist(strsplit(arg[5],",")); out.fname = arg[6]
+
+### Load package
+library(LAVA)
+
+### Read in data
+loci = read.loci(loc.file); n.loc = nrow(loci)
+input = process.input(info.file, sample.overlap.file, ref.prefix, phenos)
+
+print(paste("Starting LAVA analysis for",n.loc,"loci"))
+progress = ceiling(quantile(1:n.loc, seq(.05,1,.05)))   # (if you want to print the progress)
+
+### Analyse
+u=b=list()
+for (i in 1:n.loc) {
+        if (i %in% progress) print(paste("..",names(progress[which(progress==i)])))     # (printing progress)
+        locus = process.locus(loci[i,], input)                                          # process locus
+        
+        # It is possible that the locus cannot be defined for various reasons (e.g. too few SNPs), so the !is.null(locus) check is necessary before calling the analysis functions.
+        if (!is.null(locus)) {
+                # extract some general locus info for the output
+                loc.info = data.frame(locus = locus$id, chr = locus$chr, start = locus$start, stop = locus$stop, n.snps = locus$n.snps, n.pcs = locus$K)
+                
+                # run the univariate and bivariate tests
+                loc.out = run.univ.bivar(locus)
+                u[[i]] = cbind(loc.info, loc.out$univ)
+                if(!is.null(loc.out$bivar)) b[[i]] = cbind(loc.info, loc.out$bivar)
+        }
+}
+
+# save the output
+write.table(do.call(rbind,u), paste0(out.fname,".univ.lava"), row.names=F,quote=F,col.names=T)
+write.table(do.call(rbind,b), paste0(out.fname,".bivar.lava"), row.names=F,quote=F,col.names=T)
+
+print(paste0("Done! Analysis output written to ",out.fname,".*.lava"))
+
+EOF
+
+########
+# Run LAVA for each target GWAS
+########
+
+for target_gwas in $(echo DEPR06 BODY04 INTE03); do
+for secondary_gwas in $(echo DEPR06 SCHI02 BIPO02 AUTI07 SMOK04 ADHD05 COLL01 DIAB05 ANXI02 MENA01F OBES01 WAIS01 COAD01 GLYC05 INTE01 INTE03 BODY04); do
+if [ ${target_gwas} != ${secondary_gwas} ]; then
+mkdir -p /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/results/${target_gwas}
+sbatch -p brc,shared --mem 10G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/lava.R \
+  /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW \
+  /users/k1806347/brc_scratch/Data/LAVA/blocks_s2500_m25_f1_w200.GRCh37_hg19.locfile \
+  /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/input.info.txt \
+  /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/sample_overlap/sample.overlap.txt \
+  ${target_gwas},${secondary_gwas} \
+  /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/results/${target_gwas}/${target_gwas}.${secondary_gwas}
+fi
+done
+done
+
+# Notes: If the target phenotype GWAS does not have a large sample, then heritability within a locus may not be significant, and therefore rho cannot be accuratly estimated. This means there may also be an advantage to using unweighted secondary PGS as they may contain information from shared loci that cannot be identified using LAVA.
+# I should create an info file with the correct number of cases and controls
+# This takes approximately 2.5 hours per pair of traits
+```
+
+***
+
+## Characterise the genome-wide and local genetic correlation results
+
+Look at the pattern of genome-wide and local h2 and rG estimates.
+Compare LDSC h2 estimates and sum of local h2 estimates.
+Look for instances where genome-wide rG is 0, but local rG !=0.
+Split loci into groups:
+- loci with significant h2 for neither trait
+- loci with significant h2 for one trait
+- loci with significant h2 for both traits
+- loci with significant rG
+Look for differences in h2 in loci with significant rG
+
+How to use this information in polygenic scores?
+- Extract loci with sigificant rG and weight SNPs by rG (i.e. BETA * rG)
+- Extract loci with sigificant h2 for both traits and weight SNPs by rG (i.e. BETA * rG)
+
+Within regions of genetic correlation, should the secondary GWAS effect sizes be scaled according to the heritability in the target GWAS? (i.e. (BETA * rG)/(h22/h21). This will account for differences in heritability between traits.
+
+```{r, eval=F, echo=T}
+library(data.table)
+library(cowplot)
+library(ggplot2)
+
+target_gwas<-$(echo DEPR06); do
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+for(target_gwas_i in target_gwas){
+  for(secondary_gwas_i in secondary_gwas){
+    univ_res<-fread(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/results/',target_gwas_i,'/',target_gwas_i,'.',secondary_gwas_i,'.univ.lava'))
+    bivar_res<-fread(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/results/',target_gwas_i,'/',target_gwas_i,'.',secondary_gwas_i,'.bivar.lava'))
+    
+    # Remove loci with non-significant heritability
+    univ_res<-univ_res[univ_res$p < 0.05,]
+    bivar_res<-bivar_res[bivar_res$p < 0.05,]
+    
+    # Rmove loci with no estimates
+    univ_res$locus<-as.numeric(factor(univ_res$locus))
+    bivar_res$locus<-as.numeric(factor(bivar_res$locus))
+    
+    bivar_res$Direction<-'+'
+    bivar_res$Direction[bivar_res$rho < 0]<-'-'
+    
+    ggplot(univ_res, aes(x=locus, y=h2.obs, fill=phen)) +
+      geom_bar(stat="identity", position=position_dodge())
+    ggplot(bivar_res, aes(x=locus, y=rho, fill=Direction)) +
+      geom_bar(stat="identity", position=position_dodge()) +
+      geom_errorbar(aes(ymin=rho-rho.lower, ymax=rho+rho.upper), width=.2, position=position_dodge(.9))
+    }
+  }
+}
+
+```
+
+***
+
+## Generate polygenic scores
+
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(echo DEPR06 SCHI02 BIPO02 AUTI07 SMOK04 ADHD05 COLL01 DIAB05 ANXI02 MENA01F OBES01 WAIS01 COAD01 GLYC05 INTE01 INTE03 BODY04)
+
+# Create directory
+mkdir -p /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK
+
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/todo.txt
+for gwas_i in $(echo DEPR06 SCHI02 BIPO02 AUTI07 SMOK04 ADHD05 COLL01 DIAB05 ANXI02 MENA01F OBES01 WAIS01 COAD01 GLYC05 INTE01 INTE03 BODY04);do
+if [ ! -f /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/${gwas_i}/1KGPhase3.w_hm3.${gwas_i}.EUR.scale ]; then
+echo ${gwas_i} >> /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 20G
+#SBATCH -n 5
+#SBATCH --nodes 1
+#SBATCH -J LDAK
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/todo.txt)
+
+echo ${gwas}
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/ldak_mega_prs/ldak_mega_prs.R \
+--ref_plink ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+--sumstats /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas}.cleaned.gz \
+--plink1 ${plink1_9} \
+--plink2 ${plink2} \
+--ldak /users/k1806347/brc_scratch/Software/ldak5.1.linux \
+--ldak_map /users/k1806347/brc_scratch/Data/LDAK/genetic_map_b37 \
+--ldak_tag /users/k1806347/brc_scratch/Data/LDAK/bld/ \
+--ldak_highld /users/k1806347/brc_scratch/Data/LDAK/highld.txt \
+--memory 5000 \
+--n_cores 5 \
+--output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/${gwas}/1KGPhase3.w_hm3.${gwas} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/todo.txt | cut -d' ' -f1)%6 /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/sbatch.sh
+
+```
+
+***
+
+## Reweight polygenic scores
+
+Reweight the effect sizes based on estimated local rG. Use the LDAK-MegaPRS pseudovalidated score for simplicity.
+
+```{r, eval=F, echo=T}
+library(data.table)
+
+# Read in reference bim for RSID coordinates
+ref_bim<-fread('/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW.bim')
+names(ref_bim)<-c('CHR','SNP','POS','BP','A1','A2')
+
+# Read in the rho estimates
+target_gwas<-c('DEPR06','BODY04','INTE03')
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+univ_res_all<-list()
+for(target_gwas_i in target_gwas){
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    univ_res<-fread(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/results/',target_gwas_i,'/',target_gwas_i,'.',secondary_gwas_i,'.univ.lava'))
+    
+    # Remove loci with non-significant heritability
+    univ_res<-univ_res[univ_res$p < 0.05,]
+    
+    univ_res_all[[paste0(target_gwas_i,'_',secondary_gwas_i)]]<-univ_res
+  }
+}
+
+bivar_res_all<-NULL
+for(target_gwas_i in target_gwas){
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    bivar_res<-fread(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/results/',target_gwas_i,'/',target_gwas_i,'.',secondary_gwas_i,'.bivar.lava'))
+    
+    # Remove loci with non-significant rG
+    bivar_res<-bivar_res[bivar_res$p < 0.05,]
+    
+    bivar_res_all<-rbind(bivar_res_all, bivar_res)
+  }
+}
+
+# Read in the score files and reweight by rho
+for(target_gwas_i in target_gwas){
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    pseudo<-fread(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudoval.txt'))
+    
+    pseudo$V1[pseudo$V2 == max(pseudo$V2)][1]
+    
+    score<-fread(paste0('zcat /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".score.gz | cut -d' ' -f 1,2,",as.numeric(gsub('Score_','',pseudo$V1[pseudo$V2 == max(pseudo$V2)][1]))+2))
+    names(score)<-c('SNP','A1','SCORE')
+    
+    fwrite(score[,c('SNP','A1','SCORE'),with=F], paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.score"), quote=F, sep=' ', na='NA')
+    if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.score.gz"))){
+      system(paste0('rm /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.score.gz"))
+    }
+    
+    system(paste0('gzip /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.score"))
+
+    score_bim<-merge(score, ref_bim[,c('SNP','CHR','BP'),with=F], by='SNP')
+    
+    univ_res<-univ_res_all[[paste0(target_gwas_i,'_', secondary_gwas_i)]]
+    
+    bivar_res<-bivar_res_all[bivar_res_all$phen1 == target_gwas_i & bivar_res_all$phen2 == secondary_gwas_i,]
+    
+    score_bim_reweight<-NULL
+    for(locus in unique(bivar_res$locus)){
+      tmp<-score_bim[score_bim$CHR == bivar_res$chr[bivar_res$locus == locus] & score_bim$BP >= bivar_res$start[bivar_res$locus == locus] & score_bim$BP <= bivar_res$stop[bivar_res$locus == locus],]
+      tmp$SCORE_rho<-tmp$SCORE*bivar_res$rho[bivar_res$locus == locus]
+      tmp$SCORE_rho_h2<-(tmp$SCORE*bivar_res$rho[bivar_res$locus == locus])/(univ_res$h2.obs[univ_res$locus == locus & univ_res$phen == secondary_gwas_i] / univ_res$h2.obs[univ_res$locus == locus & univ_res$phen == target_gwas_i])
+      tmp<-tmp[,c('SNP','A1','SCORE','SCORE_rho','SCORE_rho_h2'), with=F]
+      score_bim_reweight<-rbind(score_bim_reweight, tmp)
+    }
+    
+    fwrite(score_bim_reweight[,c('SNP','A1','SCORE'),with=F], paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_unweighted_",target_gwas_i,'.score'), quote=F, sep=' ', na='NA')
+    if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_unweighted_",target_gwas_i,'.score.gz'))){
+      system(paste0('rm /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_unweighted_",target_gwas_i,'.score.gz'))
+    }
+    
+    system(paste0('gzip /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_unweighted_",target_gwas_i,'.score'))
+
+    fwrite(score_bim_reweight[,c('SNP','A1','SCORE_rho'),with=F], paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_weighted_",target_gwas_i,'.score'), quote=F, sep=' ', na='NA')
+    if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_weighted_",target_gwas_i,'.score.gz'))){
+      system(paste0('rm /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_weighted_",target_gwas_i,'.score.gz'))
+    }
+    
+    system(paste0('gzip /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_weighted_",target_gwas_i,'.score'))
+
+        fwrite(score_bim_reweight[,c('SNP','A1','SCORE_rho_h2'),with=F], paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_h2_weighted_",target_gwas_i,'.score'), quote=F, sep=' ', na='NA')
+    if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_h2_weighted_",target_gwas_i,'.score.gz'))){
+      system(paste0('rm /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_h2_weighted_",target_gwas_i,'.score.gz'))
+    }
+    
+    system(paste0('gzip /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,".pseudo.rho_h2_weighted_",target_gwas_i,'.score'))
+
+  }
+}
+
+# Process new score files with external_scorer script to create scale files
+# Read in the rho estimates
+target_gwas<-c('DEPR06','BODY04','INTE03')
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+for(target_gwas_i in target_gwas){
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    for(type in c('unweighted','weighted','h2_weighted')){
+      dir.create(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/processed/',secondary_gwas_i,'.pseudo.rho_',type,'_',target_gwas_i), recursive=T)
+      system(paste0('/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/external_score_processor/external_score_processor_plink2.R --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr --score /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.rho_',type,'_',target_gwas_i,'.score.gz --plink2 /users/k1806347/brc_scratch/Software/plink2 --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/processed/',secondary_gwas_i,'.pseudo.rho_',type,'_',target_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.rho_',type,'_',target_gwas_i,' --ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list'))
+    }
+  }
+}
+
+for(secondary_gwas_i in secondary_gwas){
+  dir.create(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/processed/',secondary_gwas_i,'.pseudo'), recursive=T)
+  system(paste0('/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/external_score_processor/external_score_processor_plink2.R --ref_plink_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.chr --score /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.score.gz --plink2 /users/k1806347/brc_scratch/Software/plink2 --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/processed/',secondary_gwas_i,'.pseudo/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo --ref_pop_scale /users/k1806347/brc_scratch/Data/1KG/Phase3/super_pop_keep.list'))
+}
+
+# Current limitation of the code is that we reweight by h2 on the observed scale rather than the liability scale.
+```
+
+## Perform polygenic scoring
+
+```{r, eval=F, echo=T}
+# Read in the rho estimates
+target_gwas<-c('DEPR06','BODY04','INTE03')
+target_pheno<-c('Depression','BMI','Intelligence')
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+for(i in 1:length(target_gwas)){
+  target_gwas_i<-target_gwas[i]
+  target_pheno_i<-target_pheno[i]
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    for(type in c('unweighted','weighted','h2_weighted')){
+      if(!file.exists(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/',target_gwas_i,'/',type,'/prs.profiles'))){
+        system(paste0('sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R --target_plink_chr /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr --target_keep /users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',target_pheno_i,'.txt --ref_score /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.rho_',type,'_',target_gwas_i,'.score.gz --ref_scale /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/processed/',secondary_gwas_i,'.pseudo.rho_',type,'_',target_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.rho_',type,'_',target_gwas_i,'.EUR.scale --ref_freq_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr --plink2 /users/k1806347/brc_scratch/Software/plink2_alpha/plink2 --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/',target_gwas_i,'/',type,'/prs'))
+      }
+    }
+  }
+}
+
+for(secondary_gwas_i in secondary_gwas){
+  system(paste0('sbatch -p brc,shared --mem 20G /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R --target_plink_chr /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr --target_keep /users/k1806347/brc_scratch/Data/UKBB/Projected_PCs/Ancestry_idenitfier/UKBB.w_hm3.AllAncestry.EUR.keep --ref_score /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.score.gz --ref_scale /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/processed/',secondary_gwas_i,'.pseudo/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.EUR.scale --ref_freq_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr --plink2 /users/k1806347/brc_scratch/Software/plink2_alpha/plink2 --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/prs'))
+}
+
+```
+
+## Evaluate polygenic scores
+
+```{r, eval=F, echo=T}
+############
+# First test whether inclusion of secondary PRS improve prediction over target phenotype gwas (i.e. replicate Krapohl et al.)
+############
+
+target_gwas<-c('DEPR06','BODY04','INTE03')
+target_pheno<-c('Depression','BMI','Intelligence')
+target_pop_prev<-c(0.15,NA,NA)
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+# use for loop to read all values and indexes
+for(i in 1:length(target_gwas)){
+  pred_file<-NULL
+  target_gwas_i<-target_gwas[i]
+  target_pheno_i<-target_pheno[i]
+  target_pop_prev_i<-target_pop_prev[i]
+  # Add in prs for target phenotype
+  tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',target_gwas_i,'/prs.profiles'),
+                  group='target')
+  
+  pred_file<-rbind(pred_file, tmp)
+  
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    # Add in prs for target phenotype
+    tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/prs.profiles'),
+                    group='secondary')
+    
+    pred_file<-rbind(pred_file, tmp)
+  }
+  
+  dir.create(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i), recursive=T)
+  write.table(pred_file, paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_1.txt'), col.names=T, row.names=F, quote=F)
+
+  system(paste0('sbatch --mem 10G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',target_pheno_i,'.txt --out /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_1 --assoc T --outcome_pop_prev ',target_pop_prev_i,' --predictors /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_1.txt'))
+
+}
+
+############
+# Compare prs with and without rho weighting
+############
+
+target_gwas<-c('DEPR06','BODY04','INTE03')
+target_pheno<-c('Depression','BMI','Intelligence')
+target_pop_prev<-c(0.15,NA,NA)
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+# use for loop to read all values and indexes
+for(i in 1:length(target_gwas)){
+  pred_file<-NULL
+  target_gwas_i<-target_gwas[i]
+  target_pheno_i<-target_pheno[i]
+  target_pop_prev_i<-target_pop_prev[i]
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    for(type in c('unweighted','weighted')){
+      # Add in prs for target phenotype
+      tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/',target_gwas_i,'/',type,'/prs.profiles'),
+                      group=type)
+      
+      pred_file<-rbind(pred_file, tmp)
+    }
+  }
+
+  write.table(pred_file, paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_2.txt'), col.names=T, row.names=F, quote=F)
+
+  system(paste0('sbatch --mem 10G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',target_pheno_i,'.txt --out /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_2 --assoc T --outcome_pop_prev ',target_pop_prev_i,' --predictors /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_2.txt'))
+
+}
+
+############
+# Test whether adding weighted PRS improves prediction over the standard approach (i.e. Krapohl et al.) 
+############
+
+target_gwas<-c('DEPR06','BODY04','INTE03')
+target_pheno<-c('Depression','BMI','Intelligence')
+target_pop_prev<-c(0.15,NA,NA)
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+# use for loop to read all values and indexes
+for(i in 1:length(target_gwas)){
+  pred_file<-NULL
+  target_gwas_i<-target_gwas[i]
+  target_pheno_i<-target_pheno[i]
+  target_pop_prev_i<-target_pop_prev[i]
+  
+  # Add in prs for target phenotype
+  tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',target_gwas_i,'/prs.profiles'),
+                  group='baseline')
+  
+  pred_file<-rbind(pred_file, tmp)
+
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    # Add in prs for target phenotype
+    tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/prs.profiles'),
+                    group='baseline')
+    
+    pred_file<-rbind(pred_file, tmp)
+    
+    for(type in c('weighted')){
+      # Add in weighted prs for target phenotype
+      tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/',target_gwas_i,'/',type,'/prs.profiles'),
+                      group='weighted')
+      
+      pred_file<-rbind(pred_file, tmp)
+    }
+  }
+
+write.table(pred_file, paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_3.txt'), col.names=T, row.names=F, quote=F)
+
+  system(paste0('sbatch --mem 10G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',target_pheno_i,'.txt --out /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_3 --assoc T --outcome_pop_prev ',target_pop_prev_i,' --predictors /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_3.txt'))
+
+}
+
+############
+# Test whether adding weighted PRS improves prediction over the target PRS alone
+############
+
+target_gwas<-c('DEPR06','BODY04','INTE03')
+target_pheno<-c('Depression','BMI','Intelligence')
+target_pop_prev<-c(0.15,NA,NA)
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+# use for loop to read all values and indexes
+for(i in 1:length(target_gwas)){
+  pred_file<-NULL
+  target_gwas_i<-target_gwas[i]
+  target_pheno_i<-target_pheno[i]
+  target_pop_prev_i<-target_pop_prev[i]
+  
+  # Add in prs for target phenotype
+  tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',target_gwas_i,'/prs.profiles'),
+                  group='target_only')
+  
+  pred_file<-rbind(pred_file, tmp)
+
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    for(type in c('weighted')){
+      # Add in weighted prs for target phenotype
+      tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/',target_gwas_i,'/',type,'/prs.profiles'),
+                      group='weighted')
+      
+      pred_file<-rbind(pred_file, tmp)
+    }
+  }
+
+write.table(pred_file, paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_4.txt'), col.names=T, row.names=F, quote=F)
+
+  system(paste0('sbatch --mem 10G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',target_pheno_i,'.txt --out /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_4 --assoc T --outcome_pop_prev ',target_pop_prev_i,' --predictors /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_4.txt'))
+
+}
+
+############
+# Compare rho weighted prs with and without additional h2 weighting
+############
+
+target_gwas<-c('DEPR06','BODY04','INTE03')
+target_pheno<-c('Depression','BMI','Intelligence')
+target_pop_prev<-c(0.15,NA,NA)
+secondary_gwas<-c('DEPR06','SCHI02','BIPO02','AUTI07','SMOK04','ADHD05','COLL01','DIAB05','ANXI02','MENA01F','OBES01','WAIS01','COAD01','GLYC05','INTE01','INTE03','BODY04')
+
+# use for loop to read all values and indexes
+for(i in 2:length(target_gwas)){
+  pred_file<-NULL
+  target_gwas_i<-target_gwas[i]
+  target_pheno_i<-target_pheno[i]
+  target_pop_prev_i<-target_pop_prev[i]
+  for(secondary_gwas_i in secondary_gwas[secondary_gwas != target_gwas_i]){
+    for(type in c('weighted','h2_weighted')){
+      # Add in prs for target phenotype
+      tmp<-data.frame(predictors=paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/',target_gwas_i,'/',type,'/prs.profiles'),
+                      group=type)
+      
+      pred_file<-rbind(pred_file, tmp)
+    }
+  }
+
+  write.table(pred_file, paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_5.txt'), col.names=T, row.names=F, quote=F)
+
+  system(paste0('sbatch --mem 10G -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R --pheno /users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',target_pheno_i,'.txt --out /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_5 --assoc T --outcome_pop_prev ',target_pop_prev_i,' --predictors /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/',target_pheno_i,'/test_5.txt'))
+
+}
+```
+
+- Adding unstratified prs for secondary traits improves prediction over target prs alone, thereby replicating the Krapohl et al study.
+- Secondary PRS derived using SNPs within regions of significant rG are more predictive when weighted by local rG.
+- However, secondary PRS weighted by local rG do not improve prediction over the target PRS alone, nor over the target PRS and unstratified secondary PRS.
+- Weighting PRS by rG and h2 didn't make an improvement, perhaps due to not accounting for liability-scale h2.
+
+Why?
+- Are we just restricting the secondary PRS to signals that are already in the target PRS?
+
+Why do PRS for genetically correlated phenotypes improve prediction over the target GWAS alone? Because they contain information that the target GWAS doesn't. Where is this additional information? By either improving the effect size estimates within regions identified in both studies, or by capturing loci that are not captured within the target GWAS.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
