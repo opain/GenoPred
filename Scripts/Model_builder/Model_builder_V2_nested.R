@@ -450,8 +450,6 @@ if(opt$model_comp == T){
 		  Indep_Pred_tab<-data.frame(obs=Outcome_Predictors_test_y,
 		                             pred=Indep_Pred)
 		  
-		  print(cor(Indep_Pred_tab)[1,2])
-		  
 			# Save test set predictions from each outer loop
 			indep_pred[[group_name]]<-rbind(indep_pred[[group_name]], Indep_Pred_tab)
     }
