@@ -860,6 +860,7 @@ rule run_ancestry_reporter:
 ####
 # Identify population within super population
 ####
+# Note. I have removed the within super population ancestry identification rule from the reports as the population sizes in the reference are too small to reliably build prediction models.
 
 from pathlib import Path
 
@@ -916,7 +917,7 @@ def report_output_munge(x):
 
 rule create_individual_ancestry_report:
   input:
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target_checks/{name}/indiv_ancestry_report.done') 
@@ -944,7 +945,7 @@ def id_munge(x):
 
 rule create_individual_ancestry_report_for_sample:
   input:
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target_checks/{name}/create_individual_ancestry_report_for_sample_{id}.done') 
@@ -973,7 +974,7 @@ rule run_create_individual_ancestry_report_for_sample_all_indiv:
 
 rule create_sample_ancestry_report:
   input:
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target_checks/{name}/samp_ancestry_report.done')
@@ -1460,7 +1461,7 @@ rule run_create_individual_report:
 rule create_individual_report_for_sample:
   input:
     rules.install_ggchicklet.output,
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
@@ -1494,7 +1495,7 @@ rule run_create_individual_report_for_sample_all_indiv:
 rule create_sample_report:
   input:
     rules.install_ggchicklet.output,
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
