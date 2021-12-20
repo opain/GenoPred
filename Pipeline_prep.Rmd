@@ -1883,6 +1883,172 @@ sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/LDAK/todo.txt
 
 <br/>
 
+## Prepare score and scale files for polygenic scoring using PRS-CSx
+
+This is a bit different to the other polygenic scoring methods as this requires GWAS summary statistics and LD reference data from two populations. For this example, we will use Height and BMI as the target phenotypes, using EUR (european) sumstats that are independent from UKB, and EAS (east asian) sumstats from BioBank Japan (BBJ).
+
+<br/>
+
+***
+
+### Prepare BBJ sumstats
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+
+# Download the sumstats
+wget --no-check-certificate -O /users/k1806347/brc_scratch/Data/GWAS_sumstats/BBJ/BBJ_Height.txt.gz http://jenger.riken.jp/135analysisresult_qtl_download/
+wget --no-check-certificate -O /users/k1806347/brc_scratch/Data/GWAS_sumstats/BBJ/BBJ_BMI.txt.gz http://jenger.riken.jp/1analysisresult_qtl_download/
+
+# Format the sumstats for qc script
+module add apps/R
+R
+
+library(data.table)
+
+# Read in reference data
+ref<-fread('/users/k1806347/brc_scratch/Data/1KG/Phase3/1KGPhase3.w_hm3.GW.bim')
+ref$V3<-NULL
+
+################
+# BBJ Height
+################
+# We need to insert RSID, N and update column names
+
+sum_auto<-fread('/users/k1806347/brc_scratch/Data/GWAS_sumstats/BBJ/BBJ_Height.txt.gz')
+
+sum_auto_matched<-merge(sum_auto, ref, by.x=c('CHR','POS','REF','ALT'), by.y=c('V1','V4','V5','V6'))
+sum_auto_swapped<-merge(sum_auto, ref, by.x=c('CHR','POS','REF','ALT'), by.y=c('V1','V4','V6','V5'))
+
+sum_auto_withRSID<-rbind(sum_auto_matched, sum_auto_swapped)
+
+sum_auto_withRSID<-sum_auto_withRSID[,c('CHR','POS','REF','ALT','ALT_freq','BETA','SE','P_INF','V2'), with=F]
+names(sum_auto_withRSID)<-c('CHR','POS','A2','A1','FREQ','BETA','SE','P','SNP')
+
+sum_auto_withRSID$N<-159095
+
+fwrite(sum_auto_withRSID, '/users/k1806347/brc_scratch/Data/GWAS_sumstats/BBJ/BBJ_Height_RSID.gz', sep=' ', quote=F, na='NA')
+
+################
+# BBJ Height
+################
+
+sum_auto<-fread('/users/k1806347/brc_scratch/Data/GWAS_sumstats/BBJ/BBJ_BMI.txt.gz')
+
+sum_auto_matched<-merge(sum_auto, ref, by.x=c('CHR','POS','REF','ALT'), by.y=c('V1','V4','V5','V6'))
+sum_auto_swapped<-merge(sum_auto, ref, by.x=c('CHR','POS','REF','ALT'), by.y=c('V1','V4','V6','V5'))
+
+sum_auto_withRSID<-rbind(sum_auto_matched, sum_auto_swapped)
+
+sum_auto_withRSID<-sum_auto_withRSID[,c('CHR','POS','REF','ALT','Frq','BETA','SE','P','V2'), with=F]
+
+names(sum_auto_withRSID)<-c('CHR','POS','A2','A1','FREQ','BETA','SE','P','SNP')
+
+sum_auto_withRSID$N<-158284
+
+fwrite(sum_auto_withRSID, '/users/k1806347/brc_scratch/Data/GWAS_sumstats/BBJ/BBJ_BMI_RSID.gz', sep=' ', quote=F, na='NA')
+
+q()
+n
+
+# QC the sumstats
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+for gwas in $(echo Height BMI); do
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/sumstat_cleaner/sumstat_cleaner.R \
+  --sumstats /users/k1806347/brc_scratch/Data/GWAS_sumstats/BBJ/BBJ_${gwas}_RSID.gz \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_freq_chr ${Geno_1KG_dir}/freq_files/EAS/1KGPhase3.w_hm3.EAS.chr \
+  --output /users/k1806347/brc_scratch/Data/GWAS_sumstats/BBJ/BBJ_${gwas}.RSID.cleaned
+done
+
+# Download EAS LD reference data
+wget --no-check-certificate -O /users/k1806347/brc_scratch/Software/PRScs/ldblk_1kg_eas.tar.gz https://www.dropbox.com/s/7ek4lwwf2b7f749/ldblk_1kg_eas.tar.gz?dl=0
+
+cd /users/k1806347/brc_scratch/Software/PRScs/
+tar -xvzf /users/k1806347/brc_scratch/Software/PRScs/ldblk_1kg_eas.tar.gz
+
+rm ldblk_1kg_eas.tar.gz
+
+# Download snp data file
+wget --no-check-certificate -O /users/k1806347/brc_scratch/Software/PRScs/snpinfo_mult_1kg_hm3 https://www.dropbox.com/s/rhi806sstvppzzz/snpinfo_mult_1kg_hm3?dl=0
+
+```
+
+</details>
+
+<br/>
+
+***
+
+### Run PRS-CSx
+
+Tian (developer) says I should expect the analysis to require twice as much memory, and two run for four times as long as PRScs. This is quite a lot of resources to run in a single session, and so I will use an Rscript to submit jobs.
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create symbolic links to gwas sumstats to allow easy looping with two GWAS at a time
+pheno=(MDD MDD MDD Height BMI)
+samp1=(PGC2 PGC2 PGC2 Wood Locke)
+samp2=(PGC CONVERGE BBJ BBJ BBJ)
+pop1=(EUR EUR EUR EUR EUR)
+pop2=(EAS EAS EAS EAS EAS)
+
+> ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/todo.txt
+for (( i=0; i<${#pheno[@]}; i++ ));do
+if [ ! -f ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/${pheno[${i}]}_${samp1[${i}]}_${pop1[${i}]}_${samp2[${i}]}_${pop2[${i}]}/1KGPhase3.w_hm3.${pheno[${i}]}_${samp1[${i}]}_${pop1[${i}]}_${samp2[${i}]}_${pop2[${i}]}.${pop2[${i}]}.EUR.scale ]; then
+echo ${pheno[${i}]} ${samp1[${i}]} ${samp2[${i}]} ${pop1[${i}]} ${pop2[${i}]} >> ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 8G
+#SBATCH -n 1
+#SBATCH --nodes=1
+#SBATCH -t 3-00:00:00
+#SBATCH -J PRS_CSx
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/todo.txt)
+samp1=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/todo.txt)
+samp2=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $3}' ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/todo.txt)
+pop1=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $4}' ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/todo.txt)
+pop2=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $5}' ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/todo.txt)
+
+export MKL_NUM_THREADS=$SLURM_CPUS_ON_NODE
+export NUMEXPR_NUM_THREADS=$SLURM_CPUS_ON_NODE
+export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/PRS-CSx/PRS_CSx_plink2_slurm.R \
+--ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+--sumstats1 /users/k1806347/brc_scratch/Analyses/CrossMeta/GWAS_sumstats/cleaned/${samp1}_${pheno}_${pop1} \
+--sumstats2 /users/k1806347/brc_scratch/Analyses/CrossMeta/GWAS_sumstats/cleaned/${samp2}_${pheno}_${pop2} \
+--pop1 ${pop1} \
+--pop2 ${pop2} \
+--plink2 ${plink2} \
+--memory 5000 \
+--output ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/${pheno}_${samp1}_${pop1}_${samp2}_${pop2}/1KGPhase3.w_hm3.${pheno}_${samp1}_${pop1}_${samp2}_${pop2} \
+--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list \
+--PRS_CSx_path /users/k1806347/brc_scratch/Software/PRScsx.sh \
+--PRS_CSx_ref_path /users/k1806347/brc_scratch/Software/PRScs \
+--n_cores 20 \
+--phi_param 1e-6,1e-4,1e-2,1,auto
+EOF
+
+sbatch --array 1-$(wc -l ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/todo.txt | cut -d' ' -f1)%1 ${Geno_1KG_dir}/Score_files_for_polygenic/PRS-CSx/sbatch.sh
+
+```
+</details>
+
+<br/>
+
 ***
 
 # Functionally-informed polygenic scoring
