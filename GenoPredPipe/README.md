@@ -66,6 +66,8 @@ Run full pipeline for all target samples.
 snakemake --profile slurm --use-conda run_create_reports
 ```
 
+Note. If you receive an error saying 'MissingOutputException', you should try adding '--latency-wait 20' to the snakemake command, which tells the pipeline to wait 20 seconds between steps, thereby allowing filesystem latency.
+
 ***
 
 ## Using your own data

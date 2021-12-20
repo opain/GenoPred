@@ -50,7 +50,7 @@ n_score<-ncol(score)-2
 
 # Calculate polygenic scores for reference individuals
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Calculating polygenic scores in reference...')
+cat('Calculating polygenic scores in reference...\n')
 sink()
 
 if(n_score == 1){
@@ -68,9 +68,15 @@ fam<-fread(paste0(opt$ref_plink_chr,'22.fam'))
 
 scores<-list()
 for(i in as.character(CHROMS)){
-  sscore<-fread(paste0(opt$output,'.profiles.chr',i,'.sscore'))
-  scores[[i]]<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-  scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT)
+  if(file.exists(paste0(opt$output,'.profiles.chr',i,'.sscore'))){
+    sscore<-fread(paste0(opt$output,'.profiles.chr',i,'.sscore'))
+    scores[[i]]<-sscore[,grepl('SCORE_', names(sscore)),with=F]
+    scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT)
+  } else {
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('No scores for chromosome ',i,'. Check plink logs file for reason.\n', sep='')
+    sink()
+  }
 }
 
 scores<-Reduce(`+`, scores)
