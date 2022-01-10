@@ -298,11 +298,11 @@ sink()
 
 if(nrow(range_list) == 1){
   for(i in CHROMS){
-    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_chr,i,' --score ',opt$output,'.score.gz header-read --out ',opt$output,'.profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.7)))
+    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_chr,i,' --score ',opt$output,'.score.gz header-read cols=maybefid,nallele,denom,dosagesum,scoresums --out ',opt$output,'.profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.7)))
   }
 } else {
   for(i in CHROMS){
-    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_chr,i,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',2+nrow(range_list),' --out ',opt$output,'.profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.7)))
+    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_chr,i,' --score ',opt$output,'.score.gz header-read cols=maybefid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+nrow(range_list),' --out ',opt$output,'.profiles.chr',i,' --threads 1 --memory ',floor(opt$memory*0.7)))
   }
 }
 
@@ -312,8 +312,8 @@ fam<-fread(paste0(opt$ref_plink_chr,'22.fam'))
 scores<-list()
 for(i in as.character(CHROMS)){
   sscore<-fread(paste0(opt$output,'.profiles.chr',i,'.sscore'))
-  scores[[i]]<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-  scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT)
+  scores[[i]]<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
+  scores[[i]]<-as.matrix(scores[[i]])
 }
 
 scores<-Reduce(`+`, scores)

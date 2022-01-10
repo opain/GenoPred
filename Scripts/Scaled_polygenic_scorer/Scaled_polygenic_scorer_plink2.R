@@ -73,17 +73,17 @@ if(n_scores > 1){
   if(is.na(opt$target_keep)){
   	for(i in 1:22){
   	  if(is.na(opt$extract)){
-  		  system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+  		  system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  } else {
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  }
   	}
   } else {
   	for(i in 1:22){
   	  if(is.na(opt$extract)){
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  } else {
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  }
   	}
   }
@@ -93,15 +93,15 @@ if(n_scores > 1){
       if(is.na(opt$extract)){
         system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       } else {
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       }
     }
   } else {
     for(i in 1:22){
       if(is.na(opt$extract)){
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       } else {
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       }
     }
   }  
@@ -114,13 +114,12 @@ names(scores_ids)<-c('FID','IID')
 scores<-list()
 for(i in 1:22){
   sscore<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))
-  scores[[i]]<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-  scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT)
+  scores[[i]]<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
+  scores[[i]]<-as.matrix(scores[[i]])
 }
 
 scores<-Reduce(`+`, scores)
-scores<-data.table(scores_ids,
-                   scores)
+scores<-data.table(scores_ids, scores)
 
 names(scores)<-c('FID','IID',names(score_small)[-1:-2])
 

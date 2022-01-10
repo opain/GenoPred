@@ -224,20 +224,21 @@ write.table(extract_list_2, paste0(opt$out,'_extract_list_2.txt'), col.names = F
 # First extract variants based on original ID
 if(opt$format == 'samp_imp_plink1'){
     
-  plink_call <- paste0('plink2 --bfile ',opt$target, ' --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp')
+  plink_call <- paste0(opt$plink2,' --bfile ',opt$target, ' --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp')
     
   if (!is.na(opt$keep)){
     plink_call <- paste0(plink_call,' --keep ',opt$keep)
   }
     
-  system(paste0('plink2 --bfile ',opt$target, ' --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
+  system(plink_call)
 }
 
 if(opt$format == 'samp_imp_bgen'){
+    
   # --hard-call-threshold
   # system(paste0(opt$qctool2,' -g ',opt$target,'.bgen -s ',samplefile,' -ofiletype binary_ped -og ',opt$out,'_tmp -incl-rsids ',opt$out,'_extract_list_1.txt -threshold 0.9'))
     
-  plink_call <- paste0(opt$plink2,' --threads ',opt$threads,' --memory ',opt$mem_mb,' --bgen ',opt$target,'.bgen ',opt$bgen_ref,' --sample ',samplefile, ' --hard-call-threshold 0.1 --make-bed --out ',opt$out,'_tmp')
+  plink_call <- paste0(opt$plink2,' --threads ',opt$threads, ' --extract ',opt$out,'_extract_list_1.txt --memory ',opt$mem_mb,' --bgen ',opt$target,'.bgen ',opt$bgen_ref,' --sample ',samplefile, ' --hard-call-threshold 0.1 --make-bed --out ',opt$out,'_tmp')
     
   if (!is.na(opt$keep)){
     plink_call <- paste0(plink_call,' --keep ',opt$keep)
@@ -247,7 +248,7 @@ if(opt$format == 'samp_imp_bgen'){
 }
 
 if(opt$format == 'samp_imp_vcf'){
-  system(paste0('plink2 --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory ',opt$mem_mb,' --threads ',opt$threads,' --out ', opt$out,'_tmp'))
+  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory ',opt$mem_mb,' --threads ',opt$threads,' --out ', opt$out,'_tmp'))
 }
 
 # Now edit bim file to update IDs to reference IDs
@@ -281,7 +282,7 @@ setnames(targ_bim_update_clean, c('CHR','SNP','POS','BP','A1','A2'))
 fwrite(targ_bim_update_clean, paste0(opt$out,'_tmp.bim'), col.names=F, row.names=F, quote=F, sep=' ')
 
 # Extract variants based on new reference RSIDs
-system(paste0('plink2 --bfile ',opt$out,'_tmp --extract ', opt$out,'_extract_list_2.txt --make-bed --memory ',opt$mem_mb,' --threads ',opt$threads,' --out ', opt$out))
+system(paste0(opt$plink2,' --bfile ',opt$out,'_tmp --extract ', opt$out,'_extract_list_2.txt --make-bed --memory ',opt$mem_mb,' --threads ',opt$threads,' --out ', opt$out))
 
 system(paste0('rm ', opt$out,'.log'))
 system(paste0('rm ', opt$out,'_extract*'))
