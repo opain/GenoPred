@@ -37,7 +37,9 @@ make_option("--pop_prev", action="store", default=NA, type='numeric',
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
 make_option("--sample_prev", action="store", default=NA, type='numeric', 
-    help="Sampling ratio in GWAS [optional]")
+    help="Sampling ratio in GWAS [optional]"),
+make_option("--ignore", action="store", default=NA, type='character', 
+    help="argument passed to munge_sumstats.py --ignore ")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -77,7 +79,13 @@ sink()
 # Munge_sumstats
 #####
 
-system(paste0(opt$munge_sumstats,' --sumstats ',opt$sumstats,' --merge-alleles ',opt$ldsc_ref,'/w_hm3.snplist --out ', opt$output_dir,'munged_sumstats_temp'))
+# Remo: newer version of munge_sumstats.py gets confused if there are both BETA and OR columns
+if (!is.na(opt$ignore)){
+system(paste0(opt$munge_sumstats,paste0(' --ignore ', opt$ignore),' --chunksize 500000 --sumstats ',opt$sumstats,' --merge-alleles ',opt$ldsc_ref,'/w_hm3.snplist --out ', opt$output_dir,'munged_sumstats_temp'))
+} else {
+system(paste0(opt$munge_sumstats,' --chunksize 500000 --sumstats ',opt$sumstats,' --merge-alleles ',opt$ldsc_ref,'/w_hm3.snplist --out ', opt$output_dir,'munged_sumstats_temp'))
+}
+
 
 #####
 # Estimate the SNP-heritability
