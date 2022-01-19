@@ -140,8 +140,9 @@ cat('Sumstats contains',dim(sumstats)[1],'variants.\n')
 sink()
 
 # Convert OR into BETA
-if(sum(names(sumstats) == 'OR') == 1){
-  sumstats$BETA<-log(sumstats$OR)
+# Remo: this lead to a bug when both OR and BETA are present. Should be prevented now. 
+if((sum(names(sumstats) == 'OR') == 1) & (sum(names(sumstats) == 'BETA') == 0)){
+  sumstats$BETA<-log(as.numeric(sumstats$OR))
 }
 
 # Format sumstats for as in LDPred2 tutorial
