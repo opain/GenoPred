@@ -123,9 +123,10 @@ sink()
 # Change to COJO format
 ###
 
+# Remo: this lead to a bug if both OR and BETA were present. Should be fixed now.
 # If OR present, calculate BETA
-if(sum(names(GWAS) == 'OR') == 1){
-  GWAS$BETA<-log(GWAS$OR)
+if((sum(names(GWAS) == 'OR') == 1) & (sum(names(GWAS) == 'BETA')) == 0){
+  GWAS$BETA<-log(as.numeric(GWAS$OR))
 }
 
 # Rename allele frequency column
