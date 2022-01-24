@@ -149,7 +149,7 @@ rule download_liftover_track:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/liftover/; wget --no-check-certificate -O resources/data/liftover/hg18ToHg19.over.chain.gz ftp://hgdownload.cse.ucsc.edu/goldenPath/hg18/liftOver/hg18ToHg19.over.chain.gz"
+    "mkdir -p resources/data/liftover/; wget --no-check-certificate -O resources/data/liftover/hg19ToHg38.over.chain.gz ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz"
 
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
@@ -762,7 +762,7 @@ rule format_target:
       --ref resources/data/1kg/1KGPhase3.w_hm3.chr{wildcards.chr} \
       --plink2 plink2 \
       --liftover resources/software/liftover/liftover \
-      --liftover_track resources/data/liftover/hg18ToHg19.over.chain.gz \
+      --liftover_track resources/data/liftover/hg19ToHg38.over.chain.gz \
       --out {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr{wildcards.chr}"
 
 rule run_format_target:
