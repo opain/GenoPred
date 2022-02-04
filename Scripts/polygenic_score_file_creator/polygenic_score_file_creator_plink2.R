@@ -135,6 +135,9 @@ GWAS<-GWAS[,c('SNP','A1','A2','BETA','P')]
 
 fwrite(GWAS, paste0(opt$output_dir,'GWAS_sumstats_temp.txt'), sep=' ')
 
+# Retain pTs with at least one variant
+opt$pTs<-opt$pTs[opt$pTs > min(GWAS$P)]
+
 if(opt$prune_hla == T){
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
 	cat('Extracted top variant in HLA region.\n')
