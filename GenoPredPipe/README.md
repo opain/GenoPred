@@ -27,7 +27,7 @@ wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 sh Miniconda3-latest-Linux-x86_64.sh
 ```
 
-Install Python 3.8, Snakemake 5.32, and the basic project dependencies.
+Install Python 3.8, Snakemake 5.32, and the basic project dependencies. Note. I am installing these packages in an environment called 'base', if you already have an environment called 'base', you may need to create a new environment to avoid conflicts.
 
 ```bash
 conda activate base
