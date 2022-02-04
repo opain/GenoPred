@@ -68,6 +68,8 @@ snakemake --profile slurm --use-conda run_create_reports
 
 Note. If you receive an error saying 'MissingOutputException', you should try adding '--latency-wait 20' to the snakemake command, which tells the pipeline to wait 20 seconds between steps, thereby allowing filesystem latency.
 
+Note. Please be patient when running the pipeline for the first time. Expect the 'downloading and installing remote packages' to take ~1 hour. It has to create the conda environment in first instance, which involves installing python and R and many packages. Expect this to take ~1 hour.
+
 ***
 
 ## Using your own data
