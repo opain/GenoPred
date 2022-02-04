@@ -106,21 +106,14 @@ if(opt$format == 'samp_imp_plink1'){
 }
 
 if(opt$format == 'samp_imp_bgen'){
-  sample_file<-fread(paste0(gsub('.chr.*','',opt$target),'.sample'))
-  sample_file<-sample_file[2,1:2]
-  write.table(sample_file, paste0(opt$out,'_tmp_keep'), col.names = F, row.names = F, quote = F)
-  
-  # Convert bgen file to plink format containg data for one individual
-  system(paste0('plink2 --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --keep ',opt$out,'_tmp_keep --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
-  
-  target_snp<-fread(paste0(opt$out,'_tmp.bim'))
-  target_snp$V3<-NULL
+  library(RSQLite)
+  connection = dbConnect( RSQLite::SQLite(), paste0(opt$target,'.bgen.bgi'))
+  target_snp = dbGetQuery( connection, "SELECT * FROM Variant" )
+  target_snp<-target_snp[,c('chromosome','rsid','position','allele1','allele2')]
   names(target_snp)<-c('CHR','SNP','BP','A1','A2')
-  
-  system(paste0('rm ',opt$out,'_tmp.bim'))
-  system(paste0('rm ',opt$out,'_tmp.bed'))
-  system(paste0('rm ',opt$out,'_tmp.fam'))
-  system(paste0('rm ',opt$out,'_tmp_keep'))
+  dbDisconnect(connection)
+  target_snp<-data.table(target_snp)
+  target_snp$CHR<-as.numeric(target_snp$CHR)
 }
 
 if(opt$format == 'samp_imp_vcf'){
@@ -167,8 +160,19 @@ target_snp$IUPAC[target_snp$A1 == 'A' & target_snp$A2 =='C' | target_snp$A1 == '
 
 # Check condordance of BP across builds
 matched<-list()
-matched[['GRCh37']]<-merge(target_snp, ref[['GRCh37']], by=c('CHR','BP','IUPAC'))
-matched[['GRCh38']]<-merge(target_snp, ref[['GRCh38']], by=c('CHR','BP','IUPAC'))
+matched[['GRCh37']]<-merge(target_snp, ref[['GRCh37']], by=c('CHR','BP'))
+matched[['GRCh37']]<-matched[['GRCh37']][matched[['GRCh37']]$IUPAC.x == matched[['GRCh37']]$IUPAC.y | 
+                                         (matched[['GRCh37']]$IUPAC.x == 'R' & matched[['GRCh37']]$IUPAC.y == 'Y') | 
+                                         (matched[['GRCh37']]$IUPAC.x == 'Y' & matched[['GRCh37']]$IUPAC.y == 'R') | 
+                                         (matched[['GRCh37']]$IUPAC.x == 'K' & matched[['GRCh37']]$IUPAC.y == 'M') |
+                                         (matched[['GRCh37']]$IUPAC.x == 'M' & matched[['GRCh37']]$IUPAC.y == 'K')]
+
+matched[['GRCh38']]<-merge(target_snp, ref[['GRCh38']], by=c('CHR','BP'))
+matched[['GRCh38']]<-matched[['GRCh38']][matched[['GRCh38']]$IUPAC.x == matched[['GRCh38']]$IUPAC.y | 
+                                           (matched[['GRCh38']]$IUPAC.x == 'R' & matched[['GRCh38']]$IUPAC.y == 'Y') | 
+                                           (matched[['GRCh38']]$IUPAC.x == 'Y' & matched[['GRCh38']]$IUPAC.y == 'R') | 
+                                           (matched[['GRCh38']]$IUPAC.x == 'K' & matched[['GRCh38']]$IUPAC.y == 'M') |
+                                           (matched[['GRCh38']]$IUPAC.x == 'M' & matched[['GRCh38']]$IUPAC.y == 'K')]
 
 sink(file = paste(opt$out,'.geno_to_plink.log',sep=''), append = T)
 cat('GRCh37 match: ',round(nrow(matched[['GRCh37']])/nrow(ref[['GRCh37']])*100, 2),'%\n',sep='')
