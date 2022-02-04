@@ -237,7 +237,12 @@ if(!is.na(opt$test)){
 }
 
 # Read in the scores
-scores<-fread(paste0(opt$output,'ref_score.all.score'), header=T)
+if(file.exists(paste0(opt$output,'ref_score.all.score'))){
+  scores<-fread(paste0(opt$output,'ref_score.all.score'), header=T)
+} else {
+  scores<-fread(paste0(opt$output,'ref_score.all_score'), header=T)
+}
+
 names(scores)[-1:-2]<-paste0('SCORE_',names(scores)[-1:-2])
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -263,7 +268,11 @@ for(k in 1:dim(pop_keep_files)[1]){
 # Clean up temporary files
 ###
 
-system(paste0('rm ',opt$output,'ref_score.all.score'))
+if(file.exists(paste0(opt$output,'ref_score.all.score'))){
+  system(paste0('rm ',opt$output,'ref_score.all.score'))
+} else {
+  system(paste0('rm ',opt$output,'ref_score.all_score'))
+}
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
