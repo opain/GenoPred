@@ -940,7 +940,7 @@ def id_munge(x):
     checkpoint_output = checkpoints.ancestry_reporter.get(name=x).output[0]
     checkpoint_output = target_list_df.loc[target_list_df['name'] == x, 'output'].iloc[0] + "/" + x + "/" + x + ".1KGphase3.hm3.chr22.fam"
     fam_df = pd.read_table(checkpoint_output, delim_whitespace=True, usecols=[0,1], names=['FID', 'IID'], header=None)
-    fam_df['id'] = fam_df.FID + '.' + fam_df.IID
+    fam_df['id'] = fam_df.FID.apply(str) + '.' + fam_df.IID.apply(str)
     return fam_df['id'].tolist()
 
 rule create_individual_ancestry_report_for_sample:
