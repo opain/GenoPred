@@ -36,7 +36,6 @@ library(data.table)
 library(ggplot2)
 library(cowplot)
 library(NbClust)
-library(factoextra)
 library(GGally)
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
