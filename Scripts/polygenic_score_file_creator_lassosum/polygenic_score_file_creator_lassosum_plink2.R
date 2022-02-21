@@ -241,13 +241,9 @@ cat('Calculating polygenic scores in reference...')
 sink()
 
 if(ncol(score_file)-2 == 1){
-  for(i in CHROMS){
     system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_gw,' --score ',opt$output,'.score.gz header-read --out ',opt$output,'.profiles.GW --memory ',floor(opt$memory*0.7)))
-  }
 } else {
-  for(i in CHROMS){
     system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_gw,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',2+ncol(score_file)-2,' --out ',opt$output,'.profiles.GW --memory ',floor(opt$memory*0.7)))
-  }
 }
 
 sscore<-fread(paste0(opt$output,'.profiles.GW.sscore'))
