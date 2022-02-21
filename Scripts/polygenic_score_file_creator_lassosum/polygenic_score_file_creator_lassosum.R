@@ -154,6 +154,8 @@ sink()
 
 setwd(system.file("data", package="lassosum"))
 
+opt$ref_plink_subset<-gsub(orig_wd,'',opt$ref_plink_subset)
+
 out<-lassosum.pipeline(cor=cor, chr=GWAS$CHR, pos=GWAS$BP, 
                        A1=GWAS$A1, A2=GWAS$A2,
                        ref.bfile=paste0(orig_wd,'/',opt$ref_plink_subset), 
