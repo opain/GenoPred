@@ -88,6 +88,8 @@ You must specify a file listing target samples (target_list) and a file listing 
 - output: The desired output directory for target sample. The <name> of the target sample will automically be appended to the end. i.e. when output='test' and name='Joe_Bloggs', the output will written in a folder called 'test/Joe_Bloggs'.
 - indiv_report: Either 'T' or 'F'. 'T' = Individual-specific ancestry and polygenic score reports will be created. Use with caution if target sample contains many individuals, as it will create an .html report for each individual.
 
+Note. This file should be space delimited.
+
 ***
 
 ### gwas_list (required)
@@ -100,6 +102,8 @@ You must specify a file listing target samples (target_list) and a file listing 
 - mean: The phenotype mean in the general population (if continuous, otherwise NA)
 - sd: The phenotype sd in the general population (if continuous, otherwise NA)
 - label: A human readable name for the GWAS phenotype. Wrap in quotes if multiple words. For example, "Body Mass Index".
+
+Note. This file should be space delimited.
 
 #### GWAS summary statistic format
 
@@ -118,9 +122,13 @@ The following column names are expected in the GWAS summary statistics files:
 
 ***
 
-### score_list (optional)
+### score_list (required)
 
 It is also possible to provide a list of external created score files (score_list) to be used for polygenic scoring. The score_list should have the same format as gwas_list, except the path column should indicate the location of the score file. Caution: GenoPredPipe assumes the externally provided score files are restricted and harmonised to the HapMap3 SNP-list.
+
+If no externally created score files are present, please still provide a file containing the correct header.
+
+Note. This file should be space delimited.
 
 #### Score file format
 
