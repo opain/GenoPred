@@ -149,7 +149,7 @@ rule download_liftover_track:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/liftover/; wget --no-check-certificate -O resources/data/liftover/hg18ToHg19.over.chain.gz ftp://hgdownload.cse.ucsc.edu/goldenPath/hg18/liftOver/hg18ToHg19.over.chain.gz"
+    "mkdir -p resources/data/liftover/; wget --no-check-certificate -O resources/data/liftover/hg19ToHg38.over.chain.gz ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz"
 
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
@@ -743,7 +743,6 @@ rule run_format_impute_23andme_target:
 rule format_target:
   input:
     rules.prep_1kg.output,
-    rules.download_qctool2.output,
     rules.download_hm3_snplist.output,
     rules.install_liftover.output,
     rules.download_liftover_track.output,
@@ -762,9 +761,8 @@ rule format_target:
       --format {params.type} \
       --ref resources/data/1kg/1KGPhase3.w_hm3.chr{wildcards.chr} \
       --plink2 plink2 \
-      --qctool2 resources/software/qctool2/qctool \
       --liftover resources/software/liftover/liftover \
-      --liftover_track resources/data/liftover/hg18ToHg19.over.chain.gz \
+      --liftover_track resources/data/liftover/hg19ToHg38.over.chain.gz \
       --out {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr{wildcards.chr}"
 
 rule run_format_target:
@@ -776,17 +774,6 @@ rule run_format_target:
 rule run_format_target_2:
   input: 
     expand("resources/data/target_checks/{name}/format_target.done", name=target_list_df_samp_imp['name'])
-
-# /mnt/lustre/users/k1806347/Software/MyGit/GenoPred/GenoPredPipe/.snakemake/conda/a9615942
-# 
-# opt$target<-'test_data/target/imputed_sample_bgen/example.chr2'
-# opt$format<-'samp_imp_bgen'
-# opt$ref<-'resources/data/1kg/1KGPhase3.w_hm3.chr2'
-# opt$plink2<-'plink2'
-# opt$qctool2<-'resources/software/qctool2/qctool'
-# opt$liftover<-'resources/software/liftover/liftover'
-# opt$liftover_track<-'resources/data/liftover/hg18ToHg19.over.chain.gz'
-# opt$out<-'resources/data/target_output/example_bgen/example_bgen.hm3.chr2'
 
 ####
 # Harmonise with reference
@@ -873,6 +860,7 @@ rule run_ancestry_reporter:
 ####
 # Identify population within super population
 ####
+# Note. I have removed the within super population ancestry identification rule from the reports as the population sizes in the reference are too small to reliably build prediction models.
 
 from pathlib import Path
 
@@ -929,7 +917,7 @@ def report_output_munge(x):
 
 rule create_individual_ancestry_report:
   input:
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target_checks/{name}/indiv_ancestry_report.done') 
@@ -952,12 +940,12 @@ def id_munge(x):
     checkpoint_output = checkpoints.ancestry_reporter.get(name=x).output[0]
     checkpoint_output = target_list_df.loc[target_list_df['name'] == x, 'output'].iloc[0] + "/" + x + "/" + x + ".1KGphase3.hm3.chr22.fam"
     fam_df = pd.read_table(checkpoint_output, delim_whitespace=True, usecols=[0,1], names=['FID', 'IID'], header=None)
-    fam_df['id'] = fam_df.FID + '.' + fam_df.IID
+    fam_df['id'] = fam_df.FID.apply(str) + '.' + fam_df.IID.apply(str)
     return fam_df['id'].tolist()
 
 rule create_individual_ancestry_report_for_sample:
   input:
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target_checks/{name}/create_individual_ancestry_report_for_sample_{id}.done') 
@@ -986,7 +974,7 @@ rule run_create_individual_ancestry_report_for_sample_all_indiv:
 
 rule create_sample_ancestry_report:
   input:
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     rules.download_1kg_pop_codes.output
   output:
     touch('resources/data/target_checks/{name}/samp_ancestry_report.done')
@@ -1473,7 +1461,7 @@ rule run_create_individual_report:
 rule create_individual_report_for_sample:
   input:
     rules.install_ggchicklet.output,
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
@@ -1507,7 +1495,7 @@ rule run_create_individual_report_for_sample_all_indiv:
 rule create_sample_report:
   input:
     rules.install_ggchicklet.output,
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),

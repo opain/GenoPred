@@ -108,15 +108,29 @@ if(n_scores > 1){
 }
 
 # Add up the scores across chromosomes
-scores_ids<-fread(paste0(opt$output_dir,'profiles.chr',22,'.sscore'))[,1:2, with=F]
-names(scores_ids)<-c('FID','IID')
+for(i in 1:22){
+  if(file.exists(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))){
+    scores_ids<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))[,1:2, with=F]
+    names(scores_ids)<-c('FID','IID')
+    break
+  }
+}
 
 scores<-list()
 for(i in 1:22){
-  sscore<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))
-  scores[[i]]<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
-  scores[[i]]<-as.matrix(scores[[i]])
+  if(file.exists(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))){
+    sscore<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))
+    scores[[i]]<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
+    scores[[i]]<-as.matrix(scores[[i]])
+  } else {
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('No scores for chromosome ',i,'. Check plink logs file for reason.\n', sep='')
+    sink()
+  }
 }
+
+# Remove NULL elements from list (these are inserted by R when list objects are numbered)
+scores[sapply(scores, is.null)] <- NULL
 
 scores<-Reduce(`+`, scores)
 scores<-data.table(scores_ids, scores)

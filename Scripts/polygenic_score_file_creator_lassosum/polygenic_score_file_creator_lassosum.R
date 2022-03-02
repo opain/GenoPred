@@ -71,7 +71,6 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Reading in GWAS and harmonising with reference.\n')
 sink()
 
-
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats), nThread=1)
 GWAS<-GWAS[complete.cases(GWAS),]
 GWAS<-GWAS[GWAS$P > 0,]

@@ -14,17 +14,15 @@ make_option("--format", action="store", default=NA, type='character',
     help="Format of target files [required]"),
 make_option("--plink2", action="store", default=NA, type='character',
     help="Path to plink2 [required]"),
-make_option("--qctool2", action="store", default=NA, type='character',
-    help="Path to qctool v2 [required]"),
 make_option("--liftover", action="store", default=NA, type='character',
     help="Path to liftover [required]"),
 make_option("--liftover_track", action="store", default=NA, type='character',
     help="Path to liftover track [required]"),
 make_option("--bgen_ref", action="store", default='ref-unknown', type='character',
     help="bgen REF/ALT mode. One of [ref-first, ref-last, ref-unknown]. See plink2 documentation for details. default: 'ref-unknown'"),
-    make_option("--threads", action="store", default='8', type='character',
+make_option("--threads", action="store", default='8', type='character',
     help="threads (used in call to plink2)"),
-    make_option("--mem_mb", action="store", default='16000', type='character',
+make_option("--mem_mb", action="store", default='16000', type='character',
     help="memory in MB (used in call to plink2)"),
 make_option("--out", action="store", default=NA, type='character',
 		help="Path for output files [required]")
@@ -119,41 +117,20 @@ if(opt$format == 'samp_imp_plink1'){
 }
 
 if(opt$format == 'samp_imp_bgen'){
-
-  samplefile <- paste0(gsub('.chr.*','',opt$target),'.sample')
-  if (!file.exists(samplefile)){
-    samplefile <- paste0(opt$target,'.sample')
-    if (!file.exists(samplefile)){
-      stop('cannot determine input .sample file from prefix')
-    }
-  }
-
-  if(!is.na(opt$keep)){
-    stopifnot(file.exists(opt$keep))
-  }
-    
-  sample_file<-fread(samplefile)
-  sample_file<-sample_file[2,1:2]
-  write.table(sample_file, paste0(opt$out,'_tmp_keep'), col.names = F, row.names = F, quote = F)
-  
-  # Convert bgen file to plink format containg data for one individual
-  # system(paste0(opt$qctool2,' -g ',opt$target,'.bgen -s ',samplefile,' -ofiletype binary_ped -og ',opt$out,'_tmp -incl-samples ',opt$out,'_tmp_keep'))
-  system(paste0(opt$plink2,' --threads ',opt$threads,' --memory ',opt$mem_mb,' --bgen ',opt$target,'.bgen ',opt$bgen_ref,' --sample ',samplefile, ' --make-bed --keep ', opt$out, '_tmp_keep --out ',opt$out,'_tmp'))
-    
-  target_snp<-fread(paste0(opt$out,'_tmp.bim'))
-  target_snp$V3<-NULL
+  library(RSQLite)
+  connection = dbConnect( RSQLite::SQLite(), paste0(opt$target,'.bgen.bgi'))
+  target_snp = dbGetQuery( connection, "SELECT * FROM Variant" )
+  target_snp<-target_snp[,c('chromosome','rsid','position','allele1','allele2')]
   names(target_snp)<-c('CHR','SNP','BP','A1','A2')
-  
-  system(paste0('rm ',opt$out,'_tmp.bim'))
-  system(paste0('rm ',opt$out,'_tmp.bed'))
-  system(paste0('rm ',opt$out,'_tmp.fam'))
-  system(paste0('rm ',opt$out,'_tmp_keep'))
+  dbDisconnect(connection)
+  target_snp<-data.table(target_snp)
+  target_snp$CHR<-as.numeric(target_snp$CHR)
 }
-
 
 if(opt$format == 'samp_imp_vcf'){
   target_snp<-fread(cmd=paste0("zcat ",opt$target,".vcf.gz | cut -f 1-5"))
   names(target_snp)<-c('CHR','BP','SNP','A1','A2')
+  target_snp$CHR<-as.numeric(gsub('chr','',target_snp$CHR))
 }
 
 sink(file = paste(opt$out,'.geno_to_plink.log',sep=''), append = T)
@@ -194,8 +171,19 @@ target_snp$IUPAC[target_snp$A1 == 'A' & target_snp$A2 =='C' | target_snp$A1 == '
 
 # Check condordance of BP across builds
 matched<-list()
-matched[['GRCh37']]<-merge(target_snp, ref[['GRCh37']], by=c('CHR','BP','IUPAC'))
-matched[['GRCh38']]<-merge(target_snp, ref[['GRCh38']], by=c('CHR','BP','IUPAC'))
+matched[['GRCh37']]<-merge(target_snp, ref[['GRCh37']], by=c('CHR','BP'))
+matched[['GRCh37']]<-matched[['GRCh37']][matched[['GRCh37']]$IUPAC.x == matched[['GRCh37']]$IUPAC.y |
+                                         (matched[['GRCh37']]$IUPAC.x == 'R' & matched[['GRCh37']]$IUPAC.y == 'Y') |
+                                         (matched[['GRCh37']]$IUPAC.x == 'Y' & matched[['GRCh37']]$IUPAC.y == 'R') |
+                                         (matched[['GRCh37']]$IUPAC.x == 'K' & matched[['GRCh37']]$IUPAC.y == 'M') |
+                                         (matched[['GRCh37']]$IUPAC.x == 'M' & matched[['GRCh37']]$IUPAC.y == 'K')]
+
+matched[['GRCh38']]<-merge(target_snp, ref[['GRCh38']], by=c('CHR','BP'))
+matched[['GRCh38']]<-matched[['GRCh38']][matched[['GRCh38']]$IUPAC.x == matched[['GRCh38']]$IUPAC.y |
+                                           (matched[['GRCh38']]$IUPAC.x == 'R' & matched[['GRCh38']]$IUPAC.y == 'Y') |
+                                           (matched[['GRCh38']]$IUPAC.x == 'Y' & matched[['GRCh38']]$IUPAC.y == 'R') |
+                                           (matched[['GRCh38']]$IUPAC.x == 'K' & matched[['GRCh38']]$IUPAC.y == 'M') |
+                                           (matched[['GRCh38']]$IUPAC.x == 'M' & matched[['GRCh38']]$IUPAC.y == 'K')]
 
 sink(file = paste(opt$out,'.geno_to_plink.log',sep=''), append = T)
 cat('GRCh37 match: ',round(nrow(matched[['GRCh37']])/nrow(ref[['GRCh37']])*100, 2),'%\n',sep='')
@@ -223,32 +211,36 @@ write.table(extract_list_2, paste0(opt$out,'_extract_list_2.txt'), col.names = F
 
 # First extract variants based on original ID
 if(opt$format == 'samp_imp_plink1'){
-    
+
   plink_call <- paste0(opt$plink2,' --bfile ',opt$target, ' --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp')
-    
+
   if (!is.na(opt$keep)){
     plink_call <- paste0(plink_call,' --keep ',opt$keep)
   }
-    
+
   system(plink_call)
 }
 
 if(opt$format == 'samp_imp_bgen'){
-    
-  # --hard-call-threshold
-  # system(paste0(opt$qctool2,' -g ',opt$target,'.bgen -s ',samplefile,' -ofiletype binary_ped -og ',opt$out,'_tmp -incl-rsids ',opt$out,'_extract_list_1.txt -threshold 0.9'))
-    
-  plink_call <- paste0(opt$plink2,' --threads ',opt$threads, ' --extract ',opt$out,'_extract_list_1.txt --memory ',opt$mem_mb,' --bgen ',opt$target,'.bgen ',opt$bgen_ref,' --sample ',samplefile, ' --hard-call-threshold 0.1 --make-bed --out ',opt$out,'_tmp')
-    
+
+ plink_call <- paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads ',opt$threads,' --out ', opt$out,'_tmp')
+
   if (!is.na(opt$keep)){
     plink_call <- paste0(plink_call,' --keep ',opt$keep)
   }
-    
+
   system(plink_call)
 }
 
 if(opt$format == 'samp_imp_vcf'){
-  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory ',opt$mem_mb,' --threads ',opt$threads,' --out ', opt$out,'_tmp'))
+  plink_call <- paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp')
+
+  if (!is.na(opt$keep)){
+    plink_call <- paste0(plink_call,' --keep ',opt$keep)
+  }
+
+  system(plink_call)
+
 }
 
 # Now edit bim file to update IDs to reference IDs
