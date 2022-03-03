@@ -135,17 +135,25 @@ for(pop in keep_list$pop){
   ###########
 
   # Identify LD independent QC'd SNPs using a random subset 1000 individuals
-  keep_file<-fread(keep_list$file[keep_list$pop == pop])
-  if(nrow(keep_file) < 100){
+  keep_file<-fread(keep_list$file[keep_list$pop == pop],header=FALSE)
+  if(nrow(keep_file) < 50){
     sink(file = paste(opt$output,'.log',sep=''), append = T)
     cat('Skipped due to insufficient sample size.\n')
     cat('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
     sink()
-    
+      
+    write.table(keep_file, paste0(opt$output,'.',pop,'.keep'), col.names=F, row.names=F, quote=F)
+    rm(keep_file)
     next
   }
+
+  if (nrow(keep_file) < 100){
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat(paste0('Warning: sample size for ancestry ',pop,' is smaller than 100 . (',nrow(keep_file),') \n'))
+    sink()
+  }
   
-  keep_file_subset<-keep_file[sample(1000),]
+  keep_file_subset<-keep_file[sample(min(1000, nrow(keep_file))),]
   write.table(keep_file_subset, paste0(opt$output_dir,pop,'_subset.keep'), col.names=F, row.names=F, quote=F)
   
   rm(keep_file,keep_file_subset)
@@ -239,6 +247,9 @@ for(pop in keep_list$pop){
     var_list<-fread(paste0(opt$output_dir,'target.QC.eigenvec.var'))
     nsnp_all<-0
     for(i in 1:22){
+    	sink(file = paste(opt$output,'.log',sep=''), append = T)
+    	cat('Adding up PC projections for chromosome ', i, ', ancestry ',pop,' ... \n')
+    	sink()
     	profile<-data.frame(fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore')))
     	profile<-as.matrix(profile[,grepl('PC',names(profile))])
     	bim<-fread(paste0(opt$target_plink_chr,i,'.bim'))
@@ -250,7 +261,6 @@ for(pop in keep_list$pop){
     	} else {
     		profile_all<-profile_all+profile	
     	}
-    print(i)
     }
     
     profile_all<-profile_all/nsnp_all
@@ -287,7 +297,7 @@ for(pop in keep_list$pop){
   # Create plot PC scores of target sample
   ###
   sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('Plotting target sample PCs...')
+  cat('Plotting target sample PCs...\n')
   sink()
   
   pairs_plot<-ggpairs(targ_PCs[,-1:-2])
@@ -326,7 +336,7 @@ for(pop in keep_list$pop){
   cat(n_clust_opt, 'centroids was found to fit best.\n')
   sink()
   
-  rm(n_clust_sol,fit_change)
+  rm(n_clust_sol)
   gc()
 
   # Calculate distance from centroids
@@ -334,25 +344,15 @@ for(pop in keep_list$pop){
   k_res$centers<-data.frame(k_res$centers)
   
   targ_PCs_distance<-list()
+  pc_var <- sapply(targ_PCs[,3:(opt$n_pcs+2)], var)
+    
   for(centroid_n in 1:n_clust_opt){
-    targ_PCs_distance[[centroid_n]]<-data.frame(targ_PCs[c('FID','IID')])
-    for(pc_n in 1:opt$n_pcs){
-      # Subtract the mean of centroid from PC
-      targ_PCs_distance[[centroid_n]][paste0('PC',pc_n)]<-k_res$centers[[paste0('PC',pc_n)]][centroid_n]-targ_PCs[[paste0('PC',pc_n)]]
-      
-      # square the value (to make all positive)
-      targ_PCs_distance[[centroid_n]][paste0('PC',pc_n)]<-targ_PCs_distance[[centroid_n]][paste0('PC',pc_n)]^2
-      
-      # Divide by the variance of the PC (in this case it is 1 because I scaled the PCs)
-      targ_PCs_distance[[centroid_n]][paste0('PC',pc_n)]<-targ_PCs_distance[[centroid_n]][paste0('PC',pc_n)]/var(targ_PCs[[paste0('PC',pc_n)]])
-      
-      # Scale the distance from centroids
-      targ_PCs_distance[[centroid_n]][paste0('PC',pc_n)]<-targ_PCs_distance[[centroid_n]][paste0('PC',pc_n)]/var(targ_PCs[[paste0('PC',pc_n)]])
-      
-    }
+    targ_PCs_distance[[centroid_n]]<-data.frame(targ_PCs[i,])
+    targ_PCs_distance[[centroid_n]][,3:(opt$n_pcs + 2)] <- t(t(as.matrix(targ_PCs_distance[[centroid_n]][3:(opt$n_pc+2)])) - unlist(k_res$centers[centroid_n,]))^2 # calculate distance
+    targ_PCs_distance[[centroid_n]][,3:(opt$n_pcs + 2)] <- targ_PCs_distance[[centroid_n]][,3:(opt$n_pcs + 2)] / pc_var # scale by variance (variance is 1. because we scaled the PCs before...)
   }
   
-  rm(k_res)
+  rm(k_res, pc_var)
   gc()
 
   # Plot centroid distance
@@ -376,42 +376,55 @@ for(pop in keep_list$pop){
     }
   }
   outliers<-unique(outliers)
-  
-  targ_PCs_distance_no_outliers<-targ_PCs_distance
-  for(centroid_n in 1:n_clust_opt){
-    for(pc_n in 1:opt$n_pcs){
-      targ_PCs_distance_no_outliers[[centroid_n]][[paste0('PC',pc_n)]][outliers]<-NA
+    
+  if (length(outliers) > 0){
+      
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Found ',length(outliers), ' for population ',pop,'.\n')
+    sink()
+      
+    targ_PCs_distance_no_outliers<-targ_PCs_distance
+    for(centroid_n in 1:n_clust_opt){
+      for(pc_n in 1:opt$n_pcs){
+        targ_PCs_distance_no_outliers[[centroid_n]][[paste0('PC',pc_n)]][outliers]<-NA
+      }
+      targ_PCs_distance_no_outliers[[centroid_n]]<-targ_PCs_distance_no_outliers[[centroid_n]][complete.cases(targ_PCs_distance_no_outliers[[centroid_n]]),]
     }
-    targ_PCs_distance_no_outliers[[centroid_n]]<-targ_PCs_distance_no_outliers[[centroid_n]][complete.cases(targ_PCs_distance_no_outliers[[centroid_n]]),]
-  }
-  
-  # Plot centroid distance afte removing outliers
-  pdf(paste0(opt$output,'.',pop,'.centroid_distance_noOutlier_plot.pdf'))
-  for(centroid_n in 1:n_clust_opt){
-    for(pc_n in 1:opt$n_pcs){
-      hist(targ_PCs_distance_no_outliers[[centroid_n]][[paste0('PC',pc_n)]], main=paste0('Centroid ', centroid_n,', PC', pc_n))
+    
+    # Plot centroid distance afte removing outliers
+    pdf(paste0(opt$output,'.',pop,'.centroid_distance_noOutlier_plot.pdf'))
+    for(centroid_n in 1:n_clust_opt){
+      for(pc_n in 1:opt$n_pcs){
+        hist(targ_PCs_distance_no_outliers[[centroid_n]][[paste0('PC',pc_n)]], main=paste0('Centroid ', centroid_n,', PC', pc_n))
+      }
     }
-  }
-  dev.off()
-  
-  rm(targ_PCs_distance_no_outliers)
-  gc()
+    dev.off()
+    
+    rm(targ_PCs_distance_no_outliers)
+    gc()
+      
+    targ_PCs_noOutliers<-targ_PCs[-outliers,]
+      
+    pairs_plot<-ggpairs(targ_PCs_noOutliers[,-1:-2])
 
+    png(paste0(opt$output,'.',pop,'.PCs_noOutlier_plot.png'), units='px', res=300, width=6000, height=6000)
+    print(pairs_plot)
+    dev.off()
+  
+    rm(pairs_plot)
+    gc()
+    
+  } else {
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Found no outliers for population ',pop,'.\n')
+    sink()
+      
+    targ_PCs_noOutliers<-targ_PCs
+  }
+      
   ###
   # Create plot PC scores of target sample after removal of outliers
   ###
-
-  targ_PCs_noOutliers<-targ_PCs[-outliers,]
-  
-  pairs_plot<-ggpairs(targ_PCs_noOutliers[,-1:-2])
-
-  png(paste0(opt$output,'.',pop,'.PCs_noOutlier_plot.png'), units='px', res=300, width=6000, height=6000)
-  print(pairs_plot)
-  dev.off()
-  
-  rm(pairs_plot)
-  gc()
-  
   
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   cat(dim(targ_PCs_noOutliers)[1],'out of', dim(targ_PCs)[1],'remain.\n')
@@ -422,7 +435,8 @@ for(pop in keep_list$pop){
   ###
   
   write.table(targ_PCs_noOutliers[,c('FID','IID')], paste0(opt$output,'.',pop,'.keep'), col.names=F, row.names=F, quote=F)
-  write.table(targ_PCs, paste0(opt$output,'.',pop,'.PCs.txt'), col.names=F, row.names=F, quote=F)
+  fwrite(targ_PCs, paste0(opt$output,'.',pop,'.PCs.txt.gz'), col.names=F, row.names=F, quote=F)
+    
   saveRDS(targ_PCs_distance, file=paste0(opt$output,'.',pop,'.centroid_distance.RDS'))
 
   ###
