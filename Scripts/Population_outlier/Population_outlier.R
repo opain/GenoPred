@@ -347,7 +347,7 @@ for(pop in keep_list$pop){
   pc_var <- sapply(targ_PCs[,3:(opt$n_pcs+2)], var)
     
   for(centroid_n in 1:n_clust_opt){
-    targ_PCs_distance[[centroid_n]]<-data.frame(targ_PCs[i,])
+    targ_PCs_distance[[centroid_n]]<-data.frame(targ_PCs)
     targ_PCs_distance[[centroid_n]][,3:(opt$n_pcs + 2)] <- t(t(as.matrix(targ_PCs_distance[[centroid_n]][3:(opt$n_pc+2)])) - unlist(k_res$centers[centroid_n,]))^2 # calculate distance
     targ_PCs_distance[[centroid_n]][,3:(opt$n_pcs + 2)] <- targ_PCs_distance[[centroid_n]][,3:(opt$n_pcs + 2)] / pc_var # scale by variance (variance is 1. because we scaled the PCs before...)
   }
