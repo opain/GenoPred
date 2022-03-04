@@ -11,7 +11,9 @@ make_option("--target_keep", action="store", default=NA, type='character',
 make_option("--ref_score", action="store", default=NA, type='character',
 		help="Path to reference scoring files [required]"),
 make_option("--ref_freq_chr", action="store", default=NA, type='character',
-		help="Path to per chromosome reference PLINK .frq files [required]"),
+		help="Path to per chromosome reference PLINK .frq/.afreq files [required]"),
+make_option("--freq_format", action="store", default='plink1', type='character',
+		help="either 'plink1' or 'plink2' - whether reference allele frequency files are plink 1.x (.frq) or plink 2 (.afreq) format"),
 make_option("--plink2", action="store", default='plink', type='character',
 		help="Path PLINK v2 software binary [required]"),
 make_option("--output", action="store", default='./Output', type='character',
@@ -29,7 +31,9 @@ make_option("--n_cores", action="store", default=1, type='numeric',
 make_option("--extract", action="store", default=NA, type='character',
     help="SNP list to extract before scoring [optional]"),
 make_option("--memory", action="store", default=5000, type='numeric',
-		help="Memory limit [optional]")
+		help="Memory limit [optional]"),
+make_option("--safe", action="store", type='logical', default=TRUE,
+        help="Exit with Error if plink2 scoring for any chromosome fails. (TRUE/FALSE), default: TRUE")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -53,6 +57,14 @@ print(opt)
 cat('Analysis started at',as.character(start.time),'\n')
 sink()
 
+stopifnot(opt$freq_format %in% c('plink1', 'plink2'))
+
+if (opt$freq_format == 'plink1'){
+  freq_file_suffix <- '.frq'
+} else {
+  freq_file_suffix <- '.afreq'   
+}
+
 #####
 # Perform polygenic risk scoring
 #####
@@ -73,17 +85,17 @@ if(n_scores > 1){
   if(is.na(opt$target_keep)){
   	for(i in 1:22){
   	  if(is.na(opt$extract)){
-  		  system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+  		  system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,freq_file_suffix,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  } else {
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,freq_file_suffix,' --extract ',opt$extract,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  }
   	}
   } else {
   	for(i in 1:22){
   	  if(is.na(opt$extract)){
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,freq_file_suffix,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  } else {
-  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+  	    system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,freq_file_suffix,' --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',2+n_scores,' --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
   	  }
   	}
   }
@@ -91,17 +103,17 @@ if(n_scores > 1){
   if(is.na(opt$target_keep)){
     for(i in 1:22){
       if(is.na(opt$extract)){
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,freq_file_suffix,' --score ',opt$ref_score,' header-read --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       } else {
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,freq_file_suffix,' --extract ',opt$extract,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       }
     }
   } else {
     for(i in 1:22){
       if(is.na(opt$extract)){
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,freq_file_suffix,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       } else {
-        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,'.frq --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
+        system(paste0(opt$plink2, ' --bfile ',opt$target_plink_chr,i,' --read-freq ',opt$ref_freq_chr,i,freq_file_suffix,' --extract ',opt$extract,' --keep ',opt$target_keep,' --score ',opt$ref_score,' header-read cols=fid,nallele,denom,dosagesum,scoresums --out ',opt$output_dir,'profiles.chr',i,' --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.9)))
       }
     }
   }  
@@ -126,6 +138,13 @@ for(i in 1:22){
     sink(file = paste(opt$output,'.log',sep=''), append = T)
     cat('No scores for chromosome ',i,'. Check plink logs file for reason.\n', sep='')
     sink()
+    if (opt$safe){
+      sink(file = paste(opt$output,'.log',sep=''), append = T)  
+      cat('Safe mode is enabled. Aborting because no scores where created for at least one chromosome.\n')
+      cat('To disable this behavior set "--safe FALSE" \n')
+      sink()
+      stop('No scores were created for at least one chromosome. Check log file for details.')
+    }
   }
 }
 
