@@ -34,6 +34,8 @@ make_option("--hm3_snplist", action="store", default=NA, type='character',
     help="Path to LDSC HapMap3 snplist [required]"),
 make_option("--pop_prev", action="store", default=NA, type='numeric',
     help="Population prevelance (if binary) [optional]"),
+make_option("--h2", action="store", default=NA, type='numeric',
+    help="force h2 estimate instead of using ldsc to estimate it from summary statitics"),
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
 make_option("--sample_prev", action="store", default=NA, type='numeric', 
@@ -99,40 +101,54 @@ if(opt$sample_prev == 'NA'){
 	opt$sample_prev<-NA
 }
 
-if(!is.na(opt$pop_prev) & !is.na(opt$sample_prev)){
-  system(paste0(opt$ldsc,' --h2 ',opt$output_dir,'munged_sumstats_temp.sumstats.gz --ref-ld-chr ',opt$ldsc_ref,'/ --w-ld-chr ',opt$ldsc_ref,'/ --out ', opt$output_dir,'ldsc_snp_h2_temp --samp-prev ',opt$sample_prev,' --pop-prev ',opt$pop_prev))
 
-  ldsc_log<-read.table(paste0(opt$output_dir,'ldsc_snp_h2_temp.log'), header=F, sep='&')
-  ldsc_h2<-ldsc_log[grepl('Total Liability scale h2', ldsc_log$V1),]
-  ldsc_h2<-gsub('Total Liability scale h2: ','', ldsc_h2)
-  
+if (is.na(opt$h2)){
+    
   sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('SNP-heritability estimate on liability scale = ',ldsc_h2,'.\n',sep='')
+  cat('estimating SNP-heritability with ldsc ...\n',sep='')
   sink()
+    
+  if(!is.na(opt$pop_prev) & !is.na(opt$sample_prev)){
+    system(paste0(opt$ldsc,' --h2 ',opt$output_dir,'munged_sumstats_temp.sumstats.gz --ref-ld-chr ',opt$ldsc_ref,'/ --w-ld-chr ',opt$ldsc_ref,'/ --out ', opt$output_dir,'ldsc_snp_h2_temp --samp-prev ',opt$sample_prev,' --pop-prev ',opt$pop_prev))
   
-  ldsc_h2<-as.numeric(gsub(' .*','', ldsc_h2))
-  
-  if(ldsc_h2 > 1){
-	ldsc_h2<-1
-	
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('SNP-heritability estimate set to 1.\n',sep='')
-	sink()
+    ldsc_log<-read.table(paste0(opt$output_dir,'ldsc_snp_h2_temp.log'), header=F, sep='&')
+    ldsc_h2<-ldsc_log[grepl('Total Liability scale h2', ldsc_log$V1),]
+    ldsc_h2<-gsub('Total Liability scale h2: ','', ldsc_h2)
+    
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('SNP-heritability estimate on liability scale = ',ldsc_h2,'.\n',sep='')
+    sink()
+    
+    ldsc_h2<-as.numeric(gsub(' .*','', ldsc_h2))
+    
+    if(ldsc_h2 > 1){
+  	ldsc_h2<-1
+  	
+  	sink(file = paste(opt$output,'.log',sep=''), append = T)
+  	cat('SNP-heritability estimate set to 1.\n',sep='')
+  	sink()
+    }
+  	
+  } else {
+    system(paste0(opt$ldsc,' --h2 ',opt$output_dir,'munged_sumstats_temp.sumstats.gz --ref-ld-chr ',opt$ldsc_ref,'/ --w-ld-chr ',opt$ldsc_ref,'/ --out ', opt$output_dir,'ldsc_snp_h2_temp'))
+    
+    ldsc_log<-read.table(paste0(opt$output_dir,'ldsc_snp_h2_temp.log'), header=F, sep='&')
+    ldsc_h2<-ldsc_log[grepl('Total Observed scale h2', ldsc_log$V1),]
+    ldsc_h2<-gsub('Total Observed scale h2: ','', ldsc_h2)
+    
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('SNP-heritability estimate on observed scale = ',ldsc_h2,'.\n',sep='')
+    sink()
+    
+    ldsc_h2<-as.numeric(gsub(' .*','', ldsc_h2))
+    
   }
-	
 } else {
-  system(paste0(opt$ldsc,' --h2 ',opt$output_dir,'munged_sumstats_temp.sumstats.gz --ref-ld-chr ',opt$ldsc_ref,'/ --w-ld-chr ',opt$ldsc_ref,'/ --out ', opt$output_dir,'ldsc_snp_h2_temp'))
-  
-  ldsc_log<-read.table(paste0(opt$output_dir,'ldsc_snp_h2_temp.log'), header=F, sep='&')
-  ldsc_h2<-ldsc_log[grepl('Total Observed scale h2', ldsc_log$V1),]
-  ldsc_h2<-gsub('Total Observed scale h2: ','', ldsc_h2)
-  
   sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('SNP-heritability estimate on observed scale = ',ldsc_h2,'.\n',sep='')
+  stopifnot((opt$h2 > 0.) & (opt$h2 <= 1.))
+  cat('Using SNP-heritability specified on the command-line. h2 = ',opt$h2,'\n',sep='')
   sink()
-  
-  ldsc_h2<-as.numeric(gsub(' .*','', ldsc_h2))
-  
+  ldsc_h2 <- opt$h2
 }
 
 if(!is.na(opt$ref_keep)){
@@ -258,8 +274,10 @@ if(!is.na(opt$test)){
 
 system(paste0('chmod 777 ', opt$dbslmm))
 
+plinkpath <- system(paste0('which ',opt$plink), intern=T)
+
 for(chr in CHROMS){
-  system(paste0(opt$rscript,' ',opt$dbslmm,'/DBSLMM.R --plink ',opt$plink,' --block ',opt$ld_blocks,'/fourier_ls-chr',chr,'.bed --dbslmm ',opt$dbslmm,'/dbslmm --h2 ',ldsc_h2,' --ref ',opt$ref_plink_subset,chr,' --summary ',opt$output_dir,'summary_gemma_chr',chr,'.assoc.txt --n ',round(GWAS_N,0),' --nsnp ',nsnp,' --outPath ',opt$output_dir,' --thread 1'))
+  system(paste0(opt$rscript,' ',opt$dbslmm,'/DBSLMM.R --plink ',plinkpath,' --block ',opt$ld_blocks,'/fourier_ls-chr',chr,'.bed --dbslmm ',opt$dbslmm,'/dbslmm --h2 ',ldsc_h2,' --ref ',opt$ref_plink_subset,chr,' --summary ',opt$output_dir,'summary_gemma_chr',chr,'.assoc.txt --n ',round(GWAS_N,0),' --nsnp ',nsnp,' --outPath ',opt$output_dir,' --thread 1'))
 }
 
 dbslmm<-list.files(path=opt$output_dir, pattern='.dbslmm.txt')
