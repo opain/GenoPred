@@ -190,11 +190,21 @@ for(pop in keep_list$pop){
   # Calculate SNP weights
   if(is.na(opt$target_fam)){
     if(is.na(opt$target_plink)){
+              
+      # create temporary per-chromosome files for merging
+      for (chrom in 1:22){
+        system(paste0(opt$plink,' --bfile ',opt$target_plink_chr,chrom,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1 --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC.tmp_chr',chrom,' --memory ',floor(opt$memory*0.7),' --make-bed'))
+      }
+        
       # Create merge list
-      ref_merge_list<-paste0(opt$target_plink_chr,1:22)
+      ref_merge_list<-paste0(opt$output_dir,'target.QC.tmp_chr',1:22)
       write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
       
       system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+      
+      # remove temporary per-chromosome files
+      system(paste0('rm ',opt$output_dir,'target.QC.tmp_chr*'))
+        
     } else {
       system(paste0(opt$plink,' --bfile ',opt$target_plink,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1 --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     }
@@ -380,7 +390,7 @@ for(pop in keep_list$pop){
   if (length(outliers) > 0){
       
     sink(file = paste(opt$output,'.log',sep=''), append = T)
-    cat('Found ',length(outliers), ' for population ',pop,'.\n')
+    cat('Found ',length(outliers), ' outliers for population ',pop,'.\n')
     sink()
       
     targ_PCs_distance_no_outliers<-targ_PCs_distance
