@@ -120,20 +120,26 @@ if(n_scores > 1){
 }
 
 # Add up the scores across chromosomes
+cc <- c('character','character')
+names(cc)<-c('#FID','IID')
 for(i in 1:22){
   if(file.exists(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))){
-    scores_ids<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))[,1:2, with=F]
-    names(scores_ids)<-c('FID','IID')
+    scores_ids<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'), select=cc, header=T)
+    setnames(scores_ids, c('FID','IID'))
+    rm(cc)
     break
   }
 }
 
-scores<-list()
+scores <- NULL
 for(i in 1:22){
   if(file.exists(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))){
-    sscore<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))
-    scores[[i]]<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
-    scores[[i]]<-as.matrix(scores[[i]])
+    sscore<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'), header=TRUE)
+    if (is.null(scores)){
+        scores <- sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
+    } else {
+        scores <- scores + sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
+    }   
   } else {
     sink(file = paste(opt$output,'.log',sep=''), append = T)
     cat('No scores for chromosome ',i,'. Check plink logs file for reason.\n', sep='')
@@ -148,12 +154,7 @@ for(i in 1:22){
   }
 }
 
-# Remove NULL elements from list (these are inserted by R when list objects are numbered)
-scores[sapply(scores, is.null)] <- NULL
-
-scores<-Reduce(`+`, scores)
-scores<-data.table(scores_ids, scores)
-
+scores<-data.table(cbind(scores_ids, scores))
 names(scores)<-c('FID','IID',names(score_small)[-1:-2])
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -166,25 +167,25 @@ sink()
 
 if(!is.na(opt$covar_model) == T){
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Regressing covariates based on covar_model and target_covar...')
-sink()
-
-models<-readRDS(opt$covar_model)
-covar<-fread(opt$target_covar)
-scores_covar<-merge(scores,covar,by=c('FID','IID'))
-scores_resid<-data.frame(scores_covar[,c('FID','IID')])
-
-for(i in names(scores[,-1:-2])){
-	scores_resid[[i]]<-scores_covar[[i]]-predict(models[[i]], scores_covar)
-}
-
-scores<-scores_resid
-rm(scores_resid)
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Regressing covariates based on covar_model and target_covar...')
+    sink()
+    
+    models<-readRDS(opt$covar_model)
+    covar<-fread(opt$target_covar)
+    scores_covar<-merge(scores,covar,by=c('FID','IID'))
+    scores_resid<-data.frame(scores_covar[,c('FID','IID')])
+    
+    for(i in names(scores[,-1:-2])){
+        scores_resid[[i]]<-scores_covar[[i]]-predict(models[[i]], scores_covar)
+    }
+    
+    scores<-data.table(scores_resid)
+    rm(scores_resid)
+    
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Done!\n')
+    sink()
 }
 
 ###
@@ -195,13 +196,18 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Scaling target polygenic scores to the reference...')
 sink()
 
-ref_scale<-fread(opt$ref_scale)
+ref_scale<-fread(opt$ref_scale, header=TRUE, colClasses=c('character','numeric','numeric'))
 
-scores_scaled<-scores
 for(i in ref_scale$Param){
-	scores_scaled[[i]]<-scores[[i]]-ref_scale$Mean[ref_scale$Param == i]
-	scores_scaled[[i]]<-scores_scaled[[i]]/ref_scale$SD[ref_scale$Param == i]
-	scores_scaled[[i]]<-round(scores_scaled[[i]],3)
+    mean_val <- ref_scale$Mean[ref_scale$Param == i]
+    sd_val <- ref_scale$SD[ref_scale$Param == i]
+    if(sd_val < 1e-6){
+        sink(file = paste(opt$output,'.log',sep=''), append = T)
+        cat('Warning: provided standard deviation for score ',i,' is < 1e-6. Using 1e-6 instead.\n', sep='')
+        sink()
+        sd_val <- 1e-6
+    }
+    scores[,(i):=round((get(i)-mean_val)/sd_val, 4)]
 }
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -213,10 +219,10 @@ sink()
 ###
 
 if(!is.na(opt$pheno_name)){
-	names(scores_scaled)<-gsub('SCORE',opt$pheno_name,names(scores_scaled))
+    setnames(scores, gsub('SCORE',opt$pheno_name,colnames(scores)))
 }
 
-fwrite(scores_scaled, paste0(opt$output,'.profiles'), sep=' ')
+fwrite(scores, paste0(opt$output,'.profiles'), sep=' ', na='.', quote=F, row.names=F, col.names=T)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Saved polygenic scores to: ',opt$output,'.profiles.\n',sep='')
@@ -234,3 +240,4 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Analysis finished at',as.character(end.time),'\n')
 cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
 sink()
+
