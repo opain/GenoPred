@@ -141,7 +141,7 @@ if(opt$compare_predictors == F){
 # Read in the phenotypic data
 ###########
 
-Outcome<-fread(opt$pheno, colClasses = c('character','character','numeric'))
+Outcome<-fread(opt$pheno, colClasses = c('character','character','numeric'), header=F)
 Outcome<-Outcome[complete.cases(Outcome),]
 setnames(Outcome, c('FID','IID','Outcome_var'))
 
@@ -167,11 +167,11 @@ if(dim(unique(Outcome[,2]))[1] == 2){
 }
 
 sink(file = paste(opt$out,'.log',sep=''), append = T)
-    if(opt$family == 'binomial'){
-        cat('Phenotype is binary.\n')
-    } else {
-        cat('Phenotype is quantitative.\n')
-    }
+if(opt$family == 'binomial'){
+    cat('Phenotype is binary.\n')
+} else {
+    cat('Phenotype is quantitative.\n')
+}
 sink()
 
 if(!is.na(opt$keep)){
@@ -211,7 +211,7 @@ if(dim(predictors_list)[1]>1){
             coltypes <- c('character', 'character')
             names(coltypes) <- c('FID','IID')
             
-            Predictors_temp<-fread(predictors_list$predictor[k], colClasses=coltypes)
+            Predictors_temp<-fread(predictors_list$predictor[k], colClasses=coltypes, sep=' ', na.strings=c('NA','.','Inf','-Inf','inf','-inf'), header=T)
 
             if(names(Predictors_temp)[1] == 'FID' & names(Predictors_temp)[2] == 'IID'){
                 Predictors_temp[,IID:=paste0(FID,':',IID)]
@@ -255,7 +255,7 @@ if(dim(predictors_list)[1]>1){
     coltypes <- c('character', 'character')
     names(coltypes) <- c('FID','IID')
     
-    Predictors<-fread(predictors_list$predictor[1], colClasses=coltypes)
+    Predictors<-fread(predictors_list$predictor[1], colClasses=coltypes, sep=' ', na.strings=c('NA','.','Inf','-Inf','inf','-inf'), header=T)
 
     if(names(Predictors)[1] == 'FID' & names(Predictors)[2] == 'IID'){
         Predictors[,IID:=paste0(FID,':',IID)]
