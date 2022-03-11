@@ -46,6 +46,11 @@ registerDoMC(opt$n_cores)
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
+if (!endsWith(opt$output_dir,'/')){
+    # RM: bugfix
+    opt$output_dir <- paste0(opt$output_dir, '/')
+}
+
 CHROMS<-1:22
 
 if(!is.na(opt$test)){
@@ -76,7 +81,7 @@ sink()
 # Munge_sumstats
 #####
 
-system(paste0(opt$munge_sumstats,' --sumstats ',opt$sumstats,' --merge-alleles ',opt$ldsc_ref,'/w_hm3.snplist --out ', opt$output_dir,'munged_sumstats_temp'))
+system(paste0(opt$munge_sumstats,' --sumstats ',opt$sumstats,' --merge-alleles ',opt$ldsc_ref,'/w_hm3.snplist --ignore BETA,Z --out ', opt$output_dir,'munged_sumstats_temp'))
 
 #####
 # Estimate the SNP-heritability

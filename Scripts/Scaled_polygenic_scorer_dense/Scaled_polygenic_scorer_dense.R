@@ -35,6 +35,11 @@ library(data.table)
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
+if (!endsWith(opt$output_dir,'/')){
+    # RM: bugfix
+    opt$output_dir <- paste0(opt$output_dir, '/')
+}
+
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
@@ -64,7 +69,13 @@ if(is.na(opt$target_keep)){
 }
 
 # Read in the scores
-scores<-fread(paste0(opt$output,'score.all.score'))
+
+if (file.exists(paste0(opt$output,'score.all.score'))){
+    scores<-fread(paste0(opt$output,'score.all.score'))
+} else {
+    scores<-fread(paste0(opt$output,'score.all_score'))
+}
+
 names(scores)[-1:-2]<-paste0('SCORE_',names(scores)[-1:-2])
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)

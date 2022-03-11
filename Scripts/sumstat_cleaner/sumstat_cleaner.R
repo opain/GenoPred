@@ -21,10 +21,15 @@ option_list = list(
   make_option("--gz", action="store", default=T, type='logical',
               help="Set to T to gzip summary statistics [optional]"),
   make_option("--output", action="store", default='./Output', type='character',
-              help="Path for output files [optional]")
+              help="Path for output files [optional]"),
+  make_option('--ss_freq_col', action='store', default='FREQ')
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
+
+# Remo: this script originally assumed summary stats MAF column was called "FREQ", however, most of the time it appears to be "FRQ" (?)
+#       for this reason, an alternative column name to use can be passed here:
+freq_col = opt$ss_freq_col
 
 library(data.table)
 
@@ -195,8 +200,13 @@ GWAS$BP<-as.numeric(GWAS$BP)
 GWAS$N<-as.numeric(GWAS$N)
 GWAS$P<-as.numeric(GWAS$P)
 
-if(sum(names(GWAS) == 'FREQ') == 1){
-  GWAS$FREQ<-as.numeric(GWAS$FREQ)
+if(sum(names(GWAS) == freq_col) == 1){
+  # added by Remo:
+  # get the allele frequency by parsing the column defined --ss_freq_col
+  GWAS$FREQ<-as.numeric(unlist(GWAS[,..freq_col]))
+  if (freq_col != 'FREQ'){
+    GWAS[,(freq_col):=NULL]
+  }
 }
 
 if(sum(names(GWAS) == 'OR') == 1){
@@ -326,7 +336,7 @@ if(opt$insert_ref_maf == T & !is.na(opt$ref_freq_chr) & sum(names(GWAS) == 'FREQ
 # Remove SNPs with out-of-bounds p-values
 #####
 
-GWAS<-GWAS[GWAS$P <= 1 & GWAS$P > 0,]
+GWAS<-GWAS[GWAS$P <= 1 | GWAS$P >= 0]
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('After removal of SNPs with out-of-bound P values, ',dim(GWAS)[1],' variants remain.\n', sep='')
@@ -372,7 +382,7 @@ if(sum(names(GWAS) == 'SE') == 1){
     GWAS$Z<-NULL
     GWAS$BETA<-NULL
     
-    if(abs(mean(GWAS$P[!is.na(GWAS$P_check)]) - mean(GWAS$P_check[!is.na(GWAS$P_check)])) > 0.01){
+    if(abs(mean(GWAS$P) - mean(GWAS$P_check)) > 0.01){
        GWAS$P<-GWAS$P_check
        GWAS$P_check<-NULL
       
@@ -392,7 +402,7 @@ if(sum(names(GWAS) == 'SE') == 1){
     GWAS$P_check<-2*pnorm(-abs(GWAS$Z))
     GWAS$Z<-NULL
 
-    if(abs(mean(GWAS$P[!is.na(GWAS$P_check)]) - mean(GWAS$P_check[!is.na(GWAS$P_check)])) > 0.01){
+    if(abs(mean(GWAS$P) - mean(GWAS$P_check)) > 0.01){
       GWAS$P<-GWAS$P_check
       GWAS$P_check<-NULL
       
@@ -430,6 +440,18 @@ if(sum(names(GWAS) == 'SE') == 0){
   
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   cat('SE column inserted based on BETA/OR and P.\n', sep='')
+  sink()
+}
+
+
+#####
+# Insert OR column
+#####
+if(sum(names(GWAS) == 'OR') == 0){
+    GWAS$OR<-exp(GWAS$BETA)
+
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('OR column inserted based on BETA.\n', sep='')
   sink()
 }
 

@@ -8,14 +8,22 @@ make_option("--target", action="store", default=NA, type='character',
     help="Path to per chromosome target sample plink files [required]"),
 make_option("--ref", action="store", default=NA, type='character',
     help="Path to per chromosome target sample plink files [required]"),
+    make_option("--keep", action="store", default=NA, type='character',
+    help="Path to a file with FID/IIDs of individuals to keep (currently only works with plink/bgen input) [optional]"),
 make_option("--format", action="store", default=NA, type='character',
     help="Format of target files [required]"),
 make_option("--plink2", action="store", default=NA, type='character',
-    help="Path to plink1.9 [required]"),
+    help="Path to plink2 [required]"),
 make_option("--liftover", action="store", default=NA, type='character',
     help="Path to liftover [required]"),
 make_option("--liftover_track", action="store", default=NA, type='character',
     help="Path to liftover track [required]"),
+make_option("--bgen_ref", action="store", default='ref-unknown', type='character',
+    help="bgen REF/ALT mode. One of [ref-first, ref-last, ref-unknown]. See plink2 documentation for details. default: 'ref-unknown'"),
+make_option("--threads", action="store", default='8', type='character',
+    help="threads (used in call to plink2)"),
+make_option("--mem_mb", action="store", default='16000', type='character',
+    help="memory in MB (used in call to plink2)"),
 make_option("--out", action="store", default=NA, type='character',
 		help="Path for output files [required]")
 )
@@ -60,7 +68,7 @@ make_executable <- function(exe) {
   Sys.chmod(exe, mode = (file.info(exe)$mode | "111"))
 }
 
-snp_modifyBuild_offline<-function (info_snp, liftOver, chain, from = "hg18", to = "hg19"){
+snp_modifyBuild_offline<-function (info_snp, liftOver, chain){
   if (!all(c("chr", "pos") %in% names(info_snp)))
     stop2("Please use proper names for variables in 'info_snp'. Expected %s.",
           "'chr' and 'pos'")
@@ -82,7 +90,7 @@ snp_modifyBuild_offline<-function (info_snp, liftOver, chain, from = "hg18", to 
 }
 
 # Liftover BP to GRCh38
-ref[['GRCh38']]<-snp_modifyBuild_offline(ref[['GRCh37']], liftOver=opt$liftover, chain=opt$liftover_track, from = "hg18", to = "hg19")
+ref[['GRCh38']]<-snp_modifyBuild_offline(ref[['GRCh37']], liftOver=opt$liftover, chain=opt$liftover_track)
 
 names(ref[['GRCh37']])<-c('CHR','SNP','BP','A1','A2')
 names(ref[['GRCh38']])<-c('CHR','SNP','BP','A1','A2')
@@ -96,13 +104,16 @@ sink()
 ###################
 
 sink(file = paste(opt$out,'.geno_to_plink.log',sep=''), append = T)
-cat('Reading target SNP data...')
+cat('Reading target SNP data...\n')
 sink()
 
 if(opt$format == 'samp_imp_plink1'){
   target_snp<-fread(paste0(opt$target,'.bim'))
   target_snp$V3<-NULL
   names(target_snp)<-c('CHR','SNP','BP','A1','A2')
+  if(!is.na(opt$keep)){
+      stopifnot(file.exists(opt$keep))
+  }
 }
 
 if(opt$format == 'samp_imp_bgen'){
@@ -161,16 +172,16 @@ target_snp$IUPAC[target_snp$A1 == 'A' & target_snp$A2 =='C' | target_snp$A1 == '
 # Check condordance of BP across builds
 matched<-list()
 matched[['GRCh37']]<-merge(target_snp, ref[['GRCh37']], by=c('CHR','BP'))
-matched[['GRCh37']]<-matched[['GRCh37']][matched[['GRCh37']]$IUPAC.x == matched[['GRCh37']]$IUPAC.y | 
-                                         (matched[['GRCh37']]$IUPAC.x == 'R' & matched[['GRCh37']]$IUPAC.y == 'Y') | 
-                                         (matched[['GRCh37']]$IUPAC.x == 'Y' & matched[['GRCh37']]$IUPAC.y == 'R') | 
+matched[['GRCh37']]<-matched[['GRCh37']][matched[['GRCh37']]$IUPAC.x == matched[['GRCh37']]$IUPAC.y |
+                                         (matched[['GRCh37']]$IUPAC.x == 'R' & matched[['GRCh37']]$IUPAC.y == 'Y') |
+                                         (matched[['GRCh37']]$IUPAC.x == 'Y' & matched[['GRCh37']]$IUPAC.y == 'R') |
                                          (matched[['GRCh37']]$IUPAC.x == 'K' & matched[['GRCh37']]$IUPAC.y == 'M') |
                                          (matched[['GRCh37']]$IUPAC.x == 'M' & matched[['GRCh37']]$IUPAC.y == 'K')]
 
 matched[['GRCh38']]<-merge(target_snp, ref[['GRCh38']], by=c('CHR','BP'))
-matched[['GRCh38']]<-matched[['GRCh38']][matched[['GRCh38']]$IUPAC.x == matched[['GRCh38']]$IUPAC.y | 
-                                           (matched[['GRCh38']]$IUPAC.x == 'R' & matched[['GRCh38']]$IUPAC.y == 'Y') | 
-                                           (matched[['GRCh38']]$IUPAC.x == 'Y' & matched[['GRCh38']]$IUPAC.y == 'R') | 
+matched[['GRCh38']]<-matched[['GRCh38']][matched[['GRCh38']]$IUPAC.x == matched[['GRCh38']]$IUPAC.y |
+                                           (matched[['GRCh38']]$IUPAC.x == 'R' & matched[['GRCh38']]$IUPAC.y == 'Y') |
+                                           (matched[['GRCh38']]$IUPAC.x == 'Y' & matched[['GRCh38']]$IUPAC.y == 'R') |
                                            (matched[['GRCh38']]$IUPAC.x == 'K' & matched[['GRCh38']]$IUPAC.y == 'M') |
                                            (matched[['GRCh38']]$IUPAC.x == 'M' & matched[['GRCh38']]$IUPAC.y == 'K')]
 
@@ -200,15 +211,36 @@ write.table(extract_list_2, paste0(opt$out,'_extract_list_2.txt'), col.names = F
 
 # First extract variants based on original ID
 if(opt$format == 'samp_imp_plink1'){
-  system(paste0('plink2 --bfile ',opt$target, ' --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
+
+  plink_call <- paste0(opt$plink2,' --bfile ',opt$target, ' --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp')
+
+  if (!is.na(opt$keep)){
+    plink_call <- paste0(plink_call,' --keep ',opt$keep)
+  }
+
+  system(plink_call)
 }
 
 if(opt$format == 'samp_imp_bgen'){
-  system(paste0('plink2 --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
+
+ plink_call <- paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads ',opt$threads,' --out ', opt$out,'_tmp')
+
+  if (!is.na(opt$keep)){
+    plink_call <- paste0(plink_call,' --keep ',opt$keep)
+  }
+
+  system(plink_call)
 }
 
 if(opt$format == 'samp_imp_vcf'){
-  system(paste0('plink2 --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp'))
+  plink_call <- paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', opt$out,'_tmp')
+
+  if (!is.na(opt$keep)){
+    plink_call <- paste0(plink_call,' --keep ',opt$keep)
+  }
+
+  system(plink_call)
+
 }
 
 # Now edit bim file to update IDs to reference IDs
@@ -237,12 +269,12 @@ targ_bim_update$SNP.y[is.na(targ_bim_update$SNP.y)]<-targ_bim_update$SNP.x[is.na
 targ_bim_update$SNP.y[duplicated(targ_bim_update$SNP.y)]<-paste0(targ_bim_update$SNP.y[duplicated(targ_bim_update$SNP.y)],'_dup')
 
 targ_bim_update_clean<-targ_bim_update[,c('CHR','SNP.y','POS','BP','A1.x','A2.x'),with=F]
-names(targ_bim_update_clean)<-c('CHR','SNP','POS','BP','A1','A2')
+setnames(targ_bim_update_clean, c('CHR','SNP','POS','BP','A1','A2'))
 
-write.table(targ_bim_update_clean, paste0(opt$out,'_tmp.bim'), col.names=F, row.names=F, quote=F)
+fwrite(targ_bim_update_clean, paste0(opt$out,'_tmp.bim'), col.names=F, row.names=F, quote=F, sep=' ')
 
 # Extract variants based on new reference RSIDs
-system(paste0('plink2 --bfile ',opt$out,'_tmp --extract ', opt$out,'_extract_list_2.txt --make-bed --memory 5000 --threads 1 --out ', opt$out))
+system(paste0(opt$plink2,' --bfile ',opt$out,'_tmp --extract ', opt$out,'_extract_list_2.txt --make-bed --memory ',opt$mem_mb,' --threads ',opt$threads,' --out ', opt$out))
 
 system(paste0('rm ', opt$out,'.log'))
 system(paste0('rm ', opt$out,'_extract*'))

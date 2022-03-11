@@ -36,6 +36,11 @@ registerDoMC(opt$n_cores)
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
+if (!endsWith(opt$output_dir,'/')){
+    # RM: bugfix
+    opt$output_dir <- paste0(opt$output_dir, '/')
+}
+
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
@@ -67,6 +72,12 @@ cat('Calculating polygenic scores in the target sample...')
 sink()
 
 CHROMS<-1:22
+
+# RM : bugfix
+param <- param[file.exists(paste0(opt$ref_score,'.',param,'.SCORE'))]
+if (length(param)==0){
+    stop("Error: can't locate .SCORE files!")
+}
 
 foreach(param_i=param, .combine=c)%dopar%{
   if(is.na(opt$target_keep)){

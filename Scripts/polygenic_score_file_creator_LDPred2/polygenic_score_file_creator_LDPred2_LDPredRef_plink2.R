@@ -140,8 +140,9 @@ cat('Sumstats contains',dim(sumstats)[1],'variants.\n')
 sink()
 
 # Convert OR into BETA
-if(sum(names(sumstats) == 'OR') == 1){
-  sumstats$BETA<-log(sumstats$OR)
+# Remo: this lead to a bug when both OR and BETA are present. Should be prevented now. 
+if((sum(names(sumstats) == 'OR') == 1) & (sum(names(sumstats) == 'BETA') == 0)){
+  sumstats$BETA<-log(as.numeric(sumstats$OR))
 }
 
 # Format sumstats for as in LDPred2 tutorial
@@ -380,12 +381,11 @@ sink()
 
 param<-gsub('SCORE_','',names(betas)[-1:-2])
 
-system(paste0(opt$plink, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',length(param)+2,' --out ',opt$output_dir,'ref.profiles --memory ',floor(opt$memory*0.7)))
+system(paste0(opt$plink, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score.gz header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',length(param)+2,' --out ',opt$output_dir,'ref.profiles --memory ',floor(opt$memory*0.7)))
 
 sscore<-fread(paste0(opt$output_dir,'ref.profiles.sscore'))
 fam<-sscore[,1:2,with=F]
-scores<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-scores<-scores*sscore$NMISS_ALLELE_CT
+scores<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
 scores<-cbind(fam,scores)
 
 names(scores)<-c('FID','IID',paste0('SCORE_',param))

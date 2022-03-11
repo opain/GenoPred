@@ -383,12 +383,12 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-system(paste0(opt$plink2, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',ncol(score),' --out ',opt$output,'.profiles --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.7)))
+system(paste0(opt$plink2, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score.gz header-read cols=fid,nallele,denom,dosagesum,scoresums --score-col-nums 3-',ncol(score),' --out ',opt$output,'.profiles --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.7)))
 
 # Add up the scores across chromosomes
 sscore<-fread(paste0(opt$output,'.profiles.sscore'), nThread=opt$n_cores)
-scores<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-scores<-as.matrix(scores*sscore$NMISS_ALLELE_CT)
+scores<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
+scores<-as.matrix(scores)
 
 scores<-data.table(sscore[,1:2,with=F],
                    scores)

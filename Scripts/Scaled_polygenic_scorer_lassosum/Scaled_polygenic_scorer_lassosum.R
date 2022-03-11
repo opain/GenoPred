@@ -36,6 +36,11 @@ registerDoMC(opt$n_cores)
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
+if (!endsWith(opt$output_dir,'/')){
+    # RM: bugfix
+    opt$output_dir <- paste0(opt$output_dir, '/')
+}
+
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################

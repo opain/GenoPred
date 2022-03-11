@@ -268,11 +268,7 @@ for(k in 1:dim(pop_keep_files)[1]){
 # Clean up temporary files
 ###
 
-if(file.exists(paste0(opt$output,'ref_score.all.score'))){
-  system(paste0('rm ',opt$output,'ref_score.all.score'))
-} else {
-  system(paste0('rm ',opt$output,'ref_score.all_score'))
-}
+system(paste0('rm ',opt$output,'ref_score.all.score'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
