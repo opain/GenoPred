@@ -62,7 +62,6 @@ suppressMessages(library(psych))
 suppressMessages(library(MASS))
 registerDoMC(opt$n_core)
 
-# Create the function for converting R2 into liability R2
 h2l_R2 <- function(k, r2, p) {
   # K baseline disease risk
   # r2 from a linear regression model attributable to genomic profile risk score
@@ -134,8 +133,9 @@ if(opt$compare_predictors == F){
     cat('Each predictor will be assigned to a seperate group and model comparisons will be performed.\n')
     sink()
     
-        opt$model_comp<-T
+    opt$model_comp<-T
 }
+
 
 ###########
 # Read in the phenotypic data
@@ -166,13 +166,16 @@ if(dim(unique(Outcome[,2]))[1] == 2){
     Outcome[,Outcome_var:=factor(Outcome$Outcome_var, levels = c(0,1), labels=c('CONTROL','CASE'))]
 }
 
-sink(file = paste(opt$out,'.log',sep=''), append = T)
+
 if(opt$family == 'binomial'){
+    sink(file = paste(opt$out,'.log',sep=''), append = T)
     cat('Phenotype is binary.\n')
+    sink()
 } else {
+    sink(file = paste(opt$out,'.log',sep=''), append = T)
     cat('Phenotype is quantitative.\n')
+    sink()
 }
-sink()
 
 if(!is.na(opt$keep)){
     ############
@@ -204,7 +207,6 @@ predictor_merger<-function(x,y){
 }
 
 
-
 if(dim(predictors_list)[1]>1){
         Predictors<-data.frame(foreach(k=1:dim(predictors_list)[1], .combine=predictor_merger) %dopar% {
             
@@ -232,9 +234,29 @@ if(dim(predictors_list)[1]>1){
             # Update column names to avoid duplciate column names between predictor files
             setnames(Predictors_temp, colnames(Predictors_temp)[-1], paste0('PredFile',k,'.',names(Predictors_temp)[-1]))
             
+            predictors_constant <- sapply(Predictors_temp, function(x){all(x == x[1])})
+
+            if (any(predictors_constant)){
+                sink(file = paste(opt$out,'.log',sep=''), append = T)
+                cat('Warning: removing ',sum(predictors_constant),' constant predictors.\n', sep='')
+                cat('Constant predictors: ', paste(names(predictors_constant)[predictors_constant], collapse='; '),'\n')
+                sink()
+                for (col in names(predictors_constant)[predictors_constant]){
+                    # drop columns in place
+                    Predictors_temp[,(col):=NULL]
+                }
+            }
+            if (all(predictors_constant)){
+                sink(file = paste(opt$out,'.log',sep=''), append = T)
+                cat('Error: all predictors in PredFile ',k,' are constant.\n', sep='')
+                sink()
+                stop(paste0('Error: all predictors in PredFile ',k,' are constant.'))
+            }
+            
+            
             if(opt$model_comp == T){
-                    # Add group name to each predictor
-                    setnames(Predictors_temp, colnames(Predictors_temp)[-1], paste0('Group_',predictors_list$group[k],'.',names(Predictors_temp)[-1]))
+                # Add group name to each predictor
+                setnames(Predictors_temp, colnames(Predictors_temp)[-1], paste0('Group_',predictors_list$group[k],'.',names(Predictors_temp)[-1]))
             }
             
             sink(file = paste(opt$out,'.log',sep=''), append = T)
@@ -246,8 +268,8 @@ if(dim(predictors_list)[1]>1){
         })
 
     sink(file = paste(opt$out,'.log',sep=''), append = T)
-    cat('After merging the',length(predictors_list),'Predictors files,', dim(Predictors)[2]-1,'predictors remain.\n')
-    cat('After merging the',length(predictors_list),'Predictors files,', dim(Predictors)[1],'individuals remain.\n')
+    cat('After merging the',nrow(predictors_list),'Predictors files,', dim(Predictors)[2]-1,'predictors remain.\n')
+    cat('After merging the',nrow(predictors_list),'Predictors files,', dim(Predictors)[1],'individuals remain.\n')
     sink()
 
 } else {
@@ -272,6 +294,25 @@ if(dim(predictors_list)[1]>1){
 
     # Remove individuals with any missing data
     Predictors<-Predictors[complete.cases(Predictors),]
+    
+    predictors_constant <- sapply(Predictors, function(x){all(x[2:length(x)] == x[1])})
+    
+    if (any(predictors_constant)){
+        sink(file = paste(opt$out,'.log',sep=''), append = T)
+        cat('Warning: removing ',sum(predictors_constant),' constant predictors.\n', sep='')
+        cat('Constant predictors: ', paste(names(predictors_constant)[predictors_constant], collapse='; '),'\n')
+        sink()
+        for (col in names(predictors_constant)[predictors_constant]){
+            # drop columns in place
+            Predictors[,(col):=NULL]
+        }
+    }
+    if (all(predictors_constant)){
+        sink(file = paste(opt$out,'.log',sep=''), append = T)
+        cat('Error: all predictors are constant.\n')
+        sink()
+        stop('Error: all predictors are constant.')
+    }
 
     if(opt$compare_predictors == T){
         # Create the object predictors_list
@@ -416,6 +457,7 @@ if(opt$assoc){
     sink()
 }
 
+
 ############
 # Build and evaluate models using predictors together
 ############
@@ -451,29 +493,33 @@ if(opt$family == 'binomial'){
         opt$n_fold <- opt$n_fold - 1
         n_sample <- sum(Outcome_Predictors_train_y == 'CASE') / opt$n_fold
         if (opt$n_fold == 1){
-            stop('Error: Not enough cases to perform cross-validation! (requiring at least 3 cases/fold, i.e., 6 cases.)')    
+            sink(file = paste(opt$out,'.log',sep=''), append = T)
+            cat('Warning: Not enough cases to perform cross-validation!\n')
+            sink()
+            break
         }
     }
     if (opt$n_fold < n_fold_start){
         sink(file = paste(opt$out,'.log',sep=''), append = T)
         cat('Warning: ',n_fold_start,'-fold cross validation requested. This would lead to less than 3 cases/fold.\n', sep='')
-        cat('          Using ',opt$n_fold,'-fold cross validation intead.\n',sep='')
+        cat('          Using ',opt$n_fold,' folds instead.\n',sep='')
         sink()
     }
 } else {
     sink(file = paste(opt$out,'.log',sep=''), append = T)
-    cat("Training data contains ", length(Outcome_Predictors_train_y)," individuals.\n",sep='')
+    cat("Training data contain ", length(Outcome_Predictors_train_y)," individuals.\n",sep='')
     sink()
     sink(file = paste(opt$out,'.log',sep=''), append = T)
-    cat("Test data contains ", length(Outcome_Predictors_test_y)," individuals.\n",sep='')
+    cat("Test data contain ", length(Outcome_Predictors_test_y)," individuals.\n",sep='')
     sink()
 }
 
 # Report the size of the predictors data.frame
 sink(file = paste(opt$out,'.log',sep=''), append = T)
-    cat("Outcome data in training sample is ",format(object.size(Outcome_Predictors_train_y), units='auto'),".\n",sep='')
-    cat("Predictor data in training sample is ",format(object.size(Outcome_Predictors_train_x), units='auto'),".\n", sep='')
+cat("Outcome data in training sample is ",format(object.size(Outcome_Predictors_train_y), units='auto'),".\n",sep='')
+cat("Predictor data in training sample is ",format(object.size(Outcome_Predictors_train_x), units='auto'),".\n", sep='')
 sink()
+
 
 # Create a variable containing seeds for cross validation. (this must be set to reproducible results)
 set.seed(1)
@@ -484,8 +530,7 @@ seeds[[opt$n_fold+1]]<-sample.int(n=1000, 1)
 Prediction_summary_all<-NULL
 
 # Create a model for each group, and using all predictors
-predictors_list_new<-rbind(predictors_list_new,data.frame(predictor='All',
-                                                          group='.'))
+predictors_list_new<-rbind(predictors_list_new,data.frame(predictor='All',group='.'))
 models<-list()
 indep_pred<-list()
 
@@ -493,6 +538,7 @@ if(opt$model_comp == T){
     # Build glmnet using each group of predictors at a time
     for(group in unique(predictors_list_new$group)){
         # Subset predictor in the group
+        
         print(group)
         Outcome_Predictors_train_x_group<-Outcome_Predictors_train_x[grepl(paste0('Group_',group,'\\.','|','Group_',group,'$'), names(Outcome_Predictors_train_x))]
         Outcome_Predictors_test_x_group<-Outcome_Predictors_test_x[grepl(paste0('Group_',group,'\\.','|','Group_',group,'$'), names(Outcome_Predictors_test_x))]
@@ -503,20 +549,20 @@ if(opt$model_comp == T){
             Outcome_Predictors_train_x_group<-Outcome_Predictors_train_x
             Outcome_Predictors_test_x_group<-Outcome_Predictors_test_x
         }
-        
+                
         # If there is only one predictor, use glm
         if(dim(Outcome_Predictors_train_x_group)[2] > 1){
             if (opt$family == 'binomial'){
                 # Remo: this check prevents a lot of ugly warning messages
-                model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, classProbs=T, savePredictions = 'final'), method="glmnet", family=opt$family)
+                model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, classProbs=T, savePredictions = 'final', returnData=F, allowParallel=T), method="glmnet", family=opt$family)
             } else {
-                model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, savePredictions = 'final'), method="glmnet", family=opt$family)
+                model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, savePredictions = 'final', returnData=F, allowParallel=T), method="glmnet", family=opt$family)
             }
         } else {
             if (opt$family == 'binomial'){
-                model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, classProbs=T, savePredictions = 'final'), method="glm", family=opt$family)
+                model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, classProbs=T, savePredictions = 'final', returnData=F, allowParallel=T), method="glm", family=opt$family)
             } else {
-                model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, savePredictions = 'final'), method="glm", family=opt$family)
+                model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_fold, savePredictions = 'final', returnData=F, allowParallel=T), method="glm", family=opt$family)
             }
         }
         
@@ -529,19 +575,31 @@ if(opt$model_comp == T){
             Cross_cis<-exp(confint.default(Cross_log_mod))
             Cross_auc<-roc(model$pred$obs ~ model$pred$CASE)$auc
             Cross_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Cross_mod)[2,1]^2, sum(Outcome_Predictors_train_y == 'CASE')/length(Outcome_Predictors_train_y))
-
+            
             if(dim(Outcome_Predictors_train_x_group)[2] > 1){
                 Indep_Pred<-predict(object = model$finalModel, newx = data.matrix(Outcome_Predictors_test_x_group), type = "response", s = model$finalModel$lambdaOpt)
             } else {
                 Indep_Pred<-predict(object = model$finalModel, newdata = Outcome_Predictors_test_x_group, type = "response")
             }
             
-            Indep_mod<-summary(lm(scale(as.numeric(Outcome_Predictors_test_y)) ~ scale(as.numeric(Indep_Pred))))
-            Indep_log_mod<-glm(Outcome_Predictors_test_y ~ scale(as.numeric(Indep_Pred)),family=opt$family)
-            Indep_log<-summary(Indep_log_mod)
-            Indep_cis<-exp(confint.default(Indep_log_mod))
-            Indep_auc<-roc(Outcome_Predictors_test_y ~ Indep_Pred)$auc
-            Indep_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Indep_mod)[2,1]^2, sum(Outcome_Predictors_test_y == 'CASE')/length(Outcome_Predictors_test_y))
+            if (var(Indep_pred) > 0){
+                Indep_mod<-summary(lm(scale(as.numeric(Outcome_Predictors_test_y)) ~ scale(as.numeric(Indep_Pred))))
+                Indep_log_mod<-glm(Outcome_Predictors_test_y ~ scale(as.numeric(Indep_Pred)),family=opt$family)
+                Indep_log<-summary(Indep_log_mod)
+                Indep_cis<-exp(confint.default(Indep_log_mod))
+                Indep_auc<-roc(Outcome_Predictors_test_y ~ Indep_Pred)$auc
+                Indep_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Indep_mod)[2,1]^2, sum(Outcome_Predictors_test_y == 'CASE')/length(Outcome_Predictors_test_y))
+            } else {
+                sink(file = paste(opt$out,'.log',sep=''), append = T)
+                cat("Warning: Predictions for group independent test set for ", group, ' have variance 0.\n', sep='')
+                sink()
+                Indep_mod<-NA
+                Indep_log_mod<-NA
+                Indep_log<-NA
+                Indep_cis<-NA
+                Indep_auc<-NA
+                Indep_LiabR2<-NA
+            }
 
             Prediction_summary<-data.frame( Model=paste0(group,'_group'),
                                             CrossVal_R=coef(Cross_mod)[2,1],
@@ -555,14 +613,14 @@ if(opt$model_comp == T){
                                             CrossVal_N=length(model$pred$obs),
                                             CrossVal_Ncas=sum(model$pred$obs == 'CASE'),
                                             CrossVal_Ncon=sum(model$pred$obs == 'CONTROL'),
-                                            IndepVal_R=coef(Indep_mod)[2,1],
-                                            IndepVal_R_SE=coef(Indep_mod)[2,2],
-                                            IndepVal_OR=exp(coef(Indep_log)[2,1]),
-                                            IndepVal_LowCI=Indep_cis[2,1],
-                                            IndepVal_HighCI=Indep_cis[2,2],
+                                            IndepVal_R=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,1]),
+                                            IndepVal_R_SE=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,2]),
+                                            IndepVal_OR=ifelse(is.na(Indep_log), NA, exp(coef(Indep_log)[2,1])),
+                                            IndepVal_LowCI=ifelse(is.na(Indep_cis), NA, Indep_cis[2,1]),
+                                            IndepVal_HighCI=ifelse(is.na(Indep_cis, NA, Indep_cis[2,2]),
                                             Indep_LiabR2=Indep_LiabR2,
                                             Indep_AUC=Indep_auc,
-                                            IndepVal_pval=coef(Indep_mod)[2,4],
+                                            IndepVal_pval=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,4]),
                                             IndepVal_N=length(Outcome_Predictors_test_y),
                                             IndepVal_Ncas=sum(Outcome_Predictors_test_y == 'CASE'),
                                             IndepVal_Ncon=sum(Outcome_Predictors_test_y == 'CONTROL'))
@@ -575,6 +633,11 @@ if(opt$model_comp == T){
                 Indep_Pred<-predict(object = model$finalModel, newdata = Outcome_Predictors_test_x_group, type = "response")
             }
             
+            if (var(Indep_Pred) == 0){
+                sink(file = paste(opt$out,'.log',sep=''), append = T)
+                cat("Warning: Predictions for independent test set for group ", group, ' have variance 0.\n', sep='')
+                sink()
+            }
             Indep_mod<-summary(lm(scale(Outcome_Predictors_test_y) ~ scale(Indep_Pred)))
 
             Prediction_summary<-data.frame(Model=paste0(group,'_group'),
@@ -582,9 +645,9 @@ if(opt$model_comp == T){
                                            CrossVal_R_SE=coef(Cross_mod)[2,2],
                                            CrossVal_pval=coef(Cross_mod)[2,4],
                                            CrossVal_N=length(model$pred$obs),
-                                           IndepVal_R=coef(Indep_mod)[2,1],
-                                           IndepVal_R_SE=coef(Indep_mod)[2,2],
-                                           IndepVal_pval=coef(Indep_mod)[2,4],
+                                           IndepVal_R=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,1]),
+                                           IndepVal_R_SE=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,2]),
+                                           IndepVal_pval=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,4]),
                                            IndepVal_N=length(Outcome_Predictors_test_y))
 
         }
@@ -620,7 +683,7 @@ if(opt$model_comp == T){
           models[[group]]<-model
           indep_pred[[group]]<-Indep_Pred
         } else {
-          rm(model,Indep_Pred)
+          rm(model)
           gc()
         }
         
@@ -632,7 +695,7 @@ if(opt$model_comp == T){
   cat('Model evaluation results saved as ',opt$out,'.pred_eval.txt.\n',sep='')
   sink()
 }
-
+                                           
 
 if(opt$model_comp & !(opt$eval_only)){
     # Remo: TODO replace this loop with data.table group_by...
