@@ -193,29 +193,15 @@ rule download_gctb_software:
      unzip resources/software/gctb/gctb_2.03beta_Linux.zip -d resources/software/gctb; \
      rm resources/software/gctb/gctb_2.03beta_Linux.zip"
 
-# Download 7z
-rule download_7z:
-  output:
-    "resources/software/7z/7zz"
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  shell:
-    "mkdir -p resources/software/7z; \
-     wget --no-check-certificate -O resources/software/7z/7z2103-linux-x64.tar.xz https://www.7-zip.org/a/7z2103-linux-x64.tar.xz; \
-     tar -xf resources/software/7z/7z2103-linux-x64.tar.xz -C resources/software/7z/; \
-     rm resources/software/7z/7z2103-linux-x64.tar.xz"
-
 # Download LDpred2 reference
 rule download_ldpred2_ref:
-  input:
-    rules.download_7z.output
   output:
     directory("resources/data/ldpred2_ref")
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/ldpred2_ref; wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://ndownloader.figshare.com/articles/13034123/versions/3; resources/software/7z/7zz e resources/data/ldpred2_ref/download.zip -oresources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
-
+    "mkdir -p resources/data/ldpred2_ref; wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://figshare.com/ndownloader/articles/19213299/versions/1; unzip resources/data/ldpred2_ref/download.zip -d resources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
+    
 # Download LDAK
 rule download_ldak:
   output:

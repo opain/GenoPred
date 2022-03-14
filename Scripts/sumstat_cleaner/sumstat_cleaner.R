@@ -63,6 +63,9 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
 
+# Restrict sumstats to optional or required columns
+GWAS<-GWAS[,(names(GWAS) %in% c('SNP','A1','A2','P','OR','BETA','SE','N','FREQ','INFO'))]
+
 #####
 # Read in ref_bim
 #####
