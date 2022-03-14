@@ -199,8 +199,7 @@ if(opt$sd_check == T){
   # If more than half the variants have the wrong SD then the N is probably inaccurate
   # Recompute N based on BETA and SE
   if(sum(is_bad) > (length(is_bad)*0.5)){
-    n_eff_imp<-sd_val^2/info_snp$beta_se^2
-    
+
     n_eff_imp<-((2/sd_val)^2)/(info_snp$beta_se^2)
     info_snp$n_eff<-median(n_eff_imp)
     

@@ -121,7 +121,11 @@ for(i in 1:22){
   if(file.exists(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))){
     sscore<-fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore'))
     scores[[i]]<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-    scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT)
+    if(any(names(sscore) == 'NMISS_ALLELE_CT')){
+      scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT)
+    } else {
+      scores[[i]]<-as.matrix(scores[[i]]*sscore$ALLELE_CT)
+    }
   } else {
     sink(file = paste(opt$output,'.log',sep=''), append = T)
     cat('No scores for chromosome ',i,'. Check plink logs file for reason.\n', sep='')
