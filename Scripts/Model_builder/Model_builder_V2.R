@@ -538,7 +538,7 @@ if(opt$model_comp == T){
     # Build glmnet using each group of predictors at a time
     for(group in unique(predictors_list_new$group)){
         # Subset predictor in the group
-        
+                
         print(group)
         Outcome_Predictors_train_x_group<-Outcome_Predictors_train_x[grepl(paste0('Group_',group,'\\.','|','Group_',group,'$'), names(Outcome_Predictors_train_x))]
         Outcome_Predictors_test_x_group<-Outcome_Predictors_test_x[grepl(paste0('Group_',group,'\\.','|','Group_',group,'$'), names(Outcome_Predictors_test_x))]
@@ -582,6 +582,7 @@ if(opt$model_comp == T){
                 Indep_Pred<-predict(object = model$finalModel, newdata = Outcome_Predictors_test_x_group, type = "response")
             }
             
+
             if (var(Indep_pred) > 0){
                 Indep_mod<-summary(lm(scale(as.numeric(Outcome_Predictors_test_y)) ~ scale(as.numeric(Indep_Pred))))
                 Indep_log_mod<-glm(Outcome_Predictors_test_y ~ scale(as.numeric(Indep_Pred)),family=opt$family)
@@ -589,16 +590,12 @@ if(opt$model_comp == T){
                 Indep_cis<-exp(confint.default(Indep_log_mod))
                 Indep_auc<-roc(Outcome_Predictors_test_y ~ Indep_Pred)$auc
                 Indep_LiabR2<-h2l_R2(opt$outcome_pop_prev, coef(Indep_mod)[2,1]^2, sum(Outcome_Predictors_test_y == 'CASE')/length(Outcome_Predictors_test_y))
+                Indep_var0 <- FALSE
             } else {
                 sink(file = paste(opt$out,'.log',sep=''), append = T)
                 cat("Warning: Predictions for group independent test set for ", group, ' have variance 0.\n', sep='')
                 sink()
-                Indep_mod<-NA
-                Indep_log_mod<-NA
-                Indep_log<-NA
-                Indep_cis<-NA
-                Indep_auc<-NA
-                Indep_LiabR2<-NA
+                Indep_var0 <- TRUE
             }
 
             Prediction_summary<-data.frame( Model=paste0(group,'_group'),
@@ -613,14 +610,14 @@ if(opt$model_comp == T){
                                             CrossVal_N=length(model$pred$obs),
                                             CrossVal_Ncas=sum(model$pred$obs == 'CASE'),
                                             CrossVal_Ncon=sum(model$pred$obs == 'CONTROL'),
-                                            IndepVal_R=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,1]),
-                                            IndepVal_R_SE=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,2]),
-                                            IndepVal_OR=ifelse(is.na(Indep_log), NA, exp(coef(Indep_log)[2,1])),
-                                            IndepVal_LowCI=ifelse(is.na(Indep_cis), NA, Indep_cis[2,1]),
-                                            IndepVal_HighCI=ifelse(is.na(Indep_cis), NA, Indep_cis[2,2]),
-                                            Indep_LiabR2=Indep_LiabR2,
-                                            Indep_AUC=Indep_auc,
-                                            IndepVal_pval=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,4]),
+                                            IndepVal_R=ifelse(Indep_var0, NA, coef(Indep_mod)[2,1]),
+                                            IndepVal_R_SE=ifelse(Indep_var0, NA, coef(Indep_mod)[2,2]),
+                                            IndepVal_OR=ifelse(Indep_var0, NA, exp(coef(Indep_log)[2,1])),
+                                            IndepVal_LowCI=ifelse(Indep_var0, NA, Indep_cis[2,1]),
+                                            IndepVal_HighCI=ifelse(Indep_var0, NA, Indep_cis[2,2]),
+                                            Indep_LiabR2=ifelse(Indep_var0, NA, Indep_LiabR2),
+                                            Indep_AUC=ifelse(Indep_var0, NA, Indep_auc),
+                                            IndepVal_pval=ifelse(Indep_var0, NA, coef(Indep_mod)[2,4]),
                                             IndepVal_N=length(Outcome_Predictors_test_y),
                                             IndepVal_Ncas=sum(Outcome_Predictors_test_y == 'CASE'),
                                             IndepVal_Ncon=sum(Outcome_Predictors_test_y == 'CONTROL'))
@@ -637,17 +634,20 @@ if(opt$model_comp == T){
                 sink(file = paste(opt$out,'.log',sep=''), append = T)
                 cat("Warning: Predictions for independent test set for group ", group, ' have variance 0.\n', sep='')
                 sink()
+                Indep_var0 <- TRUE
+            } else {
+                Indep_mod<-summary(lm(scale(Outcome_Predictors_test_y) ~ scale(Indep_Pred)))
+                Indep_var0 <- FALSE
             }
-            Indep_mod<-summary(lm(scale(Outcome_Predictors_test_y) ~ scale(Indep_Pred)))
 
             Prediction_summary<-data.frame(Model=paste0(group,'_group'),
                                            CrossVal_R=coef(Cross_mod)[2,1],
                                            CrossVal_R_SE=coef(Cross_mod)[2,2],
                                            CrossVal_pval=coef(Cross_mod)[2,4],
                                            CrossVal_N=length(model$pred$obs),
-                                           IndepVal_R=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,1]),
-                                           IndepVal_R_SE=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,2]),
-                                           IndepVal_pval=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,4]),
+                                           IndepVal_R=ifelse(Indep_var0, NA, coef(Indep_mod)[2,1]),
+                                           IndepVal_R_SE=ifelse(Indep_var0, NA, coef(Indep_mod)[2,2]),
+                                           IndepVal_pval=ifelse(Indep_var0, NA, coef(Indep_mod)[2,4]),
                                            IndepVal_N=length(Outcome_Predictors_test_y))
 
         }
