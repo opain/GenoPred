@@ -583,7 +583,7 @@ if(opt$model_comp == T){
             }
             
 
-            if (var(Indep_pred) > 0){
+            if (var(Indep_Pred) > 0){
                 Indep_mod<-summary(lm(scale(as.numeric(Outcome_Predictors_test_y)) ~ scale(as.numeric(Indep_Pred))))
                 Indep_log_mod<-glm(Outcome_Predictors_test_y ~ scale(as.numeric(Indep_Pred)),family=opt$family)
                 Indep_log<-summary(Indep_log_mod)
