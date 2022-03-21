@@ -617,7 +617,7 @@ if(opt$model_comp == T){
                                             IndepVal_R_SE=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,2]),
                                             IndepVal_OR=ifelse(is.na(Indep_log), NA, exp(coef(Indep_log)[2,1])),
                                             IndepVal_LowCI=ifelse(is.na(Indep_cis), NA, Indep_cis[2,1]),
-                                            IndepVal_HighCI=ifelse(is.na(Indep_cis, NA, Indep_cis[2,2]),
+                                            IndepVal_HighCI=ifelse(is.na(Indep_cis), NA, Indep_cis[2,2]),
                                             Indep_LiabR2=Indep_LiabR2,
                                             Indep_AUC=Indep_auc,
                                             IndepVal_pval=ifelse(is.na(Indep_mod), NA, coef(Indep_mod)[2,4]),
