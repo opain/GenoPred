@@ -269,6 +269,22 @@ for(i in 1:dim(range_list)[1]){
 
 fwrite(range_list, paste0(opt$output,'.NSNP_per_pT'),sep='\t')
 
+score_names <- paste0('SCORE_',range_list$pT0,'_',range_list$pT1,'_SUM')
+score_names_allzero <- score_names[range_list$NSNP == 0]
+score_names_nonzero <- score_names[range_list$NSNP > 0]
+rm(score_names)
+
+if (length(score_names_allzero) > 0){
+	sink(file = paste(opt$output,'.log',sep=''), append = T)
+	cat('Warning: some scores contain no variants! See below\n')
+	cat(range_list[NSNP == 0], '/n')
+	sink()
+}
+
+if (length(score_names_nonzero) == 0){
+	stop('Error: with the specified thresholds, none of the scores contain variants!')
+}
+
 # Output range list file with ranges containing at least 1 SNP
 range_list<-range_list[range_list$NSNP > 0,]	
 range_list$NSNP<-NULL
@@ -313,15 +329,24 @@ scores<-list()
 for(i in as.character(CHROMS)){
   sscore<-fread(paste0(opt$output,'.profiles.chr',i,'.sscore'))
   scores[[i]]<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
+  if (i == 1){
+    tmp_scorecols <- colnames(scores[[i]])
+  } else {
+    if(!all(tmp_scorecols == colnames(scores[[i]]))){
+      stop('Error: the intermediate .sscore-files generated for the diffent chromosomes have inconsistent columns. Aborting. Please report this bug.')
+    }
+  }
   scores[[i]]<-as.matrix(scores[[i]])
 }
+
 
 scores<-Reduce(`+`, scores)
 scores<-data.table(FID=fam$V1,
                    IID=fam$V2,
                    scores)
 
-names(scores)<-c('FID','IID',names(score)[-1:-2])
+# R: "[names(score) %in% score_names]" prevents a bug when score is all 0 and therefore dropped by plink, while preserving the column order
+names(scores)<-c('FID','IID',names(score)[names(score) %in% score_names])
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -357,9 +382,9 @@ for(k in 1:dim(pop_keep_files)[1]){
 	keep<-fread(pop_keep_files$V2[k], header=F)
 	scores_keep<-scores[(scores$FID %in% keep$V1),]
 
-	ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-													Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
-													SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
+	ref_scale<-data.frame(Param=names(scores_keep[,-1:-2]),
+			      Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
+			      SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
 
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
