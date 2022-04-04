@@ -346,7 +346,7 @@ scores<-data.table(FID=fam$V1,
                    scores)
 
 # R: "[names(score) %in% score_names]" prevents a bug when score is all 0 and therefore dropped by plink, while preserving the column order
-names(scores)<-c('FID','IID',names(score)[names(score) %in% score_names])
+names(scores)<-c('FID','IID',names(score)[names(score) %in% score_names_nonzero])
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
