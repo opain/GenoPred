@@ -277,7 +277,7 @@ rm(score_names)
 if (length(score_names_allzero) > 0){
 	sink(file = paste(opt$output,'.log',sep=''), append = T)
 	cat('Warning: some scores contain no variants! See below\n')
-	cat(range_list[NSNP == 0], '/n')
+	cat(range_list[range_list$NSNP == 0, ], '/n')
 	sink()
 }
 
