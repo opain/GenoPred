@@ -31,12 +31,22 @@ make_option("--nested", action="store", default=T, type='logical',
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
 make_option("--prune_hla", action="store", default=T, type='logical',
-		help="Retain only top assocaited variant in HLA region [optional]")
+		help="Retain only top assocaited variant in HLA region [optional]"),
+make_option('--tmpdir', action="store", default=NA, type="character")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
+
+tempdir <- opt$tmpdir
+if( is.na(tempdir) ){
+    tempdir <- tempdir()
+} else {
+    if(!dir.exists(tempdir)){
+    stop(paste0('specified temporary directory "', tempdir,'" does not exist.'))
+    }
+}
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
@@ -81,7 +91,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Reading in GWAS.\n')
 sink()
 
-GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
+GWAS<-fread(cmd=paste0('zcat ',opt$sumstats), tmpdir=tempdir)
 GWAS<-GWAS[complete.cases(GWAS),]
 
 # Extract subset if testing
@@ -215,11 +225,11 @@ for(i in CHROMS){
 GWAS_clumped<-GWAS[(GWAS$SNP %in% clumped_SNPs),]
 
 if(opt$nested == T){
-  range_list<-data.frame(	Name=paste0('S',1:length(opt$pTs)),
+  range_list<-data.frame( Name=paste0('S',1:length(opt$pTs)),
                           pT0=0,
                           pT1=opt$pTs)
 } else {
-  range_list<-data.frame(	Name=paste0('S',1:length(opt$pTs)),
+  range_list<-data.frame( Name=paste0('S',1:length(opt$pTs)),
                           pT0=c(0,opt$pTs[-length(opt$pTs)]),
                           pT1=opt$pTs)
 }
@@ -269,6 +279,22 @@ for(i in 1:dim(range_list)[1]){
 
 fwrite(range_list, paste0(opt$output,'.NSNP_per_pT'),sep='\t')
 
+score_names <- paste0('SCORE_',range_list$pT0,'_',range_list$pT1)
+score_names_allzero <- score_names[range_list$NSNP == 0]
+score_names_nonzero <- score_names[range_list$NSNP > 0]
+rm(score_names)
+
+if (length(score_names_allzero) > 0){
+	sink(file = paste(opt$output,'.log',sep=''), append = T)
+	cat('Warning: some scores contain no variants! See below\n')
+	print(range_list[range_list$NSNP == 0, ])
+	sink()
+}
+
+if (length(score_names_nonzero) == 0){
+	stop('Error: with the specified thresholds, none of the scores contain variants!')
+}
+
 # Output range list file with ranges containing at least 1 SNP
 range_list<-range_list[range_list$NSNP > 0,]	
 range_list$NSNP<-NULL
@@ -313,15 +339,24 @@ scores<-list()
 for(i in as.character(CHROMS)){
   sscore<-fread(paste0(opt$output,'.profiles.chr',i,'.sscore'))
   scores[[i]]<-sscore[,grepl('SCORE_.*_SUM', names(sscore)),with=F]
+  if (i == 1){
+    tmp_scorecols <- colnames(scores[[i]])
+  } else {
+    if(!all(tmp_scorecols == colnames(scores[[i]]))){
+      stop('Error: the intermediate .sscore-files generated for the diffent chromosomes have inconsistent columns. Aborting. Please report this bug.')
+    }
+  }
   scores[[i]]<-as.matrix(scores[[i]])
 }
+
 
 scores<-Reduce(`+`, scores)
 scores<-data.table(FID=fam$V1,
                    IID=fam$V2,
                    scores)
 
-names(scores)<-c('FID','IID',names(score)[-1:-2])
+# R: "[names(score) %in% score_names]" prevents a bug when score is all 0 and therefore dropped by plink, while preserving the column order
+names(scores)<-c('FID','IID',names(score)[names(score) %in% score_names_nonzero])
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -357,9 +392,9 @@ for(k in 1:dim(pop_keep_files)[1]){
 	keep<-fread(pop_keep_files$V2[k], header=F)
 	scores_keep<-scores[(scores$FID %in% keep$V1),]
 
-	ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-													Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
-													SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
+	ref_scale<-data.frame(Param=names(scores_keep[,-1:-2]),
+			      Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
+			      SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
 
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
