@@ -59,7 +59,6 @@ cat(
 Analysis started at',as.character(start.time),'
 Options are:\n')
 
-cat('Options are:\n')
 print(opt)
 cat('Analysis started at',as.character(start.time),'\n')
 sink()
@@ -85,7 +84,7 @@ ref <- snp_attach(paste0(opt$output_dir,"ref.rds"))
 ref_keep<-read.table(opt$ref_keep, header=F, stringsAsFactors=F)
 ind_keep<-which(ref$fam$family.ID %in% ref_keep$V1)
 
-G   <- ref$genotypes
+G   <- snp_fastImputeSimple(ref$genotypes, 'mean2')
 CHR <- ref$map$chromosome
 POS <- ref$map$physical.pos
 y   <- ref$fam$affection - 1
@@ -140,11 +139,12 @@ cat('Sumstats contains',dim(sumstats)[1],'variants.\n')
 sink()
 
 # Convert OR into BETA
-if(sum(names(sumstats) == 'OR') == 1){
-  sumstats$BETA<-log(sumstats$OR)
+if((sum(names(sumstats) == 'OR') == 1) & (sum(names(sumstats) == 'BETA') == 0)){
+  sumstats$BETA<-log(as.numeric(sumstats$OR))
 }
 
-# Format sumstats for as in LDPred2 tutorial
+
+# Format sumstats as in LDPred2 tutorial
 if(sum(names(sumstats) == 'Ncas') == 1 & sum(names(sumstats) == 'Ncon') == 1){
   sumstats$n_eff <- 4 / (1 / sumstats$Ncas + 1 / sumstats$Ncon)
   sumstats$Ncas <- sumstats$Ncon <- NULL
@@ -307,16 +307,18 @@ cat('Grid model complete at',as.character(Sys.time()),'\n')
 sink()
 
 # LDpred2-auto
-multi_auto <- snp_ldpred2_auto(corr, sumstats, h2_init = h2_est,
-                               vec_p_init = seq_log(1e-4, 0.9, 30),
-                               ncores = NCORES)
+
+if (packageVersion('bigsnpr') >= '1.9.11'){
+  multi_auto <- snp_ldpred2_auto(corr, sumstats, h2_init = h2_est, vec_p_init = seq_log(1e-4, 0.9, 30), ncores = NCORES, allow_jump_sign=FALSE)
+} else {
+  multi_auto <- snp_ldpred2_auto(corr, sumstats, h2_init = h2_est, vec_p_init = seq_log(1e-4, 0.9, 30), ncores = NCORES)    
+}
 
 beta_auto <- sapply(multi_auto, function(auto) auto$beta_est)
 
 summary(beta_auto)
 
-pred_auto <- big_prodMat(G, beta_auto, ind.row = ind_keep,
-                         ind.col = sumstats[["_NUM_ID_"]])
+pred_auto <- big_prodMat(G, beta_auto, ind.row = ind_keep, ind.col = sumstats[["_NUM_ID_"]])
 
 summary(pred_auto)
 

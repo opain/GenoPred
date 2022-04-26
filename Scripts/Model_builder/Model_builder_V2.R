@@ -27,13 +27,15 @@ make_option("--assoc", action="store", default=T, type='logical',
 make_option("--n_perm", action="store", default=1000, type='numeric',
         help="Number of permutations for model comparison [optional]"),
 make_option("--compare_predictors", action="store", default=F, type='logical',
-    help="Option to assign each predictor to own group [optional]"),
+        help="Option to assign each predictor to own group [optional]"),
 make_option("--eval_only", action="store", default=F, type='logical',
-    help="Option to evaluate each model without comparison [optional]"),
+        help="Option to evaluate each model without comparison [optional]"),
 make_option("--test", action="store", default=F, type='logical',
-    help="Option to subset data for a test run [optional]"),
+        help="Option to subset data for a test run [optional]"),
 make_option("--pred_miss", action="store", default=0.1, type='numeric',
-        help="Proportion of missing values allowed in predictor [optional]")        
+        help="Proportion of missing values allowed in predictor [optional]"),
+make_option("--min_case_val", action="store", default = 10, type='numeric',
+        help="minimum number of cases in the validation set when performing cross-validation (default: %default)")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -68,10 +70,7 @@ h2l_R2 <- function(k, r2, p) {
   # P proportion of sample that are cases
   # calculates proportion of variance explained on the liability scale
   #from ABC at http://www.complextraitgenomics.com/software/
-  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
-  
-  
-    
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.  
   x= qnorm(1-k)
   z= dnorm(x)
   i=z/k
@@ -250,7 +249,7 @@ if(dim(predictors_list)[1]>1){
                 sink(file = paste(opt$out,'.log',sep=''), append = T)
                 cat('Error: all predictors in PredFile ',k,' are constant.\n', sep='')
                 sink()
-                stop(paste0('Error: all predictors in PredFile ',k,' are constant.'))
+                stop(paste0('Error: all predictors in PredFile ',k,' are constant (variance 0).'))
             }
             
             
@@ -309,9 +308,9 @@ if(dim(predictors_list)[1]>1){
     }
     if (all(predictors_constant)){
         sink(file = paste(opt$out,'.log',sep=''), append = T)
-        cat('Error: all predictors are constant.\n')
+        cat('Error: all predictors are constant (variance 0).\n')
         sink()
-        stop('Error: all predictors are constant.')
+        stop('Error: all predictors are constant (variance 0).')
     }
 
     if(opt$compare_predictors == T){
@@ -485,6 +484,27 @@ if(opt$family == 'binomial'){
     sink(file = paste(opt$out,'.log',sep=''), append = T)
     cat("Test data contains ", length(Outcome_Predictors_test_y)," individuals (",sum(Outcome_Predictors_test_y == 'CASE')," cases and ",sum(Outcome_Predictors_test_y == 'CONTROL')," controls).\n",sep='')
     sink()
+    
+    if (opt$model_comp == T){
+        if (sum(Outcome_Predictors_test_y == 'CASE') < opt$min_case_val){
+            sink(file = paste(opt$out,'.log',sep=''), append = T)
+            cat(paste0('Warning: Number of cases in validation set is lower than requested --min_case_val (',opt$min_case_val,')\n'))
+            cat('         The .pred_eval file will be empty. The script will exit now without error.')
+            sink()
+            
+            Prediction_summary <- data.frame(matrix(ncol = 23, nrow = 0))
+            colnames(Prediction_summary) <-  c("Model","CrossVal_R","CrossVal_R_SE","CrossVal_OR",
+                                               "CrossVal_LowCI","CrossVal_HighCI","Cross_LiabR2","Cross_AUC",
+                                               "CrossVal_pval","CrossVal_N","CrossVal_Ncas","CrossVal_Ncon",
+                                               "IndepVal_R","IndepVal_R_SE","IndepVal_OR","IndepVal_LowCI",
+                                               "IndepVal_HighCI","Indep_LiabR2","Indep_AUC","IndepVal_pval",
+                                               "IndepVal_N","IndepVal_Ncas","IndepVal_Ncon")
+            
+            write.table(Prediction_summary, paste0(opt$out,'.pred_eval.txt'), col.names=T, row.names=F, quote=F)
+            
+            quit(save = "no", status = 0, runLast = TRUE)
+        }
+    }
     
     # adjusting cross validation for low number of cases
     n_fold_start <- opt$n_fold
@@ -698,7 +718,7 @@ if(opt$model_comp == T){
                                            
 
 if(opt$model_comp & !(opt$eval_only)){
-    # Remo: TODO replace this loop with data.table group_by...
+    # Remo: TODO replace this loop with data.table group_by or similar... it's too slow and buggy as currently written
     
     ###################
     # Compare predictive utiliy of the different models
