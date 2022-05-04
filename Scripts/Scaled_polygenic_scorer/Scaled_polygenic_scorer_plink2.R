@@ -203,6 +203,7 @@ for(i in ref_scale$Param){
     sd_val <- ref_scale$SD[ref_scale$Param == i]
     if(sd_val < 1e-6){
         sink(file = paste(opt$output,'.log',sep=''), append = T)
+        # R: this prevents scores from being all NA when the standard deviation is 0.
         cat('Warning: provided standard deviation for score ',i,' is < 1e-6. Using 1e-6 instead.\n', sep='')
         sink()
         sd_val <- 1e-6

@@ -70,13 +70,19 @@ h2l_R2 <- function(k, r2, p) {
   # P proportion of sample that are cases
   # calculates proportion of variance explained on the liability scale
   #from ABC at http://www.complextraitgenomics.com/software/
-  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.  
+  #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012) A better coefficient of determination for genetic profile analysis. Genet Epidemiol. 2012 Apr;36(3):214-24.
+    
+  if (is.na(k)){
+    return(NA)
+  }
+    
   x= qnorm(1-k)
   z= dnorm(x)
   i=z/k
   C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
   theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
   h2l_R2 = C*r2 / (1 + C*theta*r2)
+  return(h2l_R2)
 }
 
 # Read in the predictors file
@@ -206,19 +212,50 @@ predictor_merger<-function(x,y){
 }
 
 
-if(dim(predictors_list)[1]>1){
-        Predictors<-data.frame(foreach(k=1:dim(predictors_list)[1], .combine=predictor_merger) %dopar% {
-            
+read_profiles <- function(path) {
+    # function that tries to "rescue" .profiles saved in the old format...
+    out <- tryCatch(
+        {
+            header <- colnames(fread(path, sep=' ', header=T, nrow=0))
+            if (all(c('FID','IID') %in% header)){
+                coltypes <- list('character'=c('FID','IID'))
+            } else {
+                coltypes <- list('character'=c('IID'))
+            }
+            # this will raise a warning if fread discards the header because of an apparent "mismatch"...
+            fread(path, colClasses=coltypes, sep=' ', na.strings=c('NA','.','Inf','-Inf','inf','-inf', ''), header=T, fill=FALSE, strip.white=FALSE)
+        },
+        warning=function(warn){
+            # the file is probably space-delimited and has empty strings without quotes as NA-values:
+            message(paste0("A warning was raised for file ", path,". It might contain missing values not denoted by 'NA' or '.', or not have 'IID' (and 'FID') in the header...\nFalling back to read.table (strip.white = FALSE, sep=' ')"))
+            suppressWarnings(fread(text = 'n\n',nrows = 1)) # avoid warning at next call to fread
+            sink(file = paste(opt$out,'.log',sep=''), append = T)
+            cat('Warning: The file ',path,' has an unexpected format.\n',sep='')
+            sink()
             coltypes <- c('character', 'character')
             names(coltypes) <- c('FID','IID')
-            
-            Predictors_temp<-fread(predictors_list$predictor[k], colClasses=coltypes, sep=' ', na.strings=c('NA','.','Inf','-Inf','inf','-inf'), header=T)
+            profiles <- data.table(read.table(path, colClasses=coltypes, strip.white = FALSE, sep=' ', header=T))
+            if (!all(profiles[,lapply(.SD, function(x){is.numeric(x) | all(is.na(x))}),.SDcols=colnames(profiles)[-1:-2]])){
+                stop(paste0('The data in ', path, " failed format checks. Make sure to use 'FID' and 'IID' as the first two columns in the header, and avoid using empty strings to indicate NA values!"))
+            }
+            return(profiles)
+        }
+    )    
+    return(out)
+}
 
+
+
+if(dim(predictors_list)[1]>1){
+        Predictors<-data.frame(Reduce(predictor_merger, lapply(1:dim(predictors_list)[1], function(k){
+            
+            Predictors_temp <- read_profiles(predictors_list$predictor[k])
+            
             if(names(Predictors_temp)[1] == 'FID' & names(Predictors_temp)[2] == 'IID'){
                 Predictors_temp[,IID:=paste0(FID,':',IID)]
                 Predictors_temp[,FID:=NULL]
             } else {
-                names(Predictors_temp)[1]<-'IID'
+                names(Predictors_temp)[1] <- 'IID'
                 Predictors_temp[,IID:=paste0(IID,':',IID)]
             }    
         
@@ -228,12 +265,12 @@ if(dim(predictors_list)[1]>1){
             Predictors_temp <- Predictors_temp[,colSums(is.na(Predictors_temp))/nrow(Predictors_temp) < opt$pred_miss, with=F]
 
             # Remove individuals with any missing data
-            Predictors_temp<-Predictors_temp[complete.cases(Predictors_temp),]
+            Predictors_temp <- Predictors_temp[complete.cases(Predictors_temp),]
 
             # Update column names to avoid duplciate column names between predictor files
             setnames(Predictors_temp, colnames(Predictors_temp)[-1], paste0('PredFile',k,'.',names(Predictors_temp)[-1]))
             
-            predictors_constant <- sapply(Predictors_temp, function(x){all(x == x[1])})
+            predictors_constant <- sapply(Predictors_temp, function(x){all(x == x[1]) | all(is.na(x))})
 
             if (any(predictors_constant)){
                 sink(file = paste(opt$out,'.log',sep=''), append = T)
@@ -264,7 +301,7 @@ if(dim(predictors_list)[1]>1){
             sink()
             
             Predictors_temp    
-        })
+        })))
 
     sink(file = paste(opt$out,'.log',sep=''), append = T)
     cat('After merging the',nrow(predictors_list),'Predictors files,', dim(Predictors)[2]-1,'predictors remain.\n')
@@ -276,7 +313,7 @@ if(dim(predictors_list)[1]>1){
     coltypes <- c('character', 'character')
     names(coltypes) <- c('FID','IID')
     
-    Predictors<-fread(predictors_list$predictor[1], colClasses=coltypes, sep=' ', na.strings=c('NA','.','Inf','-Inf','inf','-inf'), header=T)
+    Predictors<-read_profiles(predictors_list$predictor[1])
 
     if(names(Predictors)[1] == 'FID' & names(Predictors)[2] == 'IID'){
         Predictors[,IID:=paste0(FID,':',IID)]
