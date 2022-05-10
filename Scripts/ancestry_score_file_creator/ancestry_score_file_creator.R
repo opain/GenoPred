@@ -59,6 +59,18 @@ ref_merge_list<-paste0(opt$ref_plink_chr,1:22)
 
 write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
 
+
+if (file.exists(paste0(opt$output_dir,'ref_merge.bim'))){
+  system(paste('rm', paste0(opt$output_dir,'ref_merge.bim')))
+}
+if (file.exists(paste0(opt$output_dir,'ref_merge.fam'))){
+  system(paste('rm', paste0(opt$output_dir,'ref_merge.fam')))
+}
+if (file.exists(paste0(opt$output_dir,'ref_merge.bed'))){
+  system(paste('rm', paste0(opt$output_dir,'ref_merge.bed')))
+}
+
+
 # Merge
 if(!is.na(opt$ref_keep)){
   system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --keep ',opt$ref_keep,' --out ',opt$output_dir,'ref_merge --memory ',floor(opt$memory*0.7)))
@@ -125,6 +137,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Computing reference PCs...')
 sink()
 
+
 # Extract LD independent SNPs
 system(paste0(opt$plink,' --bfile ',opt$output_dir,'ref_merge --threads 1 --extract ',opt$output_dir,'ref_merge.prune.in --make-bed --out ',opt$output_dir,'ref_merge_pruned --memory ',floor(opt$memory*0.7)))
 
@@ -143,9 +156,9 @@ fwrite(PCs_ref, paste0(opt$output,'.eigenvec'), sep=' ')
 
 # Scale across all individuals
 PCs_ref_centre_scale<-data.frame(PC=names(PCs_ref[-1:-2]),
-							  Mean=sapply(PCs_ref[,-1:-2], function(x) mean(x)),
-							  SD=sapply(PCs_ref[,-1:-2], function(x) sd(x)),
-							  row.names=seq(1:as.numeric(opt$n_pcs)))
+                                 Mean=sapply(PCs_ref[,-1:-2], mean),
+                                 SD=sapply(PCs_ref[,-1:-2], sd),
+                                 row.names=seq(1:as.numeric(opt$n_pcs)))
 
 fwrite(PCs_ref_centre_scale, paste0(opt$output,'.scale'), sep=' ')
 
@@ -157,20 +170,20 @@ if(!is.na(opt$ref_pop)){
   pop_keep_files<-read.table(opt$ref_pop, header=F, stringsAsFactors=F)
 
   for(k in 1:dim(pop_keep_files)[1]){
-  	pop<-pop_keep_files$V1[k]
-  	keep<-fread(pop_keep_files$V2[k], header=F)
-  	PCs_ref_keep<-PCs_ref[(PCs_ref$FID %in% keep$V1),]
+    pop<-pop_keep_files$V1[k]
+    keep<-fread(pop_keep_files$V2[k], header=F)
+    PCs_ref_keep<-PCs_ref[(PCs_ref$FID %in% keep$V1),]
 
     PCs_ref_centre_scale<-data.frame(PC=names(PCs_ref_keep[-1:-2]),
-    								  Mean=sapply(PCs_ref_keep[,-1:-2], function(x) mean(x)),
-    								  SD=sapply(PCs_ref_keep[,-1:-2], function(x) sd(x)),
-    								  row.names=seq(1:100))
+                                     Mean=sapply(PCs_ref_keep[,-1:-2], function(x) mean(x)),
+                                     SD=sapply(PCs_ref_keep[,-1:-2], function(x) sd(x)),
+                                     row.names=seq(1:100))
 
-  	fwrite(PCs_ref_centre_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
-	
-	rm(PCs_ref_centre_scale)
-	gc()
-	}
+    fwrite(PCs_ref_centre_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
+
+    rm(PCs_ref_centre_scale)
+    gc()
+    }
 }
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
