@@ -10,9 +10,9 @@ output_dir<-'resources/data/1kg'
 dir.create(output_dir)
 
 # Download the 1000Genomes data provided by PLINK (PLINK 2 format)
-system(paste0('wget -q -o /dev/null -O ',output_dir,'/all_phase3.pgen.zst https://www.dropbox.com/s/afvvf1e15gqzsqo/all_phase3.pgen.zst?dl=1'))
-system(paste0('wget -q -o /dev/null -O ',output_dir,'/all_phase3.pvar.zst https://www.dropbox.com/s/op9osq6luy3pjg8/all_phase3.pvar.zst?dl=1'))
-system(paste0('wget -q -o /dev/null -O ',output_dir,'/all_phase3.psam https://www.dropbox.com/s/yozrzsdrwqej63q/phase3_corrected.psam?dl=1'))
+system(paste0('wget -q -o /dev/null -O ',output_dir,'/all_phase3.pgen.zst https://www.dropbox.com/s/y6ytfoybz48dc0u/all_phase3.pgen.zst?dl=1'))
+system(paste0('wget -q -o /dev/null -O ',output_dir,'/all_phase3.pvar.zst https://www.dropbox.com/s/odlexvo8fummcvt/all_phase3.pvar.zst?dl=1'))
+system(paste0('wget -q -o /dev/null -O ',output_dir,'/all_phase3.psam https://www.dropbox.com/s/6ppo144ikdzery5/phase3_corrected.psam?dl=1'))
 
 # Decompress the pgen file
 system(paste0('plink2 --zst-decompress ',output_dir,'/all_phase3.pgen.zst > ',output_dir,'/all_phase3.pgen'))
