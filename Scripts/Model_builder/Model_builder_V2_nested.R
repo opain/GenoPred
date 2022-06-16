@@ -246,14 +246,14 @@ if(dim(predictors_list)[1]>1){
 		names(Predictors)[1]<-'IID'
 		Predictors$IID<-paste0(Predictors$IID,':',Predictors$IID)
 	}
-
+	
 	# Remove variables with > opt$pred_miss missing values 
 	col_keep<-T
-	for(i in 2:ncol(Predictors_temp)){
-	  col_keep<-c(col_keep, sum(!is.finite(Predictors_temp[[names(Predictors_temp)[i]]]) | is.na(Predictors_temp[[names(Predictors_temp)[i]]]))/nrow(Predictors_temp) < opt$pred_miss)
+	for(i in 2:ncol(Predictors)){
+	  col_keep<-c(col_keep, sum(!is.finite(Predictors[[names(Predictors)[i]]]) | is.na(Predictors[[names(Predictors)[i]]]))/nrow(Predictors) < opt$pred_miss)
 	}
 	
-	Predictors_temp <- Predictors_temp[,col_keep, with=F]
+	Predictors <- Predictors[,col_keep, with=F]
 	
 	# Remove individuals with any missing data
 	Predictors<-Predictors[complete.cases(Predictors),]
