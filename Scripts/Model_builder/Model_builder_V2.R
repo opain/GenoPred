@@ -190,7 +190,7 @@ if(!is.na(opt$keep)){
     # Read in keep file
     keep_file<-fread(opt$keep, header=F)
     setnames(keep_file,c('V1','V2'),c('FID','IID'))
-    keep_file[,IID:=paste(IID,FID,sep=':')]
+    keep_file[,IID:=paste(FID,FID,sep=':')]
     keep_file[,FID:=NULL]
     # Extract keep indviduls from the phenotypic data
     Outcome<-Outcome[(Outcome$IID %in% keep_file$IID),]
