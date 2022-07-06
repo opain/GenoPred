@@ -190,17 +190,29 @@ if(!is.na(opt$keep)){
     # Read in keep file
     keep_file<-fread(opt$keep, header=F)
     setnames(keep_file,c('V1','V2'),c('FID','IID'))
-    keep_file[,IID:=paste(IID,FID,sep=':')]
+    keep_file[,IID:=paste(FID,IID,sep=':')]
     keep_file[,FID:=NULL]
     # Extract keep indviduls from the phenotypic data
     Outcome<-Outcome[(Outcome$IID %in% keep_file$IID),]
     
+    if (nrow(Outcome) == 0){
+        sink(file = paste(opt$out,'.log',sep=''), append = T)
+        cat('Error: There is no overlap between the IDs in the keep-file and the phenotype data! Aborting.\n',sep='')
+        cat('First 3 IDs in the keep-file (FID:IID):\n')
+        print(keep_file$IID[1:3])
+        cat('First 3 IDs in the phenotype file (FID:IID):\n')
+        print(Outcome$IID[1:3])
+        sink()
+        stop(paste0('There is no overlap between IDs in the keep-file and the phenotype data! Aborting. Check ',opt$out,'.log for details.'))
+    }
+        
     rm(keep_file)
     gc()
     
     sink(file = paste(opt$out,'.log',sep=''), append = T)
     cat('Phenotype file contains ',dim(Outcome)[1],' individuals after extraction of individuals in ',opt$keep,'.\n',sep='')
     sink()
+        
 } 
  
 ############
