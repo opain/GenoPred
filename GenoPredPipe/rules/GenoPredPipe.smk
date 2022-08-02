@@ -563,10 +563,12 @@ rule prs_scoring_megaprs:
     "resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
   shell:
     "Rscript ../Scripts/ldak_mega_prs/ldak_mega_prs.R \
       --ref_plink resources/data/1kg/1KGPhase3.w_hm3.GW \
-      --ref_keep resources/data/1kg/keep_files/EUR_samples.keep \
+      --ref_keep resources/data/1kg/keep_files/{params.population}_samples.keep \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
       --plink1 plink \
       --plink2 plink2 \
