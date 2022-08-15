@@ -518,6 +518,9 @@ Outcome_Predictors_train_ind <- createDataPartition(Outcome_Predictors$Outcome_v
 Outcome_Predictors_train <- Outcome_Predictors[Outcome_Predictors_train_ind, ]
 Outcome_Predictors_test <- Outcome_Predictors[-Outcome_Predictors_train_ind, ]
 
+fwrite(data.table(Outcome_Predictors_train[,'IID',drop=F]), paste0(opt$out,'.train_ind.txt.gz'), col.names = F, row.names = F, quote = F)
+fwrite(data.table(Outcome_Predictors_test[,'IID',drop=F]), paste0(opt$out,'.test_ind.txt.gz'), col.names = F, row.names = F, quote = F)
+
 Outcome_Predictors_train_y<-Outcome_Predictors_train$Outcome_var
 Outcome_Predictors_train_x<-Outcome_Predictors_train[-1:-2]
 
