@@ -64,6 +64,13 @@ suppressMessages(library(psych))
 suppressMessages(library(MASS))
 registerDoMC(opt$n_core)
 
+if (!is.numeric(opt$outcome_pop_prev)){
+    opt$outcome_pop_prev <- NA
+    sink(file = paste(opt$out,'.log',sep=''), append = F)
+    cat('Warning: non-numeric argument to --outcome_pop_prev\n')
+    sink()
+}
+
 h2l_R2 <- function(k, r2, p) {
   # K baseline disease risk
   # r2 from a linear regression model attributable to genomic profile risk score
