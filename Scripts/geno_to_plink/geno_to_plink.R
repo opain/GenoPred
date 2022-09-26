@@ -56,6 +56,21 @@ sink(file = paste(opt$out,'.geno_to_plink.log',sep=''), append = T)
 cat('Reading reference SNP data...')
 sink()
 
+# function to remove chromosome prefix
+remove_chromosome_prefix <- function(CHR){
+  if (is.numeric(CHR)){
+    return(CHR)
+  } else {
+    renamed <- as.character(CHR)
+    renamed <- gsub('^(chr|CHR)[[:punct:]]*','',renamed)
+    renamed <- as.numeric(renamed)
+    if (all(is.na(renamed))){
+      stop(paste0('Unable to convert chromosome names to numeric. Original names: ',paste(unique(CHR), collapse=', ')))
+    }
+    return(renamed)
+  }
+}
+
 # Read in reference SNP data
 ref<-list()
 ref[['GRCh37']]<-fread(paste0(opt$ref,'.bim'))
@@ -89,6 +104,7 @@ snp_modifyBuild_offline<-function (info_snp, liftOver, chain){
   info_snp
 }
 
+
 # Liftover BP to GRCh38
 ref[['GRCh38']]<-snp_modifyBuild_offline(ref[['GRCh37']], liftOver=opt$liftover, chain=opt$liftover_track)
 
@@ -114,7 +130,9 @@ if(opt$format == 'samp_imp_plink1'){
   if(!is.na(opt$keep)){
       stopifnot(file.exists(opt$keep))
   }
+  target_snp$CHR <- remove_chromosome_prefix(target_snp$CHR)
 }
+
 
 if(opt$format == 'samp_imp_bgen'){
   library(RSQLite)
@@ -124,13 +142,13 @@ if(opt$format == 'samp_imp_bgen'){
   names(target_snp)<-c('CHR','SNP','BP','A1','A2')
   dbDisconnect(connection)
   target_snp<-data.table(target_snp)
-  target_snp$CHR<-as.numeric(target_snp$CHR)
+  target_snp$CHR <- remove_chromosome_prefix(target_snp$CHR)
 }
 
 if(opt$format == 'samp_imp_vcf'){
   target_snp<-fread(cmd=paste0("zcat ",opt$target,".vcf.gz | cut -f 1-5"))
   names(target_snp)<-c('CHR','BP','SNP','A1','A2')
-  target_snp$CHR<-as.numeric(gsub('chr','',target_snp$CHR))
+  target_snp$CHR <- remove_chromosome_prefix(target_snp$CHR)
 }
 
 sink(file = paste(opt$out,'.geno_to_plink.log',sep=''), append = T)
@@ -223,7 +241,7 @@ if(opt$format == 'samp_imp_plink1'){
 
 if(opt$format == 'samp_imp_bgen'){
 
- plink_call <- paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads ',opt$threads,' --out ', opt$out,'_tmp')
+ plink_call <- paste0(opt$plink2,' --bgen ',opt$target,'.bgen ',opt$bgen_ref,' --sample ',gsub('.chr.*','',opt$target),'.sample --import-dosage-certainty 0.9 --extract ', opt$out,'_extract_list_1.txt --make-bed --memory 5000 --threads ',opt$threads,' --out ', opt$out,'_tmp')
 
   if (!is.na(opt$keep)){
     plink_call <- paste0(plink_call,' --keep ',opt$keep)
@@ -246,6 +264,7 @@ if(opt$format == 'samp_imp_vcf'){
 # Now edit bim file to update IDs to reference IDs
 targ_bim<-fread(paste0(opt$out,'_tmp.bim'))
 names(targ_bim)<-c('CHR','SNP','POS','BP','A1','A2')
+targ_bim$CHR <- remove_chromosome_prefix(targ_bim$CHR)
 targ_bim$ID<-paste(targ_bim$CHR, targ_bim$BP, targ_bim$A1, targ_bim$A2, sep=':')
 
 targ_bim_update<-targ_bim
