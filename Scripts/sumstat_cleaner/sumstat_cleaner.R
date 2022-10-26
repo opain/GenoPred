@@ -64,7 +64,27 @@ cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
 
 # Restrict sumstats to optional or required columns
-GWAS<-GWAS[,(names(GWAS) %in% c('SNP','A1','A2','P','OR','BETA','SE','N','FREQ','INFO'))]
+GWAS<-GWAS[,(names(GWAS) %in% c('SNP','A1','A2','P','OR','BETA','Z','SE','N','FREQ','INFO'))]
+
+# If P is missing, but Z or effect and SE is present, calcualte P
+if(all(names(GWAS) != 'P') & any(names(GWAS) == 'BETA') & any(names(GWAS) == 'SE')){
+  GWAS$Z<-GWAS$BETA/GWAS$SE
+  GWAS$P<-2*pnorm(-abs(GWAS$Z))
+}
+
+if(all(names(GWAS) != 'P') & any(names(GWAS) == 'OR') & any(names(GWAS) == 'SE')){
+  GWAS$Z<-log(GWAS$OR)/GWAS$SE
+  GWAS$P<-2*pnorm(-abs(GWAS$Z))
+}
+
+if(all(names(GWAS) != 'P') & any(names(GWAS) == 'Z')){
+    GWAS$P<-2*pnorm(-abs(GWAS$Z))
+}
+
+# If effect isn't present, but Z is, rename Z to BETA
+if(all(names(GWAS) != 'BETA') & all(names(GWAS) != 'OR') & any(names(GWAS) == 'Z')){
+  names(GWAS)[names(GWAS) == 'Z']<-'BETA'
+}
 
 #####
 # Read in ref_bim
@@ -208,6 +228,10 @@ if(sum(names(GWAS) == 'OR') == 1){
 
 if(sum(names(GWAS) == 'BETA') == 1){
   GWAS$BETA<-as.numeric(GWAS$BETA)
+}
+
+if(sum(names(GWAS) == 'Z') == 1){
+  GWAS$Z<-as.numeric(GWAS$Z)
 }
 
 if(sum(names(GWAS) == 'SE') == 1){
