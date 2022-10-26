@@ -200,7 +200,7 @@ rule download_ldpred2_ref:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "mkdir -p resources/data/ldpred2_ref; wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; unzip resources/data/ldpred2_ref/download.zip -d resources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip"
+    "mkdir -p resources/data/ldpred2_ref; wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; unzip resources/data/ldpred2_ref/download.zip -d resources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/download.zip; unzip resources/data/ldpred2_ref/ldref_with_blocks.zip -d resources/data/ldpred2_ref/; mv resources/data/ldpred2_ref/ldref/* resources/data/ldpred2_ref/; rm resources/data/ldpred2_ref/ldref_with_blocks.zip; rm -r resources/data/ldpred2_ref/ldref"
     
 # Download LDAK
 rule download_ldak:
