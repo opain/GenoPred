@@ -64,6 +64,21 @@ if(substr(opt$sumstats,(nchar(opt$sumstats)+1)-3,nchar(opt$sumstats)) == '.gz'){
   GWAS<-data.frame(fread(opt$sumstats))
 }
 
+if ('BP' %in% colnames(GWAS)){
+    GWAS$BP <- NULL # not needed, variants are matched by ID
+}
+
+if ('POS' %in% colnames(GWAS)){
+    GWAS$POS <- NULL # not needed, variants are matched by ID
+}
+
+if (!('P' %in% colnames(GWAS))){
+    sink(file = paste(opt$output,'.log',sep=''), append = T)
+    cat('Error: missing p-value column ("P")\n')
+    sink()
+    stop('Missing p-value column ("P")')
+}
+
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
@@ -129,6 +144,7 @@ if(sum(names(GWAS) == 'CHR') == 1){
 if(sum(names(GWAS) == 'ORIGBP') == 1){
   GWAS$ORIGBP<-NULL
 }
+
 
 ref_bim$IUPAC[ref_bim$A1 == 'A' & ref_bim$A2 =='G' | ref_bim$A1 == 'G' & ref_bim$A2 =='A']<-'R'
 ref_bim$IUPAC[ref_bim$A1 == 'C' & ref_bim$A2 =='T' | ref_bim$A1 == 'T' & ref_bim$A2 =='C']<-'Y'
@@ -221,6 +237,10 @@ if(sum(names(GWAS) == 'SE') == 1){
   GWAS$SE<-as.numeric(GWAS$SE)
 }
 
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+print(head(GWAS))
+sink()
+
 GWAS<-GWAS[complete.cases(GWAS),]
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -248,7 +268,7 @@ if(sum(names(GWAS) == 'INFO') == 1){
 #####
 
 if(sum(names(GWAS) == 'FREQ') == 1){
-  GWAS<-GWAS[GWAS$FREQ >= opt$maf & GWAS$FREQ <= (1-opt$maf),]
+  GWAS<-GWAS[(GWAS$FREQ >= opt$maf) & (GWAS$FREQ <= (1-opt$maf)),]
   
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   cat('After removal of SNPs with reported MAF < ',opt$maf,', ',dim(GWAS)[1],' variants remain.\n', sep='')
@@ -474,6 +494,10 @@ if(file.exists(paste0(opt$output,'.gz'))){
 }
 if(file.exists(paste0(opt$output))){
   system(paste0(paste0('rm ',opt$output)))
+}
+
+if (nrow(GWAS) == 0){
+  stop('all variants were discarded.')
 }
 
 fwrite(GWAS, opt$output, sep='\t')
