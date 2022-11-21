@@ -202,7 +202,7 @@ if(!is.na(opt$pheno_name)){
 	names(scores_scaled)<-gsub('SCORE',opt$pheno_name,names(scores_scaled))
 }
 
-fwrite(scores_scaled, paste0(opt$output,'.profiles'), sep=' ')
+fwrite(scores_scaled, paste0(opt$output,'.profiles'), sep=' ', na='NA', quote=F)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Saved polygenic scores to: ',opt$output,'.profiles.\n',sep='')
