@@ -64,6 +64,10 @@ suppressMessages(library(psych))
 suppressMessages(library(MASS))
 registerDoMC(opt$n_core)
 
+sink(file = paste(opt$out,'.log',sep=''), append = T)
+cat(paste0('detected ',detectCores(),' available cores. Using ',opt$n_core,' (set via "--n_core" )\n'))
+sink()
+
 if (!is.numeric(opt$outcome_pop_prev)){
     opt$outcome_pop_prev <- NA
     sink(file = paste(opt$out,'.log',sep=''), append = F)
