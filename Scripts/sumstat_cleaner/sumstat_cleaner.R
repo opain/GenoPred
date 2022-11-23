@@ -94,6 +94,9 @@ sink()
 #####
 
 GWAS<-GWAS[(GWAS$SNP %in% ref_bim$SNP),]
+if ('BP' %in% colnames(GWAS)){
+    setnames(GWAS, 'BP', 'ORIGBP')    
+}
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('After removal of variants that are not in ref_bim,',dim(GWAS)[1],'variants remain.\n')
