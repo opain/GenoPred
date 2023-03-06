@@ -1,0 +1,835 @@
+---
+title: "Evaluating stratified polygenic scores"
+output: 
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+    number_sections: true
+    toc_float: true
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+p.caption {
+  font-size: 1.5em;
+}
+</style>
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+Here I will evaluate various stratified polygenic scoring approaches. Research questions include:
+
+- Adjust effect sizes before or after stratification. PRSet performs clumping after stratification to increase the variance explained by a stratified PGS. However, this is computationally intensive compared to adjusting GWAS once, and then stratifying. The limitation of adjusting before stratification is the effect within a locus might be randomly assigned to a variant that is not within the gene boundary. I would guess this effect would be minimal and potentially increase the likihood of pulling in genetic effects that are not actually mediated by the gene/pathway.
+
+- How to link variants to genes. Proximity or annotation based. AKA PRSset/MAGMA approach GeRS/TWAS approach.
+
+Initially we will use case control phenotypes and GWAS as we did for the PRS comparison, but looking more into the design used by Judit (Case vs Case) would also be interesting.
+
+- How to select annotations to stratify by. MAGMA GSEA p-value theshold? Elastic net will handle this to some extent, but an initial relaxed threshold is probably sensible. The ideal threshold for inclusion will probably depend on the sample size on the sample size where PGS are being modelled. UKB is big so can probably handl quite  few PGS.
+
+Structure of analysis:
+- Identify enriched and GO annotations using MAMGA for each GWAS
+- Perform PRSet using enriched GO pathways (using sparse pTs)
+- Stratify standard pT+clump PRS (i.e. after clumping)
+- Stratify MegaPRS pseudoval PRS
+- Evaluate in UKB
+
+***
+
+# Gene set enrichment analysis
+
+We have already downloaded a range of gene sets from MSigDB. We are using the same collection used by FUMA, including c2.all.v7.5.1.entrez.gmt, c5.go.bp.v7.5.1.entrez.gmt, c5.go.cc.v7.5.1.entrez.gmt and c5.go.mf.v7.5.1.entrez.gmt.
+
+Given polygenic scores will be restricted to HapMap3 variants, we will also restrict the MAGMA analysis to HapMap3 variants.
+
+```{bash, eval=F, echo=T}
+# Combine the gene sets into a single file
+mkdir -p /users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/
+
+cat /users/k1806347/oliverpainfel/Data/MSigDB/c2.all.v7.5.1.entrez.gmt /users/k1806347/oliverpainfel/Data/MSigDB/c5.go.cc.v7.5.1.entrez.gmt /users/k1806347/oliverpainfel/Data/MSigDB/c5.go.bp.v7.5.1.entrez.gmt /users/k1806347/oliverpainfel/Data/MSigDB/c5.go.mf.v7.5.1.entrez.gmt > /users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/msigdb_sets.gmt
+
+```
+
+***
+
+## Run MAGMA gene-association analysis
+
+We will use some of the reference data used by GenoFuncPipe to avoid downloading it again.
+
+```{bash, eval=F, echo=T}
+
+gwas=$(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 PRCA01 BRCA01)
+
+# Decompress GWAS
+for gwas_i in ${gwas}; do
+
+mkdir -p /users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/gene_assoc/${gwas_i}
+
+gzip -f -d -c /users/k1806347/oliverpainfel/Data/GWAS_sumstats/prs_comparison/cleaned/${gwas_i}.cleaned.gz > /users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/gene_assoc/${gwas_i}/${gwas_i}.cleaned
+
+done
+
+# Run MAGMA
+for gwas_i in ${gwas}; do
+
+sbatch -p cpu --mem 10G -n 1 --wrap="/users/k1806347/oliverpainfel/Software/MyGit/GenoFunc/GenoFuncPipe/resources/software/magma/magma \
+      --bfile /users/k1806347/oliverpainfel/Software/MyGit/GenoFunc/GenoFuncPipe/resources/data/magma_ref/g1000_eur \
+      --pval /users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/gene_assoc/${gwas_i}/${gwas_i}.cleaned use=SNP,P ncol=N \
+      --gene-annot /users/k1806347/oliverpainfel/Software/MyGit/GenoFunc/GenoFuncPipe/resources/data/magma/NCBI37.3.genes.annot \
+      --out /users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/gene_assoc/${gwas_i}/${gwas_i}_gene_assoc"
+      
+done
+
+# Delete decompressed sumstats
+for gwas_i in ${gwas}; do
+
+rm /users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/gene_assoc/${gwas_i}/${gwas_i}.cleaned
+
+done
+
+```
+
+***
+
+## Run MAGMA gene-set enrichment analysis
+
+```{bash, eval=F, echo=T}
+
+gwas=$(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 PRCA01 BRCA01)
+
+# Decompress GWAS
+for gwas_i in ${gwas}; do
+
+mkdir -p /users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/set_assoc/${gwas_i}
+
+sbatch -p cpu --mem 10G -n 1 --wrap="/users/k1806347/oliverpainfel/Software/MyGit/GenoFunc/GenoFuncPipe/resources/software/magma/magma \
+--gene-results /users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/gene_assoc/${gwas_i}/${gwas_i}_gene_assoc.genes.raw \
+--set-annot /users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/msigdb_sets.gmt \
+--out /users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/set_assoc/${gwas_i}/${gwas_i}_set_assoc"
+
+done
+
+```
+
+***
+
+## Subset .gmt files to include only sets that are enriched for each GWAS
+
+```{r, eval=F, echo=T}
+
+gwas<-c('DEPR06','COLL01','HEIG03','BODY04','DIAB05','COAD01','CROH01','SCLE03','RHEU02','PRCA01','BRCA01')
+
+library(data.table)
+
+# To help decide set_pTs, count the number of sets achieving each threshold
+# Use a range of p-value threshold to select sets
+set_pt<-c(0.05, 0.01, 0.001, 0.0001, 0.00001, 0.000001)
+
+gwas_nset<-NULL
+
+for(gwas_i in gwas){
+  set_assoc<-read.table(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/set_assoc/',gwas_i,'/',gwas_i,'_set_assoc.gsa.out'), header=T, stringsAsFactors = F)
+  
+  for(set_pt_i in set_pt){
+    gwas_nset<-rbind(gwas_nset, data.frame(gwas=gwas_i,
+                                           set_pT=set_pt_i,
+                                           n_set=sum(set_assoc$P < set_pt_i)))
+  }
+}
+
+# For simplicity, lets try using four thresholds
+set_pt<-c(0.05, 0.01, 0.001, 0.0001)
+
+# Create subset .gmt containing significant sets for each GWAS
+sets<-readLines('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/msigdb_sets.gmt')
+set_ids<-sapply(strsplit(sets, '\t'),"[[",1)
+
+for(gwas_i in gwas){
+  dir.create(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas_i))
+  
+  set_assoc<-read.table(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/set_assoc/',gwas_i,'/',gwas_i,'_set_assoc.gsa.out'), header=T, stringsAsFactors = F)
+  
+  for(set_pt_i in set_pt){
+    writeLines(sets[set_ids %in% set_assoc$FULL_NAME[set_assoc$P < set_pt_i]], paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas_i,'/sig_set.set_pt_',set_pt_i,'.gmt'))
+
+  }
+}
+
+```
+
+***
+
+# Calculate stratified polygenic scores
+
+Here we will calculate polygenic scores using SNPs linked to genes with enriched sets. We will link variants to genes using the MAGMA annotation file (i.e. proximity based). We will use score files previously create using the pT+clump and MegaPRS pseudoval methods.
+
+***
+
+## Create SNP lists for enriched gene sets
+
+```{r, eval=F, echo=T}
+
+gwas<-c('DEPR06','COLL01','HEIG03','BODY04','DIAB05','COAD01','CROH01','SCLE03','RHEU02','PRCA01','BRCA01')
+
+set_pt<-c(0.05, 0.01, 0.001, 0.0001)
+
+library(data.table)
+
+# Read in MAGMA annot file
+annot<-readLines('/users/k1806347/oliverpainfel/Software/MyGit/GenoFunc/GenoFuncPipe/resources/data/magma/NCBI37.3.genes.annot')[-1:-2]
+annot<-strsplit(annot, '\t')
+annot_ids<-sapply(annot,"[[",1)
+
+# Read in HapMap3 SNP list
+hm3<-fread('/users/k1806347/oliverpainfel/Data/ldsc/w_hm3.snplist')
+
+for(gwas_i in gwas){
+  for(set_pt_i in set_pt[1]){
+    sets<-readLines(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas_i,'/sig_set.set_pt_',set_pt_i,'.gmt'))
+    
+    sets<-strsplit(sets, '\t')
+    
+    dir.create(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas_i,'/snplists'))
+    
+    for(set_i in 1:length(sets)){
+      set_id<-sets[[set_i]][1]
+      genes<-sets[[set_i]][-1:-2]
+      
+      annot_subset<-annot[annot_ids %in% genes]
+      
+      snps<-unique(do.call(c, annot_subset))
+      snps<-snps[grepl('^rs', snps)]
+      snps<-snps[!is.na(snps)]
+      
+      snps<-snps[snps %in% hm3$SNP]
+  
+      write.table(snps, paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas_i,'/snplists/',set_id,'.snplist'), col.names=F, row.names=F, quote=F)
+
+    }
+  }
+}
+
+```
+
+***
+
+## MegaPRS
+
+***
+
+### Stratify MegaPRS weights to each set
+
+```{r, eval=F, echo=T}
+
+gwas<-c('DEPR06','COLL01','HEIG03','BODY04','DIAB05','COAD01','CROH01','SCLE03','RHEU02','PRCA01','BRCA01')
+
+set_pt<-c(0.05, 0.01, 0.001, 0.0001)
+
+library(data.table)
+
+for(gwas_i in gwas){
+  pseudo<-fread(paste0('/users/k1806347/oliverpainfel/Data/1KG/Phase3/Score_files_for_polygenic/LDAK/',gwas_i,'/1KGPhase3.w_hm3.',gwas_i,'.pseudoval.txt'))
+
+  pseudo_mod<-gsub('.*_','',pseudo$V1[pseudo$V2 == max(pseudo$V2)][1])
+  
+  score<-fread(cmd=paste0("zcat /users/k1806347/oliverpainfel/Data/1KG/Phase3/Score_files_for_polygenic/LDAK/",gwas_i,"/1KGPhase3.w_hm3.",gwas_i,".score.gz | cut -d' ' -f 1,2,",as.numeric(pseudo_mod)+2))
+  names(score)<-c('SNP','A1','SCORE')
+  
+  dir.create(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/score_files/',gwas_i,'/MegaPRS/'), recursive=T)
+  
+  for(set_pt_i in set_pt[1]){
+    sets<-readLines(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas_i,'/sig_set.set_pt_',set_pt_i,'.gmt'))
+    
+    sets<-strsplit(sets, '\t')
+    
+      for(set_i in 1:length(sets)){
+        set_id<-sets[[set_i]][1]
+        snplist<-fread(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas_i,'/snplists/',set_id,'.snplist'), header=F)$V1
+        
+        score[[paste0('SCORE_',set_id)]]<-score$SCORE
+        score[[paste0('SCORE_',set_id)]][!(score$SNP %in% snplist)]<-0
+      }
+  }
+  
+  score$SCORE<-NULL
+  
+  fwrite(score, paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/score_files/',gwas_i,'/MegaPRS/1KGPhase3.w_hm3.',gwas_i,'.pseudo.stratified.score.gz'), sep=' ', quote=F, na='NA')
+  
+}
+
+# Process using 1KG reference to get reference mean and scale
+for(gwas_i in gwas){
+  dir.create(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/score_files/',gwas_i,'/MegaPRS/processed'))
+  system(paste0('sbatch -p cpu --mem 20G -n 1 /users/k1806347/oliverpainfel/Software/Rscript.sh /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/Scripts/external_score_processor/external_score_processor_plink2.R --ref_plink_chr /users/k1806347/oliverpainfel/Data/1KG/Phase3/1KGPhase3.w_hm3.chr --score /users/k1806347/oliverpainfel/Analyses/stratified_pgs/score_files/',gwas_i,'/MegaPRS/1KGPhase3.w_hm3.',gwas_i,'.pseudo.stratified.score.gz --plink2 /users/k1806347/oliverpainfel/Software/plink2 --output /users/k1806347/oliverpainfel/Analyses/stratified_pgs/score_files/',gwas_i,'/MegaPRS/processed/1KGPhase3.w_hm3.',gwas_i,'.pseudo.stratified --ref_pop_scale /users/k1806347/oliverpainfel/Data/1KG/Phase3/super_pop_keep.list'))
+}
+
+```
+
+<details><summary>Show code</summary>
+```{bash, echo=T, eval=F}
+
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer)
+gwas=$(echo DEPR06 COLL01 BODY04 HEIG03 DIAB05 COAD01 CROH01 SCLE03 RHEU02 BRCA01 PRCA01)
+
+# Create directory
+mkdir -p /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS
+
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/todo.txt
+for i in $(seq 1 11);do
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+
+if [ ! -f /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/${gwas_i}/UKBB.subset.w_hm3.${gwas_i}.pseudo.stratified.profiles ]; then
+echo ${gwas_i} ${pheno_i} >> /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p cpu
+#SBATCH --mem 40G
+#SBATCH -n 5
+#SBATCH -J strat_pgs
+#SBATCH --exclude erc-hpc-comp001
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/todo.txt)
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/todo.txt)
+
+echo $gwas
+echo $pheno
+
+/users/k1806347/oliverpainfel/Software/Rscript.sh /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R \
+    --target_plink_chr /users/k1806347/oliverpainfel/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+    --target_keep /users/k1806347/oliverpainfel/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.${pheno}.txt \
+    --ref_score /users/k1806347/oliverpainfel/Analyses/stratified_pgs/score_files/${gwas}/MegaPRS/1KGPhase3.w_hm3.${gwas}.pseudo.stratified.score.gz \
+    --ref_scale /users/k1806347/oliverpainfel/Analyses/stratified_pgs/score_files/${gwas}/MegaPRS/processed/1KGPhase3.w_hm3.${gwas}.pseudo.stratified.EUR.scale \
+    --ref_freq_chr /users/k1806347/oliverpainfel/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
+    --plink2 /users/k1806347/oliverpainfel/Software/plink2 \
+    --pheno_name ${gwas} \
+    --n_cores 5 \
+    --output /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/${gwas}/UKBB.subset.w_hm3.${gwas}.pseudo.stratified
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/todo.txt | cut -d' ' -f1)%5 /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/sbatch.sh
+
+```
+
+***
+
+# Evaluate MegaPRS polygenic scores
+
+Do stratified PGS improve prediction of case control status over genome-wide PGS?
+If so, which threshold is best when selecting significant gene-sets?
+
+Do stratified MegaPRS perform better than stratified pT+clump?
+Do stratified pT+clump perform different to PRSet?
+
+***
+
+## Test whether stratified PGS improve over genome-wide PGS
+
+```{r, eval=F, echo=T}
+
+###
+# Create files including pseudovalidated PGS genome-wide, and for gene sets within each significance threshold
+### 
+
+library(data.table)
+
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas<-c('DEPR06','COLL01','BODY04','HEIG03','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+prev=c('0.15','NA','NA','NA','0.05','0.03','0.013','0.00164','0.005','0.125','0.125')
+
+
+set_pt<-c(0.05, 0.01, 0.001, 0.0001)
+
+for(i in 1:length(pheno)){
+    # Read in enrichment results
+    set_assoc<-read.table(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/set_assoc/',gwas[i],'/',gwas[i],'_set_assoc.gsa.out'), header=T, stringsAsFactors = F)
+
+    # Identify pseudovalidated model
+    pseudo<-fread(paste0('/users/k1806347/oliverpainfel/Data/1KG/Phase3/Score_files_for_polygenic/LDAK/',gwas[i],'/1KGPhase3.w_hm3.',gwas[i],'.pseudoval.txt'))
+    
+    # Subset GW profile file to contain the score for this model only
+    profile_header<-fread(cmd=paste0('head -n 3 /users/k1806347/oliverpainfel/Data/UKBB/PRS_for_comparison/1KG_ref/LDAK/',gwas[i],'/UKBB.subset.w_hm3.',gwas[i],'.profiles'))
+    col_extract<-c(1,2,which(names(profile_header) %in% paste0(gwas[i],'_ldak_Model',gsub('.*_','',pseudo$V1[pseudo$V2 == max(pseudo$V2)][1]))))
+    
+    system(paste0("cut -f ",paste(col_extract,collapse=',')," -d' ' /users/k1806347/oliverpainfel/Data/UKBB/PRS_for_comparison/1KG_ref/LDAK/",gwas[i],"/UKBB.subset.w_hm3.",gwas[i],".profiles > /users/k1806347/oliverpainfel/Data/UKBB/PRS_for_comparison/1KG_ref/LDAK/",gwas[i],"/UKBB.subset.w_hm3.",gwas[i],".pseudo.profiles"))
+    
+    profile_header<-fread(cmd=paste0('head -n 3 /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/',gwas[i],'/UKBB.subset.w_hm3.',gwas[i],'.pseudo.stratified.profiles'))
+
+    for(set_pt_i in set_pt){
+      col_extract<-c(1,2,which(gsub(paste0(gwas[i],'_'),'',names(profile_header)) %in% set_assoc$FULL_NAME[set_assoc$P < set_pt_i]))
+      
+      system(paste0("cut -f ",paste(col_extract,collapse=',')," -d' ' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/",gwas[i],"/UKBB.subset.w_hm3.",gwas[i],".pseudo.stratified.profiles > /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/",gwas[i],"/UKBB.subset.w_hm3.",gwas[i],".pseudo.stratified.set_pt_",set_pt_i,".profiles"))
+
+    # Create predictors file specifying the genome-wide and stratified PGS
+    pred_file<-NULL
+  
+    # Genome-wide PGS
+    pred_file<-rbind(pred_file,data.frame( predictors=paste0("/users/k1806347/oliverpainfel/Data/UKBB/PRS_for_comparison/1KG_ref/LDAK/",gwas[i],"/UKBB.subset.w_hm3.",gwas[i],".pseudo.profiles"), 
+  group='genome_wide'))
+    
+    # Stratified PGS
+    pred_file<-rbind(pred_file,data.frame( predictors=paste0("/users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/MegaPRS/",gwas[i],"/UKBB.subset.w_hm3.",gwas[i],".pseudo.stratified.set_pt_",set_pt_i,".profiles"), 
+  group=paste0('set_pt_',set_pt_i)))
+
+    dir.create(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i]), recursive=T)
+    write.table(pred_file, paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.GW_vs_strat.set_pt_',set_pt_i,'.predictor_groups'), row.names=F, col.names=T, quote=F)
+
+    }
+}
+      
+
+for(i in 1:length(pheno)){
+    for(set_pt_i in set_pt){
+
+      system(paste0('sbatch --mem 30G -n 3 -p cpu /users/k1806347/oliverpainfel/Software/Rscript.sh /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R --pheno /users/k1806347/oliverpainfel/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',pheno[i],'.txt --keep /users/k1806347/oliverpainfel/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam --out /users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.GW_vs_strat.set_pt_',set_pt_i,' --n_core 3 --assoc T --outcome_pop_prev ',prev[i],' --predictors /users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.GW_vs_strat.set_pt_',set_pt_i,'.predictor_groups'))
+
+  }
+}
+
+
+```
+
+***
+
+## Plot the results
+
+```{r, eval=F, echo=T}
+
+library(data.table)
+
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas<-c('DEPR06','COLL01','BODY04','HEIG03','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+prev=c('0.15','NA','NA','NA','0.05','0.03','0.013','0.00164','0.005','0.125','0.125')
+set_pt<-c(0.05, 0.01, 0.001, 0.0001)
+
+# Read in the evaluation results
+res_all<-list()
+for(i in 1:length(pheno)){
+  for(set_pt_i in set_pt){
+    tmp<-fread(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.GW_vs_strat.set_pt_',set_pt_i,'.pred_eval.txt'))
+    
+    tmp<-tmp[,c('Model','R','SE','P'), with=F]
+    
+    tmp$Model<-c('GW','Strat','Both')
+    tmp$pheno<-pheno[i]
+    tmp$set_pt<-set_pt_i
+    
+    # Insert number of pathways information
+    gmt<-readLines(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas[i],'/sig_set.set_pt_',set_pt_i,'.gmt'))
+    tmp$n_set<-length(gmt)
+    
+    # Insert the number of SNPs
+    snplist<-NULL
+    for(k in 1:length(gmt)){
+      snplist<-unique(c(snplist, fread(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/',gwas[i],'/snplists/',gsub('\t.*','',gmt[k]),'.snplist'), header=F)$V1))
+    }
+    tmp$n_snp<-length(snplist)
+    
+    res_all[[paste0(pheno[i],'_',set_pt_i)]]<-tmp
+  }
+}
+
+res_all<-do.call(rbind, res_all)
+res_all$Model<-factor(res_all$Model, levels=c('Strat','GW','Both'))
+res_all$set_pt<-factor(res_all$set_pt, levels=unique(res_all$set_pt))
+
+library(ggplot2)
+library(cowplot)
+
+# Compare stratified vs GW vs both
+png(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/strat_vs_gw_both.png'), units='px', width=1750, height=2000, res=300)
+
+  ggplot(res_all, aes(x=pheno, y=R, fill=Model)) +
+                          geom_bar(stat="identity",width = 0.7, position=position_dodge(width = 0.7)) +
+                          geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(width = 0.7)) +
+                          labs(y="Correlation (SE)", x='') +
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y') +
+                          facet_grid(rows = vars(set_pt))
+
+dev.off()
+
+# Compare stratfied across set_pt
+png(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/strat_across_set_pt.png'), units='px', width=2250, height=1200, res=300)
+  ggplot(res_all[res_all$Model == 'Strat',], aes(x=pheno, y=R, fill=set_pt)) +
+                          geom_bar(stat="identity",width = 0.7, position=position_dodge(width = 0.8)) +
+                          geom_errorbar(aes(ymin=R-SE, ymax=R+SE), width=.2, position=position_dodge(width = 0.8)) +
+                          geom_text(aes(x=pheno, y=R, label = paste0(n_set,', ', n_snp)), size=3, angle=90, hjust=-0.7, position=position_dodge(width=0.8)) +
+                          ylim(NA, max(res_all[res_all$Model == 'Strat',]$R+0.25)) +
+                          labs(y="Correlation (SE)", x='') +
+                          theme_half_open() +
+                				  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                          background_grid(major = 'y', minor = 'y')
+dev.off()
+
+```
+
+***
+
+![MegaPRS](/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/strat_vs_gw_both.png)
+![MegaPRS](/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/strat_across_set_pt.png)
+
+***
+
+# Try PRSet
+
+Here we will generate stratified PRS using PRSet. We will run using default procedure, and when clumping in advance to compare whether clumping within each pathway makes a large difference.
+
+***
+
+## Download PRSice
+
+```{bash, eval=F, echo=T}
+# Download the latest version of PRSice
+mkdir /users/k1806347/oliverpainfel/Software/PRSice
+cd /users/k1806347/oliverpainfel/Software/PRSice
+wget https://github.com/choishingwan/PRSice/releases/download/2.3.5/PRSice_linux.zip
+unzip PRSice_linux.zip
+
+```
+
+***
+
+## Create GTF file
+
+```{r, eval=F, echo=T}
+
+# Read in MAGMA location file
+gene_loc<-fread('/users/k1806347/oliverpainfel/Data/Gene_Locations/MAGMA_NCBI37.3/NCBI37.3.gene.loc')
+
+gtf<-data.frame(CHR=gene_loc$V2,
+                Desc='transcribed_unprocessed_pseudogene',
+                Type='gene',
+                START=gene_loc$V3,
+                STOP=gene_loc$V4,
+                Break='.',
+                Strand=gene_loc$V5,
+                Break2='.',
+                Info=paste0("gene_id \"", gene_loc$V1,"\""))
+
+fwrite(gtf, '/users/k1806347/oliverpainfel/Data/Gene_Locations/MAGMA_NCBI37.3/NCBI37.3.gene.loc.gtf', sep='\t', quote=F, col.names=F)
+
+```
+
+***
+
+## Create score files
+
+***
+
+### Clump for each pathway
+
+```{bash, eval=F, echo=T}
+
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer)
+gwas=$(echo DEPR06 COLL01 BODY04 HEIG03 DIAB05 COAD01 CROH01 SCLE03 RHEU02 BRCA01 PRCA01)
+
+# Create directory
+mkdir -p /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset
+
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/todo.txt
+for i in $(seq 1 11);do
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+
+if [ ! -f /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/${gwas_i}/UKBB.stratified.${gwas_i}.target_score.all_score ]; then
+echo ${gwas_i} ${pheno_i} >> /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p cpu
+#SBATCH --mem 40G
+#SBATCH -n 5
+#SBATCH -J strat_pgs
+#SBATCH --exclude erc-hpc-comp001
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/todo.txt)
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/todo.txt)
+
+echo $gwas
+echo $pheno
+
+/users/k1806347/oliverpainfel/Software/Rscript.sh /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_dense/polygenic_score_file_creator_sparse_2_prset.R \
+  --ref_plink_chr /users/k1806347/oliverpainfel/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
+  --ref_keep /users/k1806347/oliverpainfel/Data/1KG/Phase3/keep_files/EUR_samples.keep \
+  --target_plink_chr /users/k1806347/oliverpainfel/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --target_keep /users/k1806347/oliverpainfel/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.${pheno}.txt \
+  --sumstats /users/k1806347/oliverpainfel/Data/GWAS_sumstats/prs_comparison/cleaned/${gwas}.cleaned.gz \
+  --plink /users/k1806347/oliverpainfel/Software/plink1.9.sh \
+  --prsice_path /users/k1806347/oliverpainfel/Software/PRSice \
+  --rscript /users/k1806347/oliverpainfel/Software/Rscript.sh \
+  --gmt /users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/${gwas}/sig_set.set_pt_0.05.gmt \
+  --gtf /users/k1806347/oliverpainfel/Data/Gene_Locations/MAGMA_NCBI37.3/NCBI37.3.gene.loc.gtf \
+  --fastscore T \
+  --threads 5 \
+  --output /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/${gwas}/UKBB.stratified.${gwas} \
+  --ref_pop_scale /users/k1806347/oliverpainfel/Data/1KG/Phase3/super_pop_keep.list
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/todo.txt | cut -d' ' -f1) /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/sbatch.sh
+
+```
+
+***
+
+### Clump genome-wide
+
+```{bash, eval=F, echo=T}
+
+pheno=$(echo Depression Intelligence BMI Height T2D CAD IBD MultiScler RheuArth Breast_Cancer Prostate_Cancer)
+gwas=$(echo DEPR06 COLL01 BODY04 HEIG03 DIAB05 COAD01 CROH01 SCLE03 RHEU02 BRCA01 PRCA01)
+
+# Create directory
+mkdir -p /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump
+
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/todo.txt
+for i in $(seq 1 11);do
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+pheno_i=$(echo ${pheno} | cut -f ${i} -d ' ')
+
+if [ ! -f /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/${gwas_i}/UKBB.stratified.${gwas_i}.target_score.all_score ]; then
+echo ${gwas_i} ${pheno_i} >> /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/todo.txt
+fi
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p cpu
+#SBATCH --mem 40G
+#SBATCH -n 5
+#SBATCH --nodes=1
+#SBATCH -J strat_pgs
+#SBATCH --exclude erc-hpc-comp001
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/todo.txt)
+pheno=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/todo.txt)
+
+echo $gwas
+echo $pheno
+
+/users/k1806347/oliverpainfel/Software/Rscript.sh /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_dense/polygenic_score_file_creator_sparse_2_prset.R \
+  --ref_plink_chr /users/k1806347/oliverpainfel/Data/1KG/Phase3/1KGPhase3.w_hm3.chr \
+  --ref_keep /users/k1806347/oliverpainfel/Data/1KG/Phase3/keep_files/EUR_samples.keep \
+  --target_plink_chr /users/k1806347/oliverpainfel/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr \
+  --target_keep /users/k1806347/oliverpainfel/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.${pheno}.txt \
+  --sumstats /users/k1806347/oliverpainfel/Data/GWAS_sumstats/prs_comparison/cleaned/${gwas}.cleaned.gz \
+  --plink /users/k1806347/oliverpainfel/Software/plink1.9.sh \
+  --prsice_path /users/k1806347/oliverpainfel/Software/PRSice \
+  --rscript /users/k1806347/oliverpainfel/Software/Rscript.sh \
+  --gmt /users/k1806347/oliverpainfel/Analyses/stratified_pgs/sets/${gwas}/sig_set.set_pt_0.05.gmt \
+  --gtf /users/k1806347/oliverpainfel/Data/Gene_Locations/MAGMA_NCBI37.3/NCBI37.3.gene.loc.gtf \
+  --fastscore T \
+  --threads 5 \
+  --pre_clump T \
+  --output /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/${gwas}/UKBB.stratified.${gwas} \
+  --ref_pop_scale /users/k1806347/oliverpainfel/Data/1KG/Phase3/super_pop_keep.list
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/todo.txt | cut -d' ' -f1) /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/sbatch.sh
+sbatch --array 1-1 /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/sbatch.sh
+
+```
+
+***
+
+## Test association with outcome
+
+```{r, eval=F, echo=T}
+
+######
+# Clump per set
+######
+
+library(data.table)
+
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas<-c('DEPR06','COLL01','BODY04','HEIG03','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+prev=c('0.15','NA','NA','NA','0.05','0.03','0.013','0.00164','0.005','0.125','0.125')
+
+
+set_pt<-c(0.05, 0.01, 0.001, 0.0001)
+
+for(i in 1:length(pheno)){
+    # Read in enrichment results
+    set_assoc<-read.table(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/set_assoc/',gwas[i],'/',gwas[i],'_set_assoc.gsa.out'), header=T, stringsAsFactors = F)
+
+    profile_header<-fread(cmd=paste0('head -n 3 /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/',gwas[i],'/UKBB.stratified.',gwas[i],'.target_score.all_score'))
+
+    for(set_pt_i in set_pt){
+      col_extract<-c(1,2,3,which(gsub('_1$','',names(profile_header)) %in% set_assoc$FULL_NAME[set_assoc$P < set_pt_i]))
+      
+      system(paste0("cut -f ",paste(col_extract,collapse=',')," -d' ' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/",gwas[i],"/UKBB.stratified.",gwas[i],".target_score.all_score > /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/",gwas[i],"/UKBB.stratified.",gwas[i],".target_score.all_score.set_pt_",set_pt_i))
+      
+    # Create predictors file
+    pred_file<-NULL
+  
+    pred_file<-rbind(pred_file,data.frame( predictors=paste0("/users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset/",gwas[i],"/UKBB.stratified.",gwas[i],".target_score.all_score.set_pt_",set_pt_i)))
+
+    dir.create(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i]), recursive=T)
+    write.table(pred_file, paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.PRSet.set_pt_',set_pt_i,'.predictor_groups'), row.names=F, col.names=T, quote=F)
+
+    }
+}
+      
+for(i in 1:length(pheno)){
+    for(set_pt_i in set_pt){
+
+      system(paste0('sbatch --mem 30G -n 3 -p cpu /users/k1806347/oliverpainfel/Software/Rscript.sh /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R --pheno /users/k1806347/oliverpainfel/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',pheno[i],'.txt --keep /users/k1806347/oliverpainfel/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam --out /users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.PRSet.set_pt_',set_pt_i,' --n_core 3 --assoc T --outcome_pop_prev ',prev[i],' --predictors /users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.PRSet.set_pt_',set_pt_i,'.predictor_groups'))
+
+  }
+}
+
+
+######
+# Clump genome-wide
+######
+
+library(data.table)
+
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas<-c('DEPR06','COLL01','BODY04','HEIG03','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+prev=c('0.15','NA','NA','NA','0.05','0.03','0.013','0.00164','0.005','0.125','0.125')
+
+
+set_pt<-c(0.05, 0.01, 0.001, 0.0001)
+
+for(i in 1:length(pheno)){
+    # Read in enrichment results
+    set_assoc<-read.table(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/magma/set_assoc/',gwas[i],'/',gwas[i],'_set_assoc.gsa.out'), header=T, stringsAsFactors = F)
+
+    profile_header<-fread(cmd=paste0('head -n 3 /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/',gwas[i],'/UKBB.stratified.',gwas[i],'.target_score.all_score'))
+
+    for(set_pt_i in set_pt){
+      col_extract<-c(1,2,3,which(gsub('_1$','',names(profile_header)) %in% set_assoc$FULL_NAME[set_assoc$P < set_pt_i]))
+      
+      system(paste0("cut -f ",paste(col_extract,collapse=',')," -d' ' /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/",gwas[i],"/UKBB.stratified.",gwas[i],".target_score.all_score > /users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/",gwas[i],"/UKBB.stratified.",gwas[i],".target_score.all_score.set_pt_",set_pt_i))
+      
+    # Create predictors file
+    pred_file<-NULL
+  
+    pred_file<-rbind(pred_file,data.frame( predictors=paste0("/users/k1806347/oliverpainfel/Data/UKBB/stratified_pgs/PRSset_preclump/",gwas[i],"/UKBB.stratified.",gwas[i],".target_score.all_score.set_pt_",set_pt_i)))
+
+    dir.create(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i]), recursive=T)
+    write.table(pred_file, paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.PRSset_preclump.set_pt_',set_pt_i,'.predictor_groups'), row.names=F, col.names=T, quote=F)
+
+    }
+}
+      
+for(i in 1:length(pheno)){
+    for(set_pt_i in set_pt){
+
+      system(paste0('sbatch --mem 30G -n 3 -p cpu /users/k1806347/oliverpainfel/Software/Rscript.sh /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/Scripts/Model_builder/Model_builder_V2_nested.R --pheno /users/k1806347/oliverpainfel/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',pheno[i],'.txt --keep /users/k1806347/oliverpainfel/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam --out /users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.PRSset_preclump.set_pt_',set_pt_i,' --n_core 3 --assoc T --outcome_pop_prev ',prev[i],' --predictors /users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.PRSset_preclump.set_pt_',set_pt_i,'.predictor_groups'))
+
+  }
+}
+
+
+```
+
+***
+
+## Plot the results
+
+Compare the association betwen PRS and outcome when clumping per set and genome-wide.
+Compare the PRSet pt=1 approach to MegaPRS pseudo.
+
+```{r, echo=T, eval=F}
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+pheno<-c('Depression','Intelligence','BMI','Height','T2D','CAD','IBD','MultiScler','RheuArth','Breast_Cancer','Prostate_Cancer')
+gwas<-c('DEPR06','COLL01','BODY04','HEIG03','DIAB05','COAD01','CROH01','SCLE03','RHEU02','BRCA01','PRCA01')
+prev=c('0.15','NA','NA','NA','0.05','0.03','0.013','0.00164','0.005','0.125','0.125')
+
+plot_list<-list()
+plot_list2<-list()
+
+for(i in 1:length(pheno)){
+
+  # Read in assoc results
+  perpath<-fread(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.PRSet.set_pt_0.05.assoc.txt'))
+  genomewide<-fread(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.PRSset_preclump.set_pt_0.05.assoc.txt'))
+
+  both<-merge(perpath, genomewide, by='Predictor')
+  
+  plot_list[[i]]<-ggplot(both, aes(x=Obs_R2.x, y=Obs_R2.y)) +
+                    geom_point() +
+                    geom_abline(intercept = 0, slope = 1) +
+                    labs(x='Per set',y='Genome-wide', title=pheno[i]) +
+                    theme_half_open() +
+                    background_grid(major = 'y', minor = 'y')
+
+
+  megaprs<-fread(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/',pheno[i],'/UKBB.w_hm3.',gwas[i],'.EUR-PRSs.GW_vs_strat.set_pt_0.05.assoc.txt'))
+  megaprs$Predictor[1]<-'Base'
+  megaprs$Predictor<-paste0(gsub(paste0('.*',gwas[i],'_'),'',megaprs$Predictor),'_1')
+  
+  both2<-merge(perpath, megaprs, by='Predictor')
+
+  plot_list2[[i]]<-ggplot(both2, aes(x=Obs_R2.x, y=Obs_R2.y)) +
+                    geom_point() +
+                    geom_abline(intercept = 0, slope = 1) +
+                    labs(x='PRSet - pT = 1',y='MegaPRS - pseudo', title=pheno[i]) +
+                    theme_half_open() +
+                    background_grid(major = 'y', minor = 'y')
+  
+}
+
+bitmap(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/PRSet_clump_set_vs_gw.png'), units='px', width=4000, height=4000, res=300)
+plot_grid(plotlist=plot_list)
+dev.off()
+
+bitmap(paste0('/users/k1806347/oliverpainfel/Analyses/stratified_pgs/assoc/PRSet_clump_set_vs_megaprs.png'), units='px', width=4000, height=4000, res=300)
+plot_grid(plotlist=plot_list2)
+dev.off()
+
+```
+
+
+This shows as we might expect. Clumping per set increases the R2, but MegaPRS - pseudo outperforms PRSset, partly due to using pT=1 for all sets in PRSet.
+
+Can MegaPRS be applied to each set seperately?
+Could select the pT in PRSset based on genome-wide data (similar to pseudo in MegaPRS)?
+Selecting the best pT per set is going to be overfit and degrade model.
+
+I like the MegaPRS approach as it is very pragmatic and can be reference standardised.
+
+
+
+
+
+
+
+
