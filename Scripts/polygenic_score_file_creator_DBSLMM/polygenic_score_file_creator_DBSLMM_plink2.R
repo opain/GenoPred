@@ -81,6 +81,19 @@ sink()
 # Munge_sumstats
 #####
 
+sumstats_header <- fread(opt$sumstats, sep='\t', nrows=2)
+
+if ('OR' %in% colnames(sumstats_header)){
+    if (!('BETA' %in% colnames(sumstats_header))){
+        if (!is.na(opt$ignore)){
+            if (opt$ignore == 'OR'){
+                print('ignoring --ignore OR flag because no BETA column was found in the cleaned summary statistics.')
+                opt$ignore <- NA
+            }
+        }
+    }
+}
+
 # Remo: newer version of munge_sumstats.py gets confused if there are both BETA and OR columns
 if (!is.na(opt$ignore)){
 system(paste0(opt$munge_sumstats,paste0(' --ignore ', opt$ignore),' --chunksize 500000 --sumstats ',opt$sumstats,' --merge-alleles ',opt$ldsc_ref,'/w_hm3.snplist --out ', opt$output_dir,'munged_sumstats_temp'))
