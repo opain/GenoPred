@@ -22,7 +22,8 @@ option_list = list(
               help="Set to T to gzip summary statistics [optional]"),
   make_option("--output", action="store", default='./Output', type='character',
               help="Path for output files [optional]"),
-  make_option('--ss_freq_col', action='store', default='FREQ')
+  make_option('--ss_freq_col', action='store', default='FREQ'),
+  make_option('--ignore_n', action='store', type='logical', default=F, help='do not filter on sample size column')
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -472,6 +473,18 @@ if(sum(names(GWAS) == 'SE') == 0){
 #####
 if(sum(names(GWAS) == 'OR') == 0){
     GWAS$OR<-exp(GWAS$BETA)
+
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('OR column inserted based on BETA.\n', sep='')
+  sink()
+}
+
+
+#####
+# Insert BETA column
+#####
+if(sum(names(GWAS) == 'BETA') == 0){
+  GWAS$BETA<-log(GWAS$OR)
 
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   cat('OR column inserted based on BETA.\n', sep='')
