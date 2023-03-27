@@ -74,8 +74,8 @@ rule download_hm3_snplist:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/hm3_snplist; \
-     wget --no-check-certificate -O resources/data/hm3_snplist/w_hm3.snplist.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2; \
-     bunzip2 resources/data/hm3_snplist/w_hm3.snplist.bz2"
+     wget --no-check-certificate -O resources/data/hm3_snplist/w_hm3.snplist.gz https://zenodo.org/record/7773502/files/w_hm3.snplist.gz?download=1; \
+     gunzip resources/data/hm3_snplist/w_hm3.snplist.gz"
 
 # Download DBSLMM
 # Specifying old commit as developer has deleted dbslmm binary (accidentally?)
