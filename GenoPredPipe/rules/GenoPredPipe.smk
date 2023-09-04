@@ -62,9 +62,9 @@ rule dowload_ldsc_ref:
     "../envs/GenoPredPipe.yaml"
   shell:
     "mkdir -p resources/data/ldsc_ref; \
-     wget --no-check-certificate -O resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 https://data.broadinstitute.org/alkesgroup/LDSCORE/eur_w_ld_chr.tar.bz2; \
-     tar -jxvf resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2 -C resources/data/ldsc_ref/; \
-     rm resources/data/ldsc_ref/eur_w_ld_chr.tar.bz2"
+     wget --no-check-certificate -O resources/data/ldsc_ref/eur_w_ld_chr.tar.gz https://zenodo.org/record/8182036/files/eur_w_ld_chr.tar.gz?download=1; \
+     tar -xvf resources/data/ldsc_ref/eur_w_ld_chr.tar.gz -C resources/data/ldsc_ref/; \
+     rm resources/data/ldsc_ref/eur_w_ld_chr.tar.gz"
 
 # Download hapmap3 snplist
 rule download_hm3_snplist:
