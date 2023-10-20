@@ -113,7 +113,7 @@ if(opt$format == 'samp_imp_bgen'){
   names(target_snp)<-c('CHR','SNP','BP','A1','A2')
   dbDisconnect(connection)
   target_snp<-data.table(target_snp)
-  target_snp$CHR<-as.numeric(target_snp$CHR)
+  target_snp$CHR<-as.numeric(gsub('chr','',target_snp$CHR))
 }
 
 if(opt$format == 'samp_imp_vcf'){
