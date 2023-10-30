@@ -71,6 +71,110 @@ Secondary GWAS: Educational attainment, high IQ, Childhood IQ, ADHD, Depression,
 
 ***
 
+<details><summary>Remove sample overlap between UKB and Savage et al. Intelligence GWAS</summary>
+
+Jeanne Savage has kindly sent me the UKB only sumstats. The UKB data was derived from two versions of the same fluid IQ test, one carried out in-person on a touchscreen device (‘ts’) and one web-based (‘wb’). There are two separate GWAS files, one for each of these variables, which were meta-analyzed alongside the other datasets.
+
+To avoid sample overlap, we will first meta-analyse the two UKB sumstats using syntax provided by Jeanne, and then substract the UKB meta-GWAS sumstats from the Savage et al. sumstats.
+
+```{bash, eval=F, echo=T}
+
+# Run METAL
+/users/k1806347/brc_scratch/Software/metal.sh
+
+SCHEME SAMPLESIZE
+MARKER SNP
+WEIGHT N
+ALLELE EFF_ALL NONEFF_ALL
+EFFECT BETA
+STDERR SE
+PVALUE P
+PROCESS /users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/ts_clean_mac100_info60.sumstats.gz
+PROCESS /users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/wb_clean_mac100_info60.sumstats.gz
+MINWEIGHT 50000
+OUTFILE /users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/ukb_meta .tbl
+
+ANALYZE
+
+QUIT
+
+```
+
+```{r, eval=F, echo=T}
+# Format the METAL output
+library(data.table)
+
+# Read in the sumstats
+ukb_meta<-fread('/users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/ukb_meta1.tbl')
+
+# Format for QC using GenoFunc sumstat_cleaner.R
+names(ukb_meta)<-c('SNP','A1','A2','N','BETA','P','Direction')
+ukb_meta$CHR<-gsub(':.*','',ukb_meta$SNP)
+ukb_meta$ORIGBP<-gsub('.*:','',ukb_meta$SNP)
+ukb_meta$A1<-toupper(ukb_meta$A1)
+ukb_meta$A2<-toupper(ukb_meta$A2)
+ukb_meta$SE<-1
+ukb_meta<-ukb_meta[,c('CHR','ORIGBP','A1','A2','BETA','SE','N','P'),with=F]
+
+fwrite(ukb_meta, '/users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/ukb_meta1_reformat.tbl.gz', quote=F, sep=' ', na='NA')
+
+```
+
+```{bash, eval=F, echo=T}
+# Run GenoFunc sumstat_cleaner on UKB meta-analysis
+cd /users/k1806347/brc_scratch/Software/MyGit/GenoFunc/GenoFuncPipe
+
+/users/k1806347/brc_scratch/Software/Rscript.sh scripts/sumstat_cleaner.R \
+  --sumstats /users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/ukb_meta1_reformat.tbl.gz \
+  --ref_chr resources/data/1kg/1KG.Phase3.EUR.MAF_001.chr \
+  --output /users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/ukb_meta1_cleaned
+
+# Run GenoFunc sumstat_cleaner on full Savage meta-analysis
+cd /users/k1806347/brc_scratch/Software/MyGit/GenoFunc/GenoFuncPipe
+
+/users/k1806347/brc_scratch/Software/Rscript.sh scripts/sumstat_cleaner.R \
+  --sumstats /scratch/groups/ukbiobank/sumstats/cleaned/INTE03.gz \
+  --ref_chr resources/data/1kg/1KG.Phase3.EUR.MAF_001.chr \
+  --output /users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/INTE03_cleaned
+
+```
+
+```{r, eval=F, echo=T}
+# Read in the full and ukb only sumstats
+library(data.table)
+
+full<-fread('/users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/INTE03_cleaned.gz')
+ukb<-fread('/users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/ukb_meta1_cleaned.gz')
+
+# Calculate Z
+full$Z<-full$BETA/full$SE
+ukb$Z<-ukb$BETA/ukb$SE
+
+# Merge together
+both_matched<-merge(full[,c('CHR','BP','SNP','A1','A2','Z','N'), with=F], ukb[,c('SNP','A1','A2','Z','N'), with=F], by=c('SNP','A1','A2'))
+
+# Calculate weight of full and ukb cohorts
+both_matched$W.x<-sqrt(both_matched$N.x)
+both_matched$W.y<-sqrt(both_matched$N.y)
+
+# Perform the meta-analysis in reverse to calculate the sumstats based on all cohorts except UK Biobank (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2922887/)
+# Subtract the UKB Z (Z.y) from the full Z (Z.x)
+both_matched$Z.noukb<-((both_matched$Z.x*both_matched$W.x)-(both_matched$Z.y*both_matched$W.y)) / sqrt((both_matched$W.x^2)-(both_matched$W.y^2))
+
+# Calcualte N of meta-analysis without UKB
+both_matched$N.noukb<-both_matched$N.x - both_matched$N.y
+
+# Subset relevent columns and format for GenoPredPipe QC
+both_matched<-both_matched[,c('CHR','BP','SNP','A1','A2','Z.noukb','N.noukb'), with=T]
+both_matched$P<-2*pnorm(-abs(both_matched$Z.noukb))
+names(both_matched)<-c('CHR','ORIGBP','SNP','A1','A2','BETA','N','P')
+
+fwrite(both_matched, '/users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/INTE03_noUKB.gz', quote=F, sep=' ', na='NA')
+
+```
+
+</details>index
+
 <details><summary>Create table listing GWAS</summary>
 
 ```{r, eval=F, echo=T}
@@ -87,6 +191,9 @@ pheno$PMID[pheno$Code == 'BIPO02']<-'31043756'
 pheno$PMID[pheno$Code == 'AUTI07']<-'30804558'
 pheno$PMID[pheno$Code == 'ADHD05']<-'30478444'
 pheno$PMID[pheno$Code == 'INTE03']<-'29942086'
+
+# Update INTE03 information to account for removal of UKB
+pheno$sample_size_discovery[pheno$Code== 'INTE03']<-74214
 
 names(pheno)<-c('Code','N','Ncase','Ncon','PMID','Phenotype')
 
@@ -136,13 +243,33 @@ kable(res, rownames = FALSE)
 # Create directory
 mkdir -p /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats
 
-# Create file listing GWAS that haven't been processed.
-> /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt
-for gwas in $(echo DEPR06 SCHI02 BIPO02 AUTI07 SMOK04 ADHD05 COLL01 DIAB05 ANXI02 MENA01F OBES01 WAIS01 COAD01 GLYC05 INTE01 INTE03 BODY04);do
-if [ ! -f /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas}.cleaned.gz ]; then
-echo $gwas >> /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt
-fi
-done
+```
+
+```{r, eval=F, echo=T}
+gwas<-c('/scratch/groups/ukbiobank/sumstats/cleaned/DEPR06','/scratch/groups/ukbiobank/sumstats/cleaned/SCHI02','/scratch/groups/ukbiobank/sumstats/cleaned/BIPO02','/scratch/groups/ukbiobank/sumstats/cleaned/AUTI07','/scratch/groups/ukbiobank/sumstats/cleaned/SMOK04','/scratch/groups/ukbiobank/sumstats/cleaned/ADHD05','/scratch/groups/ukbiobank/sumstats/cleaned/COLL01','/scratch/groups/ukbiobank/sumstats/cleaned/DIAB05','/scratch/groups/ukbiobank/sumstats/cleaned/ANXI02','/scratch/groups/ukbiobank/sumstats/cleaned/MENA01F','/scratch/groups/ukbiobank/sumstats/cleaned/OBES01','/scratch/groups/ukbiobank/sumstats/cleaned/WAIS01','/scratch/groups/ukbiobank/sumstats/cleaned/COAD01','/scratch/groups/ukbiobank/sumstats/cleaned/GLYC05','/scratch/groups/ukbiobank/sumstats/cleaned/INTE01','/users/k1806347/brc_scratch/Data/GWAS_sumstats/Savage/INTE03_noUKB','/scratch/groups/ukbiobank/sumstats/cleaned/BODY04')
+
+gwas_id<-gsub('_.*','',gsub('.*/','',gwas))
+
+to_do<-data.frame(file=gwas, id=gwas_id)
+to_do$file<-paste0(to_do$file,'.gz')
+
+# Remove from list if already cleaned
+for(i in to_do$id){
+  if(file.exists(paste0('/users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/',i,'.cleaned.gz'))){
+    to_do$cleaned<-T
+  } else {
+    to_do$cleaned<-F
+  }
+}
+
+to_do<-to_do[to_do$cleaned == F,]
+to_do$cleaned<-NULL
+
+write.table(to_do, '/users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt', col.names=F, row.names=F, quote=F)
+
+```
+
+```{bash, echo=T, eval=F}
 
 # Create shell script to run using sbatch
 cat > /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/sbatch.sh << 'EOF'
@@ -153,14 +280,14 @@ cat > /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/sbatch.sh 
 
 . /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
 
-gwas=$(sed "${SLURM_ARRAY_TASK_ID}q;d" /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt)
-echo ${gwas}
+file=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt)
+id=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/todo.txt)
 
 /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/sumstat_cleaner/sumstat_cleaner.R \
-  --sumstats ${gwas_rep_cleaned}/${gwas}.gz \
+  --sumstats ${file} \
   --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
   --ref_freq_chr ${Geno_1KG_dir}/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr \
-  --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${gwas}.cleaned
+  --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/GWAS_sumstats/${id}.cleaned
 
 EOF
 
@@ -334,10 +461,11 @@ sbatch -p brc,shared --mem 10G /users/k1806347/brc_scratch/Software/Rscript.sh /
   /users/k1806347/brc_scratch/Analyses/local_rg_pgs/lava/results/${target_gwas}/${target_gwas}.${secondary_gwas}
 fi
 done
+
+sleep 9000
 done
 
 # Notes: If the target phenotype GWAS does not have a large sample, then heritability within a locus may not be significant, and therefore rho cannot be accuratly estimated. This means there may also be an advantage to using unweighted secondary PGS as they may contain information from shared loci that cannot be identified using LAVA.
-# I should create an info file with the correct number of cases and controls
 # This takes approximately 2.5 hours per pair of traits
 ```
 
@@ -836,6 +964,7 @@ for(i in 1:length(target_gwas)){
         system(paste0('sbatch -p brc,shared /users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R --target_plink_chr /users/k1806347/brc_scratch/Data/UKBB/Genotype/Harmonised/UKBB.w_hm3.QCd.AllSNP.chr --target_keep /users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',target_pheno_i,'.txt --ref_score /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.',type,'_',target_gwas_i,'.score.gz --ref_scale /users/k1806347/brc_scratch/Analyses/local_rg_pgs/score_files/LDAK/',secondary_gwas_i,'/processed/',secondary_gwas_i,'.pseudo.',type,'_',target_gwas_i,'/1KGPhase3.w_hm3.',secondary_gwas_i,'.pseudo.',type,'_',target_gwas_i,'.EUR.scale --ref_freq_chr /users/k1806347/brc_scratch/Data/1KG/Phase3/freq_files/EUR/1KGPhase3.w_hm3.EUR.chr --plink2 /users/k1806347/brc_scratch/Software/plink2_alpha/plink2 --output /users/k1806347/brc_scratch/Analyses/local_rg_pgs/prs/',secondary_gwas_i,'/',target_gwas_i,'/',type,'/prs'))
       }
     }
+    Sys.sleep(900)
   }
 }
 
@@ -2240,11 +2369,11 @@ cp /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/test_1.png /users/k18
 
 ```{bash, eval=T, echo=F}
 
-cp /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/test_2_assoc.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/local_rg_weighted_pgs/
+cp /users/k1806347/brc_scratch/Analyses/local_rg_pgs/assoc/test_2_assoc_with_unres.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/local_rg_weighted_pgs/
 
 ```
 
-![](Images/local_rg_weighted_pgs/test_2_assoc.png)
+![](Images/local_rg_weighted_pgs/test_2_assoc_with_unres.png)
 
 </details>
 

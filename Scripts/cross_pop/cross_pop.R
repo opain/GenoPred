@@ -141,7 +141,7 @@ Analysing chromsome ',chr,'
       sink()
       
       #####
-      # Calculate POPCORN C-scores (r2 covariance)
+      # Calculate POPCORN C-scores (r2 covariance) and LDcor (r2 correlation)
       #####
       
       sink(file = paste(opt$output,'.log',sep=''), append = T)
