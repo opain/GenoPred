@@ -1,0 +1,313 @@
+---
+title: "Integration tests"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval = FALSE)
+knitr::opts_knit$set(root.dir = '/scratch/prj/oliverpainfel/Software/MyGit/GenoPred/GenoPredPipe')
+
+library(data.table)
+
+```
+
+This document describes the setup and execution of integration tests.
+
+***
+
+# Setup
+
+I have run GenoPredPipe using the test data. Store an .rds file containing some core outputs that can be used for comparison in the future as I make further developments.
+
+```{r}
+
+# Create a function that reads in key outputs
+read_genopredpipe_out <- function(x) {
+  # Create an empty list to populate with reference outputs
+  ref <- list()
+  
+  ###########################
+  # 1KG reference
+  ###########################
+  
+  ref$onekg <- list()
+  
+  ##########
+  # bim
+  ##########
+  
+  ref_bim <- NULL
+  for (i in 1:22) {
+    ref_bim <-
+      rbind(ref_bim, fread(
+        paste0(x, '/resources/data/1kg/1KGPhase3.w_hm3.chr', i, '.bim')
+      ))
+  }
+  
+  ref$onekg$bim <- ref_bim
+  
+  ##########
+  # populations
+  ##########
+  
+  keep_list <-
+    fread(paste0(x, '/resources/data/1kg/super_pop_keep.list'), header = F)
+  
+  ref_keep <- list()
+  for (i in 1:nrow(keep_list)) {
+    ref_keep[[keep_list$V1[i]]] <-
+      fread(paste0(x, '/', keep_list$V2[i]), header = F)
+  }
+  
+  ref$onekg$pops <- ref_keep
+  
+  ##########
+  # ref pcs
+  ##########
+  
+  ref_pcs <- list()
+  for (i in 1:nrow(keep_list)) {
+    ref_pcs[[keep_list$V1[i]]] <-
+      fread(
+          paste0(
+            x,
+            '/resources/data/1kg/pc_score_files/',
+            keep_list$V1[i],
+            '/1KGPhase3.w_hm3.',
+            keep_list$V1[i],
+            '.eigenvec.var'
+          ), nrows=1000
+      )
+  }
+  
+  ref$onekg$pcs <- ref_pcs
+  
+  ###########################
+  # GWAS sumstats
+  ###########################
+  
+  gwas_list <- c('COAD01', 'BODY04')
+  
+  ref$sumstats <- list()
+  for (i in gwas_list) {
+    ref$sumstats[[i]] <-
+      fread(
+        paste0(
+          x,
+          '/resources/data/gwas_sumstat/',
+          i,
+          '/',
+          i,
+          '.cleaned.gz'
+      ), nrows=1000)
+  }
+  
+  ###########################
+  # PGS score files
+  ###########################
+  
+  ref$score <- list()
+  
+  ########
+  # ptclump
+  ########
+  
+  ref$score$ptclump <- list()
+  for (i in gwas_list) {
+    ref$score$ptclump[[i]] <-
+      fread(
+        paste0(
+          x,
+          '/resources/data/1kg/prs_score_files/pt_clump/',
+          i,
+          '/1KGPhase3.w_hm3.',
+          i,
+          '.score.gz'
+        ), nrows=1000
+      )
+  }
+  
+  ########
+  # dbslmm
+  ########
+  
+  ref$score$dbslmm <- list()
+  for (i in gwas_list) {
+    ref$score$dbslmm[[i]] <-
+      fread(
+        paste0(
+          x,
+          '/resources/data/1kg/prs_score_files/dbslmm/',
+          i,
+          '/1KGPhase3.w_hm3.',
+          i,
+          '.score'
+        ), nrows=1000
+      )
+  }
+  
+  ###########################
+  # Target data
+  ###########################
+  
+  targ_names <- c('example_bgen', 'example_plink1', 'example_vcf')
+  ref$target <- list()
+  
+  ##########
+  # bim
+  ##########
+  
+  for (j in targ_names) {
+    ref$target[[j]] <- list()
+    ref$target[[j]]$bim <- NULL
+    for (i in 1:22) {
+      ref$target[[j]]$bim <-
+        rbind(ref$target[[j]]$bim, fread(
+          paste0(
+            x,
+            '/resources/data/target_output/',
+            j,
+            '/',
+            j,
+            '.1KGphase3.hm3.chr',
+            i,
+            '.bim'
+          )
+        ))
+    }
+  }
+  
+  ############
+  # ancestry
+  ############
+  
+  ref$target$example_plink1$ancestry <- list()
+  ref$target$example_plink1$ancestry$eigenvec <- fread(
+    paste0(
+      x,
+      '/resources/data/target_output/example_plink1/ancestry/ancestry_all/example_plink1.Ancestry.eigenvec'
+    )
+  )
+  ref$target$example_plink1$ancestry$probs <- fread(
+    paste0(
+      x,
+      '/resources/data/target_output/example_plink1/ancestry/ancestry_all/example_plink1.Ancestry.model_pred'
+    )
+  )
+  
+  ############
+  # PCs
+  ############
+  
+  ref$target$example_plink1$pcs <- list()
+  for (i in 1:nrow(keep_list)) {
+    ref$target$example_plink1$pcs[[i]] <-
+      fread(
+        paste0(
+          x,
+          '/resources/data/target_output/example_plink1/projected_pc/',
+          keep_list$V1[i],
+          '/example_plink1.',
+          keep_list$V1[i],
+          '.eigenvec'
+        )
+      )
+  }
+  
+  ############
+  # PGS
+  ############
+  
+  ref$target$example_plink1$pgs <- list()
+  
+  ####
+  # ptclump
+  ####
+  
+  ref$target$example_plink1$pgs$ptclump <- list()
+  
+  for (i in keep_list$V1) {
+    ref$target$example_plink1$pgs$ptclump[[i]] <- list()
+    ref$target$example_plink1$pgs$ptclump[[i]]$COAD01 <-
+      fread(
+        paste0(
+          x,
+          '/resources/data/target_output/example_plink1/prs/',
+          i,
+          '/pt_clump/COAD01/example_plink1.COAD01.',
+          i,
+          '.profiles'
+        )
+      )
+  }
+  
+  ####
+  # dbslmm
+  ####
+  
+  for (i in keep_list$V1) {
+    ref$target$example_plink1$pgs$dbslmm[[i]] <- list()
+    ref$target$example_plink1$pgs$dbslmm[[i]]$COAD01 <-
+      fread(
+        paste0(
+          x,
+          '/resources/data/target_output/example_plink1/prs/',
+          i,
+          '/dbslmm/COAD01/example_plink1.COAD01.',
+          i,
+          '.profiles'
+        )
+      )
+  }
+  
+  return(ref)
+}
+
+# Generate reference for comparison
+ref<-read_genopredpipe_out('/scratch/prj/oliverpainfel/Software/MyGit/GenoPred/GenoPredPipe')
+  
+```
+
+**Note.** This does not include all outputs from the pipeline, only those that are generated when running the following command with the test data:
+
+```{bash}
+snakemake --profile slurm --use-conda run_create_reports
+```
+
+***
+
+# Compare new runs to reference
+
+```{r}
+
+# Generate the rds with key output for test data
+targ<-read_genopredpipe_out('/users/k1806347/oliverpainfel/test/GenoPred/GenoPredPipe')
+
+# all.equal tests whether objects are identical and returns details of differences
+all.equal(ref, targ)
+
+```
+
+# Save the ref data for future comparisons
+
+```{r}
+
+saveRDS(ref, '/scratch/prj/oliverpainfel/Software/MyGit/GenoPred/GenoPredPipe/private/test_ref.rds')
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
