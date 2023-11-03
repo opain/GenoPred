@@ -88,13 +88,13 @@ if(is.na(opt$target_keep)){
 system(paste0('rm ',opt$output_dir,'score_file.snplist'))
 
 # Add up the scores across chromosomes
-scores<-fread(paste0('cut -f 1-2 ',opt$output_dir,'profiles.chr22.sscore'))
+scores<-fread(cmd=paste0('cut -f 1-2 ',opt$output_dir,'profiles.chr22.sscore'))
 names(scores)<-c('FID','IID')
 
 nsnp_all<-0
 for(i in 1:22){
 	profile<-data.frame(fread(paste0(opt$output_dir,'profiles.chr',i,'.sscore')))
-	profile<-as.matrix(profile[,5:dim(profile)[2]])
+	profile<-as.matrix(profile[,grepl('^PC', names(profile))])
 	nsnp<-system(paste0('wc -l ',opt$ref_freq_chr,i,'.frq'), intern=T)
 	nsnp<-as.numeric(unlist(strsplit(nsnp,' '))[1])
 	nsnp_all<-nsnp_all+nsnp
