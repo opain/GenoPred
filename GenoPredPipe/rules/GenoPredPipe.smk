@@ -52,8 +52,10 @@ rule download_ldsc:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "git clone https://github.com/bulik/ldsc.git resources/software/ldsc/"
-
+    "git clone https://github.com/bulik/ldsc.git resources/software/ldsc/; \
+     cd resources/software/ldsc/; \
+     git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74"
+     
 # Download LDSC reference data
 rule dowload_ldsc_ref:
   output:
@@ -106,25 +108,7 @@ rule install_lassosum:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "Rscript -e 'remotes::install_github(\"tshmak/lassosum\")'"
-
-# install bigsnpr
-rule install_bigsnpr:
-  output:
-    touch("resources/software/install_bigsnpr.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  shell:
-    "Rscript -e 'remotes::install_github(\"privefl/bigsnpr\")'"
-
-# install ggchicklet
-rule install_ggchicklet:
-  output:
-    touch("resources/software/install_ggchicklet.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  shell:
-    "Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet\")'"
+    "Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'"
 
 # Install Rpackages manually
 rule install_manual_Rpackages:
@@ -170,8 +154,10 @@ rule download_prscs_software:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "git clone https://github.com/getian107/PRScs.git {output}"
-
+    "git clone https://github.com/getian107/PRScs.git {output}; \
+     cd {output}; \
+     git reset --hard 621fdc80daac56c93d9528eb1a1187f7b1fc9afb"
+     
 # Download gctb reference
 rule download_gctb_ref:
   output:
