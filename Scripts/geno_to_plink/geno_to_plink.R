@@ -1,7 +1,7 @@
 #!/usr/bin/Rscript
 # This script was written by Oliver Pain whilst at King's College London University.
 start.time <- Sys.time()
-suppressMessages(library("optparse"))
+library("optparse")
 
 option_list = list(
 make_option("--target", action="store", default=NA, type='character',
@@ -38,7 +38,7 @@ cat('Analysis started at',as.character(start.time),'\n')
 sink()
 
 library(data.table)
-library(bigsnpr)
+library(RSQLite)
 
 ###########
 # Read in reference SNP data
@@ -60,25 +60,36 @@ make_executable <- function(exe) {
   Sys.chmod(exe, mode = (file.info(exe)$mode | "111"))
 }
 
-snp_modifyBuild_offline<-function (info_snp, liftOver, chain, from = "hg18", to = "hg19"){
+snp_modifyBuild_offline <- function(info_snp, liftOver, chain, from = "hg18", to = "hg19") {
   if (!all(c("chr", "pos") %in% names(info_snp)))
-    stop2("Please use proper names for variables in 'info_snp'. Expected %s.",
-          "'chr' and 'pos'")
+    stop("Please use proper names for variables in 'info_snp'. Expected 'chr' and 'pos'.")
+  
   liftOver <- normalizePath(liftOver)
-  make_executable(liftOver)
+  system(paste("chmod", "+x", shQuote(liftOver)))  # This is the equivalent of make_executable in base R.
+  
   BED <- tempfile(fileext = ".BED")
-  info_BED <- with(info_snp, data.frame(paste0("chr", chr),
-                                        pos0 = pos - 1L, pos, id = rows_along(info_snp)))
-  bigreadr::fwrite2(info_BED, BED, col.names = FALSE, sep = " ")
-  lifted<-paste0(opt$out,'.lifted')
-  unmapped<-paste0(opt$out,'.unmapped')
-  system(paste(liftOver, BED, chain, lifted, unmapped))
-  new_pos <- bigreadr::fread2(lifted)
+  info_BED <- data.table(chr = paste0("chr", info_snp$chr),
+                         pos0 = info_snp$pos - 1L, 
+                         pos = info_snp$pos, 
+                         id = .I)  # .I is the data.table way to get row numbers.
+  
+  fwrite(info_BED, BED, col.names = FALSE, sep = "\t")  # Using data.table's fwrite
+  
+  lifted <- tempfile(fileext = '.lifted')
+  unmapped <- tempfile(fileext = '.unmapped')
+  
+  cmd <- paste(shQuote(liftOver), shQuote(BED), shQuote(chain), shQuote(lifted), shQuote(unmapped))
+  system(cmd)
+  
+  new_pos <- fread(lifted)  # Using data.table's fread
+  
   bad <- grep("^#", readLines(unmapped), value = TRUE, invert = TRUE)
-  print(paste0(length(bad)," variants have not been mapped."))
-  info_snp$pos <- NA
-  info_snp$pos[new_pos$V4] <- new_pos$V3
-  info_snp
+  cat(paste0(length(bad), " variants have not been mapped.\n"))
+  
+  info_snp$pos <- NA_integer_
+  info_snp$pos[info_BED$id %in% new_pos$V4] <- new_pos$V3
+  
+  return(info_snp)
 }
 
 # Liftover BP to GRCh38
@@ -106,7 +117,6 @@ if(opt$format == 'samp_imp_plink1'){
 }
 
 if(opt$format == 'samp_imp_bgen'){
-  library(RSQLite)
   connection = dbConnect( RSQLite::SQLite(), paste0(opt$target,'.bgen.bgi'))
   target_snp = dbGetQuery( connection, "SELECT * FROM Variant" )
   target_snp<-target_snp[,c('chromosome','rsid','position','allele1','allele2')]
