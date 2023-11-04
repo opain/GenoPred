@@ -110,13 +110,6 @@ rule install_lassosum:
   shell:
     "Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'"
 
-# Install Rpackages manually
-rule install_manual_Rpackages:
-  input:
-    rules.install_ggchicklet.output,
-    rules.install_bigsnpr.output,
-    rules.install_lassosum.output
-
 # Download liftover
 rule install_liftover:
   output:
@@ -507,7 +500,6 @@ rule prs_scoring_ldpred2:
     rules.prep_1kg.output,
     rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    rules.install_bigsnpr.output,
     rules.download_ldpred2_ref.output
   output:
     "resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
@@ -719,8 +711,7 @@ rule format_target:
     rules.prep_1kg.output,
     rules.download_hm3_snplist.output,
     rules.install_liftover.output,
-    rules.download_liftover_track.output,
-    rules.install_bigsnpr.output
+    rules.download_liftover_track.output
   output:
     touch("resources/data/target_checks/{name}/format_target_{chr}.done")
   conda:
@@ -1409,7 +1400,6 @@ rule run_target_prs_all:
 # Create individual level report for an individuals genotype dataset
 rule create_individual_report:
   input:
-    rules.install_ggchicklet.output,
     "resources/data/target_checks/{name}/run_target_population_all_pop.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
@@ -1434,7 +1424,6 @@ rule run_create_individual_report:
 # Create individual level reports for all individuals in a sample
 rule create_individual_report_for_sample:
   input:
-    rules.install_ggchicklet.output,
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
@@ -1468,7 +1457,6 @@ rule run_create_individual_report_for_sample_all_indiv:
 
 rule create_sample_report:
   input:
-    rules.install_ggchicklet.output,
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
