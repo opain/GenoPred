@@ -198,3 +198,11 @@ rule target_super_population_outlier_detection:
       --plink2 plink2 \
       --output {params.output}/{wildcards.name}/ancestry/outlier_detection/{wildcards.name}.outlier_detection"
       
+from pathlib import Path
+
+def ancestry_munge(x):
+    checkpoint_output = checkpoints.ancestry_reporter.get(name=x).output[0]
+    checkpoint_output = target_list_df.loc[target_list_df['name'] == x, 'output'].iloc[0] + "/" + x + "/ancestry/ancestry_report.txt"
+    ancestry_report_df = pd.read_table(checkpoint_output, sep=' ')
+    return ancestry_report_df['population'].tolist()
+    

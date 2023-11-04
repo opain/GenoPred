@@ -186,9 +186,9 @@ for(pop in keep_list$pop){
       ref_merge_list<-paste0(opt$target_plink_chr,1:22)
       write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
       
-      system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+      system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' biallelic-var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     } else {
-      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1 --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1 --pca ',opt$n_pcs,' biallelic-var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     }
   } else {
     if(is.na(opt$target_plink)){
@@ -196,9 +196,9 @@ for(pop in keep_list$pop){
       ref_merge_list<-paste0(opt$target_plink_chr,1:22)
       write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
       
-      system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --fam ',opt$target_fam,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+      system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --fam ',opt$target_fam,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1  --pca ',opt$n_pcs,' biallelic-var-wts --extract ',opt$output_dir,'target.QC.prune.in --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     } else {
-      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1 --pca ',opt$n_pcs,' var-wts --extract ',opt$output_dir,'target.QC.prune.in --chr 1-22 --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
+      system(paste0(opt$plink,' --bfile ',opt$target_plink,' --fam ',opt$target_fam,' --keep ',opt$output_dir,pop,'_subset.keep --threads 1 --pca ',opt$n_pcs,' biallelic-var-wts --extract ',opt$output_dir,'target.QC.prune.in --chr 1-22 --out ',opt$output_dir,'target.QC --memory ',floor(opt$memory*0.7)))
     }
   }
   
