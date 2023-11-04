@@ -101,6 +101,15 @@ rule download_ld_blocks:
   shell:
     "git clone https://bitbucket.org/nygcresearch/ldetect-data.git {output}"
 
+# install ggchicklet
+rule install_ggchicklet:
+  output:
+  touch("resources/software/install_ggchicklet.done")
+conda:
+  "../envs/GenoPredPipe.yaml"
+shell:
+  "Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\")'"
+
 # install lassosum
 rule install_lassosum:
   output:
@@ -1405,7 +1414,8 @@ rule create_individual_report:
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.run_pseudovalidate_prs.input,
-    rules.download_1kg_pop_codes.output
+    rules.download_1kg_pop_codes.output,
+    rules.install_ggchicklet.output
   output:
     touch('resources/data/target_checks/{name}/create_individual_report.done') 
   conda:
@@ -1429,7 +1439,8 @@ rule create_individual_report_for_sample:
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.run_pseudovalidate_prs.input,
-    rules.download_1kg_pop_codes.output
+    rules.download_1kg_pop_codes.output,
+    rules.install_ggchicklet.output
   output:
     touch('resources/data/target_checks/{name}/create_individual_report_for_sample_{id}.done') 
   conda:
