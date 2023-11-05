@@ -24,7 +24,8 @@ rule format_impute_23andme_target:
   input:
     config['target_list'],
     rules.download_impute2_data.output,
-    rules.download_qctool2.output
+    rules.download_qctool2.output,
+    "../Scripts/23andMe_imputer/23andMe_imputer.R"
   output:
     touch("resources/data/target_checks/{name}/format_impute_23andme_target.done")
   conda:
@@ -59,7 +60,8 @@ rule format_target:
     config['target_list'],
     rules.prep_1kg.output,
     rules.install_liftover.output,
-    rules.download_liftover_track.output
+    rules.download_liftover_track.output,
+    "../Scripts/geno_to_plink/geno_to_plink.R"
   output:
     touch("resources/data/target_checks/{name}/format_target_{chr}.done")
   conda:
@@ -95,7 +97,8 @@ rule run_format_target_2:
 rule harmonise_target_with_ref:
   input:
     rules.prep_1kg.output,
-    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/{name}/format_target.done"))
+    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/{name}/format_target.done")),
+    "../Scripts/hm3_harmoniser/hm3_harmoniser.R"
   output:
     touch("resources/data/target_checks/{name}/harmonise_target_with_ref.done")
   conda:
@@ -132,7 +135,8 @@ rule delete_temp_target_samp_files:
 rule target_super_population:
   input:
     "resources/data/target_checks/{name}/harmonise_target_with_ref.done",
-    lambda w: "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_files.done"
+    lambda w: "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_files.done",
+    "../Scripts/Ancestry_identifier/Ancestry_identifier.R"
   output:
     touch("resources/data/target_checks/{name}/target_super_population.done")
   conda:
@@ -157,7 +161,8 @@ rule run_target_super_population:
 # Create a file listing target samples and super population assignments
 checkpoint ancestry_reporter:
   input:
-    "resources/data/target_checks/{name}/target_super_population.done"
+    "resources/data/target_checks/{name}/target_super_population.done",
+    "scripts/ancestry_reporter.R"
   output:
     touch("resources/data/target_checks/{name}/ancestry_reporter.done")
   conda:
@@ -178,7 +183,8 @@ rule target_super_population_outlier_detection:
   resources: 
     mem_mb=15000
   input:
-    "resources/data/target_checks/{name}/ancestry_reporter.done"
+    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "../Scripts/Population_outlier/Population_outlier.R"
   output:
     touch('resources/data/target_checks/{name}/target_super_population_outlier_detection.done')
   conda:
@@ -197,7 +203,8 @@ rule target_super_population_outlier_detection:
       --plink plink \
       --plink2 plink2 \
       --output {params.output}/{wildcards.name}/ancestry/outlier_detection/{wildcards.name}.outlier_detection"
-      
+
+# Create a function summarising which populations are present in target      
 from pathlib import Path
 
 def ancestry_munge(x):

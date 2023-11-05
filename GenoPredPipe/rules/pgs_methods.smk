@@ -1,7 +1,8 @@
 # Create PC score files specific to each super population
 rule super_pop_pc_scoring:
   input:
-    ref=rules.prep_1kg.output
+    rules.prep_1kg.output,
+    "../Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R"
   output:
     "resources/data/1kg/pc_score_files/{population}/1KGPhase3.w_hm3.{population}.scale"
   conda:
@@ -31,7 +32,8 @@ gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
 rule sumstat_prep:
   input:
     config['gwas_list'],
-    rules.prep_1kg.output
+    rules.prep_1kg.output,
+    "../Scripts/sumstat_cleaner/sumstat_cleaner.R"
   output:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz"
   conda:
@@ -55,8 +57,8 @@ rule run_sumstat_prep:
 
 rule prs_scoring_pt_clump:
   input:
-    rules.prep_1kg.output,
-    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz"
+    "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
+    "../Scripts/polygenic_score_file_creator/polygenic_score_file_creator_plink2.R"
   output:
     "resources/data/1kg/prs_score_files/pt_clump/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
@@ -82,13 +84,13 @@ rule run_prs_scoring_pt_clump:
 
 rule prs_scoring_dbslmm:
   input:
-    rules.prep_1kg.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_ldsc.output,
     rules.dowload_ldsc_ref.output,
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output,
-    rules.download_plink.output
+    rules.download_plink.output,
+    "../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM_plink2.R"
   output:
     "resources/data/1kg/prs_score_files/dbslmm/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
@@ -128,11 +130,11 @@ rule prs_scoring_prscs:
     cpus=10,
     time_min=800
   input:
-    rules.prep_1kg.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
     rules.download_prscs_ref_1kg_eur.output,
-    rules.download_prscs_software.output
+    rules.download_prscs_software.output,
+    "../Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs_plink2.R"
   output:
     "resources/data/1kg/prs_score_files/prscs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
@@ -166,12 +168,12 @@ rule prs_scoring_sbayesr:
     mem_mb=80000,
     cpus=10
   input:
-    rules.prep_1kg.output,
     rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
     rules.download_gctb_ref.output,
-    rules.download_gctb_software.output
+    rules.download_gctb_software.output,
+    "../Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR_plink2.R"
   output:
     "resources/data/1kg/prs_score_files/sbayesr/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
@@ -198,11 +200,11 @@ rule run_prs_scoring_sbayesr:
 
 rule prs_scoring_lassosum:
   input:
-    rules.prep_1kg.output,
     rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_plink.output,
-    rules.install_lassosum.output
+    rules.install_lassosum.output,
+    "../Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum_plink2.R"
   output:
     "resources/data/1kg/prs_score_files/lassosum/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
@@ -231,10 +233,10 @@ rule prs_scoring_ldpred2:
     cpus=10,
     time_min=800
   input:
-    rules.prep_1kg.output,
     rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    rules.download_ldpred2_ref.output
+    rules.download_ldpred2_ref.output,
+    "../Scripts/polygenic_score_file_creator_LDPred2/polygenic_score_file_creator_LDPred2_LDPredRef_plink2.R"
   output:
     "resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
@@ -264,13 +266,13 @@ rule prs_scoring_megaprs:
     cpus=5,
     time_min=800
   input:
-    rules.prep_1kg.output,
     rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.download_ldak.output,
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output,
-    rules.download_ldak_highld.output
+    rules.download_ldak_highld.output,
+    "../Scripts/ldak_mega_prs/ldak_mega_prs.R"
   output:
     "resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   conda:
@@ -312,6 +314,7 @@ rule prs_scoring_external:
     config['score_list'],
     rules.prep_1kg.output,
     lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
+    "../Scripts/external_score_processor/external_score_processor_plink2.R"
   output:
     "resources/data/1kg/prs_score_files/external/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
   params:
@@ -336,9 +339,9 @@ rule run_prs_scoring_external:
 
 rule pseudovalidate_prs:
   input:
-    rules.merge_1kg_GW.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    rules.install_lassosum.output
+    rules.install_lassosum.output,
+    "../Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R"
   output:
     "resources/data/1kg/prs_pseudoval/{gwas}/lassosum_pseudo_{gwas}.pseudovalidate.png"
   conda:

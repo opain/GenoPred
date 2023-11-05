@@ -9,13 +9,13 @@
 # Create individual level report for an individuals genotype dataset
 rule create_individual_report:
   input:
-    "resources/data/target_checks/{name}/run_target_population_all_pop.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.run_pseudovalidate_prs.input,
     rules.download_1kg_pop_codes.output,
-    rules.install_ggchicklet.output
+    rules.install_ggchicklet.output,
+    "scripts/indiv_report_creator.Rmd"
   output:
     touch('resources/data/target_checks/{name}/create_individual_report.done') 
   conda:
@@ -34,13 +34,13 @@ rule run_create_individual_report:
 # Create individual level reports for all individuals in a sample
 rule create_individual_report_for_sample:
   input:
-    "resources/data/target_checks/{name}/ancestry_reporter.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.run_pseudovalidate_prs.input,
     rules.download_1kg_pop_codes.output,
-    rules.install_ggchicklet.output
+    rules.install_ggchicklet.output,
+    "scripts/indiv_report_creator_for_sample.Rmd"
   output:
     touch('resources/data/target_checks/{name}/create_individual_report_for_sample_{id}.done') 
   conda:
@@ -68,11 +68,11 @@ rule run_create_individual_report_for_sample_all_indiv:
 
 rule create_sample_report:
   input:
-    "resources/data/target_checks/{name}/ancestry_reporter.done",
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
-    rules.download_1kg_pop_codes.output
+    rules.download_1kg_pop_codes.output,
+    "scripts/samp_report_creator.Rmd"
   output:
     touch('resources/data/target_checks/{name}/create_sample_report.done')
   conda:
@@ -110,7 +110,8 @@ def report_output_munge(x):
 rule create_individual_ancestry_report:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    rules.download_1kg_pop_codes.output
+    rules.download_1kg_pop_codes.output,
+    "scripts/indiv_ancestry_report_creator.Rmd"
   output:
     touch('resources/data/target_checks/{name}/indiv_ancestry_report.done') 
   conda:
@@ -138,7 +139,8 @@ def id_munge(x):
 rule create_individual_ancestry_report_for_sample:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    rules.download_1kg_pop_codes.output
+    rules.download_1kg_pop_codes.output,
+    "scripts/indiv_ancestry_report_creator_for_sample.Rmd"
   output:
     touch('resources/data/target_checks/{name}/create_individual_ancestry_report_for_sample_{id}.done') 
   conda:
@@ -167,7 +169,8 @@ rule run_create_individual_ancestry_report_for_sample_all_indiv:
 rule create_sample_ancestry_report:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    rules.download_1kg_pop_codes.output
+    rules.download_1kg_pop_codes.output,
+    "scripts/samp_ancestry_report_creator.Rmd"
   output:
     touch('resources/data/target_checks/{name}/samp_ancestry_report.done')
   conda:
