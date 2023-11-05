@@ -5,7 +5,8 @@
 rule target_pc:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    rules.run_super_pop_pc_scoring.input
+    rules.run_super_pop_pc_scoring.input,
+    "../Scripts/scaled_ancestry_scorer/scaled_ancestry_scorer.R"
   output:
     touch("resources/data/target_checks/{name}/target_pc_{population}.done")
   conda:
@@ -45,7 +46,8 @@ rule run_target_pc_all:
 rule target_prs_pt_clump:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    "resources/data/1kg/prs_score_files/pt_clump/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+    "resources/data/1kg/prs_score_files/pt_clump/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale",
+    "../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R"
   output:
     touch("resources/data/target_checks/{name}/target_prs_pt_clump_{population}_{gwas}.done")
   conda:
@@ -89,7 +91,8 @@ rule run_target_prs_pt_clump_all_name:
 rule target_prs_dbslmm:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    "resources/data/1kg/prs_score_files/dbslmm/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+    "resources/data/1kg/prs_score_files/dbslmm/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale",
+    "../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R"
   output:
     touch("resources/data/target_checks/{name}/target_prs_dbslmm_{population}_{gwas}.done")
   conda:
@@ -133,7 +136,8 @@ rule run_target_prs_dbslmm_all_name:
 rule target_prs_prscs:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    "resources/data/1kg/prs_score_files/prscs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+    "resources/data/1kg/prs_score_files/prscs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale",
+    "../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R"
   output:
     touch("resources/data/target_checks/{name}/target_prs_prscs_{population}_{gwas}.done")
   conda:
@@ -179,7 +183,8 @@ rule target_prs_lassosum:
     mem_mb=30000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    "resources/data/1kg/prs_score_files/lassosum/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+    "resources/data/1kg/prs_score_files/lassosum/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale",
+    "../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R"
   output:
     touch("resources/data/target_checks/{name}/target_prs_lassosum_{population}_{gwas}.done")
   conda:
@@ -223,7 +228,8 @@ rule run_target_prs_lassosum_all_name:
 rule target_prs_sbayesr:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    "resources/data/1kg/prs_score_files/sbayesr/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+    "resources/data/1kg/prs_score_files/sbayesr/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale",
+    "../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R"
   output:
     touch("resources/data/target_checks/{name}/target_prs_sbayesr_{population}_{gwas}.done")
   conda:
@@ -269,7 +275,8 @@ rule target_prs_ldpred2:
     mem_mb=30000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    "resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+    "resources/data/1kg/prs_score_files/ldpred2/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale",
+    "../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R"
   output:
     touch("resources/data/target_checks/{name}/target_prs_ldpred2_{population}_{gwas}.done")
   conda:
@@ -315,7 +322,8 @@ rule target_prs_megaprs:
     mem_mb=30000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    "resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+    "resources/data/1kg/prs_score_files/megaprs/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale",
+    "../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R"
   output:
     touch("resources/data/target_checks/{name}/target_prs_megaprs_{population}_{gwas}.done")
   conda:
@@ -362,7 +370,8 @@ rule target_prs_external:
   input:
     lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
     "resources/data/target_checks/{name}/ancestry_reporter.done",
-    "resources/data/1kg/prs_score_files/external/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale"
+    "resources/data/1kg/prs_score_files/external/{gwas}/1KGPhase3.w_hm3.{gwas}.EUR.scale",
+    "../Scripts/Scaled_polygenic_scorer/Scaled_polygenic_scorer_plink2.R"
   output:
     touch("resources/data/target_checks/{name}/target_prs_external_{population}_{gwas}.done")
   conda:

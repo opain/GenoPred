@@ -200,6 +200,8 @@ rule download_1kg_pop_codes:
      
 # install ggchicklet
 rule install_ggchicklet:
+  input:
+    "envs/GenoPredPipe.yaml"
   output:
     touch("resources/software/install_ggchicklet.done")
   conda:
@@ -209,6 +211,8 @@ rule install_ggchicklet:
 
 # install lassosum
 rule install_lassosum:
+  input:
+    "envs/GenoPredPipe.yaml"
   output:
     touch("resources/software/install_lassosum.done")
   conda:
