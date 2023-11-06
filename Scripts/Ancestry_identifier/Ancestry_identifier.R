@@ -561,8 +561,6 @@ sink()
 
 # Read in population data
 pop_data<-data.frame(fread(opt$pop_data))
-names(pop_data)[1]<-'IID'
-pop_data$FID<-pop_data$IID
 
 # Read in reference sample PCs
 ref_PCs<-data.frame(fread(paste0(opt$output,'.eigenvec')))
