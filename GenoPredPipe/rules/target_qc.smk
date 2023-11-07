@@ -58,9 +58,7 @@ rule run_format_impute_23andme_target:
 rule format_target:
   input:
     config['target_list'],
-    rules.prep_1kg.output,
-    rules.install_liftover.output,
-    rules.download_liftover_track.output,
+    rules.get_dependencies.output,
     "../Scripts/geno_to_plink/geno_to_plink.R"
   output:
     touch("resources/data/target_checks/{name}/format_target_{chr}.done")
@@ -74,7 +72,7 @@ rule format_target:
     "Rscript ../Scripts/geno_to_plink/geno_to_plink.R \
       --target {params.path}.chr{wildcards.chr} \
       --format {params.type} \
-      --ref resources/data/1kg/1KGPhase3.w_hm3.chr{wildcards.chr} \
+      --ref resources/data/ref/ref.chr{wildcards.chr} \
       --plink2 plink2 \
       --liftover resources/software/liftover/liftover \
       --liftover_track resources/data/liftover/hg19ToHg38.over.chain.gz \
@@ -96,7 +94,7 @@ rule run_format_target_2:
 
 rule harmonise_target_with_ref:
   input:
-    rules.prep_1kg.output,
+    rules.get_dependencies.output,
     lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/{name}/format_target.done")),
     "../Scripts/hm3_harmoniser/hm3_harmoniser.R"
   output:
@@ -108,9 +106,9 @@ rule harmonise_target_with_ref:
   shell:
     "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R \
       --target {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr \
-      --ref resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --ref resources/data/ref/ref.chr \
       --plink plink \
-      --out {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr"
+      --out {params.output}/{wildcards.name}/{wildcards.name}.ref.chr"
 
 rule run_harmonise_target_with_ref:
   input: expand("resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'])
@@ -145,15 +143,15 @@ rule target_super_population:
     output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
-      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
-      --ref_plink_chr resources/data/1kg/1KGPhase3.w_hm3.chr \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.ref.chr \
+      --ref_plink_chr resources/data/ref/ref.chr \
       --n_pcs 6 \
       --plink plink \
       --plink2 plink2 \
       --output {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry \
-      --ref_pop_scale resources/data/1kg/super_pop_keep.list \
-      --pop_data resources/data/1kg/ref_pop_dat.txt \
-      --prob_thresh 0.5"
+      --ref_pop_scale resources/data/ref/ref.keep.list \
+      --pop_data resources/data/ref/ref.pop.txt \
+      --prob_thresh 0.95"
 
 rule run_target_super_population:
   input: expand("resources/data/target_checks/{name}/target_super_population.done", name=target_list_df['name'])
@@ -193,7 +191,7 @@ rule target_super_population_outlier_detection:
     output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "ls {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.*.keep > {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.keep_list; Rscript ../Scripts/Population_outlier/Population_outlier.R \
-      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.1KGphase3.hm3.chr \
+      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.ref.chr \
       --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.keep_list \
       --n_pcs 10 \
       --maf 0.05 \
