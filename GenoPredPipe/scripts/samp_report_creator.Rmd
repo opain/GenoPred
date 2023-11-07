@@ -42,13 +42,13 @@ ID: `r gsub('_',' ',params$name)`
 
 ```{R, eval=T, echo=F}
 
-harmoniser_log<-readLines(paste0(params$output,'/',params$name,'/',params$name,'.1KGphase3.hm3.chr.hm3_harmoniser.log'))
+harmoniser_log<-readLines(paste0(params$output,'/',params$name,'/',params$name,'.ref.chr.hm3_harmoniser.log'))
 
-fam<-fread(paste0(params$output,'/',params$name,'/',params$name,'.1KGphase3.hm3.chr22.fam'))
+fam<-fread(paste0(params$output,'/',params$name,'/',params$name,'.ref.chr22.fam'))
 
 ref_bim<-NULL
 for(i in 1:22){
-  ref_bim<-rbind(ref_bim, fread(paste0('resources/data/1kg/1KGPhase3.w_hm3.chr',i,'.bim')))
+  ref_bim<-rbind(ref_bim, fread(paste0('resources/data/ref/ref.chr',i,'.bim')))
 }
 nvar_in_ref<-nrow(ref_bim)
 
@@ -64,24 +64,16 @@ This sample contains `r nrow(fam)` individuals. The sample had undergone genotyp
 
 # Ancestry
 
-## Super Population Classification
+## Population Classification
 
 ```{R, eval=T, echo=F, message=F, warning=F}
-# Read in 1KG population codes
-pop_codes<-fread('resources/data/1kg/1kg_pop_codes.tsv')
-pop_codes<-pop_codes[,1:3]
-names(pop_codes)<-c('pop','code','super_code')
-pop_codes<-pop_codes[pop_codes$code != '',]
-
-super_pop_codes<-fread('resources/data/1kg/1kg_super_pop_codes.tsv')
-names(super_pop_codes)<-c('pop','code')
 
 model_pred<-fread(paste0(params$output,'/',params$name,'/ancestry/ancestry_all/',params$name,'.Ancestry.model_pred'))
 probs_melt<-melt(model_pred[,-1:-2])
 
 model_pred$max_prob<-apply(model_pred[,-1:-2], 1, max)
-n_hard_call<-sum(model_pred$max_prob > 0.5)
-model_pred<-model_pred[model_pred$max_prob > 0.5,]
+n_hard_call<-sum(model_pred$max_prob > 0.95)
+model_pred<-model_pred[model_pred$max_prob > 0.95,]
 model_pred$max_prob<-NULL
 
 model_pred_hard<-NULL
@@ -91,13 +83,12 @@ for(i in names(model_pred[,-1:-2])){
 }
 
 hard_call_table<-data.frame(melt(table(model_pred_hard$Population)))
-hard_call_table<-merge(hard_call_table, super_pop_codes, by.x='Var1',by.y='code')
-hard_call_table<-hard_call_table[,c('pop','value')]
-names(hard_call_table)<-c('Super Population', 'N')
+hard_call_table<-hard_call_table[,c('Var1','value')]
+names(hard_call_table)<-c('Population', 'N')
 
 ```
 
-Of the `r nrow(fam)` individuals in the sample, the ancestry model classified `r n_hard_call` individuals to a super population with a probability >50%. The number of individuals assigned to each super population were:
+Of the `r nrow(fam)` individuals in the sample, the ancestry model classified `r n_hard_call` individuals to a population with a probability >95%. The number of individuals assigned to each population were:
 
 ```{r, eval=T, echo=F}
 kable(hard_call_table, align = "c") %>%
@@ -106,11 +97,11 @@ kable(hard_call_table, align = "c") %>%
 
 ***
 
-```{R, eval=T, echo=F, message=F, warning=F, fig.cap="Distribution of Super Population Probabilities", fig.dim = c(8, 4)}
+```{R, eval=T, echo=F, message=F, warning=F, fig.cap="Distribution of Population Probabilities", fig.dim = c(8, 4)}
 
 ggplot(probs_melt, aes(x=value, fill=variable)) + 
   geom_histogram(alpha=0.5) +
-  labs(x='Probability', y='N', fill='Super Population') +
+  labs(x='Probability', y='N', fill='Population') +
   xlim(c(-0.05,1.05)) +
   theme_minimal_hgrid()
 
@@ -121,12 +112,7 @@ ggplot(probs_melt, aes(x=value, fill=variable)) +
 <details><summary>Show principal component plots</summary>
 
 ```{r, results='asis', echo=F}
-cat(paste0("![Principal Component Scores Compared to Reference Super Populations](",normalizePath(params$output, mustWork = FALSE),'/',params$name,'/ancestry/ancestry_all/', params$name,".Ancestry.PCs_plot_super_pop.png)"))
-```
-
-```{r, eval=T, echo=F}
-kable(super_pop_codes, align = "c") %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))
+cat(paste0("![Principal Component Scores Compared to Reference Populations](",normalizePath(params$output, mustWork = FALSE),'/',params$name,'/ancestry/ancestry_all/', params$name,".Ancestry.PCs_plot_POP.png)"))
 ```
 
 </details>
@@ -160,13 +146,11 @@ dbslmm_prs_list[[population]]<-dbslmm_prs
 
 dbslmm_prs_all<-do.call(rbind, dbslmm_prs_list)
 dbslmm_prs_all<-merge(dbslmm_prs_all, model_pred_hard, by=c('FID','IID'))
-dbslmm_prs_all<-merge(dbslmm_prs_all, super_pop_codes, by.x='Population',by.y='code')
 dbslmm_prs_all<-merge(dbslmm_prs_all, gwas_list[,c('name','label')], by.x='gwas', by.y='name')
 
 dbslmm_prs_all_gwas<-NULL
 for(gwas in gwas_list$name){
   dbslmm_prs_all_gwas_i<-dbslmm_prs_all[dbslmm_prs_all$gwas == gwas,]
-  dbslmm_prs_all_gwas_i$pop<-'All'
   dbslmm_prs_all_gwas<-rbind(dbslmm_prs_all_gwas, dbslmm_prs_all_gwas_i)
 }
 
@@ -179,11 +163,10 @@ for(pop in unique(dbslmm_prs_all$pop)){
 
 dbslmm_prs_all_all<-dbslmm_prs_all
 dbslmm_prs_all_all$label<-'All'
-dbslmm_prs_all_all$pop<-'All'
 
 dbslmm_prs_all<-do.call(rbind, list(dbslmm_prs_all, dbslmm_prs_all_gwas, dbslmm_prs_all_pop, dbslmm_prs_all_all))
 
-dbslmm_prs_all$pop_wrap = str_wrap(dbslmm_prs_all$pop, width = 15)
+dbslmm_prs_all$pop_wrap = str_wrap(dbslmm_prs_all$Population, width = 15)
 dbslmm_prs_all$label_wrap = str_wrap(dbslmm_prs_all$label, width = 10)
 
 dbslmm_prs_all$pop_wrap<-factor(dbslmm_prs_all$pop_wrap, levels=unique(dbslmm_prs_all$pop_wrap))

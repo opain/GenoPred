@@ -45,7 +45,7 @@ rule download_ldsc:
      git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74"
      
 # Download LDSC reference data
-rule dowload_ldsc_ref:
+rule download_ldsc_ref:
   output:
     directory("resources/data/ldsc_ref/eur_w_ld_chr")
   shell:
@@ -199,45 +199,37 @@ rule download_ldak_highld:
     "mkdir -p resources/data/ldak_highld; \
      wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt"
 
-# Download and format 1kg reference data
-rule prep_1kg:
-  resources: 
-    mem_mb=20000
-  input:
-    rules.download_hm3_snplist.output
+# Download preprocessed reference data (1KG HapMap3)
+rule download_default_ref:
   output:
-    directory("resources/data/1kg/freq_files"),
-    directory("resources/data/1kg/keep_files")
-  conda:
-    "../envs/GenoPredPipe.yaml"
+    "resources/data/ref/ref.pop.txt"
   shell:
-    "Rscript scripts/prep_1kg.R"
+    "rm -r resources/data/ref; \
+     mkdir -p resources/data/ref; \
+     wget --no-check-certificate -O resources/data/ref/genopredpipe_1kg.tar.gz https://zenodo.org/records/10077095/files/genopredpipe_1kg.tar.gz?download=1; \
+     tar -xzvf resources/data/ref/genopredpipe_1kg.tar.gz -C resources/data/ref/; \
+     mv resources/data/ref/1kg/* resources/data/ref/; \
+     rm -r resources/data/ref/1kg; \
+     rm resources/data/ref/genopredpipe_1kg.tar.gz"
 
-# Create GW merged version of 1kg refrence data
-rule merge_1kg_GW:
+
+# Create merged version of refrence data
+rule merge_ref_gw:
   input:
-    rules.prep_1kg.output
+    "resources/data/ref/ref.pop.txt"
   output:
-    "resources/data/1kg/1KGPhase3.w_hm3.GW.bed"
+    "resources/data/ref/ref.GW.bed"
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "ls resources/data/1kg/1KGPhase3.w_hm3.chr*.bed | sed -e 's/\.bed//g' > resources/data/1kg/merge_list.txt; \
+    "mkdir -p resources/data/ref; \
+     ls resources/data/ref/ref.chr*.bed | sed -e 's/\.bed//g' > resources/data/ref/merge_list.txt; \
      plink \
-       --merge-list resources/data/1kg/merge_list.txt \
+       --merge-list resources/data/ref/merge_list.txt \
        --make-bed \
-       --out resources/data/1kg/1KGPhase3.w_hm3.GW; \
-     rm resources/data/1kg/merge_list.txt"
+       --out resources/data/ref/ref.GW; \
+     rm resources/data/ref/merge_list.txt"
 
-# Download 1kg population code definitions
-rule download_1kg_pop_codes:
-  output:
-    "resources/data/1kg/1kg_pop_codes.tsv",
-    "resources/data/1kg/1kg_super_pop_codes.tsv"
-  shell:
-    "wget --no-check-certificate -O resources/data/1kg/1kg_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.populations.tsv; \
-     wget --no-check-certificate -O resources/data/1kg/1kg_super_pop_codes.tsv http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase3/20131219.superpopulations.tsv"
-     
 # install ggchicklet
 rule install_ggchicklet:
   input:
@@ -266,13 +258,14 @@ rule get_dependencies:
     rules.download_qctool2.output,
     rules.download_plink.output,
     rules.download_ldsc.output,
-    rules.dowload_ldsc_ref.output,
-    rules.merge_1kg_GW.output,
+    rules.download_ldsc_ref.output,
+    rules.download_hm3_snplist.output,
+    "resources/data/ref/ref.GW.bed",
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output,
     rules.download_liftover_track.output,
-    rules.download_1kg_pop_codes.output,
     rules.install_ggchicklet.output,
     rules.install_lassosum.output
   output:
     touch("resources/software/get_dependencies.done")
+
