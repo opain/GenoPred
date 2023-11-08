@@ -240,7 +240,6 @@ for(k in 1:dim(pop_keep_files)[1]){
 # Clean up temporary files
 ###
 
-system(paste0('rm ',opt$output,'*.profiles.*'))
 system(paste0('rm ',opt$output,'_pst_eff_a1_b0.5_*'))
 
 end.time <- Sys.time()

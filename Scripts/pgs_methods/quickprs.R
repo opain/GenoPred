@@ -4,8 +4,8 @@ start.time <- Sys.time()
 suppressMessages(library("optparse"))
 
 option_list = list(
-  make_option("--ref_plink", action="store", default=NA, type='character',
-              help="Path to GW reference PLINK files [required]"),
+  make_option("--ref_plink_chr", action="store", default=NA, type='character',
+              help="Path to per chromosome reference PLINK files [required]"),
   make_option("--ref_pop_scale", action="store", default=NA, type='character',
               help="File containing the population code and location of the keep file [required]"),
   make_option("--plink2", action="store", default='plink', type='character',
@@ -73,6 +73,17 @@ sink()
 
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats), nThread=opt$n_cores)
 GWAS<-GWAS[complete.cases(GWAS),]
+
+# Update BP to match the reference
+ref_bim<-NULL
+for(i in 1:22){
+  ref_bim<-rbind(ref_bim, fread(paste0(opt$ref_plink_chr,i,'.bim'), header=F))
+}
+
+GWAS$BP<-NULL
+GWAS<-merge(GWAS, ref_bim[,c('V2','V4'), with=F], by.x='SNP',by.y='V2')
+names(GWAS)[names(GWAS) == 'V4']<-'BP'
+GWAS<-GWAS[order(GWAS$CHR, GWAS$BP),]
 
 # Extract subset if testing
 if(!is.na(opt$test)){
@@ -221,7 +232,10 @@ if(!is.na(opt$test)){
 score<-fread(paste0(opt$output_dir,'/mega_full.effects'), nThread=opt$n_cores)
 
 # Change IDs to RSIDs
-bim<-fread(paste0(opt$ref_plink,'.bim'), nThread=opt$n_cores)
+bim<-NULL
+for(i in 1:22){
+  bim<-rbind(bim, fread(paste0(opt$ref_plink_chr,i,'.bim'), nThread=opt$n_cores, header=F))
+}
 bim$Predictor<-paste0(bim$V1,':',bim$V4)
 score<-merge(score, bim[,c('Predictor','V2'),with=F], by='Predictor')
 score<-score[,c('V2','A1',names(score)[grepl('Model', names(score))]), with=F]
@@ -245,21 +259,10 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-if(ncol(score) == 3){
-  system(paste0(opt$plink2, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score.gz header-read --score-col-nums 3 --out ',opt$output,'.profiles --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.7)))
-} else {
-  system(paste0(opt$plink2, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',ncol(score),' --out ',opt$output,'.profiles --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.7)))
-}
-
-# Add up the scores across chromosomes
-sscore<-fread(paste0(opt$output,'.profiles.sscore'), nThread=opt$n_cores)
-scores<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-scores<-as.matrix(scores*sscore$NMISS_ALLELE_CT)
-
-scores<-data.table(sscore[,1:2,with=F],
-                   scores)
-
-names(scores)<-c('FID','IID',names(score)[-1:-2])
+scores<-calc_score(
+  bfile=opt$ref_plink_chr, 
+  score=paste0(opt$output,'.score.gz')
+)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -269,22 +272,17 @@ sink()
 pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
 
 for(k in 1:dim(pop_keep_files)[1]){
-  pop<-pop_keep_files$V1[k]
-  keep<-fread(pop_keep_files$V2[k], header=F, nThread=opt$n_cores)
-  scores_keep<-scores[(scores$FID %in% keep$V1),]
-  
-  ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-                         Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
-                         SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
-  
-  fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
+	pop<-pop_keep_files$V1[k]
+	keep<-fread(pop_keep_files$V2[k], header=F)
+  names(keep)<-c('FID','IID')
+  ref_scale<-score_mean_sd(scores=scores, keep=keep)
+	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 
 ###
 # Clean up temporary files
 ###
 
-system(paste0('rm ',opt$output,'*.profiles.*'))
 system(paste0('rm ',opt$output_dir,'bld*'))
 system(paste0('rm ',opt$output_dir,'GWAS_sums*'))
 system(paste0('rm ',opt$output_dir,'mega*'))

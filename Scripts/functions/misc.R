@@ -102,3 +102,8 @@ score_scale<-function(score, ref_scale){
     }
     return(score_scaled)
 }
+
+# Make a version of cat with sep=''
+cat0 <- function(...) {
+  cat(..., sep = '')
+}

@@ -149,7 +149,7 @@ rule prs_scoring_prscs:
     "export MKL_NUM_THREADS=1; \
      export NUMEXPR_NUM_THREADS=1; \
      export OMP_NUM_THREADS=1; \
-    "Rscript ../Scripts/pgs_methods/prscs.R \
+     Rscript ../Scripts/pgs_methods/prscs.R \
       --ref_plink_chr resources/data/ref/ref.chr \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
       --plink2 plink2 \
@@ -189,7 +189,7 @@ rule prs_scoring_sbayesr:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/sbayesr.R \
-      --ref_plink resources/data/ref/ref.GW \
+      --ref_plink_chr resources/data/ref/ref.chr \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
       --plink plink \
       --gctb resources/software/gctb/gctb_2.03beta_Linux/gctb \
@@ -223,7 +223,7 @@ rule prs_scoring_lassosum:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/lassosum.R \
-     --ref_plink resources/data/ref/ref.GW \
+     --ref_plink_chr resources/data/ref/ref.chr \
      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
      --output resources/data/ref/prs_score_files/lassosum/{wildcards.gwas}/ref.{wildcards.gwas} \
@@ -257,7 +257,7 @@ rule prs_scoring_ldpred2:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/ldpred2.R \
-      --ref_plink resources/data/ref/ref.GW \
+      --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/EUR.keep \
       --ldpred2_ref_dir resources/data/ldpred2_ref \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
@@ -297,7 +297,7 @@ rule prs_scoring_megaprs:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
-      --ref_plink resources/data/ref/ref.GW \
+      --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{params.population}.keep \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
       --plink1 plink \

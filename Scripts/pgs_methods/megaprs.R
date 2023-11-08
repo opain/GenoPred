@@ -4,8 +4,8 @@ start.time <- Sys.time()
 suppressMessages(library("optparse"))
 
 option_list = list(
-  make_option("--ref_plink", action="store", default=NA, type='character',
-              help="Path to GW reference PLINK files [required]"),
+  make_option("--ref_plink_chr", action="store", default=NA, type='character',
+              help="Path to per chromosome reference PLINK files [required]"),
   make_option("--ref_keep", action="store", default=NA, type='character',
               help="Path to keep file for reference [required]"),
   make_option("--ref_pop_scale", action="store", default=NA, type='character',
@@ -81,6 +81,17 @@ sink()
 GWAS<-fread(cmd=paste0('zcat ',opt$sumstats), nThread=opt$n_cores)
 GWAS<-GWAS[complete.cases(GWAS),]
 
+# Update BP to match the reference
+ref_bim<-NULL
+for(i in 1:22){
+  ref_bim<-rbind(ref_bim, fread(paste0(opt$ref_plink_chr,i,'.bim'), header=F))
+}
+
+GWAS$BP<-NULL
+GWAS<-merge(GWAS, ref_bim[,c('V2','V4'), with=F], by.x='SNP',by.y='V2')
+names(GWAS)[names(GWAS) == 'V4']<-'BP'
+GWAS<-GWAS[order(GWAS$CHR, GWAS$BP),]
+
 # Extract subset if testing
 if(!is.na(opt$test)){
   if(single_chr_test == F){
@@ -134,6 +145,26 @@ fwrite(GWAS, paste0(opt$output_dir,'GWAS_sumstats_temp.txt'), sep=' ')
 rm(GWAS)
 gc()
 
+###
+# Merge the per chromosome reference genetic data
+###
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Merging per chromosome reference data...')
+sink()
+
+# Create merge list
+ref_merge_list<-paste0(opt$ref_plink_chr,1:22)
+
+write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
+
+# Merge
+system(paste0(opt$plink1,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --out ',opt$output_dir,'ref --memory ',floor(opt$memory*0.7)))  
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Done!\n')
+sink()
+
 if(!is.na(opt$test)){
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   test_start.time <- Sys.time()
@@ -150,9 +181,7 @@ cat('Formatting reference for LDAK.\n')
 sink()
 
 # Must be hg19 with CHR:BP IDs
-system(paste0('cp ', opt$ref_plink,'.bed ',opt$output_dir,'/ref.bed'))
-system(paste0('cp ', opt$ref_plink,'.fam ',opt$output_dir,'/ref.fam'))
-system(paste0("awk < ", opt$ref_plink,".bim '{$2=$1\":\"$4;print $0}' > ", opt$output_dir,'/ref.bim'))
+system(paste0("awk < ", opt$output_dir,"ref.bim '{$2=$1\":\"$4;print $0}' > ", opt$output_dir,'/tmp.bim; mv ', opt$output_dir,'/tmp.bim ', opt$output_dir,'/ref.bim'))
 
 # Insert genetic distances
 system(paste0(opt$plink1,' --bfile ',opt$output_dir,'/ref --cm-map ',opt$ldak_map,'/genetic_map_chr@_combined_b37.txt --make-bed --out ',opt$output_dir,'/map'))
@@ -348,7 +377,10 @@ if(!is.na(opt$test)){
 score<-fread(paste0(opt$output_dir,'/mega_full.effects'), nThread=opt$n_cores)
 
 # Change IDs to RSIDs
-bim<-fread(paste0(opt$ref_plink,'.bim'), nThread=opt$n_cores)
+bim<-NULL
+for(i in 1:22){
+  bim<-rbind(bim, fread(paste0(opt$ref_plink_chr,i,'.bim'), nThread=opt$n_cores, header=F))
+}
 bim$Predictor<-paste0(bim$V1,':',bim$V4)
 score<-merge(score, bim[,c('Predictor','V2'),with=F], by='Predictor')
 score<-score[,c('V2','A1',names(score)[grepl('Model', names(score))]), with=F]
@@ -373,7 +405,7 @@ cat('Calculating polygenic scores in reference...')
 sink()
 
 scores<-calc_score(
-  bfile=opt$ref_plink, 
+  bfile=opt$ref_plink_chr, 
   score=paste0(opt$output,'.score.gz')
 )
 
@@ -406,7 +438,12 @@ system(paste0('rm ',opt$output_dir,'keepb'))
 system(paste0('rm ',opt$output_dir,'keepc'))
 system(paste0('rm -r ',opt$output_dir,'highld'))
 system(paste0('rm -r ',opt$output_dir,'sections'))
-system(paste0('rm ',opt$output_dir,'ref*'))
+system(paste0('rm ',opt$output_dir,'ref_mergelist.txt'))
+system(paste0('rm ',opt$output_dir,'ref.log'))
+system(paste0('rm ',opt$output_dir,'ref.fam'))
+system(paste0('rm ',opt$output_dir,'ref.bim'))
+system(paste0('rm ',opt$output_dir,'ref.bed'))
+system(paste0('rm ',opt$output_dir,'ref_subset.log'))
 system(paste0('rm ',opt$output_dir,'mega*'))
 
 end.time <- Sys.time()

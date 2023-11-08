@@ -212,24 +212,6 @@ rule download_default_ref:
      rm -r resources/data/ref/1kg; \
      rm resources/data/ref/genopredpipe_1kg.tar.gz"
 
-
-# Create merged version of refrence data
-rule merge_ref_gw:
-  input:
-    "resources/data/ref/ref.pop.txt"
-  output:
-    "resources/data/ref/ref.GW.bed"
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  shell:
-    "mkdir -p resources/data/ref; \
-     ls resources/data/ref/ref.chr*.bed | sed -e 's/\.bed//g' > resources/data/ref/merge_list.txt; \
-     plink \
-       --merge-list resources/data/ref/merge_list.txt \
-       --make-bed \
-       --out resources/data/ref/ref.GW; \
-     rm resources/data/ref/merge_list.txt"
-
 # install ggchicklet
 rule install_ggchicklet:
   input:
@@ -260,7 +242,7 @@ rule get_dependencies:
     rules.download_ldsc.output,
     rules.download_ldsc_ref.output,
     rules.download_hm3_snplist.output,
-    "resources/data/ref/ref.GW.bed",
+    rules.download_default_ref.output,
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output,
     rules.download_liftover_track.output,

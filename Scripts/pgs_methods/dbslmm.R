@@ -319,7 +319,6 @@ for(k in 1:dim(pop_keep_files)[1]){
 # Clean up temporary files
 ###
 
-system(paste0('rm ',opt$output,'.*.profiles.*'))
 if(!is.na(opt$ref_keep)){
   system(paste0('rm ',opt$output_dir,'dbslmm_ref_chr*'))
 }
