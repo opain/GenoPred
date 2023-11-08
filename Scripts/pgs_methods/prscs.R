@@ -6,12 +6,10 @@ suppressMessages(library("optparse"))
 option_list = list(
 make_option("--ref_plink_chr", action="store", default=NA, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
-make_option("--ref_keep", action="store", default=NA, type='character',
-		help="Keep file to subset individuals in reference for clumping [required]"),
 make_option("--ref_pop_scale", action="store", default=NA, type='character',
 		help="File containing the population code and location of the keep file [required]"),
-make_option("--plink", action="store", default='plink', type='character',
-		help="Path PLINK software binary [required]"),
+make_option("--plink2", action="store", default='plink', type='character',
+		help="Path PLINK v2 software binary [required]"),
 make_option("--output", action="store", default='NA', type='character',
 		help="Path for output files [required]"),
 make_option("--memory", action="store", default=5000, type='numeric',
@@ -27,7 +25,9 @@ make_option("--PRScs_ref_path", action="store", default=T, type='character',
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
 make_option("--phi_param", action="store", default='auto', type='character',
-		help="Path to PRScs reference [optional]")
+    help="Path to PRScs reference [optional]"),
+make_option("--seed", action="store", default=NA, type='numeric',
+    help="Seed number for PRScs [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -36,6 +36,7 @@ library(data.table)
 library(foreach)
 library(doMC)
 registerDoMC(opt$n_cores)
+source('../Scripts/functions/misc.R')
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
@@ -63,7 +64,7 @@ if(any(grepl('auto',phi_param))){
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
-# polygenic_score_file_creator_PRScs.R V1.0
+# prscs.R
 # For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
 #################################################################
 Analysis started at',as.character(start.time),'
@@ -152,11 +153,19 @@ for(i in CHROMS){
 
 # Run using PRScs auto, and specifying a range of global shrinkage parameters (1e-6, 1e-4, 1e-2, 1)
 foreach(i=1:dim(jobs)[1], .combine=c, .options.multicore=list(preschedule=FALSE)) %dopar% {
-		if(jobs$phi[i] == 'auto'){
-			system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix=',opt$ref_plink_chr,jobs$CHR[i],' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',jobs$CHR[i]))
-		} else {
-			system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix=',opt$ref_plink_chr,jobs$CHR[i],' --phi=',jobs$phi[i],' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',jobs$CHR[i]))
-		}
+  if(is.na(opt$seed)){
+    if(jobs$phi[i] == 'auto'){
+      system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix=',opt$ref_plink_chr,jobs$CHR[i],' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',jobs$CHR[i]))
+    } else {
+      system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix=',opt$ref_plink_chr,jobs$CHR[i],' --phi=',jobs$phi[i],' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',jobs$CHR[i]))
+    }
+  } else {
+    if(jobs$phi[i] == 'auto'){
+      system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix=',opt$ref_plink_chr,jobs$CHR[i],' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',jobs$CHR[i],' --seed=',opt$seed))
+    } else {
+      system(paste0(opt$PRScs_path,' --ref_dir=',opt$PRScs_ref_path,' --bim_prefix=',opt$ref_plink_chr,jobs$CHR[i],' --phi=',jobs$phi[i],' --sst_file=',opt$output_dir,'GWAS_sumstats_temp.txt --n_gwas=',round(GWAS_N,0),' --out_dir=',opt$output,' --chrom=',jobs$CHR[i],' --seed=',opt$seed))
+    }
+  }
 }
 
 system(paste0('rm ',opt$output_dir,'GWAS_sumstats_temp.txt'))
@@ -168,9 +177,35 @@ if(!is.na(opt$test)){
   cat('Test run finished at',as.character(end.time),'\n')
   cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
   sink()
-  system(paste0('rm ',opt$output,'*.txt'))
-  q()
 }
+
+####
+# Combine score files 
+####
+score_all<-NULL
+for(phi_i in phi_param){
+  score_phi<-NULL
+  for(i in CHROMS){
+    score_phi_i<-fread(paste0(opt$output,'_pst_eff_a1_b0.5_phi',phi_i,'_chr',i,'.txt'))
+    score_phi<-rbind(score_phi, score_phi_i)
+  }
+  if(phi_i == phi_param[1]){
+    score_phi<-score_phi[,c('V2','V4','V6'), with=F]
+    names(score_phi)<-c('SNP','A1',paste0('SCORE_phi_',phi_i))
+  } else {
+    score_phi<-score_phi[,'V6', with=F]
+    names(score_phi)<-paste0('SCORE_phi_',phi_i)
+  }
+  score_all<-cbind(score_all, score_phi)
+}
+
+fwrite(score_all, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+
+if(file.exists(paste0(opt$output,'.score.gz'))){
+  system(paste0('rm ',opt$output,'.score.gz'))
+}
+
+system(paste0('gzip ',opt$output,'.score'))
 
 ####
 # Calculate mean and sd of polygenic scores
@@ -181,29 +216,10 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-for(phi_i in phi_param){
-	for(i in CHROMS){
-		system(paste0(opt$plink, ' --bfile ',opt$ref_plink_chr,i,' --score ',opt$output,'_pst_eff_a1_b0.5_phi',phi_i,'_chr',i,'.txt 2 4 6 sum --out ',opt$output,'.',phi_i,'.profiles.chr',i,' --memory ',floor(opt$memory*0.7)))
-	}
-}
-
-# Add up the scores across chromosomes
-fam<-fread(paste0(opt$ref_plink_chr,'22.fam'))
-scores<-fam[,1:2]
-names(scores)<-c('FID','IID')
-
-for(phi_i in phi_param){
-
-	SCORE_temp<-0
-	for(i in CHROMS){
-			profile<-fread(paste0(opt$output,'.',phi_i,'.profiles.chr',i,'.profile'))
-			SCORE_temp<-SCORE_temp+profile$SCORESUM
-	}
-	scores<-cbind(scores, SCORE_temp)
-
-	names(scores)[grepl('SCORE_temp',names(scores))]<-paste0('SCORE_phi',phi_i)
-
-}
+scores<-calc_score(
+  bfile=opt$ref_plink_chr, 
+  score=paste0(opt$output,'.score.gz')
+)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -215,12 +231,8 @@ pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
 for(k in 1:dim(pop_keep_files)[1]){
 	pop<-pop_keep_files$V1[k]
 	keep<-fread(pop_keep_files$V2[k], header=F)
-	scores_keep<-scores[(scores$FID %in% keep$V1),]
-
-	ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-													Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
-													SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
-
+  names(keep)<-c('FID','IID')
+  ref_scale<-score_mean_sd(scores=scores, keep=keep)
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 
@@ -228,7 +240,8 @@ for(k in 1:dim(pop_keep_files)[1]){
 # Clean up temporary files
 ###
 
-system(paste0('rm ',opt$output,'.*.profiles.*'))
+system(paste0('rm ',opt$output,'*.profiles.*'))
+system(paste0('rm ',opt$output,'_pst_eff_a1_b0.5_*'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

@@ -73,17 +73,19 @@ rule run_target_prs_all_pop:
   output:
     touch("resources/data/target_checks/{name}/run_target_prs_{method}_all_pop.done")
 
-rule run_target_prs_all_name:
-  input: 
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_{method}_all_pop.done", name=target_list_df['name'], method=w.method)
-  output:
-    touch("resources/data/target_checks/run_target_prs_{method}_all_name.done")
-
 rule run_target_prs_all_method:
   input: 
-    expand("resources/data/target_checks/run_target_prs_{method}_all_name.done", method=config["pgs_methods"])
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_{method}_all_pop.done", method=config["pgs_methods"], name=w.name)
   output:
-    touch("resources/data/target_checks/run_target_prs_all_method.done")
+    touch("resources/data/target_checks/{name}/run_target_prs_all_method.done")
+
+rule run_target_prs_all_name:
+  input: 
+    expand("resources/data/target_checks/{name}/run_target_prs_all_method.done", name=target_list_df['name'])
+  output:
+    touch("resources/data/target_checks/run_target_prs_all_name.done")
+
+
 
 ##
 # Externally created score files
@@ -133,23 +135,3 @@ rule run_target_prs_external_all_name:
     expand("resources/data/target_checks/{name}/run_target_prs_external_all_pop.done", name=target_list_df['name'])
   output:
     touch("resources/data/target_checks/prs_external.done")
-
-##
-# Calculate PRS using all methods
-##
-
-rule target_prs_all:
-  input:
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_prscs_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_sbayesr_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_lassosum_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ldpred2_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_megaprs_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_external_all_pop.done", name=w.name)
-  output:
-    touch('resources/data/target_checks/{name}/target_prs_all.done')
-
-rule run_target_prs_all:
-  input: expand('resources/data/target_checks/{name}/target_prs_all.done', name=target_list_df['name'])

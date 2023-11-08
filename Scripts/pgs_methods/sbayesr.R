@@ -64,7 +64,7 @@ if(!is.na(opt$test)){
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
-# polygenic_score_file_creator_SBayesR.R V1.0
+# sbayesr.R
 # For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
 #################################################################
 Analysis started at',as.character(start.time),'
@@ -320,9 +320,7 @@ if(!is.na(opt$test)){
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   cat('Test run finished at',as.character(end.time),'\n')
   cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
-  system(paste0('rm ',opt$output_dir,'*Res')) 
   sink()
-  q()
 }
 
 ####

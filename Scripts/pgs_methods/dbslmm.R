@@ -63,7 +63,7 @@ if(!is.na(opt$test)){
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
-# polygenic_score_file_creator_DBSLMM.R V1.0
+# dbslmm.R
 # For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
 #################################################################
 Analysis started at',as.character(start.time),'
@@ -285,15 +285,6 @@ if(!is.na(opt$test)){
   cat('Test run finished at',as.character(end.time),'\n')
   cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
   sink()
-  system(paste0('rm ',opt$output_dir,'*.txt'))
-  system(paste0('rm ',opt$output_dir,'*.badsnps'))
-  system(paste0('rm ',opt$output_dir,'ldsc_snp_h2_temp.log'))
-  system(paste0('rm ',opt$output_dir,'munged_sumstats_temp.log'))
-  system(paste0('rm ',opt$output_dir,'munged_sumstats_temp.sumstats.gz'))
-  if(!is.na(opt$ref_keep)){
-    system(paste0('rm ',opt$output_dir,'dbslmm_ref_chr*'))
-  }
-  q()
 }
 
 ####

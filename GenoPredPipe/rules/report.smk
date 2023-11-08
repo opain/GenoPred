@@ -10,7 +10,7 @@
 rule create_individual_report:
   input:
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ptclump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.run_pseudovalidate_prs.input,
     rules.install_ggchicklet.output,
@@ -34,7 +34,7 @@ rule run_create_individual_report:
 rule create_individual_report_for_sample:
   input:
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ptclump_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.run_pseudovalidate_prs.input,
     rules.install_ggchicklet.output,
@@ -67,8 +67,8 @@ rule run_create_individual_report_for_sample_all_indiv:
 rule create_sample_report:
   input:
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_pt_clump_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ptclump_all_pop.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_all_method.done", name=w.name),
     "scripts/samp_report_creator.Rmd"
   output:
     touch('resources/data/target_checks/{name}/create_sample_report.done')
