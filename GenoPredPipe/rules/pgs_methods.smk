@@ -1,8 +1,9 @@
-# Create PC score files specific to each super population
-rule super_pop_pc_scoring:
+# Create PC score files specific to each population
+rule pop_pc_scoring:
   input:
     rules.get_dependencies.output,
-    "../Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R"
+    "../Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/pc_score_files/{population}/ref.{population}.scale"
   conda:
@@ -13,12 +14,12 @@ rule super_pop_pc_scoring:
       --ref_keep resources/data/ref/keep_files/{wildcards.population}.keep \
       --plink plink \
       --plink2 plink2 \
-      --n_pcs 100 \
+      --n_pcs 6 \
       --output resources/data/ref/pc_score_files/{wildcards.population}/ref.{wildcards.population}"
 
 populations=["AFR","AMR","EAS","EUR","SAS"]
 
-rule run_super_pop_pc_scoring:
+rule run_pop_pc_scoring:
   input: expand("resources/data/ref/pc_score_files/{population}/ref.{population}.scale", population=populations)
   
 ##
@@ -58,7 +59,8 @@ rule run_sumstat_prep:
 rule prs_scoring_pt_clump:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    "../Scripts/polygenic_score_file_creator/polygenic_score_file_creator_plink2.R"
+    "../Scripts/polygenic_score_file_creator/polygenic_score_file_creator_plink2.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/pt_clump/{gwas}/ref.{gwas}.EUR.scale"
   conda:
@@ -86,7 +88,8 @@ rule prs_scoring_dbslmm:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
-    "../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM_plink2.R"
+    "../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM_plink2.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/dbslmm/{gwas}/ref.{gwas}.EUR.scale"
   conda:
@@ -128,7 +131,8 @@ rule prs_scoring_prscs:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
-    "../Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs_plink2.R"
+    "../Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs_plink2.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/prscs/{gwas}/ref.{gwas}.EUR.scale"
   conda:
@@ -164,7 +168,8 @@ rule prs_scoring_sbayesr:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
-    "../Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR_plink2.R"
+    "../Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR_plink2.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/sbayesr/{gwas}/ref.{gwas}.EUR.scale"
   conda:
@@ -193,7 +198,8 @@ rule prs_scoring_lassosum:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
-    "../Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum_plink2.R"
+    "../Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum_plink2.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/lassosum/{gwas}/ref.{gwas}.EUR.scale"
   conda:
@@ -202,7 +208,7 @@ rule prs_scoring_lassosum:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
   shell:
     "Rscript ../Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum_plink2.R \
-     --ref_plink_gw resources/data/ref/ref.GW \
+     --ref_plink resources/data/ref/ref.GW \
      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
      --output resources/data/ref/prs_score_files/lassosum/{wildcards.gwas}/ref.{wildcards.gwas} \
@@ -224,7 +230,8 @@ rule prs_scoring_ldpred2:
   input:
     rules.get_dependencies.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    "../Scripts/polygenic_score_file_creator_LDPred2/polygenic_score_file_creator_LDPred2_LDPredRef_plink2.R"
+    "../Scripts/polygenic_score_file_creator_LDPred2/polygenic_score_file_creator_LDPred2_LDPredRef_plink2.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/ldpred2/{gwas}/ref.{gwas}.EUR.scale"
   conda:
@@ -256,7 +263,8 @@ rule prs_scoring_megaprs:
   input:
     rules.get_dependencies.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    "../Scripts/ldak_mega_prs/ldak_mega_prs.R"
+    "../Scripts/ldak_mega_prs/ldak_mega_prs.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/megaprs/{gwas}/ref.{gwas}.EUR.scale"
   conda:
@@ -298,7 +306,8 @@ rule prs_scoring_external:
     config['score_list'],
     rules.get_dependencies.output,
     lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
-    "../Scripts/external_score_processor/external_score_processor_plink2.R"
+    "../Scripts/external_score_processor/external_score_processor_plink2.R",
+    "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/external/{gwas}/ref.{gwas}.EUR.scale"
   params:
@@ -347,7 +356,7 @@ rule run_pseudovalidate_prs:
 
 rule pipeline_prep:
   input:
-    rules.run_super_pop_pc_scoring.input,
+    rules.run_pop_pc_scoring.input,
     rules.run_prs_scoring_pt_clump.input,
     rules.run_prs_scoring_dbslmm.input,
     rules.run_pseudovalidate_prs.input

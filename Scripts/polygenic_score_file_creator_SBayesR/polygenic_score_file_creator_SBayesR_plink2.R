@@ -44,6 +44,7 @@ library(data.table)
 library(foreach)
 library(doMC)
 registerDoMC(opt$n_cores)
+source('../Scripts/functions/misc.R')
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
@@ -63,7 +64,7 @@ if(!is.na(opt$test)){
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
 '#################################################################
-# polygenic_score_file_creator_SBLUP.R V1.0
+# polygenic_score_file_creator_SBayesR.R V1.0
 # For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
 #################################################################
 Analysis started at',as.character(start.time),'
@@ -268,6 +269,11 @@ names(snpRes)<-c('SNP','A1','SCORE_SBayesR')
 
 write.table(snpRes, paste0(opt$output,'.score'), col.names=T, row.names=F, quote=F)
 
+if(file.exists(paste0(opt$output,'.score.gz'))){
+  system(paste0('rm ',opt$output,'.score.gz'))
+}
+system(paste0('gzip ',opt$output,'.score'))
+
 # Combine per chromosome parRes files
 parRes_mcmc<-list()
 for(i in comp){
@@ -328,12 +334,10 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-system(paste0(opt$plink, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score 1 2 3 sum header --out ',opt$output_dir,'ref.profiles --memory ',floor(opt$memory*0.7)))
-
-# Read in the reference scores
-scores<-fread(paste0(opt$output_dir,'ref.profiles.profile'))
-scores<-scores[,c('FID','IID','SCORESUM')]
-names(scores)<-c('FID','IID','SCORE_SBayesR')
+scores<-calc_score(
+  bfile=opt$ref_plink, 
+  score=paste0(opt$output,'.score.gz')
+)
 
 # Calculate the mean and sd of scores for each population specified in pop_scale
 pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
@@ -341,12 +345,8 @@ pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
 for(k in 1:dim(pop_keep_files)[1]){
 	pop<-pop_keep_files$V1[k]
 	keep<-fread(pop_keep_files$V2[k], header=F)
-	scores_keep<-scores[(scores$FID %in% keep$V1),]
-
-	ref_scale<-data.frame(	Param='SCORE_SBayesR',
-	                        Mean=round(mean(scores_keep$SCORE_SBayesR),3),
-							            SD=round(sd(scores_keep$SCORE_SBayesR),3))
-
+  names(keep)<-c('FID','IID')
+  ref_scale<-score_mean_sd(scores=scores, keep=keep)
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 

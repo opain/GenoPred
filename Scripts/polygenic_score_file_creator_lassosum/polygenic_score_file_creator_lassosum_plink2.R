@@ -4,7 +4,7 @@ start.time <- Sys.time()
 suppressMessages(library("optparse"))
 
 option_list = list(
-	make_option("--ref_plink_gw", action="store", default=NA, type='character',
+	make_option("--ref_plink", action="store", default=NA, type='character',
 			help="Path to genome-wide reference PLINK files [required]"),
 	make_option("--ref_keep", action="store", default=NA, type='character',
 			help="Keep file to subset individuals in reference for clumping [required]"),
@@ -30,6 +30,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
 library(lassosum)
+source('../Scripts/functions/misc.R')
 orig_wd<-getwd()
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
@@ -240,19 +241,10 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-if(ncol(score_file)-2 == 1){
-    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_gw,' --score ',opt$output,'.score.gz header-read --out ',opt$output,'.profiles.GW --memory ',floor(opt$memory*0.7)))
-} else {
-    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_gw,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',2+ncol(score_file)-2,' --out ',opt$output,'.profiles.GW --memory ',floor(opt$memory*0.7)))
-}
-
-sscore<-fread(paste0(opt$output,'.profiles.GW.sscore'))
-fam<-sscore[,1:2,with=F]
-scores<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-scores<-scores*sscore$NMISS_ALLELE_CT
-scores<-cbind(fam,scores)
-
-names(scores)<-c('FID','IID',names(score_file)[-1:-2])
+scores<-calc_score(
+  bfile=opt$ref_plink, 
+  score=paste0(opt$output,'.score.gz')
+)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -266,12 +258,8 @@ pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
 for(k in 1:dim(pop_keep_files)[1]){
 	pop<-pop_keep_files$V1[k]
 	keep<-fread(pop_keep_files$V2[k], header=F)
-	scores_keep<-scores[(scores$FID %in% keep$V1),]
-
-	ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-													Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
-													SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
-
+  names(keep)<-c('FID','IID')
+  ref_scale<-score_mean_sd(scores=scores, keep=keep)
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 
