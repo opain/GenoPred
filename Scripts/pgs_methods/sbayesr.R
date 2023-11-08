@@ -4,7 +4,7 @@ start.time <- Sys.time()
 suppressMessages(library("optparse"))
 
 option_list = list(
-make_option("--ref_plink", action="store", default=NA, type='character',
+make_option("--ref_plink_chr", action="store", default=NA, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
 make_option("--ref_keep", action="store", default=NA, type='character',
 		help="Keep file to subset individuals in reference for clumping [required]"),
@@ -333,7 +333,7 @@ cat('Calculating polygenic scores in reference...')
 sink()
 
 scores<-calc_score(
-  bfile=opt$ref_plink, 
+  bfile=opt$ref_plink_chr,
   score=paste0(opt$output,'.score.gz')
 )
 
@@ -351,12 +351,6 @@ for(k in 1:dim(pop_keep_files)[1]){
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
-
-###
-# Clean up temporary files
-###
-
-system(paste0('rm ',opt$output_dir,'ref.profiles.*'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

@@ -4,7 +4,7 @@ start.time <- Sys.time()
 suppressMessages(library("optparse"))
 
 option_list = list(
-make_option("--ref_plink", action="store", default=NA, type='character',
+make_option("--ref_plink_chr", action="store", default=NA, type='character',
     help="Path to per chromosome reference PLINK files [required]"),
 make_option("--ldpred2_ref_dir", action="store", default=NA, type='character',
     help="Path to directory containing LDPred2 reference data [required]"),
@@ -12,6 +12,8 @@ make_option("--ref_keep", action="store", default=NA, type='character',
 	  help="Keep file to subset individuals in reference for clumping [required]"),
 make_option("--ref_pop_scale", action="store", default=NA, type='character',
 		help="File containing the population code and location of the keep file [required]"),
+make_option("--plink1", action="store", default='plink', type='character',
+	    help="Path PLINK v1.9 software binary [required]"),
 make_option("--plink2", action="store", default='plink', type='character',
 		help="Path PLINK v2 software binary [required]"),
 make_option("--output", action="store", default='./Output', type='character',
@@ -67,6 +69,26 @@ sink()
 
 # This script uses instructions from https://privefl.github.io/bigsnpr/articles/LDpred2.html
 
+###
+# Merge the per chromosome reference genetic data
+###
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Merging per chromosome reference data...')
+sink()
+
+# Create merge list
+ref_merge_list<-paste0(opt$ref_plink_chr,1:22)
+
+write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
+
+# Merge
+system(paste0(opt$plink1,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --out ',opt$output_dir,'ref_gw --memory ',floor(opt$memory*0.7)))  
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Done!\n')
+sink()
+
 #####
 # Read in reference data
 #####
@@ -80,7 +102,7 @@ if(file.exists(paste0(opt$output_dir,'ref.bk'))){
   system(paste0('rm ', opt$output_dir,'ref.bk'))
 }
 
-snp_readBed(paste0(opt$ref_plink,'.bed'), backingfile = paste0(opt$output_dir,'ref'))
+snp_readBed(paste0(opt$output_dir,'ref_gw.bed'), backingfile = paste0(opt$output_dir,'ref'))
 ref <- snp_attach(paste0(opt$output_dir,"ref.rds"))
 
 ref_keep<-read.table(opt$ref_keep, header=F, stringsAsFactors=F)
@@ -265,7 +287,7 @@ for (chr in CHROMS) {
   ## indices in 'corr_chr'
   ind.chr3 <- match(ind.chr2, which(map$chr == chr))
   
-  corr0 <- readRDS(paste0(opt$ldpred2_ref_dir,'/LD_chr', chr, ".rds"))[ind.chr3, ind.chr3]
+  corr0 <- readRDS(paste0(opt$ldpred2_ref_dir,'/LD_with_blocks_chr', chr, ".rds"))[ind.chr3, ind.chr3]
 
   if (chr == CHROMS[1]) {
     corr <- as_SFBM(corr0, paste0(opt$output_dir,'/LD_GW_sparse'), compact = TRUE)
@@ -378,7 +400,7 @@ cat('Calculating polygenic scores in reference...')
 sink()
 
 scores<-calc_score(
-  bfile=opt$ref_plink, 
+  bfile=opt$ref_plink_chr, 
   score=paste0(opt$output,'.score.gz')
 )
 
@@ -401,10 +423,10 @@ sink()
 # Clean up temporary files
 ###
 
-system(paste0('rm ',opt$output_dir,'ref.profiles.*'))
 system(paste0('rm ',opt$output_dir,'LD_GW_sparse.sbk'))
 system(paste0('rm ',opt$output_dir,'ref.rds'))
 system(paste0('rm ',opt$output_dir,'ref.bk'))
+system(paste0('rm ',opt$output_dir,'ref_gw*'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

@@ -315,12 +315,6 @@ for(k in 1:dim(pop_keep_files)[1]){
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 
-###
-# Clean up temporary files
-###
-
-system(paste0('rm ',opt$output,'.profiles.*'))
-
 end.time <- Sys.time()
 time.taken <- end.time - start.time
 sink(file = paste(opt$output,'.log',sep=''), append = T)

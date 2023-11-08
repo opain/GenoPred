@@ -4,7 +4,7 @@ start.time <- Sys.time()
 suppressMessages(library("optparse"))
 
 option_list = list(
-	make_option("--ref_plink", action="store", default=NA, type='character',
+	make_option("--ref_plink_chr", action="store", default=NA, type='character',
 			help="Path to genome-wide reference PLINK files [required]"),
 	make_option("--ref_keep", action="store", default=NA, type='character',
 			help="Keep file to subset individuals in reference for clumping [required]"),
@@ -14,6 +14,8 @@ option_list = list(
 	    help="Minor allele frequency threshold to be applied based on ref_freq_chr [optional]"),
 	make_option("--ref_pop_scale", action="store", default=NA, type='character',
 			help="File containing the population code and location of the keep file [required]"),
+	make_option("--plink1", action="store", default='plink', type='character',
+	    help="Path PLINK v1.9 software binary [required]"),
 	make_option("--plink2", action="store", default='plink2', type='character',
 	    help="Path PLINK v2 software binary [required]"),
 	make_option("--output", action="store", default='./Output', type='character',
@@ -116,6 +118,26 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
 
+###
+# Merge the per chromosome reference genetic data
+###
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Merging per chromosome reference data...')
+sink()
+
+# Create merge list
+ref_merge_list<-paste0(opt$ref_plink_chr,1:22)
+
+write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
+
+# Merge
+system(paste0(opt$plink1,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --out ',opt$output_dir,'lassosum_ref_gw --memory ',floor(opt$memory*0.7)))  
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Done!\n')
+sink()
+
 if(!is.na(opt$ref_keep)){
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   cat('ref_keep used to subset reference genotype data.\n')
@@ -125,11 +147,11 @@ if(!is.na(opt$ref_keep)){
   # Create subset of ref files
   #####
   
-  system(paste0(opt$plink,' --bfile ',opt$ref_plink_gw,' --keep ',opt$ref_keep,' --make-bed --out ',opt$output_dir,'lassosum_ref_gw'))
+  system(paste0(opt$plink1,' --bfile ',opt$output_dir,'lassosum_ref_gw --keep ',opt$ref_keep,' --make-bed --out ',opt$output_dir,'lassosum_ref_gw_subset'))
   
-  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw')
+  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw_subset')
 } else {
-  opt$ref_plink_subset<-opt$ref_plink_gw
+  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw')
 }
 
 if(!is.na(opt$test)){
@@ -239,7 +261,7 @@ cat('Calculating polygenic scores in reference...')
 sink()
 
 scores<-calc_score(
-  bfile=opt$ref_plink, 
+  bfile=opt$ref_plink_chr, 
   score=paste0(opt$output,'.score.gz')
 )
 
@@ -263,7 +285,7 @@ for(k in 1:dim(pop_keep_files)[1]){
 if(!is.na(opt$ref_keep)){
   system(paste0('rm ',opt$output_dir,'lassosum_ref_gw*'))
 }
-system(paste0('rm ',opt$output,'.profiles*'))
+system(paste0('rm ',opt$output_dir,'lassosum_ref_gw*'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
