@@ -52,7 +52,7 @@ if(!is.na(opt$test)){
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 cat(
   '#################################################################
-# ldak_quick_prs.R
+# quickprs.R
 # For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
 #################################################################
 Analysis started at',as.character(start.time),'
@@ -211,18 +211,6 @@ if(!is.na(opt$test)){
   cat('Test run finished at',as.character(end.time),'\n')
   cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
   sink()
-  system(paste0('rm ',opt$output_dir,'cors*'))
-  system(paste0('rm -r ',opt$output_dir,'bld'))
-  system(paste0('rm ',opt$output_dir,'bld*'))
-  system(paste0('rm ',opt$output_dir,'GWAS_sums*'))
-  system(paste0('rm ',opt$output_dir,'keepa'))
-  system(paste0('rm ',opt$output_dir,'keepb'))
-  system(paste0('rm ',opt$output_dir,'keepc'))
-  system(paste0('rm -r ',opt$output_dir,'highld'))
-  system(paste0('rm -r ',opt$output_dir,'sections'))
-  system(paste0('rm ',opt$output_dir,'ref*'))
-  system(paste0('rm ',opt$output_dir,'mega*'))
-  q()
 }
 
 ######

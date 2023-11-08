@@ -56,29 +56,31 @@ rule run_sumstat_prep:
 # pT+clump (sparse, nested)
 ##
 
-rule prs_scoring_pt_clump:
+rule prs_scoring_ptclump:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    "../Scripts/polygenic_score_file_creator/polygenic_score_file_creator_plink2.R",
+    "../Scripts/pgs_methods/ptclump.R",
     "../Scripts/functions/misc.R"
   output:
-    "resources/data/ref/prs_score_files/pt_clump/{gwas}/ref.{gwas}.EUR.scale"
+    "resources/data/ref/prs_score_files/ptclump/{gwas}/ref.{gwas}.EUR.scale"
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    testing=config["testing"]
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator/polygenic_score_file_creator_plink2.R \
+    "Rscript ../Scripts/pgs_methods/ptclump.R \
       --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{params.population}.keep \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
       --plink1 plink \
       --plink2 plink2 \
-      --output resources/data/ref/prs_score_files/pt_clump/{wildcards.gwas}/ref.{wildcards.gwas} \
-      --ref_pop_scale resources/data/ref/ref.keep.list"
+      --output resources/data/ref/prs_score_files/ptclump/{wildcards.gwas}/ref.{wildcards.gwas} \
+      --ref_pop_scale resources/data/ref/ref.keep.list \
+      --test {params.testing}"
   
-rule run_prs_scoring_pt_clump:
-  input: expand("resources/data/ref/prs_score_files/pt_clump/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
+rule run_prs_scoring_ptclump:
+  input: expand("resources/data/ref/prs_score_files/ptclump/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
 
 ##
 # DBSLMM
@@ -88,7 +90,7 @@ rule prs_scoring_dbslmm:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
-    "../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM_plink2.R",
+    "../Scripts/pgs_methods/dbslmm.R",
     "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/dbslmm/{gwas}/ref.{gwas}.EUR.scale"
@@ -98,8 +100,9 @@ rule prs_scoring_dbslmm:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
+    testing=config["testing"]
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM_plink2.R \
+    "Rscript ../Scripts/pgs_methods/dbslmm.R \
       --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{params.population}.keep \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
@@ -114,7 +117,8 @@ rule prs_scoring_dbslmm:
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
       --output resources/data/ref/prs_score_files/dbslmm/{wildcards.gwas}/ref.{wildcards.gwas} \
-      --ref_pop_scale resources/data/ref/ref.keep.list"
+      --ref_pop_scale resources/data/ref/ref.keep.list \
+      --test {params.testing}"
 
 rule run_prs_scoring_dbslmm:
   input: expand("resources/data/ref/prs_score_files/dbslmm/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
@@ -131,17 +135,21 @@ rule prs_scoring_prscs:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
-    "../Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs_plink2.R",
-    "../Scripts/functions/misc.R"
+    "../Scripts/pgs_methods/prscs.R",
+    "../Scripts/functions/misc.R",
+    rules.download_prscs_software.output,
+    rules.download_prscs_ref_1kg_eur.output
   output:
     "resources/data/ref/prs_score_files/prscs/{gwas}/ref.{gwas}.EUR.scale"
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    testing=config["testing"]
   shell:
     "export MKL_NUM_THREADS=1; \
      export NUMEXPR_NUM_THREADS=1; \
      export OMP_NUM_THREADS=1; \
-     Rscript ../Scripts/polygenic_score_file_creator_PRScs/polygenic_score_file_creator_PRScs_plink2.R \
+    "Rscript ../Scripts/pgs_methods/prscs.R \
       --ref_plink_chr resources/data/ref/ref.chr \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
       --plink2 plink2 \
@@ -152,7 +160,8 @@ rule prs_scoring_prscs:
       --PRScs_ref_path resources/data/prscs_ref/ldblk_1kg_eur \
       --n_cores {resources.cpus} \
       --phi_param 1e-6,1e-4,1e-2,1,auto \
-      --seed 1"
+      --seed 1 \
+      --test {params.testing}"
 
 rule run_prs_scoring_prscs:
   input: expand("resources/data/ref/prs_score_files/prscs/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
@@ -168,14 +177,18 @@ rule prs_scoring_sbayesr:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
-    "../Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR_plink2.R",
-    "../Scripts/functions/misc.R"
+    "../Scripts/pgs_methods/sbayesr.R",
+    "../Scripts/functions/misc.R",
+    rules.download_gctb_ref.output,
+    rules.download_gctb_software.output
   output:
     "resources/data/ref/prs_score_files/sbayesr/{gwas}/ref.{gwas}.EUR.scale"
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    testing=config["testing"]
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator_SBayesR/polygenic_score_file_creator_SBayesR_plink2.R \
+    "Rscript ../Scripts/pgs_methods/sbayesr.R \
       --ref_plink resources/data/ref/ref.GW \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
       --plink plink \
@@ -185,7 +198,8 @@ rule prs_scoring_sbayesr:
       --robust T \
       --n_cores {resources.cpus} \
       --output resources/data/ref/prs_score_files/sbayesr/{wildcards.gwas}/ref.{wildcards.gwas} \
-      --ref_pop_scale resources/data/ref/ref.keep.list"
+      --ref_pop_scale resources/data/ref/ref.keep.list \
+      --test {params.testing}"
 
 rule run_prs_scoring_sbayesr:
   input: expand("resources/data/ref/prs_score_files/sbayesr/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
@@ -198,7 +212,7 @@ rule prs_scoring_lassosum:
   input:
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
-    "../Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum_plink2.R",
+    "../Scripts/pgs_methods/lassosum.R",
     "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/lassosum/{gwas}/ref.{gwas}.EUR.scale"
@@ -206,14 +220,16 @@ rule prs_scoring_lassosum:
     "../envs/GenoPredPipe.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    testing=config["testing"]
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum_plink2.R \
+    "Rscript ../Scripts/pgs_methods/lassosum.R \
      --ref_plink resources/data/ref/ref.GW \
      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
      --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
      --output resources/data/ref/prs_score_files/lassosum/{wildcards.gwas}/ref.{wildcards.gwas} \
      --plink2 plink2 \
-     --ref_pop_scale resources/data/ref/ref.keep.list"
+     --ref_pop_scale resources/data/ref/ref.keep.list \
+      --test {params.testing}"
     
 rule run_prs_scoring_lassosum:
   input: expand("resources/data/ref/prs_score_files/lassosum/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
@@ -230,14 +246,17 @@ rule prs_scoring_ldpred2:
   input:
     rules.get_dependencies.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    "../Scripts/polygenic_score_file_creator_LDPred2/polygenic_score_file_creator_LDPred2_LDPredRef_plink2.R",
-    "../Scripts/functions/misc.R"
+    "../Scripts/pgs_methods/ldpred2.R",
+    "../Scripts/functions/misc.R",
+    rules.download_ldpred2_ref.output
   output:
     "resources/data/ref/prs_score_files/ldpred2/{gwas}/ref.{gwas}.EUR.scale"
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    testing=config["testing"]
   shell:
-    "Rscript ../Scripts/polygenic_score_file_creator_LDPred2/polygenic_score_file_creator_LDPred2_LDPredRef_plink2.R \
+    "Rscript ../Scripts/pgs_methods/ldpred2.R \
       --ref_plink resources/data/ref/ref.GW \
       --ref_keep resources/data/ref/keep_files/EUR.keep \
       --ldpred2_ref_dir resources/data/ldpred2_ref \
@@ -246,7 +265,8 @@ rule prs_scoring_ldpred2:
       --memory {resources.mem_mb} \
       --n_cores {resources.cpus} \
       --output resources/data/ref/prs_score_files/ldpred2/{wildcards.gwas}/ref.{wildcards.gwas} \
-      --ref_pop_scale resources/data/ref/ref.keep.list"
+      --ref_pop_scale resources/data/ref/ref.keep.list \
+      --test {params.testing}"
     
 rule run_prs_scoring_ldpred2:
   input: expand("resources/data/ref/prs_score_files/ldpred2/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'])
@@ -263,16 +283,20 @@ rule prs_scoring_megaprs:
   input:
     rules.get_dependencies.output,
     "resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
-    "../Scripts/ldak_mega_prs/ldak_mega_prs.R",
-    "../Scripts/functions/misc.R"
+    "../Scripts/pgs_methods/megaprs.R",
+    "../Scripts/functions/misc.R",
+    rules.download_ldak_highld.output,
+    rules.download_ldak.output,
+    rules.download_ldak_bld.output
   output:
     "resources/data/ref/prs_score_files/megaprs/{gwas}/ref.{gwas}.EUR.scale"
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    testing=config["testing"]
   shell:
-    "Rscript ../Scripts/ldak_mega_prs/ldak_mega_prs.R \
+    "Rscript ../Scripts/pgs_methods/megaprs.R \
       --ref_plink resources/data/ref/ref.GW \
       --ref_keep resources/data/ref/keep_files/{params.population}.keep \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
@@ -285,7 +309,8 @@ rule prs_scoring_megaprs:
       --memory {resources.mem_mb} \
       --n_cores {resources.cpus} \
       --output resources/data/ref/prs_score_files/megaprs/{wildcards.gwas}/ref.{wildcards.gwas} \
-      --ref_pop_scale resources/data/ref/ref.keep.list"
+      --ref_pop_scale resources/data/ref/ref.keep.list \
+      --test {params.testing}"
     
 rule run_prs_scoring_megaprs:
   input: expand("resources/data/ref/prs_score_files/megaprs/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'])
@@ -354,9 +379,3 @@ rule pseudovalidate_prs:
 rule run_pseudovalidate_prs:
   input: expand("resources/data/ref/prs_pseudoval/{gwas}/lassosum_pseudo_{gwas}.pseudovalidate.png", gwas=gwas_list_df['name'])
 
-rule pipeline_prep:
-  input:
-    rules.run_pop_pc_scoring.input,
-    rules.run_prs_scoring_pt_clump.input,
-    rules.run_prs_scoring_dbslmm.input,
-    rules.run_pseudovalidate_prs.input
