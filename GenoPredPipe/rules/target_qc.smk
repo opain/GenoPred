@@ -127,16 +127,16 @@ rule delete_temp_target_samp_files:
     "rm {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr*"
 
 ####
-# Identify super_population
+# Population classification
 ####
 
-rule target_super_population:
+rule target_population:
   input:
     "resources/data/target_checks/{name}/harmonise_target_with_ref.done",
     lambda w: "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_files.done",
     "../Scripts/Ancestry_identifier/Ancestry_identifier.R"
   output:
-    touch("resources/data/target_checks/{name}/target_super_population.done")
+    touch("resources/data/target_checks/{name}/target_population.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
@@ -153,13 +153,13 @@ rule target_super_population:
       --pop_data resources/data/ref/ref.pop.txt \
       --prob_thresh 0.95"
 
-rule run_target_super_population:
-  input: expand("resources/data/target_checks/{name}/target_super_population.done", name=target_list_df['name'])
+rule run_target_population:
+  input: expand("resources/data/target_checks/{name}/target_population.done", name=target_list_df['name'])
 
-# Create a file listing target samples and super population assignments
+# Create a file listing target samples and population assignments
 checkpoint ancestry_reporter:
   input:
-    "resources/data/target_checks/{name}/target_super_population.done",
+    "resources/data/target_checks/{name}/target_population.done",
     "scripts/ancestry_reporter.R"
   output:
     touch("resources/data/target_checks/{name}/ancestry_reporter.done")
@@ -174,17 +174,17 @@ rule run_ancestry_reporter:
   input: expand("resources/data/target_checks/{name}/ancestry_reporter.done", name=target_list_df['name'])
 
 ####
-# Super population outlier detection and target sample specific PC calculation
+# Population outlier detection and target sample specific PC calculation
 ####
 
-rule target_super_population_outlier_detection:
+rule target_population_outlier_detection:
   resources: 
     mem_mb=15000
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     "../Scripts/Population_outlier/Population_outlier.R"
   output:
-    touch('resources/data/target_checks/{name}/target_super_population_outlier_detection.done')
+    touch('resources/data/target_checks/{name}/target_population_outlier_detection.done')
   conda:
     "../envs/GenoPredPipe.yaml"
   params:

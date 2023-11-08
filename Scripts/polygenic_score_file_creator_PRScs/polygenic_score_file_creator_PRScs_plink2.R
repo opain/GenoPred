@@ -36,6 +36,7 @@ library(data.table)
 library(foreach)
 library(doMC)
 registerDoMC(opt$n_cores)
+source('../Scripts/functions/misc.R')
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
@@ -217,32 +218,10 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-if(length(phi_param) == 1){
-  for(i in CHROMS){
-    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_chr,i,' --score ',opt$output,'.score.gz header-read --out ',opt$output,'.profiles.chr',i,' --memory ',floor(opt$memory*0.7)))
-  }
-} else {
-  for(i in CHROMS){
-    system(paste0(opt$plink2, ' --bfile ',opt$ref_plink_chr,i,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',2+length(phi_param),' --out ',opt$output,'.profiles.chr',i,' --memory ',floor(opt$memory*0.7)))
-  }
-}
-
-# Add up the scores across chromosomes
-fam<-fread(paste0(opt$ref_plink_chr,'22.fam'))
-
-scores<-list()
-for(i in as.character(CHROMS)){
-  sscore<-fread(paste0(opt$output,'.profiles.chr',i,'.sscore'))
-  scores[[i]]<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-  scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT)
-}
-
-scores<-Reduce(`+`, scores)
-scores<-data.table(FID=fam$V1,
-                   IID=fam$V2,
-                   scores)
-
-names(scores)<-c('FID','IID',names(score_all)[-1:-2])
+scores<-calc_score(
+  bfile=opt$ref_plink_chr, 
+  score=paste0(opt$output,'.score.gz')
+)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -254,12 +233,8 @@ pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
 for(k in 1:dim(pop_keep_files)[1]){
 	pop<-pop_keep_files$V1[k]
 	keep<-fread(pop_keep_files$V2[k], header=F)
-	scores_keep<-scores[(scores$FID %in% keep$V1),]
-
-	ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-													Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
-													SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
-
+  names(keep)<-c('FID','IID')
+  ref_scale<-score_mean_sd(scores=scores, keep=keep)
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 

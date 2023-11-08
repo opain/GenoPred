@@ -39,6 +39,7 @@ option_list = list(
 opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
+source('../Scripts/functions/misc.R')
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
@@ -383,17 +384,10 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-system(paste0(opt$plink2, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',ncol(score),' --out ',opt$output,'.profiles --threads ',opt$n_cores,' --memory ',floor(opt$memory*0.7)))
-
-# Add up the scores across chromosomes
-sscore<-fread(paste0(opt$output,'.profiles.sscore'), nThread=opt$n_cores)
-scores<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-scores<-as.matrix(scores*sscore$NMISS_ALLELE_CT)
-
-scores<-data.table(sscore[,1:2,with=F],
-                   scores)
-
-names(scores)<-c('FID','IID',names(score)[-1:-2])
+scores<-calc_score(
+  bfile=opt$ref_plink, 
+  score=paste0(opt$output,'.score.gz')
+)
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
@@ -403,15 +397,11 @@ sink()
 pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
 
 for(k in 1:dim(pop_keep_files)[1]){
-  pop<-pop_keep_files$V1[k]
-  keep<-fread(pop_keep_files$V2[k], header=F, nThread=opt$n_cores)
-  scores_keep<-scores[(scores$FID %in% keep$V1),]
-  
-  ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-                         Mean=round(sapply(scores_keep[,-1:-2], function(x) mean(x)),3),
-                         SD=round(sapply(scores_keep[,-1:-2], function(x) sd(x)),3))
-  
-  fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
+	pop<-pop_keep_files$V1[k]
+	keep<-fread(pop_keep_files$V2[k], header=F)
+  names(keep)<-c('FID','IID')
+  ref_scale<-score_mean_sd(scores=scores, keep=keep)
+	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 
 ###

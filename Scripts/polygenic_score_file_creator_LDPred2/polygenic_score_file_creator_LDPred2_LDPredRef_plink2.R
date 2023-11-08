@@ -34,6 +34,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
 library(bigsnpr)
+source('../Scripts/functions/misc.R')
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
@@ -348,6 +349,7 @@ if(is.null(rem) == F){
 }
 
 betas$A2<-NULL
+names(betas)[-1:-2]<-gsub('SCORE_','',names(betas)[-1:-2])
 
 fwrite(betas, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
@@ -377,31 +379,20 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Calculating polygenic scores in reference...')
 sink()
 
-param<-gsub('SCORE_','',names(betas)[-1:-2])
-
-system(paste0(opt$plink, ' --bfile ',opt$ref_plink,' --score ',opt$output,'.score.gz header-read --score-col-nums 3-',length(param)+2,' --out ',opt$output_dir,'ref.profiles --memory ',floor(opt$memory*0.7)))
-
-sscore<-fread(paste0(opt$output_dir,'ref.profiles.sscore'))
-fam<-sscore[,1:2,with=F]
-scores<-sscore[,grepl('SCORE_', names(sscore)),with=F]
-scores<-scores*sscore$NMISS_ALLELE_CT
-scores<-cbind(fam,scores)
-
-names(scores)<-c('FID','IID',paste0('SCORE_',param))
+scores<-calc_score(
+  bfile=opt$ref_plink, 
+  score=paste0(opt$output,'.score.gz')
+)
 
 # Calculate the mean and sd of scores for each population specified in pop_scale
 pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
 
 for(k in 1:dim(pop_keep_files)[1]){
-  pop<-pop_keep_files$V1[k]
-  keep<-fread(pop_keep_files$V2[k], header=F)
-  scores_keep<-scores[(scores$FID %in% keep$V1),]
-  
-  ref_scale<-data.frame(	Param=names(scores_keep[,-1:-2]),
-                         Mean=sapply(scores_keep[,-1:-2], function(x) mean(x)),
-                         SD=sapply(scores_keep[,-1:-2], function(x) sd(x)))
-  
-  fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
+	pop<-pop_keep_files$V1[k]
+	keep<-fread(pop_keep_files$V2[k], header=F)
+  names(keep)<-c('FID','IID')
+  ref_scale<-score_mean_sd(scores=scores, keep=keep)
+	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)

@@ -25,9 +25,7 @@ make_option("--memory", action="store", default=5000, type='numeric',
 opt = parse_args(OptionParser(option_list=option_list))
 
 library(data.table)
-library(caret)
-library(pROC)
-library(verification)
+source('../Scripts/functions/misc.R')
 
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
@@ -131,107 +129,31 @@ system(paste0(opt$plink,' --bfile ',opt$output_dir,'ref_merge --threads 1 --extr
 # Calculate SNP weights
 system(paste0(opt$plink2,' --bfile ',opt$output_dir,'ref_merge_pruned --threads 1 --pca ',opt$n_pcs,' biallelic-var-wts  --out ',opt$output_dir,'ref_merge_pruned --memory ',floor(opt$memory*0.7)))
 
+# Format SNP-weights: SNP, A1, PC1, etc
+snp_weights<-fread(paste0(opt$output_dir,'ref_merge_pruned.eigenvec.var'))
+snp_weights<-snp_weights[,c('ID','MAJ',names(snp_weights)[grepl('^PC', names(snp_weights))]), with=F]
+names(snp_weights)[1:2]<-c('SNP','A1')
+fwrite(snp_weights, paste0(opt$output_dir,'ref_merge_pruned.eigenvec.var'), sep=' ', na='NA', quote=F)
+
 # Calculate PCs in the reference
-system(paste0(opt$plink2,' --bfile ',opt$output_dir,'ref_merge_pruned --threads 1 --score ',opt$output_dir,'ref_merge_pruned.eigenvec.var header-read 2 3 --score-col-nums 5-',as.numeric(opt$n_pcs)+4,' --out ',opt$output_dir,'ref_merge_pruned_score --memory ',floor(opt$memory*0.7)))
+PCs_ref<-calc_score(
+  bfile=opt$ref_plink_chr, 
+  score=paste0(opt$output_dir,'ref_merge_pruned.eigenvec.var')
+)
 
-# Read in reference PC scores
-PCs_ref<-data.frame(fread(paste0(opt$output_dir,'ref_merge_pruned_score.sscore')))
-PCs_ref<-PCs_ref[,c(1:2,5:dim(PCs_ref)[2])]
-names(PCs_ref)<-c('FID','IID',paste0('PC',1:as.numeric(opt$n_pcs)))
-
-fwrite(PCs_ref, paste0(opt$output,'.eigenvec'), sep=' ')
+fwrite(PCs_ref, paste0(opt$output,'.eigenvec'), sep=' ', na='NA', quote=F)
 
 # Scale across all individuals
-PCs_ref_centre_scale<-data.frame(PC=names(PCs_ref[-1:-2]),
-							  Mean=sapply(PCs_ref[,-1:-2], function(x) mean(x)),
-							  SD=sapply(PCs_ref[,-1:-2], function(x) sd(x)),
-							  row.names=seq(1:as.numeric(opt$n_pcs)))
+PCs_ref_centre_scale<-score_mean_sd(PCs_ref)
 
 fwrite(PCs_ref_centre_scale, paste0(opt$output,'.scale'), sep=' ')
 
 rm(PCs_ref_centre_scale)
 gc()
 
-if(!is.na(opt$ref_pop)){
-  # Calculate the mean and sd of scores for each population specified in pop_scale
-  pop_keep_files<-read.table(opt$ref_pop, header=F, stringsAsFactors=F)
-
-  for(k in 1:dim(pop_keep_files)[1]){
-  	pop<-pop_keep_files$V1[k]
-  	keep<-fread(pop_keep_files$V2[k], header=F)
-  	PCs_ref_keep<-PCs_ref[(PCs_ref$FID %in% keep$V1),]
-
-    PCs_ref_centre_scale<-data.frame(PC=names(PCs_ref_keep[-1:-2]),
-    								  Mean=sapply(PCs_ref_keep[,-1:-2], function(x) mean(x)),
-    								  SD=sapply(PCs_ref_keep[,-1:-2], function(x) sd(x)),
-    								  row.names=seq(1:100))
-
-  	fwrite(PCs_ref_centre_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
-	
-	rm(PCs_ref_centre_scale)
-	gc()
-	}
-}
-
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Done!\n')
 sink()
-
-###
-# Create model predicting ref_pop groups
-###
-
-if(!is.na(opt$ref_pop)){
-
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('Deriving model predicting ref_pop groups...')
-	sink()
-
-	# Read in whole sample scale file
-	PCs_ref_centre_scale<-fread(paste0(opt$output,'.scale'))
-
-	# Scale the reference PCs
-	PCs_ref_scaled<-PCs_ref
-	for(i in 1:dim(PCs_ref_centre_scale)[1]){
-		PCs_ref_scaled[[paste0('PC',i)]]<-PCs_ref[[paste0('PC',i)]]-PCs_ref_centre_scale$Mean[PCs_ref_centre_scale$PC == paste0('PC',i)]
-		PCs_ref_scaled[[paste0('PC',i)]]<-PCs_ref_scaled[[paste0('PC',i)]]/PCs_ref_centre_scale$SD[PCs_ref_centre_scale$PC == paste0('PC',i)]
-	}
-	
-	# Label individuals with ref_pop groups
-	pop<-NULL
-	for(i in 1:dim(pop_keep_files)[1]){
-		keep<-fread(pop_keep_files$V2[i], header=F)
-		keep$pop<-pop_keep_files$V1[i]
-		pop<-rbind(pop,keep)
-	}
-	names(pop)<-c('FID','IID','pop')
-	PCs_ref_scaled_pop<-merge(PCs_ref_scaled,pop, by=c('FID','IID'))
-	rm(PCs_ref_scaled)
-	gc()
-	
-	# Build enet model
-	enet_model <- train(y=as.factor(PCs_ref_scaled_pop$pop), x=PCs_ref_scaled_pop[grepl('PC',names(PCs_ref_scaled_pop))], method="glmnet", metric='logLoss', trControl=trainControl(method="cv", number=5, classProbs= TRUE, savePredictions = 'final', summaryFunction = multiClassSummary),tuneGrid = expand.grid(alpha = 0,lambda = 0))
-	
-	# Calculate the percentage of correctly individuals to each group		
-	enet_model_n_correct<-NULL
-	for(k in as.character(unique(enet_model$pred$obs))){
-		tmp<-enet_model$pred[enet_model$pred$obs == k,]
-	
-	n_correct_tmp<-data.frame(	Group=k,
-								N_obs=sum(tmp$obs == k),
-								prop_correct=round(sum(tmp$obs == k & tmp$pred == k)/sum(tmp$obs == k),3))
-	
-	enet_model_n_correct<-rbind(enet_model_n_correct,n_correct_tmp)
-	}
-	
-	write.table(enet_model_n_correct, paste0(opt$output,'.pop_enet_prediction_details.txt'), col.names=T, row.names=F, quote=F)
-
-	saveRDS(enet_model$finalModel, paste0(opt$output,'.pop_enet_model.rds'))
-	
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('Done!\n')
-	sink()
-}
 
 ###
 # Rename files
