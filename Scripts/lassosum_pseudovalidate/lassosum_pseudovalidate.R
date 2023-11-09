@@ -4,8 +4,8 @@ start.time <- Sys.time()
 suppressMessages(library("optparse"))
 
 option_list = list(
-	make_option("--ref_plink_gw", action="store", default=NA, type='character',
-			help="Path to genome-wide reference PLINK files [required]"),
+	make_option("--ref_plink_chr", action="store", default=NA, type='character',
+			help="Path to per-chromosome reference PLINK files [required]"),
 	make_option("--ref_keep", action="store", default=NA, type='character',
 			help="Keep file to subset individuals in reference for clumping [required]"),
 	make_option("--ref_freq_chr", action="store", default=NA, type='character',
@@ -125,6 +125,26 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('GWAS contains',dim(GWAS)[1],'variants.\n')
 sink()
 
+###
+# Merge the per chromosome reference genetic data
+###
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Merging per chromosome reference data...')
+sink()
+
+# Create merge list
+ref_merge_list<-paste0(opt$ref_plink_chr,1:22)
+
+write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
+
+# Merge
+system(paste0(opt$plink,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --out ',opt$output_dir,'lassosum_ref_gw'))  
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('Done!\n')
+sink()
+
 if(!is.na(opt$ref_keep)){
   sink(file = paste(opt$output,'.log',sep=''), append = T)
   cat('ref_keep used to subset reference genotype data.\n')
@@ -134,11 +154,11 @@ if(!is.na(opt$ref_keep)){
   # Create subset of ref files
   #####
   
-  system(paste0(opt$plink,' --bfile ',opt$ref_plink_gw,' --keep ',opt$ref_keep,' --make-bed --out ',opt$output_dir,'lassosum_ref_gw'))
+  system(paste0(opt$plink,' --bfile ',opt$output_dir,'lassosum_ref_gw --keep ',opt$ref_keep,' --make-bed --out ',opt$output_dir,'lassosum_ref_gw_subset'))
 
-  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw')
+  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw_subset')
 } else {
-  opt$ref_plink_subset<-opt$ref_plink_gw
+  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw')
 }
 
 if(!is.na(opt$test)){

@@ -1,5 +1,5 @@
 import pandas as pd
-target_list_df = pd.read_table(config["target_list"], sep=' ')
+target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
 
 target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
 target_list_df_samp_imp_plink1 = target_list_df.loc[target_list_df['type'] == 'samp_imp_plink1']

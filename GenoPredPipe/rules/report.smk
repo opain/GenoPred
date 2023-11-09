@@ -68,7 +68,7 @@ rule create_sample_report:
   input:
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
     lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ptclump_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_all_method.done", name=w.name),
+    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     "scripts/samp_report_creator.Rmd"
   output:
     touch('resources/data/target_checks/{name}/create_sample_report.done')
