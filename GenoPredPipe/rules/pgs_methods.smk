@@ -27,7 +27,7 @@ rule run_pop_pc_scoring:
 ##
 
 import pandas as pd
-gwas_list_df = pd.read_table(config["gwas_list"], sep=' ')
+gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
 gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
 
 rule sumstat_prep:
@@ -322,7 +322,7 @@ rule run_prs_scoring_megaprs:
 # Read in list of external score files
 score_list_file = Path(config["score_list"])
 if score_list_file.is_file():
-  score_list_df = pd.read_table(config["score_list"], sep=' ')
+  score_list_df = pd.read_table(config["score_list"], sep=r'\s+')
 else:
   score_list_df = pd.DataFrame(columns = ["name", "path", "population", "sampling", "prevalence", "mean", "sd", "label"])
 
@@ -331,7 +331,7 @@ rule prs_scoring_external:
     config['score_list'],
     rules.get_dependencies.output,
     lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
-    "../Scripts/external_score_processor/external_score_processor_plink2.R",
+    "../Scripts/external_score_processor/external_score_processor.R",
     "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/prs_score_files/external/{gwas}/ref.{gwas}.EUR.scale"
@@ -341,7 +341,7 @@ rule prs_scoring_external:
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "Rscript ../Scripts/external_score_processor/external_score_processor_plink2.R \
+    "Rscript ../Scripts/external_score_processor/external_score_processor.R \
       --ref_plink_chr resources/data/ref/ref.chr \
       --score {params.score} \
       --plink2 plink2 \
@@ -368,7 +368,7 @@ rule pseudovalidate_prs:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
   shell:
     "Rscript ../Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R \
-      --ref_plink_gw resources/data/ref/ref.GW \
+      --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{params.population}.keep \
       --sumstats resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
       --prune_mhc T \

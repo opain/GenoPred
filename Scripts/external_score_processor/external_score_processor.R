@@ -56,7 +56,7 @@ sink()
 
 scores<-calc_score(
   bfile=opt$ref_plink_chr, 
-  score=paste0(opt$output,'.score.gz')
+  score=opt$score
 )
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -69,8 +69,8 @@ pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
 for(k in 1:dim(pop_keep_files)[1]){
 	pop<-pop_keep_files$V1[k]
 	keep<-fread(pop_keep_files$V2[k], header=F)
-  names(keep)<-c('FID','IID')
-  ref_scale<-score_mean_sd(scores=scores, keep=keep)
+	names(keep)<-c('FID','IID')
+	ref_scale<-score_mean_sd(scores=scores, keep=keep)
 	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
 }
 
