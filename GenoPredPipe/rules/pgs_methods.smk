@@ -30,6 +30,12 @@ import pandas as pd
 gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
 gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
 
+score_list_file = Path(config["score_list"])
+if score_list_file.is_file():
+  score_list_df = pd.read_table(config["score_list"], sep=r'\s+')
+else:
+  score_list_df = pd.DataFrame(columns = ["name", "path", "population", "sampling", "prevalence", "mean", "sd", "label"])
+
 rule sumstat_prep:
   input:
     config['gwas_list'],

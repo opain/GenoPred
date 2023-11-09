@@ -50,6 +50,7 @@ def get_score_file(w):
     # Assuming score_list_df is defined in the global scope
     return score_list_df.loc[score_list_df['name'] == w.gwas, 'path'].iloc[0]
 
+
 rule target_prs:
   input:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
@@ -77,7 +78,7 @@ rule target_prs:
 rule run_target_prs_all_gwas:
   input:
     config["gwas_list"],
-    lambda w: expand("resources/data/target_checks/{name}/target_prs_{method}_{population}_{gwas}.done", name=w.name, gwas= gwas_list_df['name'] if w.method != 'external' else score_list_df['name'], population=w.population, method=w.method)
+    lambda w: expand("resources/data/target_checks/{name}/target_prs_{method}_{population}_{gwas}.done", name=w.name, gwas= score_list_df['name'] if w.method == 'external' else (gwas_list_df['name'] if w.method in ['dbslmm','lassosum','megaprs'] else gwas_list_df['name']), population=w.population, method=w.method)
   output:
     touch("resources/data/target_checks/{name}/run_target_prs_{method}_all_gwas_{population}.done")
 
