@@ -27,20 +27,19 @@ rule format_impute_23andme_target:
     rules.download_qctool2.output,
     "../Scripts/23andMe_imputer/23andMe_imputer.R"
   output:
-    touch("resources/data/target_checks/{name}/format_impute_23andme_target.done")
+    touch("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
+    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
   shell:
     "Rscript ../Scripts/23andMe_imputer/23andMe_imputer.R \
       --FID {params.name} \
       --IID {params.name} \
       --geno {params.path} \
       --plink plink \
-      --out {params.output}/{params.name}/{params.name} \
+      --out {outdir}/{params.name}/geno/{params.name} \
       --ref resources/data/impute2/1000GP_Phase3 \
       --shapeit shapeit \
       --impute2 impute2 \
@@ -48,7 +47,7 @@ rule format_impute_23andme_target:
       --qctool resources/software/qctool2/qctool"
 
 rule run_format_impute_23andme_target:
-  input: expand("resources/data/target_checks/{name}/format_impute_23andme_target_{name}.done", name=target_list_df_23andMe['name'])
+  input: expand("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target_{name}.done", name=target_list_df_23andMe['name'], outdir=outdir)
 
 ##
 # Formatting without imputation
@@ -61,12 +60,11 @@ rule format_target:
     rules.get_dependencies.output,
     "../Scripts/geno_to_plink/geno_to_plink.R"
   output:
-    touch("resources/data/target_checks/{name}/format_target_{chr}.done")
+    touch("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
     path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
     type= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'type'].iloc[0]
   shell:
     "Rscript ../Scripts/geno_to_plink/geno_to_plink.R \
@@ -76,17 +74,17 @@ rule format_target:
       --plink2 plink2 \
       --liftover resources/software/liftover/liftover \
       --liftover_track resources/data/liftover/hg19ToHg38.over.chain.gz \
-      --out {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr{wildcards.chr}"
+      --out {outdir}/{wildcards.name}/geno/{wildcards.name}.hm3.chr{wildcards.chr}"
 
 rule run_format_target:
   input: 
-    lambda w: expand("resources/data/target_checks/{name}/format_target_{chr}.done", name=w.name, chr=range(1, 23))
+    lambda w: expand("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done", name=w.name, chr=range(1, 23), outdir=outdir)
   output:
-    touch("resources/data/target_checks/{name}/format_target.done")
+    touch("{outdir}/resources/data/target_checks/{name}/format_target.done")
 
 rule run_format_target_2:
   input: 
-    expand("resources/data/target_checks/{name}/format_target.done", name=target_list_df_samp_imp['name'])
+    expand("{outdir}/resources/data/target_checks/{name}/format_target.done", name=target_list_df_samp_imp['name'], outdir=outdir)
 
 ####
 # Harmonise with reference
@@ -95,36 +93,32 @@ rule run_format_target_2:
 rule harmonise_target_with_ref:
   input:
     rules.get_dependencies.output,
-    lambda w: "resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else ("resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else "resources/data/target_checks/{name}/format_target.done")),
+    lambda w: outdir + "/resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else (outdir + "/resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else (outdir + "/resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else outdir + "/resources/data/target_checks/{name}/format_target.done")),
     "../Scripts/hm3_harmoniser/hm3_harmoniser.R"
   output:
-    touch("resources/data/target_checks/{name}/harmonise_target_with_ref.done")
+    touch("{outdir}/resources/data/target_checks/{name}/harmonise_target_with_ref.done")
   conda:
     "../envs/GenoPredPipe.yaml"
-  params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R \
-      --target {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr \
+      --target {outdir}/{wildcards.name}/geno/{wildcards.name}.hm3.chr \
       --ref resources/data/ref/ref.chr \
       --plink plink \
-      --out {params.output}/{wildcards.name}/{wildcards.name}.ref.chr"
+      --out {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr"
 
 rule run_harmonise_target_with_ref:
-  input: expand("resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'])
+  input: expand("{outdir}/resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'], outdir=outdir)
   
 # Delete temporary files
 rule delete_temp_target_samp_files:
   input:
-    "resources/data/target_checks/{name}/harmonise_target_with_ref.done"
+    "{outdir}/resources/data/target_checks/{name}/harmonise_target_with_ref.done"
   output:
-    touch("resources/data/target_checks/{name}/delete_temp_target_samp_files.done")
+    touch("{outdir}/resources/data/target_checks/{name}/delete_temp_target_samp_files.done")
   conda:
     "../envs/GenoPredPipe.yaml"
-  params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "rm {params.output}/{wildcards.name}/{wildcards.name}.hm3.chr*"
+    "rm {outdir}/{wildcards.name}/geno/{wildcards.name}.hm3.chr*"
 
 ####
 # Population classification
@@ -132,46 +126,42 @@ rule delete_temp_target_samp_files:
 
 rule target_population:
   input:
-    "resources/data/target_checks/{name}/harmonise_target_with_ref.done",
-    lambda w: "resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else "resources/data/target_checks/" + w.name + "/delete_temp_target_samp_files.done",
+    "{outdir}/resources/data/target_checks/{name}/harmonise_target_with_ref.done",
+    lambda w: outdir + "/resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else outdir + "/resources/data/target_checks/" + w.name + "/delete_temp_target_samp_files.done",
     "../Scripts/Ancestry_identifier/Ancestry_identifier.R"
   output:
-    touch("resources/data/target_checks/{name}/target_population.done")
+    touch("{outdir}/resources/data/target_checks/{name}/target_population.done")
   conda:
     "../envs/GenoPredPipe.yaml"
-  params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
     "Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
-      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.ref.chr \
+      --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --ref_plink_chr resources/data/ref/ref.chr \
       --n_pcs 6 \
       --plink plink \
       --plink2 plink2 \
-      --output {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry \
+      --output {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry \
       --ref_pop_scale resources/data/ref/ref.keep.list \
       --pop_data resources/data/ref/ref.pop.txt \
       --prob_thresh 0.95"
 
 rule run_target_population:
-  input: expand("resources/data/target_checks/{name}/target_population.done", name=target_list_df['name'])
+  input: expand("{outdir}/resources/data/target_checks/{name}/target_population.done", name=target_list_df['name'], outdir=outdir)
 
 # Create a file listing target samples and population assignments
 checkpoint ancestry_reporter:
   input:
-    "resources/data/target_checks/{name}/target_population.done",
+    "{outdir}/resources/data/target_checks/{name}/target_population.done",
     "scripts/ancestry_reporter.R"
   output:
-    touch("resources/data/target_checks/{name}/ancestry_reporter.done")
+    touch("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done")
   conda:
     "../envs/GenoPredPipe.yaml"
-  params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "Rscript scripts/ancestry_reporter.R {wildcards.name} {params.output}"
+    "Rscript scripts/ancestry_reporter.R {wildcards.name} {outdir}"
 
 rule run_ancestry_reporter:
-  input: expand("resources/data/target_checks/{name}/ancestry_reporter.done", name=target_list_df['name'])
+  input: expand("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done", name=target_list_df['name'], outdir=outdir)
 
 ####
 # Population outlier detection and target sample specific PC calculation
@@ -181,18 +171,16 @@ rule target_population_outlier_detection:
   resources: 
     mem_mb=15000
   input:
-    "resources/data/target_checks/{name}/ancestry_reporter.done",
+    "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",
     "../Scripts/Population_outlier/Population_outlier.R"
   output:
-    touch('resources/data/target_checks/{name}/target_population_outlier_detection.done')
+    touch('{outdir}/resources/data/target_checks/{name}/target_population_outlier_detection.done')
   conda:
     "../envs/GenoPredPipe.yaml"
-  params:
-    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0]
   shell:
-    "ls {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.*.keep > {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.keep_list; Rscript ../Scripts/Population_outlier/Population_outlier.R \
-      --target_plink_chr {params.output}/{wildcards.name}/{wildcards.name}.ref.chr \
-      --target_keep {params.output}/{wildcards.name}/ancestry/ancestry_all/{wildcards.name}.Ancestry.model_pred.keep_list \
+    "ls {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.*.keep > {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.keep_list; Rscript ../Scripts/Population_outlier/Population_outlier.R \
+      --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
+      --target_keep {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.keep_list \
       --n_pcs 10 \
       --maf 0.05 \
       --geno 0.02 \
@@ -200,14 +188,14 @@ rule target_population_outlier_detection:
       --memory {resources.mem_mb} \
       --plink plink \
       --plink2 plink2 \
-      --output {params.output}/{wildcards.name}/ancestry/outlier_detection/{wildcards.name}.outlier_detection"
+      --output {outdir}/{wildcards.name}/pcs/within_sample/{wildcards.name}.outlier_detection"
 
 # Create a function summarising which populations are present in target      
 from pathlib import Path
 
 def ancestry_munge(x):
-    checkpoint_output = checkpoints.ancestry_reporter.get(name=x).output[0]
-    checkpoint_output = target_list_df.loc[target_list_df['name'] == x, 'output'].iloc[0] + "/" + x + "/ancestry/ancestry_report.txt"
+    checkpoint_output = checkpoints.ancestry_reporter.get(name=x, outdir=outdir).output[0]
+    checkpoint_output = outdir + "/" + x + "/ancestry/ancestry_report.txt"
     ancestry_report_df = pd.read_table(checkpoint_output, sep=' ')
     return ancestry_report_df['population'].tolist()
     

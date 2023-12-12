@@ -1,8 +1,78 @@
 ##########
+# Package the content for report into an .rds file
+##########
+
+# Identify outputs requested prior to generating report
+report_input = list()
+
+if 'gwas_list' in config:
+  # Read in gwas_list
+  gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
+
+  # If it is not empty, request target scoring
+  if not gwas_list_df.empty:
+    report_input.append("resources/data/target_checks/{name}/run_target_prs_all_method.done")
+    report_input.append(rules.run_pseudovalidate_prs.input)
+
+rule package_results:
+  input:
+    report_input,
+    rules.install_ggchicklet.output,
+    "scripts/report_creator.Rmd"
+  output:
+    "{outdir}/{name}/reports/results_package.rds"
+  conda:
+    "../envs/main.yaml"
+  params:
+    config_file= config["config_file"]
+  shell:
+    "Rscript scripts/package_results.R \
+    --name {wildcards.name} \
+    --config {params.config_file}"
+
+rule run_package_results:
+  input: expand("{outdir}/results/results_package.rds", outdir={outdir})
+
+
+##########
+# Create .html report of analysis
+##########
+
+# Identify outputs requested prior to generating report
+report_input = list()
+
+if 'gwas_list' in config:
+  # Read in gwas_list
+  gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
+
+  # If it is not empty, request target scoring
+  if not gwas_list_df.empty:
+    report_input.append("resources/data/target_checks/{name}/run_target_prs_all_method.done")
+    report_input.append(rules.run_pseudovalidate_prs.input)
+
+# Create reports
+rule create_report:
+  input:
+    report_input,
+    rules.install_ggchicklet.output,
+    "scripts/report_creator.Rmd"
+  output:
+    touch('resources/data/target_checks/{name}/create_report.done')
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  params:
+    output= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'output'].iloc[0],
+    report_output= lambda w: report_output_munge(w.name)
+  shell:
+    "mkdir -p {params.output}/{wildcards.name}/reports; Rscript -e \"rmarkdown::render(\'scripts/indiv_report_creator.Rmd\', \
+     output_file = \'{params.report_output}/{wildcards.name}/reports/{wildcards.name}_report.html\', \
+     params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
+
+##########
 # Create full reports
 ##########
 
-## 
+##
 # Individual reports
 ##
 
@@ -10,13 +80,11 @@
 rule create_individual_report:
   input:
     lambda w: expand("resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_ptclump_all_pop.done", name=w.name),
-    lambda w: expand("resources/data/target_checks/{name}/run_target_prs_dbslmm_all_pop.done", name=w.name),
     rules.run_pseudovalidate_prs.input,
     rules.install_ggchicklet.output,
-    "scripts/indiv_report_creator.Rmd"
+    "scripts/report_creator.Rmd"
   output:
-    touch('resources/data/target_checks/{name}/create_individual_report.done') 
+    touch('resources/data/target_checks/{name}/create_individual_report.done')
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
@@ -40,7 +108,7 @@ rule create_individual_report_for_sample:
     rules.install_ggchicklet.output,
     "scripts/indiv_report_creator_for_sample.Rmd"
   output:
-    touch('resources/data/target_checks/{name}/create_individual_report_for_sample_{id}.done') 
+    touch('resources/data/target_checks/{name}/create_individual_report_for_sample_{id}.done')
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
@@ -86,7 +154,7 @@ rule run_create_sample_report:
   input: expand('resources/data/target_checks/{name}/create_sample_report.done', name=target_list_df_samp_imp['name'])
 
 rule run_create_reports:
-  input: 
+  input:
     rules.run_create_individual_report.input,
     rules.run_create_individual_report_for_sample_all_indiv.input,
     rules.run_create_sample_report.input
@@ -100,7 +168,7 @@ def report_output_munge(x):
     report_output=output if output[0] == "/" else "../" + output
     return report_output
 
-## 
+##
 # Individual ancestry reports
 ##
 
@@ -109,7 +177,7 @@ rule create_individual_ancestry_report:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     "scripts/indiv_ancestry_report_creator.Rmd"
   output:
-    touch('resources/data/target_checks/{name}/indiv_ancestry_report.done') 
+    touch('resources/data/target_checks/{name}/indiv_ancestry_report.done')
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
@@ -121,7 +189,7 @@ rule create_individual_ancestry_report:
      params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_individual_ancestry_report:
-  input: 
+  input:
     expand('resources/data/target_checks/{name}/indiv_ancestry_report.done', name=target_list_df_23andMe['name'])
 
 # Create individual level reports for all individuals in a sample
@@ -137,7 +205,7 @@ rule create_individual_ancestry_report_for_sample:
     "resources/data/target_checks/{name}/ancestry_reporter.done",
     "scripts/indiv_ancestry_report_creator_for_sample.Rmd"
   output:
-    touch('resources/data/target_checks/{name}/create_individual_ancestry_report_for_sample_{id}.done') 
+    touch('resources/data/target_checks/{name}/create_individual_ancestry_report_for_sample_{id}.done')
   conda:
     "../envs/GenoPredPipe.yaml"
   params:
@@ -178,11 +246,11 @@ rule create_sample_ancestry_report:
      params = list(name = \'{wildcards.name}\', output = \'{params.output}\'))\""
 
 rule run_create_sample_ancestry_report:
-  input: 
+  input:
     expand('resources/data/target_checks/{name}/samp_ancestry_report.done', name=target_list_df_samp_imp['name'])
 
 rule run_create_ancestry_reports:
-  input: 
+  input:
     rules.run_create_individual_ancestry_report.input,
     rules.run_create_individual_ancestry_report_for_sample_all_indiv.input,
     rules.run_create_sample_ancestry_report.input

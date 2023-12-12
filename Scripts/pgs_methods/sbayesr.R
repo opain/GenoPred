@@ -130,13 +130,11 @@ if(sum(names(GWAS) == 'OR') == 1){
 }
 
 # Rename allele frequency column
-if(sum(names(GWAS) == 'FREQ') == 1){
-  GWAS$MAF<-GWAS$FREQ
-} else {
-  GWAS$MAF<-GWAS$REF.FREQ
+if(sum(names(GWAS) == 'FREQ') != 1){
+  GWAS$FREQ<-GWAS$REF.FREQ
 }
 
-GWAS<-GWAS[,c('SNP','A1','A2','MAF','BETA','SE','P','N'),with=F]
+GWAS<-GWAS[,c('SNP','A1','A2','FREQ','BETA','SE','P','N'),with=F]
 names(GWAS)<-c('SNP','A1','A2','freq','b','se','p','N')
 
 # Check whether per variant sample size is available
