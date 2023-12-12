@@ -44,8 +44,7 @@ sink()
 # Read in reference SNP data
 ref<-NULL
 for(i in 1:22){
-ref<-rbind(ref, fread(paste0(opt$ref,i,'.bim')))
-print(i)
+  ref<-rbind(ref, fread(paste0(opt$ref,i,'.bim')))
 }
 ref<-ref[,c('V1','V2','V4','V5','V6')]
 names(ref)<-c('CHR','SNP','BP','A1','A2')
@@ -58,7 +57,6 @@ for(i in 1:22){
   names(target_tmp)<-c('CHR','SNP','BP','A1','A2')
   target_tmp<-target_tmp[target_tmp$SNP %in% ref$SNP]
   target<-rbind(target, target_tmp)
-  print(i)
 }
 
 # Write a list of SNPs to be extracted from the target sample
@@ -91,8 +89,7 @@ sink()
 # Read in target data
 target<-NULL
 for(i in 1:22){
-target<-rbind(target, fread(paste0(opt$out,i,'.bim')))
-print(i)
+  target<-rbind(target, fread(paste0(opt$out,i,'.bim')))
 }
 target<-target[,c('V1','V2','V4','V5','V6')]
 names(target)<-c('CHR','SNP','BP','A1','A2')
@@ -100,8 +97,7 @@ names(target)<-c('CHR','SNP','BP','A1','A2')
 # Read in reference data
 ref<-NULL
 for(i in 1:22){
-ref<-rbind(ref, fread(paste0(opt$ref,i,'.bim')))
-print(i)
+  ref<-rbind(ref, fread(paste0(opt$ref,i,'.bim')))
 }
 ref<-ref[,c('V1','V2','V4','V5','V6')]
 names(ref)<-c('CHR','SNP','BP','A1','A2')
@@ -128,14 +124,14 @@ ref$SNP_IUPAC<-paste0(ref$SNP,':',ref$IUPAC)
 ref_target<-merge(ref, target, by='SNP')
 
 # Identify SNPs for which alleles need to be flipped
-flip_tmp<-ref_target[(ref_target$IUPAC.x == 'R' & ref_target$IUPAC.y == 'Y' | 
-                      ref_target$IUPAC.x == 'Y' & ref_target$IUPAC.y == 'R' | 
+flip_tmp<-ref_target[(ref_target$IUPAC.x == 'R' & ref_target$IUPAC.y == 'Y' |
+                      ref_target$IUPAC.x == 'Y' & ref_target$IUPAC.y == 'R' |
                       ref_target$IUPAC.x == 'K' & ref_target$IUPAC.y == 'M' |
                       ref_target$IUPAC.x == 'M' & ref_target$IUPAC.y == 'K'),]
 
 # Idenitfy SNPs which match the reference alleles
-incl<-ref_target[ ref_target$IUPAC.x == 'R' & ref_target$IUPAC.y == 'R' | 
-                  ref_target$IUPAC.x == 'Y' & ref_target$IUPAC.y == 'Y' | 
+incl<-ref_target[ ref_target$IUPAC.x == 'R' & ref_target$IUPAC.y == 'R' |
+                  ref_target$IUPAC.x == 'Y' & ref_target$IUPAC.y == 'Y' |
                   ref_target$IUPAC.x == 'K' & ref_target$IUPAC.y == 'K' |
                   ref_target$IUPAC.x == 'M' & ref_target$IUPAC.y == 'M' ]
 
@@ -149,11 +145,11 @@ sink(file = paste(opt$out,'.hm3_harmoniser.log',sep=''), append = T)
 cat(dim(flip)[1],' variants need to be flipped.\n',sep='')
 sink()
 
-target_in_ref_n<-dim(incl)[1]
-ref_n<-dim(ref)[1]
+target_in_ref_n<-nrow(incl)
+ref_n<-nrow(ref)
 
 sink(file = paste(opt$out,'.hm3_harmoniser.log',sep=''), append = T)
-cat(target_in_ref_n/ref_n*100,'% of variants in reference are in the target.\n',sep='')
+cat(target_in_ref_n," of ", ref_n," reference variants (", round(target_in_ref_n/ref_n*100,2), "%) are in the target.\n",sep='')
 sink()
 
 target$SNP[(!target$SNP_IUPAC %in% incl$SNP_IUPAC.y)]<-paste0(target$SNP[(!target$SNP_IUPAC %in% incl$SNP_IUPAC.y)], '_excl')
@@ -206,7 +202,7 @@ for(i in 1:22){
 
   # Extract only target individuals
   system(paste0(opt$plink,' --bfile ',opt$out,'.tmp',i,' --remove ',opt$out,'.REF.',i,'.fam --make-bed --out ',opt$out,i))
-  
+
   system(paste0('rm ',opt$out,'.tmp',i,'*'))
   system(paste0('rm ',opt$out,'.REF.',i,'*'))
   system(paste0('rm ',opt$out,i,'.nosex'))

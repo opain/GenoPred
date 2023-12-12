@@ -1,3 +1,6 @@
+# Set outdir parameter
+outdir=config['outdir']
+
 # Download qctool v2
 rule download_qctool2:
   output:
@@ -234,6 +237,18 @@ rule install_lassosum:
   shell:
     "Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'"
 
+# Install GenoUtils
+rule install_genoutils:
+  input:
+    "envs/GenoPredPipe.yaml"
+  output:
+    touch("resources/software/install_genoutils.done")
+  conda:
+    "../envs/GenoPredPipe.yaml"
+  shell:
+    "Rscript -e 'devtools::install_github(\"opain/GenoUtils\")'"
+
+
 # Rule to install and download all dependencies
 rule get_dependencies:
   input:
@@ -247,7 +262,8 @@ rule get_dependencies:
     rules.download_ld_blocks.output,
     rules.download_liftover_track.output,
     rules.install_ggchicklet.output,
-    rules.install_lassosum.output
+    rules.install_lassosum.output,
+    rules.install_genoutils.output
   output:
     touch("resources/software/get_dependencies.done")
 

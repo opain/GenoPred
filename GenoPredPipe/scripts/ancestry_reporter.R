@@ -6,7 +6,7 @@ ancestry_report<-NULL
 target<-args[1]
 output<-args[2]
 
-path<-paste0(output,'/',target,'/ancestry/ancestry_all')
+path<-paste0(output,'/',target,'/ancestry')
 files<-list.files(path=path)
 keep_files<-files[grepl('.keep$',files) & grepl('model_pred',files)]
 
