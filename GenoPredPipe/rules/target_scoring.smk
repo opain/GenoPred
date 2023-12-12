@@ -19,7 +19,7 @@ rule target_pc:
       --ref_score resources/data/ref/pc_score_files/{wildcards.population}/ref.{wildcards.population}.eigenvec.var \
       --ref_scale resources/data/ref/pc_score_files/{wildcards.population}/ref.{wildcards.population}.scale \
       --plink2 plink2 \
-      --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}"
+      --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}.{wildcards.population}"
       
 rule run_target_pc_all_pop:
   input: 

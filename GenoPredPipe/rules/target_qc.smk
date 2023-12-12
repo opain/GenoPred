@@ -72,9 +72,7 @@ rule format_target:
       --format {params.type} \
       --ref resources/data/ref/ref.chr{wildcards.chr} \
       --plink2 plink2 \
-      --liftover resources/software/liftover/liftover \
-      --liftover_track resources/data/liftover/hg19ToHg38.over.chain.gz \
-      --out {outdir}/{wildcards.name}/geno/{wildcards.name}.hm3.chr{wildcards.chr}"
+      --output {outdir}/{wildcards.name}/geno/temp/{wildcards.name}.hm3.chr{wildcards.chr}"
 
 rule run_format_target:
   input: 

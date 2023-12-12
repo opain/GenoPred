@@ -107,3 +107,33 @@ score_scale<-function(score, ref_scale){
 cat0 <- function(...) {
   cat(..., sep = '')
 }
+
+# Read in SNP data from either plink1 binary, bgen or vcf
+read_geno<-function(target, format){
+
+  if(format == 'samp_imp_plink1'){
+    target_snp<-fread(paste0(target,'.bim'))
+    target_snp$V3<-NULL
+    names(target_snp)<-c('CHR','SNP','BP','A1','A2')
+  }
+
+  if(format == 'samp_imp_bgen'){
+    connection = dbConnect( RSQLite::SQLite(), paste0(target,'.bgen.bgi'))
+    target_snp = dbGetQuery( connection, "SELECT * FROM Variant" )
+    target_snp<-target_snp[,c('chromosome','rsid','position','allele1','allele2')]
+    names(target_snp)<-c('CHR','SNP','BP','A1','A2')
+    dbDisconnect(connection)
+    target_snp<-data.table(target_snp)
+    target_snp$CHR<-as.numeric(gsub('chr','',target_snp$CHR))
+  }
+
+  if(format == 'samp_imp_vcf'){
+    target_snp<-fread(cmd=paste0("zcat ",target,".vcf.gz | cut -f 1-5"))
+    names(target_snp)<-c('CHR','BP','SNP','A1','A2')
+    target_snp$CHR<-as.numeric(gsub('chr','',target_snp$CHR))
+  }
+
+  target_snp<-target_snp[, c('CHR','BP','SNP','A1','A2'), with=F]
+
+  return(target_snp)
+}
