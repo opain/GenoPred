@@ -50,15 +50,14 @@ rule run_format_impute_23andme_target:
   input: expand("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target_{name}.done", name=target_list_df_23andMe['name'], outdir=outdir)
 
 ##
-# Formatting without imputation
+# Convert to PLINK and harmonise with reference
 ##
-# Here we will use a script that can accept multiple genetic data formats, insert RSIDs if not present, extract HapMap3 SNPs and output plink hard-call binaries.
 
 rule format_target:
   input:
     config['target_list'],
     rules.get_dependencies.output,
-    "../Scripts/geno_to_plink/geno_to_plink.R"
+    "../Scripts/format_target/format_target.R"
   output:
     touch("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done")
   conda:
@@ -67,12 +66,11 @@ rule format_target:
     path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
     type= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'type'].iloc[0]
   shell:
-    "Rscript ../Scripts/geno_to_plink/geno_to_plink.R \
+    "Rscript ../Scripts/format_target/format_target.R \
       --target {params.path}.chr{wildcards.chr} \
       --format {params.type} \
       --ref resources/data/ref/ref.chr{wildcards.chr} \
-      --plink2 plink2 \
-      --output {outdir}/{wildcards.name}/geno/temp/{wildcards.name}.hm3.chr{wildcards.chr}"
+      --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr}"
 
 rule run_format_target:
   input: 
@@ -85,47 +83,12 @@ rule run_format_target_2:
     expand("{outdir}/resources/data/target_checks/{name}/format_target.done", name=target_list_df_samp_imp['name'], outdir=outdir)
 
 ####
-# Harmonise with reference
-####
-
-rule harmonise_target_with_ref:
-  input:
-    rules.get_dependencies.output,
-    lambda w: outdir + "/resources/data/target_checks/" + w.name + "/format_impute_23andme_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else (outdir + "/resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_plink1' else (outdir + "/resources/data/target_checks/{name}/format_target.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == 'samp_imp_bgen' else outdir + "/resources/data/target_checks/{name}/format_target.done")),
-    "../Scripts/hm3_harmoniser/hm3_harmoniser.R"
-  output:
-    touch("{outdir}/resources/data/target_checks/{name}/harmonise_target_with_ref.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  shell:
-    "Rscript ../Scripts/hm3_harmoniser/hm3_harmoniser.R \
-      --target {outdir}/{wildcards.name}/geno/{wildcards.name}.hm3.chr \
-      --ref resources/data/ref/ref.chr \
-      --plink plink \
-      --out {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr"
-
-rule run_harmonise_target_with_ref:
-  input: expand("{outdir}/resources/data/target_checks/{name}/harmonise_target_with_ref.done", name=target_list_df['name'], outdir=outdir)
-  
-# Delete temporary files
-rule delete_temp_target_samp_files:
-  input:
-    "{outdir}/resources/data/target_checks/{name}/harmonise_target_with_ref.done"
-  output:
-    touch("{outdir}/resources/data/target_checks/{name}/delete_temp_target_samp_files.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  shell:
-    "rm {outdir}/{wildcards.name}/geno/{wildcards.name}.hm3.chr*"
-
-####
 # Population classification
 ####
 
 rule target_population:
   input:
-    "{outdir}/resources/data/target_checks/{name}/harmonise_target_with_ref.done",
-    lambda w: outdir + "/resources/data/target_checks/" + w.name + "/harmonise_target_with_ref.done" if target_list_df.loc[target_list_df['name'] == w.name, 'type'].iloc[0] == '23andMe' else outdir + "/resources/data/target_checks/" + w.name + "/delete_temp_target_samp_files.done",
+    "{outdir}/resources/data/target_checks/{name}/format_target.done",
     "../Scripts/Ancestry_identifier/Ancestry_identifier.R"
   output:
     touch("{outdir}/resources/data/target_checks/{name}/target_population.done")
