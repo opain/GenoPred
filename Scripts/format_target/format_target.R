@@ -5,13 +5,15 @@ library("optparse")
 
 option_list = list(
 make_option("--target", action="store", default=NA, type='character',
-    help="Path to per chromosome target sample plink files [required]"),
+    help="Prefix to a target sample plink file for a given chromosome [required]"),
 make_option("--ref", action="store", default=NA, type='character',
-    help="Path to per chromosome target sample plink files [required]"),
+    help="Prefix to a reference sample plink/.rds file [required]"),
 make_option("--format", action="store", default=NA, type='character',
-    help="Format of target files [required]"),
-make_option("--plink2", action="store", default=NA, type='character',
-    help="Path to plink2 [required]"),
+    help="Format of target files. Either samp_imp_plink1, samp_imp_bgen, or samp_imp_vcf. [required]"),
+make_option("--plink", action="store", default='plink', type='character',
+    help="Path to plink1.9 [optional]"),
+make_option("--plink2", action="store", default='plink2', type='character',
+    help="Path to plink2 [optional]"),
 make_option("--output", action="store", default=NA, type='character',
 		help="Path for output files [required]")
 )
@@ -27,6 +29,9 @@ source('../Scripts/functions/misc.R')
 # Create output directory
 opt$out_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$out_dir))
+
+# Create temp directory
+tmp_dir<-tempdir()
 
 # Initiate log file
 log_file <- paste0(opt$output,'.geno_to_plink.log')
@@ -72,20 +77,23 @@ names(ref_subset)[names(ref_subset) == paste0("BP_",target_build)]<-'BP'
 # Merge target and ref by CHR and BP
 ref_target<-merge(target_snp, ref_subset, by=c('CHR','BP'))
 
-# Remove variants where IUPAC codes do not match (allowing for strand flips)
+# Identify variants that need to be flipped
 names(ref_target)[names(ref_target) == 'IUPAC']<-'IUPAC.y'
 ref_target$IUPAC.x<-snp_iupac(ref_target$A1.x, ref_target$A2.x)
-matched <- which((ref_target$IUPAC.x == ref_target$IUPAC.y) | detect_strand_flip(ref_target$IUPAC.x, ref_target$IUPAC.y))
+flip <- detect_strand_flip(ref_target$IUPAC.x, ref_target$IUPAC.y)
+if(sum(flip) > 0){
+  write.table(ref_target$SNP.y[flip], paste0(tmp_dir,'/flip_list.txt'), col.names = F, row.names = F, quote=F)
+}
+
+# Remove variants where IUPAC codes do not match (allowing for strand flips)
+matched <- which((ref_target$IUPAC.x == ref_target$IUPAC.y) | flip)
 ref_target<-ref_target[matched,]
 
 log_add(log_file = log_file, message = paste0('Target contains ', nrow(ref_target),' reference variants.'))
 
 # To avoid issues due to duplicate IDs, we must extract variants based on original ID, update IDs manually to the reference RSID, and then extract those SNPs from the PLINK files.
-tmp_dir<-tempdir()
-extract_list_1<-ref_target$SNP.x
-extract_list_2<-ref_target$SNP.y
-write.table(extract_list_1, paste0(tmp_dir,'/extract_list_1.txt'), col.names = F, row.names = F, quote=F)
-write.table(extract_list_2, paste0(tmp_dir,'/extract_list_2.txt'), col.names = F, row.names = F, quote=F)
+write.table(ref_target$SNP.x, paste0(tmp_dir,'/extract_list_1.txt'), col.names = F, row.names = F, quote=F)
+write.table(ref_target$SNP.y, paste0(tmp_dir,'/extract_list_2.txt'), col.names = F, row.names = F, quote=F)
 
 # First extract variants based on original ID
 if(opt$format == 'samp_imp_plink1'){
@@ -112,11 +120,37 @@ dup_snp<-duplicated(targ_bim$SNP)
 log_add(log_file = log_file, message = paste0('Removing ', sum(dup_snp),' duplicate variants.'))
 targ_bim$SNP[dup_snp]<-paste0(targ_bim$SNP[dup_snp],'_dup')
 
+log_add(log_file = log_file, message = paste0(sum(!dup_snp)," of ", nrow(ref)," reference variants are in the target."))
+
 # Write out new bim file
-write.table(targ_bim, paste0(tmp_dir,'/subset.bim'), col.names=F, row.names=F, quote=F)
+fwrite(targ_bim, paste0(tmp_dir,'/subset.bim'), col.names=F, row.names=F, quote=F, na='NA', sep=' ')
 
 # Extract variants based on new reference RSIDs
-system(paste0(opt$plink2,' --bfile ',tmp_dir,'/subset --extract ', tmp_dir,'/extract_list_2.txt --make-bed --memory 5000 --threads 1 --out ', opt$output))
+# and flip variants if there are any to be flipped
+plink_opt<-NULL
+if(sum(flip) > 0){
+  plink_opt<-c(plink_opt, paste0('--flip ',tmp_dir,'/flip_list.txt '))
+}
+
+system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset ',plink_opt,'--extract ', tmp_dir,'/extract_list_2.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+
+##################
+# Insert missing SNPs into the reference data
+##################
+
+log_add(log_file = log_file, message = 'Inserting missing HapMap3 SNPs.')
+
+# Update IDs in reference to avoid conflict with the target
+ref_fam<-fread(paste0(opt$ref,'.fam'))
+ref_ID_update<-data.frame(ref_fam$V1, ref_fam$V2, paste0(ref_fam$V1,'_REF'),paste0(ref_fam$V2,'_REF'))
+fwrite(ref_ID_update, paste0(tmp_dir,'/ref_ID_update.txt'), sep=' ', col.names=F)
+system(paste0(opt$plink,' --bfile ',opt$ref,' --make-bed --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --memory 7000'))
+
+# Merge target and reference plink files to insert missing SNPs
+system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --bmerge ',tmp_dir,'/REF --make-bed --out ',tmp_dir,'/subset'))
+
+# Extract only target individuals
+system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --remove ',tmp_dir,'/REF.fam --make-bed --out ',opt$output))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

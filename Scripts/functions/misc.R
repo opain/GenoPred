@@ -137,3 +137,15 @@ read_geno<-function(target, format){
 
   return(target_snp)
 }
+
+# Read in PLINK .bim file
+read_bim<-function(dat, chr = 1:22){
+  bim<-NULL
+  for(i in chr){
+    bim<-rbind(bim, fread(paste0(dat, i,'.bim')))
+  }
+  bim<-bim[,c('V1','V2','V4','V5','V6')]
+  names(bim)<-c('CHR','SNP','BP','A1','A2')
+
+  return(bim)
+}
