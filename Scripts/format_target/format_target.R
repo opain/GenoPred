@@ -129,7 +129,7 @@ fwrite(targ_bim, paste0(tmp_dir,'/subset.bim'), col.names=F, row.names=F, quote=
 # and flip variants if there are any to be flipped
 plink_opt<-NULL
 if(sum(flip) > 0){
-  plink_opt<-c(plink_opt, paste0('--flip ',tmp_dir,'/flip_list.txt '))
+  plink_opt<-paste0(plink_opt, paste0('--flip ',tmp_dir,'/flip_list.txt '))
 }
 
 system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset ',plink_opt,'--extract ', tmp_dir,'/extract_list_2.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))

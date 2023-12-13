@@ -40,11 +40,6 @@ make_option("--memory", action="store", default=5000, type='numeric',
 
 opt = parse_args(OptionParser(option_list=option_list))
 
-opt$target_plink_chr<-'test_data/output/test1/example_plink1/geno/example_plink1.ref.chr'
-opt$ref_plink_chr<-'resources/data/ref/ref.chr'
-opt$output<-'test_data/output/test1/example_plink1/ancestry/example_plink1.Ancestry'
-opt$pop_data<-'resources/data/ref/ref.pop.txt'
-
 # Load dependencies
 library(GenoUtils)
 source('../Scripts/functions/misc.R')
@@ -162,7 +157,7 @@ target_ref<-target_ref[matched,]
 log_add(log_file = log_file, message = paste0(nrow(target_ref),' variants match between target and reference after QC.'))  
 
 ###########
-# Indentify list of LD independent SNPs
+# Identify list of LD independent SNPs
 ###########
 
 log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on reference data.')  

@@ -1,5 +1,38 @@
+######
+# Check config file
+######
+
+# Check for the presence of at least one of gwas_list, target_list, or score_list
+lists_to_check = ['gwas_list', 'target_list', 'score_list']
+if not any(lst in config for lst in lists_to_check):
+  print("Error: At least one of 'gwas_list', 'score_list', or 'target_list' must be specified in the config file.")
+  import sys
+  sys.exit(1)
+    
+# Check for missing required configuration parameters
+required_config_params = ['outdir', 'pgs_methods', 'config_file']
+missing_config_params = [param for param in required_config_params if param not in config]
+if missing_config_params:
+  # Print an informative message
+  print(f"Missing required configuration parameters: {', '.join(missing_config_params)}. Please specify these in the configuration file.")
+
+  # Exit Snakemake gracefully
+  import sys
+  sys.exit(1)
+
 # Set outdir parameter
 outdir=config['outdir']
+
+########
+# Import required packages
+########
+
+import pandas as pd
+from pathlib import Path
+
+########
+# Download dependencies
+########
 
 # Download qctool v2
 rule download_qctool2:
@@ -248,6 +281,9 @@ rule install_genoutils:
   shell:
     "Rscript -e 'devtools::install_github(\"opain/GenoUtils\")'"
 
+############
+# Check all dependencies are available
+############ 
 
 # Rule to install and download all dependencies
 rule get_dependencies:
