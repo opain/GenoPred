@@ -2,10 +2,8 @@ import pandas as pd
 target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
 
 target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
-target_list_df_samp_imp_plink1 = target_list_df.loc[target_list_df['type'] == 'samp_imp_plink1']
-target_list_df_samp_imp_bgen = target_list_df.loc[target_list_df['type'] == 'samp_imp_bgen']
-target_list_df_samp_imp_vcf = target_list_df.loc[target_list_df['type'] == 'samp_imp_vcf']
-target_list_df_samp_imp = target_list_df.loc[(target_list_df['type'] == 'samp_imp_plink1') | (target_list_df['type'] == 'samp_imp_bgen') | (target_list_df['type'] == 'samp_imp_vcf')]
+samp_types = ['samp_imp_plink1', 'samp_imp_bgen', 'samp_imp_vcf']
+target_list_df_samp_imp = target_list_df[target_list_df['type'].isin(samp_types)]
 target_list_df_samp_imp_indiv_report = target_list_df_samp_imp.loc[(target_list_df['indiv_report'] == 'T')]
 
 ####
@@ -78,41 +76,32 @@ rule run_format_target:
   output:
     touch("{outdir}/resources/data/target_checks/{name}/format_target.done")
 
-rule run_format_target_2:
-  input: 
-    expand("{outdir}/resources/data/target_checks/{name}/format_target.done", name=target_list_df_samp_imp['name'], outdir=outdir)
-
 ####
 # Population classification
 ####
 
-rule target_population:
+rule ancestry_inference:
   input:
     "{outdir}/resources/data/target_checks/{name}/format_target.done",
     "../Scripts/Ancestry_identifier/Ancestry_identifier.R"
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/target_population.done")
+    touch("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
     "Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --ref_plink_chr resources/data/ref/ref.chr \
-      --n_pcs 6 \
-      --plink plink \
-      --plink2 plink2 \
       --output {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry \
-      --ref_pop_scale resources/data/ref/ref.keep.list \
-      --pop_data resources/data/ref/ref.pop.txt \
-      --prob_thresh 0.95"
+      --pop_data resources/data/ref/ref.pop.txt"
 
-rule run_target_population:
-  input: expand("{outdir}/resources/data/target_checks/{name}/target_population.done", name=target_list_df['name'], outdir=outdir)
+rule run_ancestry_inference:
+  input: expand("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done", name=target_list_df['name'], outdir=outdir)
 
 # Create a file listing target samples and population assignments
 checkpoint ancestry_reporter:
   input:
-    "{outdir}/resources/data/target_checks/{name}/target_population.done",
+    "{outdir}/resources/data/target_checks/{name}/ancestry_inference.done",
     "scripts/ancestry_reporter.R"
   output:
     touch("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done")
@@ -128,20 +117,20 @@ rule run_ancestry_reporter:
 # Population outlier detection and target sample specific PC calculation
 ####
 
-rule target_population_outlier_detection:
+rule outlier_detection:
   resources: 
     mem_mb=15000
   input:
     "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",
     "../Scripts/Population_outlier/Population_outlier.R"
   output:
-    touch('{outdir}/resources/data/target_checks/{name}/target_population_outlier_detection.done')
+    touch('{outdir}/resources/data/target_checks/{name}/outlier_detection.done')
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
     "ls {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.*.keep > {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.keep_list; Rscript ../Scripts/Population_outlier/Population_outlier.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
-      --target_keep {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.keep_list \
+      --target_keep {outdir}/{wildcards.name}/ancestry/keep_files/model_based/keep_list.txt \
       --n_pcs 10 \
       --maf 0.05 \
       --geno 0.02 \

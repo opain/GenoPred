@@ -34,8 +34,8 @@ system(paste0('mkdir -p ',opt$out_dir))
 tmp_dir<-tempdir()
 
 # Initiate log file
-log_file <- paste0(opt$output,'.geno_to_plink.log')
-log_header(log_file = log_file, opt = opt, script = 'geno_to_plink.R', start.time = start.time)
+log_file <- paste0(opt$output,'.format_target.log')
+log_header(log_file = log_file, opt = opt, script = 'format_target.R', start.time = start.time)
 
 ###########
 # Read in reference SNP data
@@ -138,7 +138,7 @@ system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset ',plink_opt,'--extract ', t
 # Insert missing SNPs into the reference data
 ##################
 
-log_add(log_file = log_file, message = 'Inserting missing HapMap3 SNPs.')
+log_add(log_file = log_file, message = 'Inserting missing reference variants.')
 
 # Update IDs in reference to avoid conflict with the target
 ref_fam<-fread(paste0(opt$ref,'.fam'))

@@ -14,7 +14,7 @@ rule target_pc:
   shell:
     "Rscript ../Scripts/target_scoring/target_scoring.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
-      --target_keep {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --target_keep {outdir}/{wildcards.name}/ancestry/keep_files/model_based/{wildcards.population}.keep \
       --ref_freq_chr resources/data/ref/freq_files/{wildcards.population}/ref.{wildcards.population}.chr \
       --ref_score resources/data/ref/pc_score_files/{wildcards.population}/ref.{wildcards.population}.eigenvec.var \
       --ref_scale resources/data/ref/pc_score_files/{wildcards.population}/ref.{wildcards.population}.scale \
@@ -63,7 +63,7 @@ rule target_prs:
   shell:
     "Rscript ../Scripts/target_scoring/target_scoring.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
-      --target_keep {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.{wildcards.population}.keep \
+      --target_keep {outdir}/{wildcards.name}/ancestry/keep_files/model_based/{wildcards.population}.keep \
       --ref_score {params.score_file} \
       --ref_scale {outdir}/resources/data/ref/pgs_score_files/{wildcards.method}/{wildcards.gwas}/ref.{wildcards.gwas}.{wildcards.population}.scale \
       --ref_freq_chr resources/data/ref/freq_files/{wildcards.population}/ref.{wildcards.population}.chr \

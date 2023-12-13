@@ -145,3 +145,7 @@ for(chr in chrs){
     tmp<-tmp[,c("CHR","SNP","BP_GRCh36","BP_GRCh37","BP_GRCh38","A1","A2","IUPAC",paste0('REF.FRQ.',unique(pop_dat$POP))), with=F]
     saveRDS(tmp, file = paste0(output_dir,'/ref.chr',chr,'.rds'))
 }
+
+# Compress folder and upload to zenodo
+setwd('resources/data')
+system(paste0('tar -czvf genopredpipe_1kg.tar.gz ref'))

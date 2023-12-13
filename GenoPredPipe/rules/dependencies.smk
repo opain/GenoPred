@@ -209,10 +209,10 @@ rule download_default_ref:
   shell:
     "rm -r resources/data/ref; \
      mkdir -p resources/data/ref; \
-     wget --no-check-certificate -O resources/data/ref/genopredpipe_1kg.tar.gz https://zenodo.org/records/10077095/files/genopredpipe_1kg.tar.gz?download=1; \
+     wget --no-check-certificate -O resources/data/ref/genopredpipe_1kg.tar.gz https://zenodo.org/records/10371754/files/genopredpipe_1kg.tar.gz?download=1; \
      tar -xzvf resources/data/ref/genopredpipe_1kg.tar.gz -C resources/data/ref/; \
-     mv resources/data/ref/1kg/* resources/data/ref/; \
-     rm -r resources/data/ref/1kg; \
+     mv resources/data/ref/ref/* resources/data/ref/; \
+     rm -r resources/data/ref/ref; \
      rm resources/data/ref/genopredpipe_1kg.tar.gz"
 
 # install ggchicklet
