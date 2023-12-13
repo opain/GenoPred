@@ -1,10 +1,18 @@
-import pandas as pd
-target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
+#######
+# Read target_list
+#######
 
-target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
-samp_types = ['samp_imp_plink1', 'samp_imp_bgen', 'samp_imp_vcf']
-target_list_df_samp_imp = target_list_df[target_list_df['type'].isin(samp_types)]
-target_list_df_samp_imp_indiv_report = target_list_df_samp_imp.loc[(target_list_df['indiv_report'] == 'T')]
+if 'target_list' in config:
+  target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
+  target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
+  samp_types = ['samp_imp_plink1', 'samp_imp_bgen', 'samp_imp_vcf']
+  target_list_df_samp_imp = target_list_df[target_list_df['type'].isin(samp_types)]
+  target_list_df_samp_imp_indiv_report = target_list_df_samp_imp.loc[(target_list_df['indiv_report'] == 'T')]
+else:
+  target_list_df = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
+  target_list_df_23andMe = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
+  target_list_df_samp_imp = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
+  target_list_df_samp_imp_indiv_report = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
 
 ####
 # Format target data
@@ -15,69 +23,71 @@ target_list_df_samp_imp_indiv_report = target_list_df_samp_imp.loc[(target_list_
 ##
 # Largely based on Impute.Me by Lasse Folkersen
 
-rule format_impute_23andme_target:
-  resources: 
-    mem_mb=90000,
-    cpus=6
-  input:
-    config['target_list'],
-    rules.download_impute2_data.output,
-    rules.download_qctool2.output,
-    "../Scripts/23andMe_imputer/23andMe_imputer.R"
-  output:
-    touch("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  params:
-    name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
-  shell:
-    "Rscript ../Scripts/23andMe_imputer/23andMe_imputer.R \
-      --FID {params.name} \
-      --IID {params.name} \
-      --geno {params.path} \
-      --plink plink \
-      --out {outdir}/{params.name}/geno/{params.name} \
-      --ref resources/data/impute2/1000GP_Phase3 \
-      --shapeit shapeit \
-      --impute2 impute2 \
-      --n_core {resources.cpus} \
-      --qctool resources/software/qctool2/qctool"
+if 'target_list' in config:
+  rule format_impute_23andme_target:
+    resources: 
+      mem_mb=90000,
+      cpus=6
+    input:
+      config['target_list'],
+      rules.download_impute2_data.output,
+      rules.download_qctool2.output,
+      "../Scripts/23andMe_imputer/23andMe_imputer.R"
+    output:
+      touch("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target.done")
+    conda:
+      "../envs/GenoPredPipe.yaml"
+    params:
+      name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
+      path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
+    shell:
+      "Rscript ../Scripts/23andMe_imputer/23andMe_imputer.R \
+        --FID {params.name} \
+        --IID {params.name} \
+        --geno {params.path} \
+        --plink plink \
+        --out {outdir}/{params.name}/geno/{params.name} \
+        --ref resources/data/impute2/1000GP_Phase3 \
+        --shapeit shapeit \
+        --impute2 impute2 \
+        --n_core {resources.cpus} \
+        --qctool resources/software/qctool2/qctool"
 
-rule run_format_impute_23andme_target:
-  input: expand("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target_{name}.done", name=target_list_df_23andMe['name'], outdir=outdir)
+  rule run_format_impute_23andme_target:
+    input: expand("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target_{name}.done", name=target_list_df_23andMe['name'], outdir=outdir)
 
 ##
 # Convert to PLINK and harmonise with reference
 ##
 
-rule format_target:
-  input:
-    config['target_list'],
-    rules.get_dependencies.output,
-    "../Scripts/format_target/format_target.R"
-  output:
-    touch("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done")
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  params:
-    path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-    type= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'type'].iloc[0]
-  shell:
-    "Rscript ../Scripts/format_target/format_target.R \
-      --target {params.path}.chr{wildcards.chr} \
-      --format {params.type} \
-      --ref resources/data/ref/ref.chr{wildcards.chr} \
-      --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr}"
+if 'target_list' in config:
+  rule format_target:
+    input:
+      config['target_list'],
+      rules.get_dependencies.output,
+      "../Scripts/format_target/format_target.R"
+    output:
+      touch("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done")
+    conda:
+      "../envs/GenoPredPipe.yaml"
+    params:
+      path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+      type= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'type'].iloc[0]
+    shell:
+      "Rscript ../Scripts/format_target/format_target.R \
+        --target {params.path}.chr{wildcards.chr} \
+        --format {params.type} \
+        --ref resources/data/ref/ref.chr{wildcards.chr} \
+        --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr}"
 
-rule run_format_target:
-  input: 
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done", name=w.name, chr=range(1, 23), outdir=outdir)
-  output:
-    touch("{outdir}/resources/data/target_checks/{name}/format_target.done")
+  rule run_format_target:
+    input: 
+      lambda w: expand("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done", name=w.name, chr=range(1, 23), outdir=outdir)
+    output:
+      touch("{outdir}/resources/data/target_checks/{name}/format_target.done")
 
 ####
-# Population classification
+# Ancestry inference
 ####
 
 rule ancestry_inference:
@@ -139,13 +149,3 @@ rule outlier_detection:
       --plink plink \
       --plink2 plink2 \
       --output {outdir}/{wildcards.name}/pcs/within_sample/{wildcards.name}.outlier_detection"
-
-# Create a function summarising which populations are present in target      
-from pathlib import Path
-
-def ancestry_munge(x):
-    checkpoint_output = checkpoints.ancestry_reporter.get(name=x, outdir=outdir).output[0]
-    checkpoint_output = outdir + "/" + x + "/ancestry/ancestry_report.txt"
-    ancestry_report_df = pd.read_table(checkpoint_output, sep=' ')
-    return ancestry_report_df['population'].tolist()
-    

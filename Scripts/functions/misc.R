@@ -176,14 +176,16 @@ plink_subset<-function(plink='plink', chr = 1:22, keep = NA, bfile, out, memory 
   # Prepare plink options
   plink_opt<-NULL
   if(!is.null(keep)){
-    plink_opt<-c(plink_opt, paste0('--keep ',keep,' '))
+    plink_opt<-paste0(plink_opt, paste0('--keep ',keep,' '))
   }
 
   # Run plink
-  cmd <- paste0(opt$plink,' --bfile ',bfile,' --threads ', threads,' ',plink_opt,'--make-bed --out ',out,' --memory ',memory)
-  exit_status <- system(cmd, intern=FALSE)
-  if (exit_status != 0) {
-    cat("Error occurred in running plink command for chromosome\n")
+  for(chr_i in chr){
+    cmd <- paste0(opt$plink,' --bfile ',bfile,chr_i,' --threads ', threads,' ',plink_opt,'--make-bed --out ',out,chr_i,' --memory ',memory)
+    exit_status <- system(cmd, intern=FALSE)
+    if (exit_status != 0) {
+      cat("Error occurred in running plink command for chromosome",chr_i,"\n")
+    }
   }
 }
 
@@ -191,13 +193,13 @@ plink_subset<-function(plink='plink', chr = 1:22, keep = NA, bfile, out, memory 
 plink_qc_snplist<-function(bfile, chr = 1:22, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
   plink_opt<-NULL
   if(!is.null(geno)){
-    plink_opt <- c(plink_opt, paste0('--geno ',geno,' '))
+    plink_opt <- paste0(plink_opt, paste0('--geno ',geno,' '))
   }
   if(!is.null(maf)){
-    plink_opt <- c(plink_opt, paste0('--maf ',maf,' '))
+    plink_opt <- paste0(plink_opt, paste0('--maf ',maf,' '))
   }
   if(!is.null(hwe)){
-    plink_opt <- c(plink_opt, paste0('--hwe ',hwe,' '))
+    plink_opt <- paste0(plink_opt, paste0('--hwe ',hwe,' '))
   }
 
   temp_file<-tempfile()
