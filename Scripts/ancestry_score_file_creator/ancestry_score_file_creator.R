@@ -4,9 +4,9 @@ start.time <- Sys.time()
 library("optparse")
 
 option_list = list(
-make_option("--ref_plink_chr", action="store", default=NA, type='character',
+make_option("--ref_plink_chr", action="store", default=NULL, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
-make_option("--ref_keep", action="store", default=NA, type='character',
+make_option("--ref_keep", action="store", default=NULL, type='character',
 		help="Keep file to subset individuals in reference for PCA [required]"),
 make_option("--maf", action="store", default=0.05, type='numeric',
     help="Minor allele frequency threshold [optional]"),
@@ -14,13 +14,11 @@ make_option("--geno", action="store", default=0.02, type='numeric',
     help="Variant missingness threshold [optional]"),
 make_option("--hwe", action="store", default=1e-6, type='numeric',
     help="Hardy Weinberg p-value threshold. [optional]"),
-make_option("--n_pcs", action="store", default=10, type='numeric',
+make_option("--n_pcs", action="store", default=6, type='numeric',
 		help="Number of PCs [optional]"),
 make_option("--plink", action="store", default='plink', type='character',
-		help="Path PLINK software binary [required]"),
-make_option("--plink2", action="store", default='plink', type='character',
-		help="Path PLINK2 software binary [required]"),
-make_option("--output", action="store", default='./PC_projector_output/Output', type='character',
+		help="Path PLINK software binary [optional]"),
+make_option("--output", action="store", default=NULL, type='character',
 		help="Path for output files [required]"),
 make_option("--pop_data", action="store", default=NULL, type='character',
     help="Population data for the reference samples [required]"),    
@@ -34,6 +32,17 @@ opt = parse_args(OptionParser(option_list=option_list))
 library(GenoUtils)
 library(data.table)
 source('../Scripts/functions/misc.R')
+
+# Check required inputs
+if(is.null(opt$pop_data)){
+  stop('--pop_data must be specified.\n')
+}
+if(is.null(opt$ref_plink_chr)){
+  stop('--ref_plink_chr must be specified.\n')
+}
+if(is.null(opt$output)){
+  stop('--output must be specified.\n')
+}
 
 # Create output directory
 opt$output_dir<-paste0(dirname(opt$output),'/')
@@ -51,11 +60,7 @@ log_header(log_file = log_file, opt = opt, script = 'ancestry_score_file_creator
 ###########
 
 if(!is.null(opt$ref_keep)){
-  plink_subset(
-    keep = opt$ref_keep, 
-    bfile = opt$ref_plink_chr, 
-    out = paste0(tmp_dir,'/ref_subset.chr'))
-
+  plink_subset(keep = opt$ref_keep, plink = opt$plink, bfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
   opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset.chr')
 } else {
   opt$ref_plink_chr_subset<-opt$ref_plink_chr
@@ -65,7 +70,7 @@ if(!is.null(opt$ref_keep)){
 # QC reference
 ###########
 
-ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
+ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 
 ###########
 # Identify list of LD independent SNPs
@@ -79,23 +84,12 @@ ref_bim<-read_bim(opt$ref_plink_chr_subset)
 # Subset ref_bim to contain QC'd variants
 ref_bim<-ref_bim[ref_bim$SNP %in% ref_qc_snplist,]
 
-# Create file to removing these regions.
+# Remove regions of high LD
 ref_bim <- remove_regions(bim = ref_bim, regions = long_ld_coord)
-write.table(ref_bim$SNP, paste0(tmp_dir,'/extract.snplist'), col.names=F, row.names=F, quote=F)
-
 log_add(log_file = log_file, message = paste0(nrow(ref_bim),' variants after removal of LD high regions.'))  
 
-# Identify LD independent SNPs.
-for(chr_i in 1:22){
-  system(paste0(opt$plink,' --bfile ',opt$ref_plink_chr_subset,chr_i,' --threads 1 --extract ',tmp_dir,'/extract.snplist --indep-pairwise 1000 5 0.2 --out ',tmp_dir,'/ref.chr',chr_i,' --memory ',floor(opt$memory*0.7)))
-}
-
-# Read in LD indep SNPs
-ld_indep<-NULL
-for(chr_i in 1:22){
-  ld_indep<-c(ld_indep, fread(paste0(tmp_dir,'/ref.chr',chr_i,'.prune.in'), header=F)$V1)
-}
-
+# Perform LD pruning
+ld_indep <- plink_prune(bfile = opt$ref_plink_chr, plink = opt$plink, extract = ref_bim$SNP)
 log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))  
 
 ###########
@@ -104,7 +98,7 @@ log_add(log_file = log_file, message = paste0(length(ld_indep),' independent var
 
 log_add(log_file = log_file, message = 'Performing PCA based on reference.')
 
-snp_weights<-plink_pca(bfile = opt$ref_plink_chr_subset, extract = ld_indep, n_pc = opt$n_pcs)
+snp_weights<-plink_pca(bfile = opt$ref_plink_chr_subset, plink = opt$plink, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs)
 fwrite(snp_weights, paste0(opt$output,'.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
 
 if(file.exists(paste0(opt$output,'.eigenvec.var.gz'))){
@@ -120,7 +114,7 @@ system(paste0('gzip ',opt$output,'.eigenvec.var'))
 log_add(log_file = log_file, message = 'Computing reference PCs.')  
 
 # Calculate PCs in the full reference
-ref_pcs<-calc_score(bfile = opt$ref_plink_chr, score = paste0(opt$output,'.eigenvec.var.gz'))
+ref_pcs<-calc_score(bfile = opt$ref_plink_chr, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
 
 # Calculate scale within each reference population
 pop_data<-fread(opt$pop_data)

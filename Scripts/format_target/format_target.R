@@ -5,9 +5,9 @@ library("optparse")
 
 option_list = list(
 make_option("--target", action="store", default=NA, type='character',
-    help="Prefix to a target sample plink file for a given chromosome [required]"),
+    help="Prefix to a target sample plink files for a given chromosome [required]"),
 make_option("--ref", action="store", default=NA, type='character',
-    help="Prefix to a reference sample plink/.rds file [required]"),
+    help="Prefix to a reference sample plink and .rds files for a given chromosome [required]"),
 make_option("--format", action="store", default=NA, type='character',
     help="Format of target files. Either samp_imp_plink1, samp_imp_bgen, or samp_imp_vcf. [required]"),
 make_option("--plink", action="store", default='plink', type='character',

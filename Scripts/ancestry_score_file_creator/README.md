@@ -25,7 +25,7 @@ install.packages(c('data.table','caret','pROC','verification'))
 | --plink | Path PLINK software binary [required] | NA |
 | --plink2 | Path PLINK2 software binary [required] | NA |
 | --output | Path for output files [optional] | './PC_projector_output/Output' |
-| --ref_pop_scale | List of keep files for grouping individuals [optional] | NA |
+| --pop_data | Population data for reference sample (FID, IID, POP) [required] | NA |
 | --memory | Memory limit in Mb [optional] | 5000 |
 
 ## Output files
