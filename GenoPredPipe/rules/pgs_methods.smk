@@ -12,9 +12,6 @@ rule pop_pc_scoring:
     "Rscript ../Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R \
       --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{wildcards.population}.keep \
-      --plink plink \
-      --plink2 plink2 \
-      --n_pcs 6 \
       --pop_data resources/data/ref/ref.pop.txt \
       --output resources/data/ref/pc_score_files/{wildcards.population}/ref.{wildcards.population}.pcs"
 

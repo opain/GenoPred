@@ -181,7 +181,7 @@ plink_subset<-function(plink='plink', chr = 1:22, keep = NA, bfile, out, memory 
 
   # Run plink
   for(chr_i in chr){
-    cmd <- paste0(opt$plink,' --bfile ',bfile,chr_i,' --threads ', threads,' ',plink_opt,'--make-bed --out ',out,chr_i,' --memory ',memory)
+    cmd <- paste0(plink,' --bfile ',bfile,chr_i,' --threads ', threads,' ',plink_opt,'--make-bed --out ',out,chr_i,' --memory ',memory)
     exit_status <- system(cmd, intern=FALSE)
     if (exit_status != 0) {
       cat("Error occurred in running plink command for chromosome",chr_i,"\n")
@@ -190,7 +190,7 @@ plink_subset<-function(plink='plink', chr = 1:22, keep = NA, bfile, out, memory 
 }
 
 # Return a list of variants surviving QC using plink
-plink_qc_snplist<-function(bfile, chr = 1:22, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
+plink_qc_snplist<-function(bfile, plink = 'plink', chr = 1:22, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
   plink_opt<-NULL
   if(!is.null(geno)){
     plink_opt <- paste0(plink_opt, paste0('--geno ',geno,' '))
@@ -205,7 +205,7 @@ plink_qc_snplist<-function(bfile, chr = 1:22, threads = 1, memory = 4000, geno =
   temp_file<-tempfile()
   snplist<-NULL
   for(chr_i in chr){
-    system(paste0(opt$plink,' --bfile ',bfile,chr_i,' --threads ',threads,' ',plink_opt,' --write-snplist --out ', temp_file,' --memory ', memory))
+    system(paste0(plink,' --bfile ',bfile,chr_i,' --threads ',threads,' ',plink_opt,' --write-snplist --out ', temp_file,' --memory ', memory))
     snplist<-c(snplist, fread(paste0(temp_file, '.snplist'), header=F)$V1)
   }
 
@@ -263,7 +263,7 @@ read_bim<-function(x){
 }
 
 # Perform PCA using plink files
-plink_pca<-function(bfile, extract = NULL, flip = NULL, memory = 4000, n_pc = 6){
+plink_pca<-function(bfile, plink = 'plink', plink2 = 'plink2' extract = NULL, flip = NULL, memory = 4000, n_pc = 6){
   ###########
   # Merge subset reference
   ###########
@@ -283,11 +283,11 @@ plink_pca<-function(bfile, extract = NULL, flip = NULL, memory = 4000, n_pc = 6)
     write.table(flip, paste0(tmp_dir,'/flip_list.txt'), col.names = F, row.names = F, quote=F)
     plink_opt<-c(plink_opt, paste0('--flip ',tmp_dir,'/flip_list.txt '))
   }
-  cmd<-paste0(opt$plink,' --merge-list ',tmp_dir,'/ref_mergelist.txt ',plink_opt,'--threads 1 --make-bed --out ',tmp_dir,'/ref_merge --memory ',memory)
+  cmd<-paste0(plink,' --merge-list ',tmp_dir,'/ref_mergelist.txt ',plink_opt,'--threads 1 --make-bed --out ',tmp_dir,'/ref_merge --memory ',memory)
   system(cmd)
 
   # Calculate SNP weights
-  system(paste0(opt$plink2,' --bfile ',tmp_dir,'/ref_merge --threads 1 --pca ',n_pc,' biallelic-var-wts  --out ',tmp_dir,'/ref_merge --memory ', memory))
+  system(paste0(plink2,' --bfile ',tmp_dir,'/ref_merge --threads 1 --pca ',n_pc,' biallelic-var-wts  --out ',tmp_dir,'/ref_merge --memory ', memory))
 
   # Format the SNP-weights
   snp_weights<-fread(paste0(tmp_dir,'/ref_merge.eigenvec.var'))
@@ -295,4 +295,33 @@ plink_pca<-function(bfile, extract = NULL, flip = NULL, memory = 4000, n_pc = 6)
   names(snp_weights)[1:2]<-c('SNP','A1')
 
   return(snp_weights)
+}
+
+# Performing LD pruning
+plink_prune<-function(bfile, plink = 'plink', chr =1:22, extract = NULL, memory = 4000){
+  # Create a temporary file path to store pruning output
+  tmp_file<-tempfile()
+
+  # Check extract file
+  extract<-dat_or_file(extract)
+
+  # Prepare plink options
+  plink_opt<-NULL
+  if(!is.null(extract)){
+    plink_opt<-paste0(plink_opt, '--extract ', extract,' ')
+  }
+
+  # Perfom pruning and read in SNP-list
+  ld_indep<-NULL
+  for(chr_i in chr){
+    cmd <- paste0(plink,' --bfile ',bfile,chr_i,' --threads 1 ',plink_opt,'--indep-pairwise 1000 5 0.2 --out ',tmp_file,' --memory ',memory)
+    exit_status <- system(cmd, intern=FALSE)
+    if (exit_status != 0) {
+      cat("Error occurred in running plink command for chromosome",chr_i,"\n")
+    } else {
+      ld_indep<-c(ld_indep, fread(paste0(tmp_file,'.prune.in'), header=F)$V1)
+    }
+  }
+
+  return(ld_indep)
 }
