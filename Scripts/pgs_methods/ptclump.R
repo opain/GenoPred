@@ -1,72 +1,70 @@
 #!/usr/bin/Rscript
 # This script was written by Oliver Pain whilst at King's College London University.
 start.time <- Sys.time()
-suppressMessages(library("optparse"))
+library("optparse")
 
 option_list = list(
-make_option("--ref_plink_chr", action="store", default=NA, type='character',
+make_option("--ref_plink_chr", action="store", default=NULL, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
-make_option("--ref_keep", action="store", default=NA, type='character',
-    help="Keep file to subset individuals in reference for clumping [required]"),
-make_option("--ref_pop_scale", action="store", default=NA, type='character',
+make_option("--ref_keep", action="store", default=NULL, type='character',
+    help="Keep file to subset individuals in reference for clumping [optional]"),
+make_option("--pop_data", action="store", default=NULL, type='character',
 		help="File containing the population code and location of the keep file [required]"),
-make_option("--plink1", action="store", default='plink', type='character',
+make_option("--plink", action="store", default='plink', type='character',
     help="Path PLINKv1.9 software binary [required]"),
-make_option("--plink2", action="store", default='plink', type='character',
+make_option("--plink2", action="store", default='plink2', type='character',
     help="Path PLINKv2 software binary [required]"),
 make_option("--output", action="store", default='./Output', type='character',
 		help="Path for output files [required]"),
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]"),
-make_option("--sumstats", action="store", default=NA, type='character',
+make_option("--sumstats", action="store", default=NULL, type='character',
 		help="GWAS summary statistics in LDSC format [required]"),
-make_option("--covar", action="store", default=NA, type='character',
-		help="File containing covariates to be regressed from the scores [optional]"),
 make_option("--pTs", action="store", default='1e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1', type='character',
 		help="List of p-value thresholds for scoring [optional]"),
-make_option("--extract", action="store", default=NA, type='character',
+make_option("--extract", action="store", default=NULL, type='character',
     help="File listing SNPs to extract for polygenic scoring [optional]"),
 make_option("--nested", action="store", default=T, type='logical',
     help="Specify as F to use non-overlapping p-value intervals [optional]"),
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
-make_option("--prune_hla", action="store", default=T, type='logical',
-		help="Retain only top assocaited variant in HLA region [optional]")
+make_option("--top_hla", action="store", default=T, type='logical',
+		help="Retain only top assocaited variant in HLA/MHC region [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
 
+# Load dependencies
+library(GenoUtils)
 library(data.table)
 source('../Scripts/functions/misc.R')
 
+# Check required inputs
+if(is.null(opt$ref_plink_chr)){
+  stop('--ref_plink_chr must be specified.\n')
+}
+if(is.null(opt$sumstats)){
+  stop('--sumstats must be specified.\n')
+}
+if(is.null(opt$pop_data)){
+  stop('--pop_data must be specified.\n')
+}
+
+# Create output directory
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
-CHROMS<-1:22
+# Create temp directory
+tmp_dir<-tempdir()
 
+# Initiate log file
+log_file <- paste0(opt$output,'.log')
+log_header(log_file = log_file, opt = opt, script = 'ptclump.R', start.time = start.time)
+
+# If testing, change CHROMS to chr value
 if(!is.na(opt$test)){
-  if(grepl('chr', opt$test)){
-    single_chr_test<-T
-    CHROMS<-as.numeric(gsub('chr','',opt$test))
-  } else {
-    single_chr_test<-F
-    opt$test<-as.numeric(opt$test)
-  }
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
 }
-
-sink(file = paste(opt$output,'.log',sep=''), append = F)
-cat(
-'#################################################################
-# ptclump.R
-# For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
-#################################################################
-Analysis started at',as.character(start.time),'
-Options are:\n')
-
-cat('Options are:\n')
-print(opt)
-cat('Analysis started at',as.character(start.time),'\n')
-sink()
 
 #####
 # Format pT option
@@ -78,146 +76,52 @@ opt$pTs<-as.numeric(unlist(strsplit(opt$pTs,',')))
 # Read in sumstats
 #####
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Reading in GWAS.\n')
-sink()
+log_add(log_file = log_file, message = 'Reading in GWAS.')  
 
-GWAS<-fread(cmd=paste0('zcat ',opt$sumstats))
-GWAS<-GWAS[complete.cases(GWAS),]
+# Read in, check and format GWAS summary statistics
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, extract = opt$extract, req_cols = c('CHR','BP','SNP','A1','A2','BETA','P'))
 
-# Extract subset if testing
-if(!is.na(opt$test)){
-  if(single_chr_test == F){
-    sink(file = paste(opt$output,'.log',sep=''), append = T)
-    cat('Testing mode enabled. Extracted ',opt$test,' variants per chromsome.\n', sep='')
-    sink()
-    
-    GWAS_test<-NULL
-    for(i in 1:22){
-      GWAS_tmp<-GWAS[GWAS$CHR == i,]
-      GWAS_tmp<-GWAS_tmp[order(GWAS_tmp$BP),]
-      GWAS_tmp<-GWAS_tmp[1:opt$test,]
-      GWAS_test<-rbind(GWAS_test,GWAS_tmp)
-    }
-    
-    GWAS<-GWAS_test
-    GWAS<-GWAS[complete.cases(GWAS),]
-    rm(GWAS_test)
-    print(table(GWAS$CHR))
-    
-  } else {
-    sink(file = paste(opt$output,'.log',sep=''), append = T)
-    cat('Testing mode enabled. Extracted chromosome ',opt$test,' variants per chromsome.\n', sep='')
-    sink()
-    
-    GWAS<-GWAS[GWAS$CHR == CHROMS,]
-    print(table(GWAS$CHR))
-  }
-}
+#####
+# Prepare for ptclump
+#####
 
-# Convert OR to BETA
-if(!('BETA' %in% names(GWAS))){
-  GWAS$BETA<-log(GWAS$OR)
-}
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('GWAS contains',dim(GWAS)[1],'variants.\n')
-sink()
-
-if(!is.na(opt$extract)){
-	extract_snplist<-fread(opt$extract, header=F)$V1
-	GWAS<-GWAS[(GWAS$SNP %in% extract_snplist),]
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('After applying the extract file,',dim(GWAS)[1],'variants remain.\n')
-	sink()
-}
-
-GWAS<-GWAS[,c('SNP','A1','A2','BETA','P')]
-
-fwrite(GWAS, paste0(opt$output_dir,'GWAS_sumstats_temp.txt'), sep=' ')
-
-# Retain pTs with at least one variant
-opt$pTs<-opt$pTs[opt$pTs > min(GWAS$P)]
-
-if(opt$prune_hla == T){
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('Extracted top variant in HLA region.\n')
-	sink()
-
-	bim<-fread(paste0(opt$ref_plink_chr,'6.bim'))
-	bim_GWAS<-merge(bim,GWAS, by.x='V2',by.y='SNP')
-	bim_GWAS_hla<-bim_GWAS[bim_GWAS$V4 > 28e6 & bim_GWAS$V4 < 34e6,]
-	bim_GWAS_hla_excl<-bim_GWAS_hla[bim_GWAS_hla$P != min(bim_GWAS_hla$P),]
-	write.table(bim_GWAS_hla_excl, paste0(opt$output_dir,'hla_exclude.txt'), col.names=F, row.names=F, quote=F)
-}
-
-if(!is.na(opt$test)){
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  test_start.time <- Sys.time()
-  cat('Test started at',as.character(test_start.time),'\n')
-  sink()
+if(opt$top_hla){
+  # Assumes BP column is GRCh37
+  hla <- gwas[(gwas$CHR == 6 & gwas$BP > 28e6 & gwas$BP < 34e6),]
+  top_hla <- hla$SNP[hla$P == min(hla$P)][1]
+  gwas <- gwas[!(gwas$CHR == 6 & gwas$BP > 28e6 & gwas$BP < 34e6 & gwas$SNP != top_hla),]
+  log_add(log_file = log_file, message = c('Extracted top variant in HLA/MHC region.', paste0(nrow(gwas), ' variants remain.')))  
 }
 
 #####
 # Clump SNPs in GWAS based on LD in the reference
 #####
 
-if(!is.na(opt$ref_keep)){ 
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('Keeping individuals in',opt$ref_keep,'for clumping.\n')
-	sink()
-} else {
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('Using full reference for clumping.\n')
-	sink()
+# Record start time for test
+if(!is.na(opt$test)){
+  test_start.time<-test_start(log_file = log_file)
 }
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Clumping GWAS based on the reference...')
-sink()
-
-if(!is.na(opt$ref_keep)){ 
-	if(opt$prune_hla == F){
-		for(i in CHROMS){
-			system(paste0(opt$plink1,' --bfile ',opt$ref_plink_chr,i,' --keep ',opt$ref_keep,' --clump ',opt$output_dir,'GWAS_sumstats_temp.txt --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',opt$output_dir,'GWAS_sumstats_temp_clumped_chr',i,'.txt --memory ',floor(opt$memory*0.7)))
-		}
-	} else {
-		for(i in CHROMS){
-			system(paste0(opt$plink1,' --bfile ',opt$ref_plink_chr,i,' --keep ',opt$ref_keep,' --exclude ',opt$output_dir,'hla_exclude.txt --clump ',opt$output_dir,'GWAS_sumstats_temp.txt --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',opt$output_dir,'GWAS_sumstats_temp_clumped_chr',i,'.txt --memory ',floor(opt$memory*0.7)))
-		}
-	}
-} else {
-	if(opt$prune_hla == F){
-		for(i in CHROMS){
-			system(paste0(opt$plink1,' --bfile ',opt$ref_plink_chr,i,' --clump ',opt$output_dir,'GWAS_sumstats_temp.txt --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',opt$output_dir,'GWAS_sumstats_temp_clumped_chr',i,'.txt --memory ',floor(opt$memory*0.7)))
-		}
-	} else {
-		for(i in CHROMS){
-			system(paste0(opt$plink1,' --bfile ',opt$ref_plink_chr,i,' --exclude ',opt$output_dir,'hla_exclude.txt --clump ',opt$output_dir,'GWAS_sumstats_temp.txt --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',opt$output_dir,'GWAS_sumstats_temp_clumped_chr',i,'.txt --memory ',floor(opt$memory*0.7)))
-		}
-	}
+# Peforming LD-based clumping
+if(!is.null(opt$keep)){
+  log_add(log_file = log_file, message = 'Restricting sample to keep file for clumping.')
 }
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
+clumped <- plink_clump(bfile = opt$ref_plink_chr, chr = CHROMS, sumstats = gwas, keep = opt$ref_keep, log_file = log_file)
 
 #####
 # Create score files
 #####
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Creating score files...')
-sink()
+log_add(log_file = log_file, message = 'Creating score file.')  
 
-clumped_SNPs<-NULL
-for(i in CHROMS){
-  clumped<-fread(paste0(opt$output_dir,'GWAS_sumstats_temp_clumped_chr',i,'.txt.clumped'))
-  clumped_SNPs<-c(clumped_SNPs,clumped$SNP)
-}
+# Restrict GWAS to clumped variants
+gwas <- gwas[(gwas$SNP %in% clumped),]
 
-GWAS_clumped<-GWAS[(GWAS$SNP %in% clumped_SNPs),]
+# Retain pTs with at least one variant
+opt$pTs<-opt$pTs[opt$pTs > min(gwas$P)]
 
+# Create range_list file based on specified p-value thresholds
 if(opt$nested == T){
   range_list<-data.frame(	Name=paste0('S',1:length(opt$pTs)),
                           pT0=0,
@@ -228,15 +132,12 @@ if(opt$nested == T){
                           pT1=opt$pTs)
 }
 
-score<-GWAS_clumped
-score<-score[,c('SNP','A1','BETA','P'),with=F]
+score <- gwas[, c('SNP','A1','A2'), with=F]
 for(pT in 1:nrow(range_list)){
-  score$score_tmp<-score$BETA
-  score$score_tmp[!(score$P > range_list$pT0[pT] & score$P < range_list$pT1[pT])]<-0
-  names(score)[names(score) == 'score_tmp']<-paste0('SCORE_',range_list$pT0[pT],'_',range_list$pT1[pT])
+  tmp <- gwas$BETA
+  tmp[!(gwas$P > range_list$pT0[pT] & gwas$P < range_list$pT1[pT])] <- 0
+  score[[paste0('SCORE_',range_list$pT0[pT],'_',range_list$pT1[pT])]] <- tmp
 }
-score$BETA<-NULL
-score$P<-NULL
 
 fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
@@ -245,74 +146,36 @@ if(file.exists(paste0(opt$output,'.score.gz'))){
 }
 system(paste0('gzip ',opt$output,'.score'))
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
-
+# Record end time of test
 if(!is.na(opt$test)){
-  end.time <- Sys.time()
-  time.taken <- end.time - test_start.time
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('Test run finished at',as.character(end.time),'\n')
-  cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
-  sink()
+  test_finish(log_file = log_file, test_start.time = test_start.time)
 }
 
 ###
 # Count the number of SNPs to be included at each pT
 ###
 
-for(i in 1:dim(range_list)[1]){
-	range_list$NSNP[i]<-sum(GWAS_clumped$P > range_list$pT0[i] & GWAS_clumped$P < range_list$pT1[i])
+for(i in 1:nrow(range_list)){
+	range_list$NSNP[i]<-sum(gwas$P > range_list$pT0[i] & gwas$P < range_list$pT1[i])
 }
 
-fwrite(range_list, paste0(opt$output,'.NSNP_per_pT'),sep='\t')
-
-# Output range list file with ranges containing at least 1 SNP
-range_list<-range_list[range_list$NSNP > 0,]	
-range_list$NSNP<-NULL
-fwrite(range_list, paste0(opt$output,'.range_list'), col.names=F, sep=' ')
-
-rm(GWAS)
-rm(GWAS_clumped)
-gc()
-
-###
-# Clean up temporary files
-###
-
-system(paste0('rm ',opt$output_dir,'GWAS*'))
-if(opt$prune_hla == T){
-	system(paste0('rm ',opt$output_dir,'hla_exclude.txt'))
-}
+fwrite(range_list, paste0(opt$output,'.NSNP_per_pT'), sep='\t')
 
 ####
 # Calculate mean and sd of polygenic scores at each threshold
 ####
 
-# Calculate polygenic scores for reference individuals
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Calculating polygenic scores in reference...')
-sink()
+log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
 
-scores<-calc_score(
-  bfile=opt$ref_plink_chr, 
-  score=paste0(opt$output,'.score.gz')
-)
+# Calculate scores in the full reference
+ref_pgs<-calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
+# Calculate scale within each reference population
+pop_data<-fread(opt$pop_data)
 
-# Calculate the mean and sd of scores for each population specified in pop_scale
-pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
-
-for(k in 1:dim(pop_keep_files)[1]){
-	pop<-pop_keep_files$V1[k]
-	keep<-fread(pop_keep_files$V2[k], header=F)
-  names(keep)<-c('FID','IID')
-  ref_scale<-score_mean_sd(scores=scores, keep=keep)
-	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
+for(pop_i in unique(pop_data$POP)){
+  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
+  fwrite(ref_pgs_scale_i, paste0(opt$output, '.', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
 
 end.time <- Sys.time()
