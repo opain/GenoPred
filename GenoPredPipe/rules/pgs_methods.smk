@@ -108,9 +108,8 @@ rule prep_pgs_dbslmm:
       --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{params.population}.keep \
       --sumstats {outdir}/resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
-      --plink resources/software/plink/plink \
       --ld_blocks resources/data/ld_blocks/{params.population} \
-      --rscript Rscript \
+      --plink resources/software/plink/plink \
       --dbslmm resources/software/dbslmm/software \
       --munge_sumstats resources/software/ldsc/munge_sumstats.py \
       --ldsc resources/software/ldsc/ldsc.py \
@@ -119,7 +118,7 @@ rule prep_pgs_dbslmm:
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
       --output {outdir}/resources/data/ref/pgs_score_files/dbslmm/{wildcards.gwas}/ref.{wildcards.gwas} \
-      --ref_pop_scale resources/data/ref/ref.keep.list \
+      --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
 
 rule run_prep_pgs_dbslmm:

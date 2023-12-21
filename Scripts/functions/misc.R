@@ -24,6 +24,8 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
     }
     if(n_scores > 1){
         cmd<-paste0(cmd, ' --score-col-nums 4-',3+n_scores)
+    } else {
+        cmd<-paste0(cmd, ' --score-col-nums 4')
     }
     # Calculate score in the target sample
     for(i in chr){
@@ -271,16 +273,6 @@ remove_regions<-function(bim, regions){
   return(bim[!(bim$SNP %in% exclude),])
 }
 
-# Read in per chromosome bim files
-read_bim<-function(x){
-  bim<-NULL
-  for(chr_i in 1:22){
-      bim <- rbind(bim, fread(paste0(x, chr_i,'.bim')))
-  }
-  names(bim)<-c('CHR','SNP','POS','BP','A1','A2')
-  return(bim)
-}
-
 # Perform PCA using plink files
 plink_pca<-function(bfile, plink = 'plink', plink2 = 'plink2', extract = NULL, flip = NULL, memory = 4000, n_pc = 6){
   ###########
@@ -437,4 +429,96 @@ test_finish<-function(log_file, test_start.time){
   cat('Test run finished at',as.character(end.time),'\n')
   cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
   sink()
+}
+
+# Run LDSC
+ldsc <- function(sumstats, ldsc, munge_sumstats, ldsc_ref, pop_prev = NULL, sample_prev = NULL, log_file = NULL){
+  tmp_dir<-tempdir()
+  
+  # Munge the sumstats
+  system(paste0(munge_sumstats, ' --sumstats ', sumstats,' --merge-alleles ', ldsc_ref, '/w_hm3.snplist --out ', tmp_dir,'/munged'))
+
+  # Define the file paths
+  sumstats_path <- file.path(tmp_dir,'/munged.sumstats.gz')
+  output_path <- file.path(tmp_dir, '/ldsc')
+
+  # Run the appropriate LDSC command based on the availability of prevalence data
+  if(!is.null(pop_prev) && !is.null(sample_prev)) {
+    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld-chr ', ldsc_ref, '/ --w-ld-chr ', ldsc_ref, '/ --out ', output_path, ' --samp-prev ', sample_prev, ' --pop-prev ', pop_prev))
+    scale_type <- "Liability"
+  } else {
+    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld-chr ', ldsc_ref, '/ --w-ld-chr ', ldsc_ref, '/ --out ', output_path))
+    scale_type <- "Observed"
+  }
+
+  # Read the log file and extract heritability
+  ldsc_log <- readLines(paste0(tmp_dir, '/ldsc.log'))
+  pattern <- paste0('Total ', scale_type, ' scale h2: ')
+  ldsc_h2 <- gsub(pattern, '', ldsc_log[grepl(pattern, ldsc_log)])
+
+  # Log the heritability estimate
+  log_add(log_file = log_file, message = paste0('SNP-heritability estimate on the ', tolower(scale_type), ' scale = ', ldsc_h2, '.'))  
+
+  # Process and return the heritability estimate
+  ldsc_h2 <- as.numeric(sub(' .*', '', ldsc_h2))
+  if(!is.na(ldsc_h2) && ldsc_h2 > 1){
+    ldsc_h2 <- 1
+    log_add(log_file = log_file, message = paste0('Setting SNP-heritability estimate to 1.'))  
+  } 
+
+  return(ldsc_h2)
+}
+
+# Match A1 and A2 match a reference
+allele_match<-function(sumstats, ref_bim, chr = 1:22){
+  sumstats_ref<-merge(sumstats, ref_bim[, c('SNP','A1','A2'), with=F], by = 'SNP')
+  swap_index <- sumstats_ref$A1.x == sumstats_ref$A1.y & sumstats_ref$A2.x == sumstats_ref$A2.y
+  sumstats_ref$BETA[swap_index] <- -sumstats_ref$BETA[swap_index]
+  sumstats_ref$FREQ[swap_index] <- 1-sumstats_ref$FREQ[swap_index]
+
+  names(sumstats_ref)[names(sumstats_ref) == 'A1.y'] <- 'A1'
+  names(sumstats_ref)[names(sumstats_ref) == 'A2.y'] <- 'A2'
+  sumstats_ref<-sumstats_ref[, names(sumstats), with = F]
+
+  return(sumstats_ref)
+}
+
+# Run DBSLMM
+dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats, h2, nsnp, nindiv, log_file = NULL){
+  # Create temp directory
+  tmp_dir<-tempdir()
+
+  # Make sure there is permission to run dbslmm
+  system(paste0('chmod 777 ', dbslmm))
+
+  # Run dbslmm for each chromosome
+  for(chr_i in chr){
+    cmd <-paste0('Rscript ', dbslmm,'/DBSLMM.R --plink ', plink,' --block ', ld_blocks,'/fourier_ls-chr', chr_i, '.bed --dbslmm ', dbslmm, '/dbslmm --h2 ', ldsc_h2,' --ref ', bfile, chr_i, ' --summary ', sumstats, chr_i, '.assoc.txt --n ', nindiv,' --nsnp ', nsnp, ' --outPath ', tmp_dir, '/ --thread 1')
+    exit_status <- system(cmd, intern = F)
+  }
+
+  # Read in DBSLMM output
+  dbslmm_output <- list.files(path=tmp_dir, pattern='.dbslmm.txt')
+  if(length(dbslmm_output) != 22){
+    log_add(log_file = log_file, message = 'At least one chromosome did not complete.')
+  }
+
+  dbslmm_all<-NULL
+  for(i in dbslmm_output){
+    dbslmm_all<-rbind(dbslmm_all, fread(paste0(tmp_dir,'/',i)))
+  }
+
+  dbslmm_all<-dbslmm_all[,c(1,2,4), with=T]
+  names(dbslmm_all)<-c('SNP', 'A1', 'SCORE_DBSLMM')
+
+  # Insert A2 information
+  bim<-read_bim(bfile, chr = chr)
+  dbslmm_all<-merge(dbslmm_all, bim[, c('SNP','A1','A2'), with = F], by = c('SNP','A1'), all.x = T)
+  if(any(is.na(dbslmm_all$A2))){
+    stop('Insertion of A2 in dbslmm score file failed.')
+  }
+
+  dbslmm_all <- dbslmm_all[, c('SNP','A1','A2','SCORE_DBSLMM')]
+
+  return(dbslmm_all)
 }
