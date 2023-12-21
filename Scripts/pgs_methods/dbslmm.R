@@ -1,332 +1,190 @@
 #!/usr/bin/Rscript
 # This script was written by Oliver Pain whilst at King's College London University.
 start.time <- Sys.time()
-suppressMessages(library("optparse"))
+library("optparse")
 
 option_list = list(
-make_option("--ref_plink_chr", action="store", default=NA, type='character',
+make_option("--ref_plink_chr", action="store", default=NULL, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
-make_option("--ref_keep", action="store", default=NA, type='character',
-		help="Keep file to subset individuals in reference for clumping [required]"),
-make_option("--ref_pop_scale", action="store", default=NA, type='character',
+make_option("--ref_keep", action="store", default=NULL, type='character',
+		help="Keep file to subset individuals in reference for clumping [optional]"),
+make_option("--pop_data", action="store", default=NULL, type='character',
 		help="File containing the population code and location of the keep file [required]"),
 make_option("--plink", action="store", default='plink', type='character',
-    help="Path PLINK v1.9 software binary [required]"),
-make_option("--output", action="store", default='NA', type='character',
+    help="Path PLINK v1.9 software binary [optional]"),
+make_option("--plink2", action="store", default='plink2', type='character',
+    help="Path PLINK v2 software binary [optional]"),
+make_option("--output", action="store", default=NULL, type='character',
 		help="Path for output files [required]"),
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]"),
-make_option("--sumstats", action="store", default=NA, type='character',
+make_option("--sumstats", action="store", default=NULL, type='character',
     help="GWAS summary statistics [optional]"),
-make_option("--rscript", action="store", default=NA, type='character',
-    help="Path to Rscript binary [optional]"),
-make_option("--ld_blocks", action="store", default=NA, type='character',
-    help="Path to folder containing LD block information [optional]"),
-make_option("--dbslmm", action="store", default=NA, type='character',
-    help="Path to DBSLMM directory [optional]"),
-make_option("--ldsc", action="store", default=NA, type='character',
+make_option("--ld_blocks", action="store", default=NULL, type='character',
+    help="Path to folder containing LD block information [required]"),
+make_option("--dbslmm", action="store", default=NULL, type='character',
+    help="Path to DBSLMM directory [required]"),
+make_option("--ldsc", action="store", default=NULL, type='character',
     help="Path to LD-score regression binary [required]"),
-make_option("--munge_sumstats", action="store", default=NA, type='character',
+make_option("--munge_sumstats", action="store", default=NULL, type='character',
     help="Path to munge_sumstats.py script [required]"),
-make_option("--ldsc_ref", action="store", default=NA, type='character',
+make_option("--ldsc_ref", action="store", default=NULL, type='character',
     help="Path to LD-score regression reference data 'eur_w_ld_chr' [required]"),
-make_option("--hm3_snplist", action="store", default=NA, type='character',
+make_option("--hm3_snplist", action="store", default=NULL, type='character',
     help="Path to LDSC HapMap3 snplist [required]"),
-make_option("--pop_prev", action="store", default=NA, type='numeric',
+make_option("--pop_prev", action="store", default=NULL, type='numeric',
     help="Population prevelance (if binary) [optional]"),
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
-make_option("--sample_prev", action="store", default=NA, type='numeric', 
+make_option("--sample_prev", action="store", default=NULL, type='numeric', 
     help="Sampling ratio in GWAS [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
 
+opt$test<-NA
+
+# Load dependencies
+library(GenoUtils)
 library(data.table)
 source('../Scripts/functions/misc.R')
 
+# Check required inputs
+if(is.null(opt$ref_plink_chr)){
+  stop('--ref_plink_chr must be specified.\n')
+}
+if(is.null(opt$sumstats)){
+  stop('--sumstats must be specified.\n')
+}
+if(is.null(opt$pop_data)){
+  stop('--pop_data must be specified.\n')
+}
+if(is.null(opt$output)){
+  stop('--output must be specified.\n')
+}
+if(is.null(opt$ld_blocks)){
+  stop('--ld_blocks must be specified.\n')
+}
+if(is.null(opt$dbslmm)){
+  stop('--dbslmm must be specified.\n')
+}
+if(is.null(opt$ldsc)){
+  stop('--ldsc must be specified.\n')
+}
+if(is.null(opt$munge_sumstats)){
+  stop('--munge_sumstats must be specified.\n')
+}
+if(is.null(opt$ldsc_ref)){
+  stop('--ldsc_ref must be specified.\n')
+}
+if(is.null(opt$hm3_snplist)){
+  stop('--hm3_snplist must be specified.\n')
+}
+if(any(!is.null(c(opt$sample_prev, opt$pop_prev))) & any(is.null(c(opt$sample_prev, opt$pop_prev)))){
+  stop('If either sample_prev or pop_prev are specified, both must be specified.')
+}
+
+# Create output directory
 opt$output_dir<-paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
-CHROMS<-1:22
+# Create temp directory
+tmp_dir<-tempdir()
 
+# Initiate log file
+log_file <- paste0(opt$output,'.log')
+log_header(log_file = log_file, opt = opt, script = 'dbslmm.R', start.time = start.time)
+
+# If testing, change CHROMS to chr value
 if(!is.na(opt$test)){
-  if(grepl('chr', opt$test)){
-    single_chr_test<-T
-    CHROMS<-as.numeric(gsub('chr','',opt$test))
-  } else {
-    single_chr_test<-F
-    opt$test<-as.numeric(opt$test)
-  }
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
 }
 
-sink(file = paste(opt$output,'.log',sep=''), append = F)
-cat(
-'#################################################################
-# dbslmm.R
-# For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
-#################################################################
-Analysis started at',as.character(start.time),'
-Options are:\n')
-
-cat('Options are:\n')
-print(opt)
-cat('Analysis started at',as.character(start.time),'\n')
-sink()
-
 #####
-# Munge_sumstats
+# Estimate the SNP-heritability using LD-Score Regression
 #####
 
-system(paste0(opt$munge_sumstats,' --sumstats ',opt$sumstats,' --merge-alleles ',opt$ldsc_ref,'/w_hm3.snplist --out ', opt$output_dir,'munged_sumstats_temp'))
+ldsc_h2 <- ldsc(sumstats = opt$sumstats, ldsc = opt$ldsc, munge_sumstats = opt$munge_sumstats, ldsc_ref = opt$ldsc_ref, pop_prev = opt$pop_prev, sample_prev = opt$sample_prev, log_file = log_file)
 
 #####
-# Estimate the SNP-heritability
+# Create subset of ref files
 #####
 
-if(opt$pop_prev == 'NA'){
-	opt$pop_prev<-NA
-}
-
-if(opt$sample_prev == 'NA'){
-	opt$sample_prev<-NA
-}
-
-if(!is.na(opt$pop_prev) & !is.na(opt$sample_prev)){
-  system(paste0(opt$ldsc,' --h2 ',opt$output_dir,'munged_sumstats_temp.sumstats.gz --ref-ld-chr ',opt$ldsc_ref,'/ --w-ld-chr ',opt$ldsc_ref,'/ --out ', opt$output_dir,'ldsc_snp_h2_temp --samp-prev ',opt$sample_prev,' --pop-prev ',opt$pop_prev))
-
-  ldsc_log<-read.table(paste0(opt$output_dir,'ldsc_snp_h2_temp.log'), header=F, sep='&')
-  ldsc_h2<-ldsc_log[grepl('Total Liability scale h2', ldsc_log$V1),]
-  ldsc_h2<-gsub('Total Liability scale h2: ','', ldsc_h2)
-  
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('SNP-heritability estimate on liability scale = ',ldsc_h2,'.\n',sep='')
-  sink()
-  
-  ldsc_h2<-as.numeric(gsub(' .*','', ldsc_h2))
-  
-  if(ldsc_h2 > 1){
-	ldsc_h2<-1
-	
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
-	cat('SNP-heritability estimate set to 1.\n',sep='')
-	sink()
-  }
-	
+if(!is.null(opt$ref_keep)){
+  log_add(log_file = log_file, message = 'ref_keep used to subset reference genotype data.')
+  plink_subset(bfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset_chr'), plink = opt$plink, chr = CHROMS, keep = opt$ref_keep, memory = opt$memory)
+  opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset_chr')
 } else {
-  system(paste0(opt$ldsc,' --h2 ',opt$output_dir,'munged_sumstats_temp.sumstats.gz --ref-ld-chr ',opt$ldsc_ref,'/ --w-ld-chr ',opt$ldsc_ref,'/ --out ', opt$output_dir,'ldsc_snp_h2_temp'))
-  
-  ldsc_log<-read.table(paste0(opt$output_dir,'ldsc_snp_h2_temp.log'), header=F, sep='&')
-  ldsc_h2<-ldsc_log[grepl('Total Observed scale h2', ldsc_log$V1),]
-  ldsc_h2<-gsub('Total Observed scale h2: ','', ldsc_h2)
-  
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('SNP-heritability estimate on observed scale = ',ldsc_h2,'.\n',sep='')
-  sink()
-  
-  ldsc_h2<-as.numeric(gsub(' .*','', ldsc_h2))
-  
-}
-
-if(!is.na(opt$ref_keep)){
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('ref_keep used to subset reference genotype data.\n')
-  sink()
-  
-  #####
-  # Create subset of ref files
-  #####
-  
-  for(i in CHROMS){
-      system(paste0(opt$plink,' --bfile ',opt$ref_plink_chr,i,' --keep ',opt$ref_keep,' --make-bed --out ',opt$output_dir,'dbslmm_ref_chr',i))
-  }
-  
-  opt$ref_plink_subset<-paste0(opt$output_dir,'dbslmm_ref_chr')
-} else {
-  opt$ref_plink_subset<-opt$ref_plink_chr
+  opt$ref_plink_chr_subset < - opt$ref_plink_chr
 }
 
 #####
 # Read in sumstats and insert p-values
 #####
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Reading in GWAS and harmonising with reference.\n')
-sink()
+log_add(log_file = log_file, message = 'Reading in GWAS and harmonising with reference.')
 
-GWAS<-fread(cmd=paste0('zcat ',opt$sumstats), nThread=1)
-GWAS<-GWAS[complete.cases(GWAS),]
+# Read in, check and format GWAS summary statistics
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','BP','N','A1','A2','FREQ','BETA','SE','P'))
 
-# Extract subset if testing
-if(!is.na(opt$test)){
-  if(single_chr_test == F){
-    sink(file = paste(opt$output,'.log',sep=''), append = T)
-    cat('Testing mode enabled. Extracted ',opt$test,' variants per chromsome.\n', sep='')
-    sink()
-    
-    GWAS_test<-NULL
-    for(i in 1:22){
-      GWAS_tmp<-GWAS[GWAS$CHR == i,]
-      GWAS_tmp<-GWAS_tmp[order(GWAS_tmp$BP),]
-      GWAS_tmp<-GWAS_tmp[1:opt$test,]
-      GWAS_test<-rbind(GWAS_test,GWAS_tmp)
-    }
-    
-    GWAS<-GWAS_test
-    GWAS<-GWAS[complete.cases(GWAS),]
-    rm(GWAS_test)
-    print(table(GWAS$CHR))
-    
-  } else {
-    sink(file = paste(opt$output,'.log',sep=''), append = T)
-    cat('Testing mode enabled. Extracted chromosome ',opt$test,' variants per chromsome.\n', sep='')
-    sink()
-    
-    GWAS<-GWAS[GWAS$CHR == CHROMS,]
-    print(table(GWAS$CHR))
-  }
-}
+# Store number of snps and average sample size
+nsnp<-nrow(gwas)
+gwas_N<-mean(gwas$N)
 
-# Convert OR to BETA
-if(!('BETA' %in% names(GWAS))){
-  GWAS$BETA<-log(GWAS$OR)
-}
-
-# Rename allele frequency column
-if(sum(names(GWAS) == 'FREQ') != 1){
-  GWAS$FREQ<-GWAS$REF.FREQ
-}
-
-nsnp<-dim(GWAS)[1]
-GWAS_N<-mean(GWAS$N)
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('GWAS contains',dim(GWAS)[1],'variants.\n')
-sink()
+# Match A1 and A2 match a reference (DBSLMM calls this allele discrepancy)
+ref_bim <- read_bim(opt$ref_plink_chr_subset, chr = CHROMS)
+gwas <- allele_match(sumstats = gwas, ref_bim = ref_bim, chr = CHROMS)
 
 # Convert to GEMMA format
-if(('CHR' %in% names(GWAS)) & ('BP' %in% names(GWAS))){
-  GWAS$N_MISS<-max(GWAS$N)-GWAS$N
-  GWAS<-GWAS[,c('CHR','SNP','BP','N_MISS','N','A1','A2','FREQ','BETA','SE','P'),with=F]
-  names(GWAS)<-c('chr','rs','ps','n_mis','n_obs','allele1','allele0','af','beta','se','p_wald')
-}
+gwas<-gwas[order(gwas$CHR, gwas$BP),]
+gwas$N_MISS<-max(gwas$N)-gwas$N
+gwas<-gwas[,c('CHR','SNP','BP','N_MISS','N','A1','A2','FREQ','BETA','SE','P'),with=F]
+names(gwas)<-c('chr','rs','ps','n_mis','n_obs','allele1','allele0','af','beta','se','p_wald')
 
-# Match allele1 and 0 with A1 and 2 in reference (DBSLMM calls this allele discrepancy)
-ref_bim<-NULL
+# Write out formatted sumstats for each chromosome
 for(i in CHROMS){
-  ref_bim<-rbind(ref_bim, fread(paste0(opt$ref_plink_subset, i,'.bim')))
+  fwrite(gwas[gwas$chr == i,], paste0(tmp_dir,'/summary_gemma_chr', i,'.assoc.txt'), sep='\t', col.names=F)
 }
 
-GWAS_match<-merge(GWAS, ref_bim[,c('V2','V5','V6'),with=F], by.x=c('rs','allele1','allele0'), by.y=c('V2','V5','V6'))
-GWAS_switch<-merge(GWAS, ref_bim[,c('V2','V5','V6'),with=F], by.x=c('rs','allele1','allele0'), by.y=c('V2','V6','V5'))
-GWAS_switch$allele_tmp<-GWAS_switch$allele0
-GWAS_switch$allele0<-GWAS_switch$allele1
-GWAS_switch$allele1<-GWAS_switch$allele_tmp
-GWAS_switch$allele_tmp<-NULL
-GWAS_switch$beta<--GWAS_switch$beta
-GWAS_switch$af<-1-GWAS_switch$af
-GWAS<-rbind(GWAS_match, GWAS_switch)
-
-GWAS<-GWAS[order(GWAS$chr, GWAS$ps),]
-GWAS<-GWAS[,c('chr','rs','ps','n_mis','n_obs','allele1','allele0','af','beta','se','p_wald'),with=F]
-
-# Write out formatted sumstats
-for(i in CHROMS){
-  fwrite(GWAS[GWAS$chr == i,], paste0(opt$output_dir,'summary_gemma_chr',i,'.assoc.txt'), sep='\t', col.names=F)
-}
-
-rm(GWAS, GWAS_match, GWAS_switch)
-gc()
-
+# Record start time for test
 if(!is.na(opt$test)){
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  test_start.time <- Sys.time()
-  cat('Test started at',as.character(test_start.time),'\n')
-  sink()
+  test_start.time<-test_start(log_file = log_file)
 }
 
 #####
-# Process sumstats using DBSLMM default mode
+# Process sumstats using DBSLMM
 #####
 
-system(paste0('chmod 777 ', opt$dbslmm))
+score <- dbslmm(dbslmm = opt$dbslmm, plink = opt$plink, ld_blocks = opt$ld_blocks, chr = CHROMS, bfile = opt$ref_plink_chr_subset, h2 = ldsc_h2, nsnp = nsnp, nindiv = round(gwas_N,0), sumstats = paste0(tmp_dir,'/summary_gemma_chr'), log_file = log_file)
 
-for(chr in CHROMS){
-  system(paste0(opt$rscript,' ',opt$dbslmm,'/DBSLMM.R --plink ',opt$plink,' --block ',opt$ld_blocks,'/fourier_ls-chr',chr,'.bed --dbslmm ',opt$dbslmm,'/dbslmm --h2 ',ldsc_h2,' --ref ',opt$ref_plink_subset,chr,' --summary ',opt$output_dir,'summary_gemma_chr',chr,'.assoc.txt --n ',round(GWAS_N,0),' --nsnp ',nsnp,' --outPath ',opt$output_dir,' --thread 1'))
-}
-
-dbslmm<-list.files(path=opt$output_dir, pattern='.dbslmm.txt')
-
-if(length(dbslmm) != 22){
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('At least one chromosome did not complete.\n')
-  sink()
-}
-
-dbslmm_all<-NULL
-for(i in dbslmm){
-  dbslmm_all<-rbind(dbslmm_all, fread(paste0(opt$output_dir,'/',i)))
-}
-
-dbslmm_all<-dbslmm_all[,c(1,2,4), with=T]
-names(dbslmm_all)<-c('SNP','A1','SCORE_DBSLMM')
-
-write.table(dbslmm_all, paste0(opt$output,'.score'), quote=F, col.names=T, row.names=F)
+fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))
 }
 system(paste0('gzip ',opt$output,'.score'))
 
+# Record end time of test
 if(!is.na(opt$test)){
-  end.time <- Sys.time()
-  time.taken <- end.time - test_start.time
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('Test run finished at',as.character(end.time),'\n')
-  cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
-  sink()
+  test_finish(log_file = log_file, test_start.time = test_start.time)
 }
 
 ####
 # Calculate mean and sd of polygenic scores
 ####
 
-# Calculate polygenic scores for reference individuals
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Calculating polygenic scores in reference...')
-sink()
+log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
 
-scores<-calc_score(
-  bfile=opt$ref_plink_chr, 
-  score=paste0(opt$output,'.score.gz')
-)
+# Calculate scores in the full reference
+ref_pgs<-calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
+# Calculate scale within each reference population
+pop_data<-fread(opt$pop_data)
 
-# Calculate the mean and sd of scores for each population specified in pop_scale
-pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
-for(k in 1:dim(pop_keep_files)[1]){
-	pop<-pop_keep_files$V1[k]
-	keep<-fread(pop_keep_files$V2[k], header=F)
-  names(keep)<-c('FID','IID')
-  ref_scale<-score_mean_sd(scores=scores, keep=keep)
-	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
+for(pop_i in unique(pop_data$POP)){
+  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
+  fwrite(ref_pgs_scale_i, paste0(opt$output, '.', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
-
-###
-# Clean up temporary files
-###
-
-if(!is.na(opt$ref_keep)){
-  system(paste0('rm ',opt$output_dir,'dbslmm_ref_chr*'))
-}
-system(paste0('rm ',opt$output_dir,'summary_gemma_chr*.assoc.txt'))
-system(paste0('rm ',opt$output_dir,'summary_gemma_chr*.dbslmm.txt'))
-system(paste0('rm ',opt$output_dir,'ldsc_snp_h2_temp.log'))
-system(paste0('rm ',opt$output_dir,'munged_sumstats_temp.log'))
-system(paste0('rm ',opt$output_dir,'munged_sumstats_temp.sumstats.gz'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

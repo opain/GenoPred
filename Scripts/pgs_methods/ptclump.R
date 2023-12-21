@@ -14,7 +14,7 @@ make_option("--plink", action="store", default='plink', type='character',
     help="Path PLINKv1.9 software binary [required]"),
 make_option("--plink2", action="store", default='plink2', type='character',
     help="Path PLINKv2 software binary [required]"),
-make_option("--output", action="store", default='./Output', type='character',
+make_option("--output", action="store", default=NULL, type='character',
 		help="Path for output files [required]"),
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]"),
@@ -48,6 +48,9 @@ if(is.null(opt$sumstats)){
 }
 if(is.null(opt$pop_data)){
   stop('--pop_data must be specified.\n')
+}
+if(is.null(opt$output)){
+  stop('--output must be specified.\n')
 }
 
 # Create output directory
@@ -162,7 +165,7 @@ for(i in 1:nrow(range_list)){
 fwrite(range_list, paste0(opt$output,'.NSNP_per_pT'), sep='\t')
 
 ####
-# Calculate mean and sd of polygenic scores at each threshold
+# Calculate mean and sd of polygenic scores
 ####
 
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
