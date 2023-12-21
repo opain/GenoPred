@@ -7,7 +7,7 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
 
     # Determine the number of scores
     score_small<-fread(score, nrows=5)
-    n_scores<-ncol(score_small)-2
+    n_scores<-ncol(score_small)-3
     
     # Assemble command and files for keep and extract
     cmd=NULL
@@ -23,12 +23,16 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
         cmd<-paste0(cmd, ' --score ',score,' header-read no-mean-imputation')
     }
     if(n_scores > 1){
-        cmd<-paste0(cmd, ' --score-col-nums 3-',2+n_scores)
+        cmd<-paste0(cmd, ' --score-col-nums 4-',3+n_scores)
     }
     # Calculate score in the target sample
     for(i in chr){
         cmd_i<-gsub('CHROMOSOME_NUMBER',i,cmd)
-        system(paste0(plink2, ' --bfile ',bfile,i,cmd_i,' --chr ',i,' --out ',tmp_folder,'/profiles.chr',i,' --threads ',threads))
+        cmd_full<-paste0(plink2, ' --bfile ',bfile,i,cmd_i,' --chr ',i,' --out ',tmp_folder,'/profiles.chr',i,' --threads ',threads)
+        exit_status <- system(cmd_full, intern=FALSE)
+        if (exit_status == 2) {
+          stop()
+        }
     }
     
     # Add up the scores across chromosomes
@@ -43,7 +47,6 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
     
     # Read in the scores for each chromosome, adjust for the number of SNPs considered and add up
     scores<-list()
-    nsnp<-NULL
     for(i in chr){
         if(file.exists(paste0(tmp_folder,'/profiles.chr',i,'.sscore'))){
             sscore<-fread(paste0(tmp_folder,'/profiles.chr',i,'.sscore'))
@@ -51,16 +54,13 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
             # This allows for difference plink formats across plink versions
             if(any(names(sscore) == 'NMISS_ALLELE_CT')){
                 scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT[1]/2)
-                nsnp<-c(nsnp, sscore$NMISS_ALLELE_CT[1]/2)
             } else {
                 scores[[i]]<-as.matrix(scores[[i]]*sscore$ALLELE_CT[1]/2)
-                nsnp<-c(nsnp, sscore$ALLELE_CT[1]/2)
             }
         } else {
             cat0('No scores for chromosome ',i,'. Check plink logs file for reason.\n')
         }
     }
-    nsnp<-sum(nsnp)
     
     # Remove NULL elements from list (these are inserted by R when list objects are numbered)
     scores[sapply(scores, is.null)] <- NULL
@@ -73,7 +73,7 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
                        scores)
     
     # Rename columns
-    names(scores)<-c('FID','IID',names(score_small)[-1:-2])
+    names(scores)<-c('FID','IID',names(score_small)[-1:-3])
     
     return(scores)
 }
@@ -150,28 +150,47 @@ read_bim<-function(dat, chr = 1:22){
 }
 
 # Detect wether object refers to a data.frame or a file
-dat_or_file<-function(x, header = F){
+obj_or_file<-function(x, header = F, return_file = T){
   if(is.null(x)){
-    file_path <- NULL
+    output <- NULL
   } else {
-    if (is.data.frame(x)) {
-      # Create file in temp directory
-      file_path<-tempfile()
-      write.table(x, file_path, col.names = header, row.names=F, quote=F)
-    } else if (is.character(x) && file.exists(x)) {
-      file_path <- x
+    if(is.vector(x)){
+      if(length(x) == 1 && file.exists(x)){
+        if(return_file){
+          output <- x
+        } else {
+          output <- fread(x, header = header)
+          if(ncol(output) == 1){
+            output <- output$V1
+          }
+        }
+      } else {
+        if(return_file){
+          output<-tempfile()
+          write.table(x, output, col.names = header, row.names=F, quote=F)
+        } else {
+          output <- x
+        }
+      }
+    } else if(is.data.frame(x)){
+        if(return_file){
+          output<-tempfile()
+          write.table(x, output, col.names = header, row.names=F, quote=F)
+        } else {
+          output <- x
+        }
     } else {
-      stop("Input must be a data frame or a valid file path.")
+      stop("Input must be a vector or data frame object, or a valid file path.")
     }
   }
-  return(file_path)
+  return(output)
 }
 
 # Make a subset of plink1 binaries
 plink_subset<-function(plink='plink', chr = 1:22, keep = NA, bfile, out, memory = 4000, threads = 1){
 
   # If object, create file
-  keep <- dat_or_file(keep)
+  keep <- obj_or_file(keep)
 
   # Prepare plink options
   plink_opt<-NULL
@@ -183,8 +202,8 @@ plink_subset<-function(plink='plink', chr = 1:22, keep = NA, bfile, out, memory 
   for(chr_i in chr){
     cmd <- paste0(plink,' --bfile ',bfile,chr_i,' --threads ', threads,' ',plink_opt,'--make-bed --out ',out,chr_i,' --memory ',memory)
     exit_status <- system(cmd, intern=FALSE)
-    if (exit_status != 0) {
-      cat("Error occurred in running plink command for chromosome",chr_i,"\n")
+    if (exit_status == 2) {
+      stop()
     }
   }
 }
@@ -212,7 +231,7 @@ plink_qc_snplist<-function(bfile, plink = 'plink', chr = 1:22, threads = 1, memo
   return(snplist)
 }
 
-# Coordinates of high ld regions
+# Coordinates of high ld regions in build GRCh37
 long_ld_coord<-do.call(rbind, list(
     data.frame(CHR = 1, P0 = 48e6, P1 = 52e6),
     data.frame(CHR = 2, P0 = 86e6, P1 = 100.5e6),
@@ -263,7 +282,7 @@ read_bim<-function(x){
 }
 
 # Perform PCA using plink files
-plink_pca<-function(bfile, plink = 'plink', plink2 = 'plink2' extract = NULL, flip = NULL, memory = 4000, n_pc = 6){
+plink_pca<-function(bfile, plink = 'plink', plink2 = 'plink2', extract = NULL, flip = NULL, memory = 4000, n_pc = 6){
   ###########
   # Merge subset reference
   ###########
@@ -303,7 +322,7 @@ plink_prune<-function(bfile, plink = 'plink', chr =1:22, extract = NULL, memory 
   tmp_file<-tempfile()
 
   # Check extract file
-  extract<-dat_or_file(extract)
+  extract<-obj_or_file(extract)
 
   # Prepare plink options
   plink_opt<-NULL
@@ -314,14 +333,108 @@ plink_prune<-function(bfile, plink = 'plink', chr =1:22, extract = NULL, memory 
   # Perfom pruning and read in SNP-list
   ld_indep<-NULL
   for(chr_i in chr){
-    cmd <- paste0(plink,' --bfile ',bfile,chr_i,' --threads 1 ',plink_opt,'--indep-pairwise 1000 5 0.2 --out ',tmp_file,' --memory ',memory)
+    cmd <- paste0(plink,' --bfile ',bfile,chr_i,' --threads 1 ',plink_opt,'--indep-pairwise 1000 5 0.2 --out ',tmp_file,'.chr',chr_i,' --memory ',memory)
     exit_status <- system(cmd, intern=FALSE)
-    if (exit_status != 0) {
-      cat("Error occurred in running plink command for chromosome",chr_i,"\n")
-    } else {
+    if(file.exists(paste0(tmp_file,'.chr',chr_i,'.prune.in'))){
       ld_indep<-c(ld_indep, fread(paste0(tmp_file,'.prune.in'), header=F)$V1)
+    }
+    if (exit_status == 2) {
+      stop()
     }
   }
 
   return(ld_indep)
+}
+
+# Set range of chromosome numbers to use by default
+CHROMS <- 1:22
+
+# Read in GWAS summary statistics
+read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, req_cols = c('CHR','BP','A1','A2','BETA','SE','P','FREQ')){
+  gwas<-fread(sumstats)
+
+  log_add(log_file = log_file, message = paste0('sumstats contains ',nrow(gwas),' variants.'))
+
+  # Retain requested chromosomes
+  if(all(!(chr %in% 1:22))){
+    if(!('CHR' %in% names(gwas))){
+      stop('Cannot filter sumstats by chromosome when CHR column is not present.')
+    }
+    gwas <- gwas[gwas$CHR %in% chr,]
+    log_add(log_file = log_file, message = paste0(nrow(gwas), ' variants remain after selecting chromosomes.'))  
+  }
+
+  # If FREQ is missing, use REF.FREQ
+  if('FREQ' %in% req_cols){
+    if(all(names(gwas) != 'FREQ')){
+      names(gwas)[names(gwas) == 'REF.FREQ']<-'FREQ'
+      log_add(log_file = log_file, message = 'REF.FREQ being used as FREQ.')  
+    }
+  }
+
+  # Check for essential columns
+  if(!(all(c('CHR','BP','A1','A2','BETA','SE','P','FREQ') %in% names(gwas)))){
+    stop(paste0('Required column/s missing in sumstats: ', paste(!(names(gwas) %in% req_cols), collapse = ', ')))
+  }
+
+  # Remove non-essential columns
+  gwas <- gwas[, req_cols, with = F]
+
+  # Remove rows with missing data
+  gwas <- gwas[complete.cases(gwas),]
+
+  log_add(log_file = log_file, message = paste0('sumstats contains ',nrow(gwas),' variants with complete data.'))
+
+  if(!is.null(extract)){
+    extract <- obj_or_file(extract, return_file = F)
+    gwas<-gwas[(gwas$SNP %in% extract),]
+    log_add(log_file = log_file, message = paste0('After applying the extract file, ',nrow(gwas),' variants remain.'))
+  }
+
+  return(gwas)
+}
+
+# Peforming LD-based clumping
+plink_clump<-function(bfile, plink = 'plink', chr = 1:22, sumstats, keep = NULL, memory = 4000, log_file = NULL){
+  log_add(log_file = log_file, message = 'Performing LD-based clumping.')
+  tmp_file <- tempfile()
+
+  sumstats <- obj_or_file(sumstats, header=T)
+
+  opt_plink<-NULL
+  if(!is.null(keep)){
+    keep <- obj_or_file(keep)
+    opt_plink<-paste0(opt_plink, '--keep ', keep, ' ')
+  }
+
+  clumped<-NULL
+  for(chr_i in chr){
+    cmd<-paste0(plink,' --bfile ', bfile, chr_i,' ',opt_plink, '--clump ', sumstats,' --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',tmp_file,'.chr',chr_i,' --memory ', memory)
+    exit_status <- system(cmd, intern=FALSE)
+    if (file.exists(paste0(tmp_file,'.chr',chr_i,'.clumped'))) {
+      clumped <- c(clumped, fread(paste0(tmp_file,'.chr',chr_i,'.clumped'))$SNP)
+    }
+    if(exit_status == 2){
+      stop()
+    }
+  }
+
+  log_add(log_file = log_file, message = paste0(length(clumped),' variants remain after clumping.'))
+
+  return(clumped)
+}
+
+test_start<-function(log_file){
+  test_start.time <- Sys.time()
+  log_add(log_file = log_file, message = paste0('Test started at ',as.character(test_start.time))) 
+  return(test_start.time) 
+}
+
+test_finish<-function(log_file, test_start.time){
+  end.time <- Sys.time()
+  time.taken <- end.time - test_start.time
+  sink(file = log_file, append = T)
+  cat('Test run finished at',as.character(end.time),'\n')
+  cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
+  sink()
 }

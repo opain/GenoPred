@@ -1,15 +1,15 @@
 # Create PC score files specific to each population
-rule pop_pc_scoring:
+rule ref_pca:
   input:
     rules.get_dependencies.output,
-    "../Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R",
+    "../Scripts/ref_pca/ref_pca.R",
     "../Scripts/functions/misc.R"
   output:
     "resources/data/ref/pc_score_files/{population}/ref.{population}.pcs.EUR.scale"
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
-    "Rscript ../Scripts/ancestry_score_file_creator/ancestry_score_file_creator.R \
+    "Rscript ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{wildcards.population}.keep \
       --pop_data resources/data/ref/ref.pop.txt \
@@ -17,7 +17,7 @@ rule pop_pc_scoring:
 
 populations=["AFR","AMR","EAS","EUR","SAS"]
 
-rule run_pop_pc_scoring:
+rule run_ref_pca:
   input: expand("resources/data/ref/pc_score_files/{population}/ref.{population}.pcs.EUR.scale", population=populations)
   
 ##
@@ -60,7 +60,7 @@ if 'gwas_list' in config:
 # pT+clump (sparse, nested)
 ##
 
-rule prs_scoring_ptclump:
+rule prep_pgs_ptclump:
   input:
     "{outdir}/resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     "../Scripts/pgs_methods/ptclump.R",
@@ -77,20 +77,18 @@ rule prs_scoring_ptclump:
       --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{params.population}.keep \
       --sumstats {outdir}/resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}.cleaned.gz \
-      --plink1 plink \
-      --plink2 plink2 \
       --output {outdir}/resources/data/ref/pgs_score_files/ptclump/{wildcards.gwas}/ref.{wildcards.gwas} \
-      --ref_pop_scale resources/data/ref/ref.keep.list \
+      --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
   
-rule run_prs_scoring_ptclump:
+rule run_prep_pgs_ptclump:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/ptclump/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'], outdir=outdir)
 
 ##
 # DBSLMM
 ##
 
-rule prs_scoring_dbslmm:
+rule prep_pgs_dbslmm:
   input:
     "{outdir}/resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
@@ -124,14 +122,14 @@ rule prs_scoring_dbslmm:
       --ref_pop_scale resources/data/ref/ref.keep.list \
       --test {params.testing}"
 
-rule run_prs_scoring_dbslmm:
+rule run_prep_pgs_dbslmm:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/dbslmm/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'], outdir=outdir)
 
 ##
 # PRScs
 ##
 
-rule prs_scoring_prscs:
+rule prep_pgs_prscs:
   resources: 
     mem_mb=80000,
     cpus=10,
@@ -167,14 +165,14 @@ rule prs_scoring_prscs:
       --seed 1 \
       --test {params.testing}"
 
-rule run_prs_scoring_prscs:
+rule run_prep_pgs_prscs:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/prscs/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'], outdir=outdir)
 
 ##
 # SBayesR
 ##
 
-rule prs_scoring_sbayesr:
+rule prep_pgs_sbayesr:
   resources: 
     mem_mb=80000,
     cpus=10
@@ -205,14 +203,14 @@ rule prs_scoring_sbayesr:
       --ref_pop_scale resources/data/ref/ref.keep.list \
       --test {params.testing}"
 
-rule run_prs_scoring_sbayesr:
+rule run_prep_pgs_sbayesr:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/sbayesr/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'], outdir=outdir)
 
 ##
 # lassosum
 ##
 
-rule prs_scoring_lassosum:
+rule prep_pgs_lassosum:
   input:
     "{outdir}/resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz",
     rules.get_dependencies.output,
@@ -235,14 +233,14 @@ rule prs_scoring_lassosum:
      --ref_pop_scale resources/data/ref/ref.keep.list \
       --test {params.testing}"
     
-rule run_prs_scoring_lassosum:
+rule run_prep_pgs_lassosum:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/lassosum/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'], outdir=outdir)
 
 ##
 # LDpred2
 ##
 
-rule prs_scoring_ldpred2:
+rule prep_pgs_ldpred2:
   resources: 
     mem_mb=80000,
     cpus=10,
@@ -272,14 +270,14 @@ rule prs_scoring_ldpred2:
       --ref_pop_scale resources/data/ref/ref.keep.list \
       --test {params.testing}"
     
-rule run_prs_scoring_ldpred2:
+rule run_prep_pgs_ldpred2:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/ldpred2/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df_eur['name'], outdir=outdir)
 
 ##
 # LDAK MegaPRS
 ##
 
-rule prs_scoring_megaprs:
+rule prep_pgs_megaprs:
   resources: 
     mem_mb=20000,
     cpus=5,
@@ -316,7 +314,7 @@ rule prs_scoring_megaprs:
       --ref_pop_scale resources/data/ref/ref.keep.list \
       --test {params.testing}"
     
-rule run_prs_scoring_megaprs:
+rule run_prep_pgs_megaprs:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/megaprs/{gwas}/ref.{gwas}.EUR.scale", gwas=gwas_list_df['name'], outdir=outdir)
 
 ##
@@ -332,7 +330,7 @@ else:
   pgs_methods = config['pgs_methods']
 
 if 'score_list' in config:
-  rule prs_scoring_external:
+  rule prep_pgs_external:
     input:
       config['score_list'],
       rules.get_dependencies.output,
@@ -353,7 +351,7 @@ if 'score_list' in config:
         --output {outdir}/resources/data/ref/pgs_score_files/external/{wildcards.gwas}/ref.{wildcards.gwas} \
         --ref_pop_scale resources/data/ref/ref.keep.list"
       
-  rule run_prs_scoring_external:
+  rule run_prep_pgs_external:
     input: expand("{outdir}/resources/data/ref/pgs_score_files/external/{gwas}/ref.{gwas}.EUR.scale", gwas=score_list_df['name'], outdir=outdir)
 
 ##
@@ -363,21 +361,21 @@ if 'score_list' in config:
 pgs_methods_input = list()
 
 if 'ptclump' in pgs_methods:
-  pgs_methods_input.append(rules.run_prs_scoring_ptclump.input)
+  pgs_methods_input.append(rules.run_prep_pgs_ptclump.input)
 if 'dbslmm' in pgs_methods:
-  pgs_methods_input.append(rules.run_prs_scoring_dbslmm.input)
+  pgs_methods_input.append(rules.run_prep_pgs_dbslmm.input)
 if 'prscs' in pgs_methods:
-  pgs_methods_input.append(rules.run_prs_scoring_prscs.input)
+  pgs_methods_input.append(rules.run_prep_pgs_prscs.input)
 if 'sbayesr' in pgs_methods:
-  pgs_methods_input.append(rules.run_prs_scoring_sbayesr.input)
+  pgs_methods_input.append(rules.run_prep_pgs_sbayesr.input)
 if 'lassosum' in pgs_methods:
-  pgs_methods_input.append(rules.run_prs_scoring_lassosum.input)
+  pgs_methods_input.append(rules.run_prep_pgs_lassosum.input)
 if 'ldpred2' in pgs_methods:
-  pgs_methods_input.append(rules.run_prs_scoring_ldpred2.input)
+  pgs_methods_input.append(rules.run_prep_pgs_ldpred2.input)
 if 'megaprs' in pgs_methods:
-  pgs_methods_input.append(rules.run_prs_scoring_megaprs.input)
+  pgs_methods_input.append(rules.run_prep_pgs_megaprs.input)
 if 'external' in pgs_methods:
-  pgs_methods_input.append(rules.run_prs_scoring_external.input)
+  pgs_methods_input.append(rules.run_prep_pgs_external.input)
 
 rule pgs_methods_complete:
   input:

@@ -17,13 +17,13 @@ def get_score_file(w):
 # Projected PCs
 ####
 
-rule target_pc:
+rule pc_projection:
   input:
     "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",
-    rules.run_pop_pc_scoring.input,
+    rules.run_ref_pca.input,
     "../Scripts/target_scoring/target_scoring.R"
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/target_pc_{population}.done")
+    touch("{outdir}/resources/data/target_checks/{name}/pc_projection_{population}.done")
   conda:
     "../envs/GenoPredPipe.yaml"
   shell:
@@ -36,15 +36,15 @@ rule target_pc:
       --plink2 plink2 \
       --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}.{wildcards.population}"
       
-rule run_target_pc_all_pop:
+rule run_pc_projection_all_pop:
   input: 
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/target_pc_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), outdir=outdir)
+    lambda w: expand("{outdir}/resources/data/target_checks/{name}/pc_projection_{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), outdir=outdir)
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/run_target_pc_all_pop.done")
+    touch("{outdir}/resources/data/target_checks/{name}/run_pc_projection_all_pop.done")
 
-rule run_target_pc_all:
+rule run_pc_projection_all:
   input: 
-    expand("{outdir}/resources/data/target_checks/{name}/run_target_pc_all_pop.done", name=target_list_df['name'], outdir=outdir)
+    expand("{outdir}/resources/data/target_checks/{name}/run_pc_projection_all_pop.done", name=target_list_df['name'], outdir=outdir)
 
 ####
 # Polygenic scoring

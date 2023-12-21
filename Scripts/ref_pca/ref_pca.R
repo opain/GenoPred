@@ -17,7 +17,9 @@ make_option("--hwe", action="store", default=1e-6, type='numeric',
 make_option("--n_pcs", action="store", default=6, type='numeric',
 		help="Number of PCs [optional]"),
 make_option("--plink", action="store", default='plink', type='character',
-		help="Path PLINK software binary [optional]"),
+		help="Path PLINKv1.9 software binary [optional]"),
+make_option("--plink2", action="store", default='plink2', type='character',
+		help="Path PLINKv2 software binary [optional]"),
 make_option("--output", action="store", default=NULL, type='character',
 		help="Path for output files [required]"),
 make_option("--pop_data", action="store", default=NULL, type='character',
@@ -53,7 +55,7 @@ tmp_dir<-tempdir()
 
 # Initiate log file
 log_file <- paste(opt$output,'.log',sep='')
-log_header(log_file = log_file, opt = opt, script = 'ancestry_score_file_creator.R', start.time = start.time)
+log_header(log_file = log_file, opt = opt, script = 'ref_pca.R', start.time = start.time)
 
 ###########
 # Extract ref_keep
