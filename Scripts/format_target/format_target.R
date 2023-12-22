@@ -77,11 +77,17 @@ names(ref_subset)[names(ref_subset) == paste0("BP_",target_build)]<-'BP'
 # Merge target and ref by CHR and BP
 ref_target<-merge(target_snp, ref_subset, by=c('CHR','BP'))
 
-# Identify variants that need to be flipped
+# Insert IUPAC codes
 names(ref_target)[names(ref_target) == 'IUPAC']<-'IUPAC.y'
 ref_target$IUPAC.x<-snp_iupac(ref_target$A1.x, ref_target$A2.x)
+
+# Only retain variants that are non-ambiguous SNPs in the target
+# Some might have been retained due to matching CHR and BP position with SNPs in reference
+ref_target<-ref_target[!is.na(ref_target$IUPAC.x),]
+
+# Identify variants that need to be flipped
 flip <- detect_strand_flip(ref_target$IUPAC.x, ref_target$IUPAC.y)
-if(sum(flip) > 0){
+if(any(flip)){
   write.table(ref_target$SNP.y[flip], paste0(tmp_dir,'/flip_list.txt'), col.names = F, row.names = F, quote=F)
 }
 
@@ -103,17 +109,19 @@ if(opt$format == 'samp_imp_bgen'){
   system(paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --hard-call-threshold 0.9 --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 if(opt$format == 'samp_imp_vcf'){
-  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 0.9 --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 
 # Now edit bim file to update IDs to reference IDs
 targ_bim<-fread(paste0(tmp_dir,'/subset.bim'))
 names(targ_bim)<-c('CHR','SNP','POS','BP','A1','A2')
 
-# Update SNP if original SNP value is present in the previously matched ref and target data
-targ_bim$SNP.x<-targ_bim$SNP
-targ_bim[ref_target, on=.(SNP.x), SNP := i.SNP.y]
-targ_bim$SNP.x<-NULL
+# Update SNP with reference SNP value based on CHR:BP:IUPAC in the previously matched ref and target data
+targ_bim$IUPAC<-snp_iupac(targ_bim$A1, targ_bim$A2)
+targ_bim$ID<-paste0(targ_bim$CHR,':',targ_bim$BP,':',targ_bim$IUPAC)
+ref_target$ID<-paste0(ref_target$CHR,':',ref_target$BP,':',ref_target$IUPAC.x)
+targ_bim[ref_target, on=.(ID), SNP := i.SNP.y]
+targ_bim<-targ_bim[,c('CHR','SNP','POS','BP','A1','A2'),with=F]
 
 # Label SNP with _dup if the RSID is duplicated, so these variants are removed.
 dup_snp<-duplicated(targ_bim$SNP)

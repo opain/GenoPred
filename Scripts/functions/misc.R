@@ -302,8 +302,8 @@ plink_pca<-function(bfile, plink = 'plink', plink2 = 'plink2', extract = NULL, f
 
   # Format the SNP-weights
   snp_weights<-fread(paste0(tmp_dir,'/ref_merge.eigenvec.var'))
-  snp_weights<-snp_weights[,c(-1,-4),with=F]
-  names(snp_weights)[1:2]<-c('SNP','A1')
+  snp_weights<-snp_weights[, -1, with=F]
+  names(snp_weights)[1:3]<-c('SNP','A1','A2')
 
   return(snp_weights)
 }
@@ -328,7 +328,7 @@ plink_prune<-function(bfile, plink = 'plink', chr =1:22, extract = NULL, memory 
     cmd <- paste0(plink,' --bfile ',bfile,chr_i,' --threads 1 ',plink_opt,'--indep-pairwise 1000 5 0.2 --out ',tmp_file,'.chr',chr_i,' --memory ',memory)
     exit_status <- system(cmd, intern=FALSE)
     if(file.exists(paste0(tmp_file,'.chr',chr_i,'.prune.in'))){
-      ld_indep<-c(ld_indep, fread(paste0(tmp_file,'.prune.in'), header=F)$V1)
+      ld_indep<-c(ld_indep, fread(paste0(tmp_file,'.chr',chr_i,'.prune.in'), header=F)$V1)
     }
     if (exit_status == 2) {
       stop()
