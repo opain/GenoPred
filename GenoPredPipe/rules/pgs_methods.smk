@@ -35,6 +35,7 @@ if 'gwas_list' in config:
   rule sumstat_prep:
     input:
       config['gwas_list'],
+      config['config_file'],
       rules.get_dependencies.output
     output:
       "{outdir}/resources/data/gwas_sumstat/{gwas}/{gwas}.cleaned.gz"

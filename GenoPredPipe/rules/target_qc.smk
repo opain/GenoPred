@@ -30,6 +30,7 @@ if 'target_list' in config:
       cpus=6
     input:
       config['target_list'],
+      config['config_file'],
       rules.download_impute2_data.output,
       rules.download_qctool2.output,
       "../Scripts/23andMe_imputer/23andMe_imputer.R"
@@ -64,10 +65,11 @@ if 'target_list' in config:
   rule format_target:
     input:
       config['target_list'],
+      config['config_file'],
       rules.get_dependencies.output,
       "../Scripts/format_target/format_target.R"
     output:
-      touch("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done")
+      "{outdir}/{name}/geno/{name}.ref.chr{chr}.bed"
     conda:
       "../envs/GenoPredPipe.yaml"
     params:
@@ -82,7 +84,7 @@ if 'target_list' in config:
 
   rule run_format_target:
     input: 
-      lambda w: expand("{outdir}/resources/data/target_checks/{name}/format_target_{chr}.done", name=w.name, chr=range(1, 23), outdir=outdir)
+      lambda w: expand("{outdir}/{name}/geno/{name}.ref.chr{chr}.bed", name=w.name, chr=range(1, 23), outdir=outdir)
     output:
       touch("{outdir}/resources/data/target_checks/{name}/format_target.done")
 

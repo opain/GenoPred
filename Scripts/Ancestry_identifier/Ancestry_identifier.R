@@ -287,9 +287,11 @@ if(!is.na(opt$prob_thresh)){
 N_group<-NULL
 for(i in names(pop_model_pred[,-1:-2])){
 	tmp_keep<-pop_model_pred[apply(pop_model_pred[,-1:-2], 1, function(x) x[i] == max(x)),1:2]
-	N_group<-rbind(N_group, data.frame(Group=i, N=dim(tmp_keep)[1]))
+	N_group<-rbind(N_group, data.frame(Group=i, N=nrow(tmp_keep)))
 	fwrite(tmp_keep, paste0(opt$out_dir,'/keep_files/model_based/',i,'.keep'), sep=' ', col.names=F)
 }
+
+N_group<-rbind(N_group, data.frame(Group='Unassigned', N=nrow(targ_pcs_scaled) - nrow(pop_model_pred)))
 
 sink(file = log_file, append = T)
 cat('----------\n')
