@@ -40,9 +40,7 @@ make_option("--sample_prev", action="store", default=NULL, type='numeric',
     help="Sampling ratio in GWAS [optional]")
 )
 
-opt = parse_args(OptionParser(option_list=option_list))
-
-opt$test<-NA
+opt = parse_args(OptionParser(option_list = option_list))
 
 # Load dependencies
 library(GenoUtils)
@@ -85,18 +83,18 @@ if(any(!is.null(c(opt$sample_prev, opt$pop_prev))) & any(is.null(c(opt$sample_pr
 }
 
 # Create output directory
-opt$output_dir<-paste0(dirname(opt$output),'/')
-system(paste0('mkdir -p ',opt$output_dir))
+opt$output_dir <- paste0(dirname(opt$output), '/')
+system(paste0('mkdir -p ', opt$output_dir))
 
 # Create temp directory
-tmp_dir<-tempdir()
+tmp_dir <- tempdir()
 
 # Initiate log file
 log_file <- paste0(opt$output,'.log')
 log_header(log_file = log_file, opt = opt, script = 'dbslmm.R', start.time = start.time)
 
 # If testing, change CHROMS to chr value
-if(opt$test == 'NA'){
+if(!is.na(opt$test) && opt$test == 'NA'){
   opt$test<-NA
 }
 if(!is.na(opt$test)){
@@ -139,25 +137,26 @@ ref_bim <- read_bim(opt$ref_plink_chr_subset, chr = CHROMS)
 gwas <- allele_match(sumstats = gwas, ref_bim = ref_bim, chr = CHROMS)
 
 # Convert to GEMMA format
-gwas<-gwas[order(gwas$CHR, gwas$BP),]
-gwas$N_MISS<-max(gwas$N)-gwas$N
-gwas<-gwas[,c('CHR','SNP','BP','N_MISS','N','A1','A2','FREQ','BETA','SE','P'),with=F]
-names(gwas)<-c('chr','rs','ps','n_mis','n_obs','allele1','allele0','af','beta','se','p_wald')
+gwas <- gwas[order(gwas$CHR, gwas$BP),]
+gwas$N_MISS <- max(gwas$N) - gwas$N
+gwas <- gwas[, c('CHR', 'SNP', 'BP', 'N_MISS', 'N', 'A1', 'A2', 'FREQ', 'BETA', 'SE', 'P'), with=F]
+names(gwas)<-c('chr', 'rs', 'ps', 'n_mis', 'n_obs', 'allele1', 'allele0', 'af', 'beta', 'se', 'p_wald')
 
 # Write out formatted sumstats for each chromosome
 for(i in CHROMS){
-  fwrite(gwas[gwas$chr == i,], paste0(tmp_dir,'/summary_gemma_chr', i,'.assoc.txt'), sep='\t', col.names=F)
+  fwrite(gwas[gwas$chr == i,], paste0(tmp_dir, '/summary_gemma_chr', i, '.assoc.txt'), sep='\t', col.names=F)
 }
 
 # Record start time for test
 if(!is.na(opt$test)){
-  test_start.time<-test_start(log_file = log_file)
+  test_start.time <- test_start(log_file = log_file)
 }
 
 #####
 # Process sumstats using DBSLMM
 #####
 
+# This uses the default version of DBSLMM, It appears they now recommend tuning the h2 estimate.
 score <- dbslmm(dbslmm = opt$dbslmm, plink = opt$plink, ld_blocks = opt$ld_blocks, chr = CHROMS, bfile = opt$ref_plink_chr_subset, h2 = ldsc_h2, nsnp = nsnp, nindiv = round(gwas_N,0), sumstats = paste0(tmp_dir,'/summary_gemma_chr'), log_file = log_file)
 
 fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
@@ -179,19 +178,20 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
 
 # Calculate scores in the full reference
-ref_pgs<-calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 # Calculate scale within each reference population
-pop_data<-fread(opt$pop_data)
+pop_data <- fread(opt$pop_data)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '.', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
+  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Analysis finished at',as.character(end.time),'\n')
-cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
+sink(file = log_file, append = T)
+cat('Analysis finished at', as.character(end.time),'\n')
+cat('Analysis duration was', as.character(round(time.taken,2)), attr(time.taken, 'units'), '\n')
 sink()
+

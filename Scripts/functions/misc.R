@@ -273,29 +273,46 @@ remove_regions<-function(bim, regions){
   return(bim[!(bim$SNP %in% exclude),])
 }
 
-# Perform PCA using plink files
-plink_pca<-function(bfile, plink = 'plink', plink2 = 'plink2', extract = NULL, flip = NULL, memory = 4000, n_pc = 6){
-  ###########
-  # Merge subset reference
-  ###########
+# Merge plink files
+plink_merge<-function(bfile, plink = 'plink', chr = 1:22, extract = NULL, keep = NULL, flip = NULL, memory = 4000, out){
   tmp_dir<-tempdir()
 
   # Create merge list
-  ref_merge_list<-paste0(bfile,1:22)
+  ref_merge_list<-paste0(bfile, chr)
   write.table(ref_merge_list, paste0(tmp_dir,'/ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
 
-  # Merge
+  # Prepare command
   plink_opt<-NULL
   if(!is.null(extract)){
     write.table(extract, paste0(tmp_dir,'/extract.snplist'), col.names = F, row.names = F, quote=F)
-    plink_opt<-c(plink_opt, paste0('--extract ',tmp_dir,'/extract.snplist '))
+    plink_opt<-paste0(plink_opt, paste0('--extract ',tmp_dir,'/extract.snplist '))
   }
   if(!is.null(flip)){
     write.table(flip, paste0(tmp_dir,'/flip_list.txt'), col.names = F, row.names = F, quote=F)
-    plink_opt<-c(plink_opt, paste0('--flip ',tmp_dir,'/flip_list.txt '))
+    plink_opt<-paste0(plink_opt, paste0('--flip ',tmp_dir,'/flip_list.txt '))
   }
-  cmd<-paste0(plink,' --merge-list ',tmp_dir,'/ref_mergelist.txt ',plink_opt,'--threads 1 --make-bed --out ',tmp_dir,'/ref_merge --memory ',memory)
+  if(!is.null(keep)){
+    # Check extract file
+    keep<-obj_or_file(keep)
+    plink_opt<-paste0(plink_opt, paste0('--keep ', keep, ' '))
+  }
+  
+  if(length(chr) > 1){
+    # Merge
+    cmd<-paste0(plink,' --merge-list ', tmp_dir,'/ref_mergelist.txt ', plink_opt,'--threads 1 --make-bed --out ', out,' --memory ', memory)
+  } else {
+    # Skip merge
+    cmd<-paste0(plink,' --bfile ', bfile, chr, ' ', plink_opt,'--threads 1 --make-bed --out ', out,' --memory ', memory)
+  }
   system(cmd)
+}
+
+# Perform PCA using plink files
+plink_pca<-function(bfile, chr = 1:22, plink = 'plink', plink2 = 'plink2', extract = NULL, keep = NULL, flip = NULL, memory = 4000, n_pc = 6){
+  tmp_dir<-tempdir()
+
+  # Merge subset reference
+  plink_merge(bfile = bfile, chr = chr, plink = plink, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'))
 
   # Calculate SNP weights
   system(paste0(plink2,' --bfile ',tmp_dir,'/ref_merge --threads 1 --pca ',n_pc,' biallelic-var-wts  --out ',tmp_dir,'/ref_merge --memory ', memory))
@@ -348,7 +365,7 @@ read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, r
   log_add(log_file = log_file, message = paste0('sumstats contains ',nrow(gwas),' variants.'))
 
   # Retain requested chromosomes
-  if(all(!(chr %in% 1:22))){
+  if(!all(1:22 %in% chr)){
     if(!('CHR' %in% names(gwas))){
       stop('Cannot filter sumstats by chromosome when CHR column is not present.')
     }
@@ -365,7 +382,7 @@ read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, r
   }
 
   # Check for essential columns
-  if(!(all(c('CHR','BP','A1','A2','BETA','SE','P','FREQ') %in% names(gwas)))){
+  if(!(all(req_cols %in% names(gwas)))){
     stop(paste0('Required column/s missing in sumstats: ', paste(!(names(gwas) %in% req_cols), collapse = ', ')))
   }
 
@@ -521,4 +538,26 @@ dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats
   dbslmm_all <- dbslmm_all[, c('SNP','A1','A2','SCORE_DBSLMM')]
 
   return(dbslmm_all)
+}
+
+# Calculate predictor correlations using LDAK
+ldak_pred_cor<-function(bfile, ldak, n_cores, chr = 1:22, keep = NULL){
+  tmp_dir<-tempdir()
+  tmp_file<-tempfile()
+
+  ldak_opt <- NULL
+  if(!is.null(keep)){
+    ldak_opt <- paste0(ldak_opt, '--keep ', keep, ' ')
+  }
+  if(length(chr) != 1){
+    for(chr_i in chr){
+      system(paste0(ldak, ' --calc-cors ', tmp_dir, '/cors_full', chr_i, ' --bfile ', bfile, ' ', ldak_opt,'--window-cm 3 --chr ', chr_i, ' --max-threads ', n_cores))
+    }
+    write.table(paste0(tmp_dir, '/cors_full', chr), paste0(tmp_dir, '/cors_list.txt'), col.names=F, row.names=F, quote=F)
+    system(paste0(ldak,' --join-cors ', tmp_file, ' --corslist ', tmp_dir, '/cors_list.txt --max-threads ', n_cores))
+  } else {
+    system(paste0(ldak,' --calc-cors ', tmp_file, ' --bfile ', bfile, ' ', ldak_opt,'--window-cm 3 --chr ', chr, ' --max-threads ', n_cores))
+  }
+
+  return(tmp_file)
 }

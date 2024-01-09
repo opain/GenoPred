@@ -205,7 +205,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('Idenitfying best parameters via pseudovalidation...')
 sink()
 
-bitmap(paste0(opt$output,'.pseudovalidate.png'), unit='px', res=300, height=2000, width=2000)
+bitmap(paste0(opt$output,'-pseudovalidate.png'), unit='px', res=300, height=2000, width=2000)
 setwd(system.file("data", package="lassosum"))
 v <- pseudovalidate(out, cluster=cl)
 setwd(orig_wd)

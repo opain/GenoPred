@@ -147,4 +147,3 @@ wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/
 snakemake -n --use-conda --configfile misc/opensnp/config.yaml output_all
 
 
-
