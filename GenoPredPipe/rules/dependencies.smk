@@ -29,6 +29,7 @@ outdir=config['outdir']
 
 import pandas as pd
 from pathlib import Path
+import multiprocessing
 
 ########
 # Download dependencies
@@ -117,7 +118,8 @@ rule download_ld_blocks:
   output:
     directory("resources/data/ld_blocks/")
   shell:
-    "git clone https://bitbucket.org/nygcresearch/ldetect-data.git {output}"
+    "git clone https://bitbucket.org/nygcresearch/ldetect-data.git {output}; \
+    mv resources/data/ld_blocks/ASN resources/data/ld_blocks/EAS"
 
 # Download liftover
 rule install_liftover:

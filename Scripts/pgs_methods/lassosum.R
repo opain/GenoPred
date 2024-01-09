@@ -1,231 +1,149 @@
 #!/usr/bin/Rscript
 # This script was written by Oliver Pain whilst at King's College London University.
 start.time <- Sys.time()
-suppressMessages(library("optparse"))
+library("optparse")
 
 option_list = list(
-	make_option("--ref_plink_chr", action="store", default=NA, type='character',
+	make_option("--ref_plink_chr", action="store", default=NULL, type='character',
 			help="Path to genome-wide reference PLINK files [required]"),
-	make_option("--ref_keep", action="store", default=NA, type='character',
-			help="Keep file to subset individuals in reference for clumping [required]"),
-	make_option("--ref_pop_scale", action="store", default=NA, type='character',
-			help="File containing the population code and location of the keep file [required]"),
-	make_option("--plink1", action="store", default='plink', type='character',
-	    help="Path PLINK v1.9 software binary [required]"),
+	make_option("--ref_keep", action="store", default=NULL, type='character',
+			help="Keep file to subset individuals in reference for clumping [optional]"),
+	make_option("--gwas_pop", action="store", default=NULL, type='character',
+			help="Population of GWAS sample [required]"),
+  make_option("--pop_data", action="store", default=NULL, type='character',
+      help="File containing the population code and location of the keep file [required]"),
+	make_option("--plink", action="store", default='plink', type='character',
+	    help="Path PLINK v1.9 software binary [optional]"),
 	make_option("--plink2", action="store", default='plink2', type='character',
-	    help="Path PLINK v2 software binary [required]"),
-	make_option("--output", action="store", default='./Output', type='character',
+	    help="Path PLINK v2 software binary [optional]"),
+	make_option("--output", action="store", default=NULL, type='character',
 			help="Path for output files [required]"),
-	make_option("--memory", action="store", default=5000, type='numeric',
-	    help="Memory limit [optional]"),
 	make_option("--test", action="store", default=NA, type='character',
 	    help="Specify number of SNPs to include [optional]"),
-	make_option("--sumstats", action="store", default=NA, type='character',
+	make_option("--sumstats", action="store", default=NULL, type='character',
 			help="GWAS summary statistics in LDSC format [optional]")
 )
 
-opt = parse_args(OptionParser(option_list=option_list))
+opt = parse_args(OptionParser(option_list = option_list))
 
+# Load dependencies
+library(GenoUtils)
 library(data.table)
-library(lassosum)
 source('../Scripts/functions/misc.R')
+library(lassosum)
+
+# Store original working directory
 orig_wd<-getwd()
 
-opt$output_dir<-paste0(dirname(opt$output),'/')
+# Check required inputs
+if(is.null(opt$ref_plink_chr)){
+  stop('--ref_plink_chr must be specified.\n')
+}
+if(is.null(opt$gwas_pop)){
+  stop('--gwas_pop must be specified.\n')
+}
+if(is.null(opt$sumstats)){
+  stop('--sumstats must be specified.\n')
+}
+if(is.null(opt$pop_data)){
+  stop('--pop_data must be specified.\n')
+}
+if(is.null(opt$output)){
+  stop('--output must be specified.\n')
+}
+
+# Create output directory
+opt$output_dir <- paste0(dirname(opt$output),'/')
 system(paste0('mkdir -p ',opt$output_dir))
 
-CHROMS<-1:22
+# Create temp directory
+tmp_dir<-tempdir()
 
-if(!is.na(opt$test)){
-  if(grepl('chr', opt$test)){
-    single_chr_test<-T
-    CHROMS<-as.numeric(gsub('chr','',opt$test))
-  } else {
-    single_chr_test<-F
-    opt$test<-as.numeric(opt$test)
-  }
+# Initiate log file
+log_file <- paste0(opt$output,'.log')
+log_header(log_file = log_file, opt = opt, script = 'lassosum.R', start.time = start.time)
+
+# If testing, change CHROMS to chr value
+if(!is.na(opt$test) && opt$test == 'NA'){
+  opt$test<-NA
 }
-
-
-sink(file = paste(opt$output,'.log',sep=''), append = F)
-cat(
-'#################################################################
-# lassosum.R
-# For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)
-#################################################################
-Analysis started at',as.character(start.time),'
-Options are:\n')
-
-cat('Options are:\n')
-print(opt)
-cat('Analysis started at',as.character(start.time),'\n')
-sink()
+if(!is.na(opt$test)){
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
+}
 
 #####
-# Read in sumstats and insert p-values
+# Read in sumstats
 #####
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Reading in GWAS and harmonising with reference.\n')
-sink()
+log_add(log_file = log_file, message = 'Reading in GWAS.')
 
-GWAS<-fread(cmd=paste0('zcat ',opt$sumstats), nThread=1)
-GWAS<-GWAS[complete.cases(GWAS),]
-GWAS<-GWAS[GWAS$P > 0,]
-GWAS_N<-mean(GWAS$N)
+# Read in, check and format GWAS summary statistics
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','BP','A1','A2','BETA','P','N'))
 
-# Extract subset if testing
-if(!is.na(opt$test)){
-  if(single_chr_test == F){
-    sink(file = paste(opt$output,'.log',sep=''), append = T)
-    cat('Testing mode enabled. Extracted ',opt$test,' variants per chromsome.\n', sep='')
-    sink()
-    
-    GWAS_test<-NULL
-    for(i in 1:22){
-      GWAS_tmp<-GWAS[GWAS$CHR == i,]
-      GWAS_tmp<-GWAS_tmp[order(GWAS_tmp$BP),]
-      GWAS_tmp<-GWAS_tmp[1:opt$test,]
-      GWAS_test<-rbind(GWAS_test,GWAS_tmp)
-    }
-    
-    GWAS<-GWAS_test
-    GWAS<-GWAS[complete.cases(GWAS),]
-    rm(GWAS_test)
-    print(table(GWAS$CHR))
-    
-  } else {
-    sink(file = paste(opt$output,'.log',sep=''), append = T)
-    cat('Testing mode enabled. Extracted chromosome ',opt$test,' variants per chromsome.\n', sep='')
-    sink()
-    
-    GWAS<-GWAS[GWAS$CHR == CHROMS,]
-    print(table(GWAS$CHR))
-  }
-}
-
-if(!('BETA' %in% names(GWAS))){
-  GWAS$BETA<-log(GWAS$OR)
-}
-
-GWAS<-GWAS[,c('CHR','SNP','BP','A1','A2','BETA','P')]
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('GWAS contains',dim(GWAS)[1],'variants.\n')
-sink()
+# Store average sample size
+gwas_N <- mean(gwas$N)
 
 ###
-# Merge the per chromosome reference genetic data
+# Merge the per chromosome reference genetic data and subset opt$ref_keep
 ###
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Merging per chromosome reference data...')
-sink()
+log_add(log_file = log_file, message = 'Merging per chromosome reference data.')
 
-# Create merge list
-ref_merge_list<-paste0(opt$ref_plink_chr,1:22)
+plink_merge(bfile = opt$ref_plink_chr, chr = CHROMS, plink = opt$plink, keep = opt$ref_keep, extract = gwas$SNP, out = paste0(tmp_dir, '/ref_merge'))
 
-write.table(ref_merge_list, paste0(opt$output_dir,'ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
-
-# Merge
-system(paste0(opt$plink1,' --merge-list ',opt$output_dir,'ref_mergelist.txt --threads 1 --make-bed --out ',opt$output_dir,'lassosum_ref_gw --memory ',floor(opt$memory*0.7)))  
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
-
-if(!is.na(opt$ref_keep)){
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('ref_keep used to subset reference genotype data.\n')
-  sink()
-  
-  #####
-  # Create subset of ref files
-  #####
-  
-  system(paste0(opt$plink1,' --bfile ',opt$output_dir,'lassosum_ref_gw --keep ',opt$ref_keep,' --make-bed --out ',opt$output_dir,'lassosum_ref_gw_subset'))
-  
-  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw_subset')
-} else {
-  opt$ref_plink_subset<-paste0(opt$output_dir,'lassosum_ref_gw')
-}
-
+# Record start time for test
 if(!is.na(opt$test)){
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  test_start.time <- Sys.time()
-  cat('Test started at',as.character(test_start.time),'\n')
-  sink()
+  test_start.time <- test_start(log_file = log_file)
 }
 
 #####
 # Calculate correlation between SNP and phenotype 
 #####
 
-cor <- p2cor(p = GWAS$P, n = GWAS_N, sign=GWAS$BETA)
+cor <- p2cor(p = gwas$P, n = gwas_N, sign = gwas$BETA)
 
 #####
 # Perform lassosum to shrink effects using a range of parameters
 #####
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Running lassosum pipeline...')
-sink()
+log_add(log_file = log_file, message = 'Running lassosum pipeline.')
 
+# Change directory to lassosum package for access to LDblock data
 setwd(system.file("data", package="lassosum"))
 
-out<-lassosum.pipeline(cor=cor, chr=GWAS$CHR, pos=GWAS$BP, 
-                       A1=GWAS$A1, A2=GWAS$A2,
-                       ref.bfile=paste0(orig_wd,'/',opt$ref_plink_subset), 
-                       LDblocks = 'EUR.hg19')
+# Identify LD block data to be used
+if(opt$gwas_pop %in% c('EUR','AFR')){
+  ld_block_dat <- paste0(opt$gwas_pop,'.hg19')
+}
+if(opt$gwas_pop %in% 'EAS'){
+  ld_block_dat <- 'ASN.hg19'
+}
+if(opt$gwas_pop %in% c('AMR','SAS')){
+  ld_block_dat <- 'EUR.hg19'
+  log_add(log_file = log_file, message = 'Using LD block data for EUR.')
+}
 
+# Run pipeline
+out <- lassosum.pipeline(
+  cor = cor, 
+  chr = gwas$CHR, 
+  pos = gwas$BP, 
+  A1 = gwas$A1, 
+  A2 = gwas$A2,
+  ref.bfile = paste0(tmp_dir, '/ref_merge'), 
+  LDblocks = ld_block_dat)
+
+# Change working directory back to the original
 setwd(orig_wd)
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
-
-rm(cor)
-gc()
-
-#####
-# Perform pseudovalidation to idenitfy the best p-value threshold
-#####
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Idenitfying best parameters via pseudovalidation...')
-sink()
-
-bitmap(paste0(opt$output,'.pseudovalidate.png'), unit='px', res=300, height=2000, width=2000)
-setwd(system.file("data", package="lassosum"))
-v <- pseudovalidate(out)
-setwd(orig_wd)
-dev.off()
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
-
-# Subset the validated lassosum model
-out2 <- subset(out, s=v$best.s, lambda=v$best.lambda)
-
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Pseudovalidated parameters:
-s = ',out2$s,'
-lambda = ',out2$lambda,'\n',sep='')
-sink()
-
-rm(v)
-gc()
 
 # Write out a score file
-score_file<-data.table(SNP=GWAS$SNP[out$sumstats$order],
-                       out$sumstats[c('A1')])
-score_file<-score_file[,c('SNP','A1'),with=F]
+score_file <- data.table(SNP = gwas$SNP[out$sumstats$order], out$sumstats[c('A1', 'A2')])
 
 for(i in 1:length(out$s)){
   for(k in 1:length(out$lambda)){
     score_file_tmp<-data.table(out$beta[[i]][,k])
-    names(score_file_tmp)<-paste0('SCORE_s',out$s[i],'_lambda',out$lambda[k])
-    score_file<-cbind(score_file,score_file_tmp)
+    names(score_file_tmp)<-paste0('SCORE_s', out$s[i], '_lambda', out$lambda[k])
+    score_file<-cbind(score_file, score_file_tmp)
   }
 }
 
@@ -237,55 +155,52 @@ if(file.exists(paste0(opt$output,'.score.gz'))){
 
 system(paste0('gzip ',opt$output,'.score'))
 
+#####
+# Perform pseudovalidation
+#####
+
+log_add(log_file = log_file, message = 'Performing pseudovalidation.')
+
+# Change directory to lassosum package for access to LDblock data
+setwd(system.file("data", package="lassosum"))
+# Run pseudovalidation
+v <- pseudovalidate(out, plot = F)
+# Change working directory back to the original
+setwd(orig_wd)
+
+# Subset the validated lassosum model
+out2 <- subset(out, s=v$best.s, lambda=v$best.lambda)
+
+log_add(log_file = log_file, message = c(
+  'Pseudovalidated parameters:', 
+  paste0('s = ',out2$s), 
+  paste0('lambda = ',out2$lambda)))
+
+# Record end time of test
 if(!is.na(opt$test)){
-  end.time <- Sys.time()
-  time.taken <- end.time - test_start.time
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
-  cat('Test run finished at',as.character(end.time),'\n')
-  cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
-  sink()
+  test_finish(log_file = log_file, test_start.time = test_start.time)
 }
 
-#####
-# Calculate the mean and sd of scores for each population specified in pop_scale
-#####
+####
+# Calculate mean and sd of polygenic scores
+####
 
-# Calculate polygenic scores for reference individuals
-# Do this using PLINK not lassosum as we want to use MAF to impute missing genotypes in target samples, which lassosum does not do.
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Calculating polygenic scores in reference...')
-sink()
+log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
 
-scores<-calc_score(
-  bfile=opt$ref_plink_chr, 
-  score=paste0(opt$output,'.score.gz')
-)
+# Calculate scores in the full reference
+ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Done!\n')
-sink()
+# Calculate scale within each reference population
+pop_data <- fread(opt$pop_data)
 
-#####
-# Calculate the mean and sd of scores for each population specified in pop_scale
-#####
-pop_keep_files<-read.table(opt$ref_pop_scale, header=F, stringsAsFactors=F)
-
-for(k in 1:dim(pop_keep_files)[1]){
-	pop<-pop_keep_files$V1[k]
-	keep<-fread(pop_keep_files$V2[k], header=F)
-  names(keep)<-c('FID','IID')
-  ref_scale<-score_mean_sd(scores=scores, keep=keep)
-	fwrite(ref_scale, paste0(opt$output,'.',pop,'.scale'), sep=' ')
+for(pop_i in unique(pop_data$POP)){
+  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
+  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
-
-if(!is.na(opt$ref_keep)){
-  system(paste0('rm ',opt$output_dir,'lassosum_ref_gw*'))
-}
-system(paste0('rm ',opt$output_dir,'lassosum_ref_gw*'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Analysis finished at',as.character(end.time),'\n')
-cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
+sink(file = log_file, append = T)
+cat('Analysis finished at', as.character(end.time),'\n')
+cat('Analysis duration was', as.character(round(time.taken,2)), attr(time.taken, 'units'), '\n')
 sink()

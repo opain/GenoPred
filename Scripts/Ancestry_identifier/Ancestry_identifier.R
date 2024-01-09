@@ -33,7 +33,9 @@ make_option("--model_method", action="store", default='glmnet', type='character'
 make_option("--sd_rule", action="store", default=F, type='logical',
     help="Logical indicating whether the 3SD rule should be used to define ancestry, or the model-based approach [optional]"),    
 make_option("--prob_thresh", action="store", default=0.95, type='numeric',
-    help="Indicates whether probability threshold should be used when defining ancestry [optional]"),    
+    help="Indicates whether probability threshold should be used when defining ancestry [optional]"),
+make_option("--test", action="store", default=NA, type='numeric',
+    help="Specify test mode [optional]"),    
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]")
 )
@@ -89,12 +91,20 @@ if(nrow(fread(paste0(opt$ref_plink_chr,'22.fam'))) < 100){
   	stop('opt$ref_plink_chr must contain at least 100 individuals.')
 }
 
+# If testing, change CHROMS to chr value
+if(!is.na(opt$test) && opt$test == 'NA'){
+  opt$test<-NA
+}
+if(!is.na(opt$test)){
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
+}
+
 ###########
 # Extract target_keep
 ###########
 
 if(!is.null(opt$target_keep)){
-  plink_subset(keep = opt$target_keep, plink = opt$plink, bfile = opt$target_plink_chr, out = paste0(tmp_dir,'/target_subset.chr'))
+  plink_subset(keep = opt$target_keep, chr = CHROMS, plink = opt$plink, bfile = opt$target_plink_chr, out = paste0(tmp_dir,'/target_subset.chr'))
   opt$target_plink_chr_subset<-paste0(tmp_dir,'/target_subset')
 } else {
   opt$target_plink_chr_subset<-opt$target_plink_chr
@@ -105,7 +115,7 @@ if(!is.null(opt$target_keep)){
 ###########
 
 if(!is.null(opt$ref_keep)){
-  plink_subset(keep = opt$ref_keep, plink = opt$plink, bfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
+  plink_subset(keep = opt$ref_keep, chr = CHROMS, plink = opt$plink, bfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
   opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset.chr')
 } else {
   opt$ref_plink_chr_subset<-opt$ref_plink_chr
@@ -116,12 +126,12 @@ if(!is.null(opt$ref_keep)){
 ###########
 
 # If target sample size is <100, only apply SNP missingness parameter
-fam<-fread(paste0(opt$target_plink_chr_subset,'22.fam'))
+fam<-fread(paste0(opt$target_plink_chr_subset, CHROMS[1], '.fam'))
 
 if(nrow(fam) > 100){
-  target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr_subset, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
+  target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 } else {
-  target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr_subset, plink = opt$plink, geno = opt$geno)
+  target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno)
   log_add(log_file = log_file, message = 'Target sample size is <100 so only checking genotype missingness.')  
 }
 
@@ -129,7 +139,7 @@ if(nrow(fam) > 100){
 # QC reference
 ###########
 
-ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
+ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 
 ###########
 # Harmonise target and reference genetic data
@@ -189,7 +199,7 @@ log_add(log_file = log_file, message = paste0(length(ld_indep),' independent var
 
 log_add(log_file = log_file, message = 'Performing PCA based on reference.')
 
-snp_weights<-plink_pca(bfile = opt$ref_plink_chr_subset, plink = opt$plink, plink2 = opt$plink2, extract = ld_indep, flip = flip_snplist, n_pc = opt$n_pcs)
+snp_weights<-plink_pca(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink = opt$plink, plink2 = opt$plink2, extract = ld_indep, flip = flip_snplist, n_pc = opt$n_pcs)
 fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
 
 ###

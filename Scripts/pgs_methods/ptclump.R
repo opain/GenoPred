@@ -32,7 +32,7 @@ make_option("--top_hla", action="store", default=T, type='logical',
 		help="Retain only top assocaited variant in HLA/MHC region [optional]")
 )
 
-opt = parse_args(OptionParser(option_list=option_list))
+opt = parse_args(OptionParser(option_list = option_list))
 
 # Load dependencies
 library(GenoUtils)
@@ -54,8 +54,8 @@ if(is.null(opt$output)){
 }
 
 # Create output directory
-opt$output_dir<-paste0(dirname(opt$output),'/')
-system(paste0('mkdir -p ',opt$output_dir))
+opt$output_dir <- paste0(dirname(opt$output), '/')
+system(paste0('mkdir -p ', opt$output_dir))
 
 # Create temp directory
 tmp_dir<-tempdir()
@@ -76,7 +76,7 @@ if(!is.na(opt$test)){
 # Format pT option
 #####
 
-opt$pTs<-as.numeric(unlist(strsplit(opt$pTs,',')))
+opt$pTs <- as.numeric(unlist(strsplit(opt$pTs, ',')))
 
 #####
 # Read in sumstats
@@ -105,7 +105,7 @@ if(opt$top_hla){
 
 # Record start time for test
 if(!is.na(opt$test)){
-  test_start.time<-test_start(log_file = log_file)
+  test_start.time <- test_start(log_file = log_file)
 }
 
 # Peforming LD-based clumping
@@ -125,24 +125,24 @@ log_add(log_file = log_file, message = 'Creating score file.')
 gwas <- gwas[(gwas$SNP %in% clumped),]
 
 # Retain pTs with at least one variant
-opt$pTs<-opt$pTs[opt$pTs > min(gwas$P)]
+opt$pTs <- opt$pTs[opt$pTs > min(gwas$P)]
 
 # Create range_list file based on specified p-value thresholds
 if(opt$nested == T){
-  range_list<-data.frame(	Name=paste0('S',1:length(opt$pTs)),
-                          pT0=0,
-                          pT1=opt$pTs)
+  range_list<-data.frame(	Name = paste0('S', 1:length(opt$pTs)),
+                          pT0 = 0,
+                          pT1 = opt$pTs)
 } else {
-  range_list<-data.frame(	Name=paste0('S',1:length(opt$pTs)),
-                          pT0=c(0,opt$pTs[-length(opt$pTs)]),
-                          pT1=opt$pTs)
+  range_list<-data.frame(	Name = paste0('S', 1:length(opt$pTs)),
+                          pT0 = c(0, opt$pTs[-length(opt$pTs)]),
+                          pT1 = opt$pTs)
 }
 
 score <- gwas[, c('SNP','A1','A2'), with=F]
 for(pT in 1:nrow(range_list)){
   tmp <- gwas$BETA
   tmp[!(gwas$P > range_list$pT0[pT] & gwas$P < range_list$pT1[pT])] <- 0
-  score[[paste0('SCORE_',range_list$pT0[pT],'_',range_list$pT1[pT])]] <- tmp
+  score[[paste0('SCORE_', range_list$pT0[pT], '_', range_list$pT1[pT])]] <- tmp
 }
 
 fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
@@ -162,10 +162,10 @@ if(!is.na(opt$test)){
 ###
 
 for(i in 1:nrow(range_list)){
-	range_list$NSNP[i]<-sum(gwas$P > range_list$pT0[i] & gwas$P < range_list$pT1[i])
+	range_list$NSNP[i] <- sum(gwas$P > range_list$pT0[i] & gwas$P < range_list$pT1[i])
 }
 
-fwrite(range_list, paste0(opt$output,'.NSNP_per_pT'), sep='\t')
+fwrite(range_list, paste0(opt$output, '.NSNP_per_pT'), sep='\t')
 
 ####
 # Calculate mean and sd of polygenic scores
@@ -174,19 +174,19 @@ fwrite(range_list, paste0(opt$output,'.NSNP_per_pT'), sep='\t')
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
 
 # Calculate scores in the full reference
-ref_pgs<-calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 # Calculate scale within each reference population
-pop_data<-fread(opt$pop_data)
+pop_data <- fread(opt$pop_data)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '.', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
+  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('Analysis finished at',as.character(end.time),'\n')
-cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
+sink(file = log_file, append = T)
+cat('Analysis finished at', as.character(end.time),'\n')
+cat('Analysis duration was', as.character(round(time.taken,2)), attr(time.taken, 'units'), '\n')
 sink()

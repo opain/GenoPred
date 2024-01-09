@@ -55,7 +55,7 @@ if 'target_list' in config:
         --qctool resources/software/qctool2/qctool"
 
   rule run_format_impute_23andme_target:
-    input: expand("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target_{name}.done", name=target_list_df_23andMe['name'], outdir=outdir)
+    input: expand("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target-{name}.done", name=target_list_df_23andMe['name'], outdir=outdir)
 
 ##
 # Convert to PLINK and harmonise with reference
@@ -100,12 +100,15 @@ rule ancestry_inference:
     touch("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done")
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    testing=config["testing"]
   shell:
     "Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --ref_plink_chr resources/data/ref/ref.chr \
       --output {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry \
-      --pop_data resources/data/ref/ref.pop.txt"
+      --pop_data resources/data/ref/ref.pop.txt \
+      --test {params.testing}"
 
 rule run_ancestry_inference:
   input: expand("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done", name=target_list_df['name'], outdir=outdir)
