@@ -34,7 +34,7 @@ make_option("--sd_rule", action="store", default=F, type='logical',
     help="Logical indicating whether the 3SD rule should be used to define ancestry, or the model-based approach [optional]"),    
 make_option("--prob_thresh", action="store", default=0.95, type='numeric',
     help="Indicates whether probability threshold should be used when defining ancestry [optional]"),
-make_option("--test", action="store", default=NA, type='numeric',
+make_option("--test", action="store", default=NA, type='character',
     help="Specify test mode [optional]"),    
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]")

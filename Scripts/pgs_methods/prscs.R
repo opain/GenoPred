@@ -95,7 +95,7 @@ log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
 gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('SNP','A1','A2','BETA','SE','N'))
-gwas<-gwas[1:1000,]
+
 # Store average sample size
 gwas_N <- round(mean(gwas$N), 0)
 
@@ -112,20 +112,16 @@ if(!is.na(opt$test)){
 
 # Make a data.frame listing chromosome and phi combinations
 jobs<-NULL
-for(i in CHROMS){
-  jobs<-rbind(jobs,data.frame(CHR=i,
-                       phi=phi_param))
+for(i in rev(CHROMS)){
+  jobs<-rbind(jobs, data.frame(CHR=i, phi=phi_param))
 }
 
 # Run using PRScs auto, and specifying a range of global shrinkage parameters
-log <- foreach(i = 1:dim(jobs)[1], .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+log <- foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
   if(jobs$phi[i] == 'auto'){
-    exit_status <- system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', opt$ref_plink_chr, jobs$CHR[i], ' --n_iter=10 --n_burnin=10 --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed), intern=FALSE)
+    system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', opt$ref_plink_chr, jobs$CHR[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed))
   } else {
-    exit_status <- system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', opt$ref_plink_chr, jobs$CHR[i], ' --n_iter=10 --n_burnin=10 --phi=', jobs$phi[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed), intern=FALSE)
-  }
-  if (exit_status != 0) {
-    stop()
+    system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', opt$ref_plink_chr, jobs$CHR[i], ' --phi=', jobs$phi[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed))
   }
 }
 

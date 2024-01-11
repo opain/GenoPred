@@ -8,7 +8,7 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
     # Determine the number of scores
     score_small<-fread(score, nrows=5)
     n_scores<-ncol(score_small)-3
-    
+
     # Assemble command and files for keep and extract
     cmd=NULL
     if(!is.null(keep)){
@@ -36,7 +36,7 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
           stop()
         }
     }
-    
+
     # Add up the scores across chromosomes
     # Read in score files IDs column from first non-missing chromosome
     for(i in chr){
@@ -46,7 +46,7 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
             break
         }
     }
-    
+
     # Read in the scores for each chromosome, adjust for the number of SNPs considered and add up
     scores<-list()
     for(i in chr){
@@ -63,20 +63,20 @@ calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, 
             cat0('No scores for chromosome ',i,'. Check plink logs file for reason.\n')
         }
     }
-    
+
     # Remove NULL elements from list (these are inserted by R when list objects are numbered)
     scores[sapply(scores, is.null)] <- NULL
-    
+
     # sum scores across chromosomes
     scores<-Reduce(`+`, scores)
-    
+
     # Combine score with IDs
     scores<-data.table(scores_ids,
                        scores)
-    
+
     # Rename columns
     names(scores)<-c('FID','IID',names(score_small)[-1:-3])
-    
+
     return(scores)
 }
 
@@ -85,11 +85,11 @@ score_mean_sd<-function(scores, keep=NULL){
     if(!is.null(keep)){
         scores<-scores[paste0(scores$FID, '_', scores$FID) %in% paste0(keep$FID, '_', keep$FID),]
     }
-    
+
     scale<-data.table(  Param=names(scores)[-1:-2],
                         Mean=sapply(scores[,-1:-2, with=F], function(x) mean(x)),
                         SD=sapply(scores[,-1:-2, with=F], function(x) sd(x)))
-    
+
     return(scale)
 }
 
@@ -211,7 +211,7 @@ plink_subset<-function(plink='plink', chr = 1:22, keep = NA, bfile, out, memory 
 }
 
 # Return a list of variants surviving QC using plink
-plink_qc_snplist<-function(bfile, plink = 'plink', chr = 1:22, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
+plink_qc_snplist<-function(bfile, plink = 'plink', keep = NULL, chr = 1:22, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
   plink_opt<-NULL
   if(!is.null(geno)){
     plink_opt <- paste0(plink_opt, paste0('--geno ',geno,' '))
@@ -222,11 +222,15 @@ plink_qc_snplist<-function(bfile, plink = 'plink', chr = 1:22, threads = 1, memo
   if(!is.null(hwe)){
     plink_opt <- paste0(plink_opt, paste0('--hwe ',hwe,' '))
   }
+  if(!is.null(keep)){
+    keep<-obj_or_file(keep)
+    plink_opt <- paste0(plink_opt, paste0('--keep ',keep,' '))
+  }
 
-  temp_file<-tempfile()
-  snplist<-NULL
+  temp_file <- tempfile()
+  snplist <- NULL
   for(chr_i in chr){
-    system(paste0(plink,' --bfile ',bfile,chr_i,' --threads ',threads,' ',plink_opt,' --write-snplist --out ', temp_file,' --memory ', memory))
+    system(paste0(plink, ' --bfile ', bfile, chr_i, ' --threads ', threads, ' ', plink_opt, ' --write-snplist --out ', temp_file,' --memory ', memory))
     snplist<-c(snplist, fread(paste0(temp_file, '.snplist'), header=F)$V1)
   }
 
@@ -296,7 +300,7 @@ plink_merge<-function(bfile, plink = 'plink', chr = 1:22, extract = NULL, keep =
     keep<-obj_or_file(keep)
     plink_opt<-paste0(plink_opt, paste0('--keep ', keep, ' '))
   }
-  
+
   if(length(chr) > 1){
     # Merge
     cmd<-paste0(plink,' --merge-list ', tmp_dir,'/ref_mergelist.txt ', plink_opt,'--threads 1 --make-bed --out ', out,' --memory ', memory)
@@ -312,7 +316,7 @@ plink_pca<-function(bfile, chr = 1:22, plink = 'plink', plink2 = 'plink2', extra
   tmp_dir<-tempdir()
 
   # Merge subset reference
-  plink_merge(bfile = bfile, chr = chr, plink = plink, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'))
+  plink_merge(bfile = bfile, chr = chr, plink = plink, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'))
 
   # Calculate SNP weights
   system(paste0(plink2,' --bfile ',tmp_dir,'/ref_merge --threads 1 --pca ',n_pc,' biallelic-var-wts  --out ',tmp_dir,'/ref_merge --memory ', memory))
@@ -326,7 +330,7 @@ plink_pca<-function(bfile, chr = 1:22, plink = 'plink', plink2 = 'plink2', extra
 }
 
 # Performing LD pruning
-plink_prune<-function(bfile, plink = 'plink', chr =1:22, extract = NULL, memory = 4000){
+plink_prune<-function(bfile, keep = NULL, plink = 'plink', chr =1:22, extract = NULL, memory = 4000){
   # Create a temporary file path to store pruning output
   tmp_file<-tempfile()
 
@@ -336,7 +340,12 @@ plink_prune<-function(bfile, plink = 'plink', chr =1:22, extract = NULL, memory 
   # Prepare plink options
   plink_opt<-NULL
   if(!is.null(extract)){
+    extract <- obj_or_file(extract)
     plink_opt<-paste0(plink_opt, '--extract ', extract,' ')
+  }
+  if(!is.null(keep)){
+    keep <- obj_or_file(keep)
+    plink_opt<-paste0(plink_opt, '--keep ', keep,' ')
   }
 
   # Perfom pruning and read in SNP-list
@@ -370,14 +379,14 @@ read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, r
       stop('Cannot filter sumstats by chromosome when CHR column is not present.')
     }
     gwas <- gwas[gwas$CHR %in% chr,]
-    log_add(log_file = log_file, message = paste0(nrow(gwas), ' variants remain after selecting chromosomes.'))  
+    log_add(log_file = log_file, message = paste0(nrow(gwas), ' variants remain after selecting chromosomes.'))
   }
 
   # If FREQ is missing, use REF.FREQ
   if('FREQ' %in% req_cols){
     if(all(names(gwas) != 'FREQ')){
       names(gwas)[names(gwas) == 'REF.FREQ']<-'FREQ'
-      log_add(log_file = log_file, message = 'REF.FREQ being used as FREQ.')  
+      log_add(log_file = log_file, message = 'REF.FREQ being used as FREQ.')
     }
   }
 
@@ -435,8 +444,8 @@ plink_clump<-function(bfile, plink = 'plink', chr = 1:22, sumstats, keep = NULL,
 
 test_start<-function(log_file){
   test_start.time <- Sys.time()
-  log_add(log_file = log_file, message = paste0('Test started at ',as.character(test_start.time))) 
-  return(test_start.time) 
+  log_add(log_file = log_file, message = paste0('Test started at ',as.character(test_start.time)))
+  return(test_start.time)
 }
 
 test_finish<-function(log_file, test_start.time){
@@ -451,7 +460,7 @@ test_finish<-function(log_file, test_start.time){
 # Run LDSC
 ldsc <- function(sumstats, ldsc, munge_sumstats, ldsc_ref, pop_prev = NULL, sample_prev = NULL, log_file = NULL){
   tmp_dir<-tempdir()
-  
+
   # Munge the sumstats
   system(paste0(munge_sumstats, ' --sumstats ', sumstats,' --merge-alleles ', ldsc_ref, '/w_hm3.snplist --out ', tmp_dir,'/munged'))
 
@@ -474,14 +483,14 @@ ldsc <- function(sumstats, ldsc, munge_sumstats, ldsc_ref, pop_prev = NULL, samp
   ldsc_h2 <- gsub(pattern, '', ldsc_log[grepl(pattern, ldsc_log)])
 
   # Log the heritability estimate
-  log_add(log_file = log_file, message = paste0('SNP-heritability estimate on the ', tolower(scale_type), ' scale = ', ldsc_h2, '.'))  
+  log_add(log_file = log_file, message = paste0('SNP-heritability estimate on the ', tolower(scale_type), ' scale = ', ldsc_h2, '.'))
 
   # Process and return the heritability estimate
   ldsc_h2 <- as.numeric(sub(' .*', '', ldsc_h2))
   if(!is.na(ldsc_h2) && ldsc_h2 > 1){
     ldsc_h2 <- 1
-    log_add(log_file = log_file, message = paste0('Setting SNP-heritability estimate to 1.'))  
-  } 
+    log_add(log_file = log_file, message = paste0('Setting SNP-heritability estimate to 1.'))
+  }
 
   return(ldsc_h2)
 }
@@ -489,7 +498,7 @@ ldsc <- function(sumstats, ldsc, munge_sumstats, ldsc_ref, pop_prev = NULL, samp
 # Match A1 and A2 match a reference
 allele_match<-function(sumstats, ref_bim, chr = 1:22){
   sumstats_ref<-merge(sumstats, ref_bim[, c('SNP','A1','A2'), with=F], by = 'SNP')
-  swap_index <- sumstats_ref$A1.x == sumstats_ref$A1.y & sumstats_ref$A2.x == sumstats_ref$A2.y
+  swap_index <- sumstats_ref$A1.x == sumstats_ref$A2.y & sumstats_ref$A2.x == sumstats_ref$A1.y
   sumstats_ref$BETA[swap_index] <- -sumstats_ref$BETA[swap_index]
   sumstats_ref$FREQ[swap_index] <- 1-sumstats_ref$FREQ[swap_index]
 
@@ -560,4 +569,187 @@ ldak_pred_cor<-function(bfile, ldak, n_cores, chr = 1:22, keep = NULL){
   }
 
   return(tmp_file)
+}
+
+# Generate kinship matrix and identify unrelated individuals (>2nd degree)
+plink_king<-function(bfile, extract = NULL, chr = 1:22, plink = 'plink', plink2 = 'plink2', out, keep=NA){
+  # Create object indicating tmpdir
+  tmp_dir<-tempdir()
+
+  # Identify variants not in high LD regions
+  bim <- read_bim(dat = bfile, chr = chr)
+  bim <- remove_regions(bim = bim, regions = long_ld_coord)
+
+  # Identify intersect of snplists to extract
+  if(!is.null(extract)){
+    extract_snplist<-intersect(bim$SNP, extract)
+  }
+
+  # Merge per chromosome files extracting selected variants
+  plink_merge(bfile = bfile, chr = chr, plink = plink, extract = extract_snplist, out = paste0(tmp_dir,'/merged'))
+
+  # Run KING estimator
+  system(paste0(plink2, ' --bfile ', tmp_dir, '/merged --threads 1 --make-king triangle bin --out ', tmp_dir, '/merged'))
+
+  # Identify unrelated individuals (remove 2nd degree relatives)
+  system(paste0(plink2, ' --bfile ', tmp_dir, '/merged --threads 1 --king-cutoff ',tmp_dir, '/merged 0.0884 --out ', tmp_dir, '/merged'))
+
+  # Move the kinship matrix
+  system(paste0('mv ', tmp_dir, '/merged.king.bin ', out, '.king.bin'))
+  system(paste0('mv ', tmp_dir, '/merged.king.id ', out, '.king.id'))
+
+  # Format and save the list of unrelated individuals
+  system(paste0('tail -n +2 ', tmp_dir, '/merged.king.cutoff.in.id > ', out, '.unrelated.keep'))
+}
+
+# Read in PGS
+
+read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL){
+
+  # Read in the config file
+  config_file <- readLines(config)
+
+  # Read in target_list
+  target_list <- fread(gsub('target_list: ', '', config_file[grepl('^target_list:', config_file)]))
+  if(!is.null(name)){
+    if(any(!(name %in% target_list$name))){
+      stop('Requested target samples are not present in target_list')
+    }
+    target_list <- target_list[target_list$name %in% name,]
+  }
+
+  # Read in gwas_list
+  gwas_list <- fread(gsub('gwas_list: ', '', config_file[grepl('^gwas_list:', config_file)]))
+  if(!is.null(gwas)){
+    if(any(!(gwas %in% gwas_list$name))){
+      stop('Requested GWAS are not present in gwas_list')
+    }
+    gwas_list <- gwas_list[target_list$name %in% gwas,]
+  }
+
+  # Identify PGS methods to be included
+  pgs_methods_list <-
+    unlist(strsplit(gsub("'", '',
+                         gsub(']', '',
+                              gsub('\\[', '',
+                                   gsub('pgs_methods: ', '',
+                                        config_file[grepl('^pgs_methods:', config_file)]))
+                         )
+    ),
+    ',')
+    )
+
+  if(!is.null(pgs_methods)){
+    if(any(!(pgs_methods %in% pgs_methods_list))){
+      stop('Requested pgs_methods are not present in pgs_methods in config')
+    }
+    pgs_methods_list <- pgs_methods_list[pgs_methods_list %in% pgs_methods,]
+  }
+
+  # Define PGS methods applied to non-EUR GWAS
+  pgs_methods_noneur <- c('ptclump','lassosum','megaprs')
+
+  # Identify outdir parameter
+  outdir <- gsub('.*: ', '', config_file[grepl('^outdir', config_file)])
+
+  pgs <- list()
+  for (name_i in target_list$name) {
+    # Read in keep_list to determine populations available
+    keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
+    pgs[[name_i]] <- list()
+    for (pop_i in keep_list_i$POP) {
+      pgs[[name_i]][[pop_i]] <- list()
+
+      for (gwas_i in gwas_list$name) {
+        pgs[[name_i]][[pop_i]][[gwas_i]] <- list()
+
+        for (pgs_method_i in pgs_methods_list) {
+          if (gwas_list$population[gwas_list$name == gwas_i] == 'EUR' | (gwas_list$population[gwas_list$name == gwas_i] != 'EUR' & (pgs_method_i %in% pgs_methods_eur))) {
+            pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <-
+              fread(
+                paste0(
+                  outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, '.profiles'
+                )
+              )
+          }
+        }
+      }
+    }
+  }
+
+  return(pgs)
+}
+
+# Return score corresponding to pseudovalidation
+find_pseudo <- function(config, gwas, pgs_method){
+
+  if(length(pgs_method) > 1){
+    stop('Only one pgs_method can be specified at a time')
+  }
+  if(length(gwas) > 1){
+    stop('Only one gwas can be specified at a time')
+  }
+
+  # Read in the config file
+  config_file <- readLines(config)
+
+  # Read in gwas_list
+  gwas_list <- fread(gsub('gwas_list: ', '', config_file[grepl('^gwas_list:', config_file)]))
+  if(!(gwas %in% gwas_list$name)){
+    stop('Requested GWAS are not present in gwas_list')
+  }
+
+  # Identify PGS methods to be included
+  pgs_methods_list <-
+    unlist(strsplit(gsub("'", '',
+                         gsub(']', '',
+                              gsub('\\[', '',
+                                   gsub('pgs_methods: ', '',
+                                        config_file[grepl('^pgs_methods:', config_file)]))
+                         )
+    ),
+    ',')
+    )
+
+  if(!(pgs_method %in% pgs_methods_list)){
+    stop('Requested pgs_methods are not present in pgs_methods in config')
+  }
+
+  # Identify outdir parameter
+  outdir <- gsub('.*: ', '', config_file[grepl('^outdir', config_file)])
+
+  # Use most stringent p-value threshold of 0.05 as pseudo
+  if(pgs_method == 'ptclump'){
+    return('0_1e-08')
+  }
+
+  # Pseudoval only methods
+  if(pgs_method == 'sbayesr'){
+    return('SBayesR')
+  }
+  if(pgs_method == 'dbslmm'){
+    return('DBSLMM')
+  }
+
+  # Retrive pseudoval param
+  if(pgs_method == 'ldpred2'){
+    return('beta_auto')
+  }
+  if(pgs_method == 'prscs'){
+    return('phi_auto')
+  }
+  if(pgs_method == 'megaprs'){
+    # Read in megaprs log file
+    log <- readLines(paste0(outdir,'/resources/data/ref/pgs_score_files/',pgs_method,'/',gwas,'/ref-',gwas,'.log'))
+    log <- log[grepl('identified as the best with correlation', log)]
+    pseudoval <- gsub(' .*','', gsub('Model ', '', log))
+    return(paste0('ldak_Model', pseudoval))
+  }
+  if(pgs_method == 'lassosum'){
+    # Read in megaprs log file
+    log <- readLines(paste0(outdir,'/resources/data/ref/pgs_score_files/',pgs_method,'/',gwas,'/ref-',gwas,'.log'))
+    s_val <- gsub('.* ', '', log[grepl('^s = ', log)])
+    lambda_val <- gsub('.* ', '', log[grepl('^lambda = ', log)])
+    return(paste0('s', s_val, '_lambda', lambda_val))
+  }
 }
