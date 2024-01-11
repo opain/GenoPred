@@ -225,7 +225,7 @@ if(is.null(rem) == F){
   betas<-betas[, -rem, with=F]
 }
 
-names(betas)[-1:-3]<-gsub('SCORE_','',names(betas)[-1:-3])
+names(betas)[-1:-3] <- paste0('SCORE_', names(betas)[-1:-3])
 
 fwrite(betas, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 

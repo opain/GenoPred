@@ -137,20 +137,16 @@ rule outlier_detection:
     mem_mb=15000
   input:
     "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",
-    "../Scripts/Population_outlier/Population_outlier.R"
+    "../Scripts/outlier_detection/outlier_detection.R"
   output:
     touch('{outdir}/resources/data/target_checks/{name}/outlier_detection.done')
   conda:
     "../envs/GenoPredPipe.yaml"
+  params:
+    testing=config["testing"]
   shell:
-    "ls {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.*.keep > {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry.model_pred.keep_list; Rscript ../Scripts/Population_outlier/Population_outlier.R \
+    "Rscript ../Scripts/outlier_detection/outlier_detection.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
-      --target_keep {outdir}/{wildcards.name}/ancestry/keep_files/model_based/keep_list.txt \
-      --n_pcs 10 \
-      --maf 0.05 \
-      --geno 0.02 \
-      --hwe 1e-6 \
-      --memory {resources.mem_mb} \
-      --plink plink \
-      --plink2 plink2 \
+      --keep_list {outdir}/{wildcards.name}/ancestry/keep_list.txt \
+      --test {params.testing} \
       --output {outdir}/{wildcards.name}/pcs/within_sample/{wildcards.name}.outlier_detection"

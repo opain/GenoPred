@@ -129,16 +129,17 @@ rule run_prep_pgs_dbslmm:
 # PRScs
 ##
 
+# Set default values
+n_cores_prscs = config.get("ncores", 10)
+mem_prscs = 80000
+
+# Modify if the 'testing' condition is met
 if config["testing"] != 'NA':
-  n_cores_prscs=min(5, multiprocessing.cpu_count())
-  mem_prscs=40000
-else:
-  n_cores_prscs=min(10, multiprocessing.cpu_count())
-  mem_prscs=80000
+    mem_prscs = 40000
+    n_cores_prscs = config.get("ncores", 5)
 
 rule prep_pgs_prscs:
-  threads:n_cores_prscs
-  resources: 
+  resources:
     mem_mb=mem_prscs,
     cpus=n_cores_prscs,
     time_min=800
@@ -185,7 +186,6 @@ else:
   mem_sbayesr=80000
 
 rule prep_pgs_sbayesr:
-  threads:n_cores_sbayesr
   resources: 
     mem_mb=mem_sbayesr,
     cpus=n_cores_sbayesr
@@ -259,7 +259,6 @@ else:
   mem_ldpred2=80000
 
 rule prep_pgs_ldpred2:
-  threads:n_cores_ldpred2
   resources: 
     mem_mb=mem_ldpred2,
     cpus=n_cores_ldpred2,
@@ -303,8 +302,7 @@ else:
   mem_megaprs=80000
 
 rule prep_pgs_megaprs:
-  threads:n_cores_megaprs
-  resources: 
+  resources:
     mem_mb=mem_megaprs,
     cpus=n_cores_megaprs,
     time_min=800
