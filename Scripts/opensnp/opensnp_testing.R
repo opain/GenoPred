@@ -138,6 +138,16 @@ n
 wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur_pgs.gz https://cnsgenomics.com/data/giant_2022/GIANT_HEIGHT_YENGO_2022_PGS_WEIGHTS_EUR.gz
 # Going to pause on this for now until I have figured out a way to harmonise score files.
 
+R
+
+score_list <- data.frame(
+  name = 'height_external',
+  path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur_pgs.gz',
+  label = "\"Yengo 2022 Height EUR PGSC\""
+)
+
+write.table(score_list, 'misc/opensnp/score_list.txt', col.names=T, row.names=F, quote=F, sep=' ')
+
 #######
 # Run the snakmake pipeline
 #######

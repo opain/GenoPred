@@ -5,15 +5,18 @@ rule ref_pca:
     "../Scripts/ref_pca/ref_pca.R",
     "../Scripts/functions/misc.R"
   output:
-    "resources/data/ref/pc_score_files/{population}/ref.{population}.pcs.EUR.scale"
+    "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/GenoPredPipe.yaml",
+  params:
+    testing=config["testing"]
   shell:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr resources/data/ref/ref.chr \
       --ref_keep resources/data/ref/keep_files/{wildcards.population}.keep \
       --pop_data resources/data/ref/ref.pop.txt \
-      --output resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs"
+      --output resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
+      --test {params.testing}"
 
 populations=["AFR","AMR","EAS","EUR","SAS"]
 
@@ -361,16 +364,17 @@ if 'score_list' in config:
     output:
       "{outdir}/resources/data/ref/pgs_score_files/external/{gwas}/ref-{gwas}-EUR.scale"
     params:
-      score= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
+      score= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
+      testing=config["testing"]
     conda:
       "../envs/GenoPredPipe.yaml"
     shell:
       "Rscript ../Scripts/external_score_processor/external_score_processor.R \
         --ref_plink_chr resources/data/ref/ref.chr \
         --score {params.score} \
-        --plink2 plink2 \
         --output {outdir}/resources/data/ref/pgs_score_files/external/{wildcards.gwas}/ref-{wildcards.gwas} \
-        --ref_pop_scale resources/data/ref/ref.keep.list"
+        --pop_data resources/data/ref/ref.pop.txt \
+        --test {params.testing}"
       
   rule run_prep_pgs_external:
     input: expand("{outdir}/resources/data/ref/pgs_score_files/external/{gwas}/ref-{gwas}-EUR.scale", gwas=score_list_df['name'], outdir=outdir)
@@ -401,32 +405,3 @@ if 'external' in pgs_methods:
 rule pgs_methods_complete:
   input:
     pgs_methods_input
-  
-##
-# Estimate R2/AUC of PRS using lassosum pseudovalidate
-##
-
-rule pseudovalidate_prs:
-  input:
-    "{outdir}/resources/data/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
-    rules.get_dependencies.output,
-    "../Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R"
-  output:
-    "{outdir}/resources/data/ref/prs_pseudoval/{gwas}/lassosum_pseudo-{gwas}-pseudovalidate.png"
-  conda:
-    "../envs/GenoPredPipe.yaml"
-  params:
-    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-  shell:
-    "Rscript ../Scripts/lassosum_pseudovalidate/lassosum_pseudovalidate.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
-      --sumstats {outdir}/resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --prune_mhc T \
-      --output {outdir}/resources/data/ref/prs_pseudoval/{wildcards.gwas}/lassosum_pseudo-{wildcards.gwas} \
-      --plink plink \
-      --n_cores 1"
-
-rule run_pseudovalidate_prs:
-  input: expand("{outdir}/resources/data/ref/prs_pseudoval/{gwas}/lassosum_pseudo-{gwas}-pseudovalidate.png", gwas=gwas_list_df['name'], outdir=outdir)
-

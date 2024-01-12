@@ -25,7 +25,9 @@ make_option("--output", action="store", default=NULL, type='character',
 make_option("--pop_data", action="store", default=NULL, type='character',
     help="Population data for the reference samples [required]"),    
 make_option("--memory", action="store", default=5000, type='numeric',
-		help="Memory limit [optional]")
+		help="Memory limit [optional]"),
+  make_option("--test", action="store", default=NA, type='character',
+    help="Specify number of SNPs to include [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -57,12 +59,20 @@ tmp_dir<-tempdir()
 log_file <- paste(opt$output,'.log',sep='')
 log_header(log_file = log_file, opt = opt, script = 'ref_pca.R', start.time = start.time)
 
+# If testing, change CHROMS to chr value
+if(!is.na(opt$test) && opt$test == 'NA'){
+  opt$test<-NA
+}
+if(!is.na(opt$test)){
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
+}
+
 ###########
 # Extract ref_keep
 ###########
 
 if(!is.null(opt$ref_keep)){
-  plink_subset(keep = opt$ref_keep, plink = opt$plink, bfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
+  plink_subset(keep = opt$ref_keep, chr = CHROMS, plink = opt$plink, bfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
   opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset.chr')
 } else {
   opt$ref_plink_chr_subset<-opt$ref_plink_chr
@@ -72,7 +82,7 @@ if(!is.null(opt$ref_keep)){
 # QC reference
 ###########
 
-ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
+ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 
 ###########
 # Identify list of LD independent SNPs
@@ -81,7 +91,7 @@ ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, plink = opt$p
 log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on reference data.')  
 
 # read in reference bim file
-ref_bim<-read_bim(opt$ref_plink_chr_subset)
+ref_bim<-read_bim(opt$ref_plink_chr_subset, chr = CHROMS)
 
 # Subset ref_bim to contain QC'd variants
 ref_bim<-ref_bim[ref_bim$SNP %in% ref_qc_snplist,]
@@ -91,7 +101,7 @@ ref_bim <- remove_regions(bim = ref_bim, regions = long_ld_coord)
 log_add(log_file = log_file, message = paste0(nrow(ref_bim),' variants after removal of LD high regions.'))  
 
 # Perform LD pruning
-ld_indep <- plink_prune(bfile = opt$ref_plink_chr, plink = opt$plink, extract = ref_bim$SNP)
+ld_indep <- plink_prune(bfile = opt$ref_plink_chr, chr = CHROMS, plink = opt$plink, extract = ref_bim$SNP)
 log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))  
 
 ###########
@@ -100,7 +110,7 @@ log_add(log_file = log_file, message = paste0(length(ld_indep),' independent var
 
 log_add(log_file = log_file, message = 'Performing PCA based on reference.')
 
-snp_weights<-plink_pca(bfile = opt$ref_plink_chr_subset, plink = opt$plink, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs)
+snp_weights<-plink_pca(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink = opt$plink, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs)
 fwrite(snp_weights, paste0(opt$output,'.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
 
 if(file.exists(paste0(opt$output,'.eigenvec.var.gz'))){
@@ -116,7 +126,7 @@ system(paste0('gzip ',opt$output,'.eigenvec.var'))
 log_add(log_file = log_file, message = 'Computing reference PCs.')  
 
 # Calculate PCs in the full reference
-ref_pcs<-calc_score(bfile = opt$ref_plink_chr, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
+ref_pcs<-calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
 
 # Calculate scale within each reference population
 pop_data<-fread(opt$pop_data)

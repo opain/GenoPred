@@ -22,6 +22,8 @@ make_option("--pheno_name", action="store", default=NULL, type='character',
     help="Name of phenotype to be added to column names. Default is SCORE. [optional]"),
 make_option("--n_cores", action="store", default=1, type='numeric',
     help="Number of cores to use [optional]"),
+make_option("--test", action="store", default=NA, type='character',
+    help="Specify number of SNPs to include [optional]"),
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]")
 )
@@ -64,12 +66,20 @@ tmp_dir<-tempdir()
 log_file <- paste0(opt$output,'.log')
 log_header(log_file = log_file, opt = opt, script = 'target_scoring.R', start.time = start.time)
 
+# If testing, change CHROMS to chr value
+if(!is.na(opt$test) && opt$test == 'NA'){
+  opt$test<-NA
+}
+if(!is.na(opt$test)){
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
+}
+
 #####
 # Perform polygenic risk scoring
 #####
 
 log_add(log_file = log_file, message = 'Calculating polygenic scores in the target sample.')  
-scores<-calc_score(bfile = opt$target_plink_chr, plink2 = opt$plink2, score = opt$ref_score, keep = opt$target_keep, frq = opt$ref_freq_chr)
+scores<-calc_score(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = opt$ref_score, keep = opt$target_keep, frq = opt$ref_freq_chr)
 
 ###
 # Scale the polygenic scores based on the reference
