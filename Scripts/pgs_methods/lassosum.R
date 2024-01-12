@@ -18,6 +18,8 @@ option_list = list(
 	    help="Path PLINK v2 software binary [optional]"),
 	make_option("--output", action="store", default=NULL, type='character',
 			help="Path for output files [required]"),
+  make_option("--n_cores", action="store", default=1, type='numeric',
+	    help="Number of cores to use [optional]"),
 	make_option("--test", action="store", default=NA, type='character',
 	    help="Specify number of SNPs to include [optional]"),
 	make_option("--sumstats", action="store", default=NULL, type='character',
@@ -31,6 +33,8 @@ library(GenoUtils)
 library(data.table)
 source('../Scripts/functions/misc.R')
 library(lassosum)
+library(parallel)
+cl <- makeCluster(opt$n_cores)
 
 # Store original working directory
 orig_wd<-getwd()
@@ -131,7 +135,8 @@ out <- lassosum.pipeline(
   A1 = gwas$A1, 
   A2 = gwas$A2,
   ref.bfile = paste0(tmp_dir, '/ref_merge'), 
-  LDblocks = ld_block_dat)
+  LDblocks = ld_block_dat,
+  cluster = cl)
 
 # Change working directory back to the original
 setwd(orig_wd)
@@ -173,9 +178,11 @@ out2 <- subset(out, s=v$best.s, lambda=v$best.lambda)
 
 log_add(log_file = log_file, message = c(
   'Pseudovalidated parameters:', 
-  paste0('s = ',out2$s), 
-  paste0('lambda = ',out2$lambda)))
-
+  paste0('s = ', out2$s), 
+  paste0('lambda = ', out2$lambda),
+  paste0('value = ', v$validation.table$value[v$validation.table$lambda == v$best.lambda & v$validation.table$s == v$best.s]),
+  ))
+  
 # Record end time of test
 if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)

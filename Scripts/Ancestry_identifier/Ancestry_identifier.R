@@ -91,12 +91,14 @@ if(nrow(fread(paste0(opt$ref_plink_chr,'22.fam'))) < 100){
   	stop('opt$ref_plink_chr must contain at least 100 individuals.')
 }
 
-# If testing, change CHROMS to chr value
+# If testing, change CHROMS to chr value, and lower ancestry probability threshold
 if(!is.na(opt$test) && opt$test == 'NA'){
   opt$test<-NA
 }
 if(!is.na(opt$test)){
   CHROMS <- as.numeric(gsub('chr','',opt$test))
+  opt$prob_thresh <- 0.5
+  log_add(log_file = log_file, message = 'Lowering prob_thresh parameter to 0.5 for testing.')
 }
 
 ###########
@@ -146,10 +148,10 @@ ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, chr = CHROMS,
 ###########
 
 # read in target bim file
-targ_bim<-read_bim(opt$target_plink_chr_subset)
+targ_bim<-read_bim(opt$target_plink_chr_subset, chr = CHROMS)
 
 # read in reference bim file
-ref_bim<-read_bim(opt$ref_plink_chr_subset)
+ref_bim<-read_bim(opt$ref_plink_chr_subset, chr = CHROMS)
 
 # retain variants surviving QC
 targ_bim<-targ_bim[targ_bim$SNP %in% intersect(target_qc_snplist, ref_qc_snplist), ]
@@ -209,7 +211,7 @@ fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F,
 log_add(log_file = log_file, message = 'Computing reference PCs.')  
 
 # Calculate PCs in the reference
-ref_pcs<-calc_score(bfile = opt$ref_plink_chr_subset, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+ref_pcs<-calc_score(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 
 # Scale across all individuals
 ref_pcs_centre_scale <- score_mean_sd(scores = ref_pcs)
@@ -235,7 +237,7 @@ saveRDS(model$finalModel, paste0(opt$output,'.model.rds'))
 #####
 
 log_add(log_file = log_file, message = 'Calculating PCs in the target sample.')  
-targ_pcs<-calc_score(bfile = opt$target_plink_chr_subset, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+targ_pcs<-calc_score(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 targ_pcs_scaled<-score_scale(score = targ_pcs, ref_scale = ref_pcs_centre_scale)
 
 ###

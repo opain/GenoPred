@@ -189,15 +189,17 @@ obj_or_file<-function(x, header = F, return_file = T){
 }
 
 # Make a subset of plink1 binaries
-plink_subset<-function(plink='plink', chr = 1:22, keep = NA, bfile, out, memory = 4000, threads = 1){
-
-  # If object, create file
-  keep <- obj_or_file(keep)
+plink_subset<-function(plink='plink', chr = 1:22, keep = NULL, extract = NULL, bfile, out, memory = 4000, threads = 1){
 
   # Prepare plink options
   plink_opt<-NULL
   if(!is.null(keep)){
-    plink_opt<-paste0(plink_opt, paste0('--keep ',keep,' '))
+    keep <- obj_or_file(keep)
+    plink_opt<-paste0(plink_opt, paste0('--keep ', keep, ' '))
+  }
+  if(!is.null(extract)){
+    extract <- obj_or_file(extract)
+    plink_opt<-paste0(plink_opt, paste0('--extract ', extract, ' '))
   }
 
   # Run plink
@@ -330,7 +332,7 @@ plink_pca<-function(bfile, chr = 1:22, plink = 'plink', plink2 = 'plink2', extra
 }
 
 # Performing LD pruning
-plink_prune<-function(bfile, keep = NULL, plink = 'plink', chr =1:22, extract = NULL, memory = 4000){
+plink_prune<-function(bfile, keep = NULL, plink = 'plink', chr = 1:22, extract = NULL, memory = 4000){
   # Create a temporary file path to store pruning output
   tmp_file<-tempfile()
 
@@ -620,11 +622,30 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
 
   # Read in gwas_list
   gwas_list <- fread(gsub('gwas_list: ', '', config_file[grepl('^gwas_list:', config_file)]))
+
+  # Read in gwas_list
+  score_list_file <- gsub('score_list: ', '', config_file[grepl('^score_list:', config_file)])
+  score_list_file[score_list_file == 'NA']<-NA
+  score_list <- NULL
+  if(!is.na(score_list_file)){
+    score_list <- fread(gsub('score_list: ', '', config_file[grepl('^score_list:', config_file)]))
+  }
+
   if(!is.null(gwas)){
-    if(any(!(gwas %in% gwas_list$name))){
-      stop('Requested GWAS are not present in gwas_list')
+    if(!is.null(score_list)){
+      full_gwas_list <- c(gwas_list$name, score_list$name)
+    } else {
+      full_gwas_list <- gwas_list$name
+    }
+
+    if(any(!(gwas %in% full_gwas_list))){
+      stop('Requested GWAS are not present in gwas_list/score_list')
     }
     gwas_list <- gwas_list[target_list$name %in% gwas,]
+
+    if(!is.null(score_list)){
+      score_list <- score_list[score_list$name %in% gwas,]
+    }
   }
 
   # Identify PGS methods to be included
@@ -659,7 +680,6 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
     pgs[[name_i]] <- list()
     for (pop_i in keep_list_i$POP) {
       pgs[[name_i]][[pop_i]] <- list()
-
       for (gwas_i in gwas_list$name) {
         pgs[[name_i]][[pop_i]][[gwas_i]] <- list()
 
@@ -672,6 +692,18 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
                 )
               )
           }
+        }
+      }
+      if(!is.null(score_list)){
+        for (score_i in score_list$name) {
+          pgs[[name_i]][[pop_i]][[score_i]] <- list()
+          pgs_method_i <- 'external'
+          pgs[[name_i]][[pop_i]][[score_i]][[pgs_method_i]] <-
+            fread(
+              paste0(
+                outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  score_i, '/', name_i, '-', score_i, '-', pop_i, '.profiles'
+              )
+            )
         }
       }
     }

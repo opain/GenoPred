@@ -24,10 +24,11 @@ else:
 # Largely based on Impute.Me by Lasse Folkersen
 
 if 'target_list' in config:
-  rule format_impute_23andme_target:
-    resources: 
-      mem_mb=90000,
-      cpus=6
+  rule impute_23andme:
+    resources:
+      mem_mb=80000,
+      cpus=config.get("ncores", 10),
+      time_min=800
     input:
       config['target_list'],
       config['config_file'],
@@ -35,7 +36,7 @@ if 'target_list' in config:
       rules.download_qctool2.output,
       "../Scripts/23andMe_imputer/23andMe_imputer.R"
     output:
-      touch("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target.done")
+      touch("{outdir}/resources/data/target_checks/{name}/impute_23andme-{chr}.done")
     conda:
       "../envs/GenoPredPipe.yaml"
     params:
@@ -46,24 +47,48 @@ if 'target_list' in config:
         --FID {params.name} \
         --IID {params.name} \
         --geno {params.path} \
-        --plink plink \
-        --out {outdir}/{params.name}/geno/{params.name} \
+        --output {outdir}/{params.name}/geno/imputed/{params.name}.chr{wildcards.chr} \
+        --chr {wildcards.chr} \
         --ref resources/data/impute2/1000GP_Phase3 \
         --shapeit shapeit \
         --impute2 impute2 \
         --n_core {resources.cpus} \
         --qctool resources/software/qctool2/qctool"
 
-  rule run_format_impute_23andme_target:
-    input: expand("{outdir}/resources/data/target_checks/{name}/format_impute_23andme_target-{name}.done", name=target_list_df_23andMe['name'], outdir=outdir)
+  rule run_impute_23andme:
+    input: 
+      lambda w: expand("{outdir}/resources/data/target_checks/{name}/impute_23andme-{chr}.done", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
+    output:
+      touch("{outdir}/resources/data/target_checks/{name}/impute_23andme_all_chr.done")
 
 ##
 # Convert to PLINK and harmonise with reference
 ##
 
+def format_target_input(outdir, name):
+    inputs = []
+    filtered_df = target_list_df.loc[target_list_df['name'] == name, 'type']
+    if filtered_df.iloc[0] == '23andMe':
+        inputs.append(f"{outdir}/resources/data/target_checks/{name}/impute_23andme_all_chr.done")
+    return inputs
+
+def target_path(outdir, name):
+    if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == '23andMe':
+      return outdir + "/" + name + "/geno/imputed/" + name
+    else:
+      path=target_list_df.loc[target_list_df['name'] == name, 'path'].iloc[0]
+      return path + ".chr"
+
+def target_type(name):
+    if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == '23andMe':
+      return "samp_imp_plink1"
+    else:
+      return target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0]
+
 if 'target_list' in config:
   rule format_target:
     input:
+      lambda w: format_target_input(outdir = w.outdir, name = w.name),
       config['target_list'],
       config['config_file'],
       rules.get_dependencies.output,
@@ -73,8 +98,8 @@ if 'target_list' in config:
     conda:
       "../envs/GenoPredPipe.yaml"
     params:
-      path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-      type= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'type'].iloc[0]
+      path= lambda w: target_path(outdir = w.outdir, name = w.name),
+      type= lambda w: target_type(name = w.name)
     shell:
       "Rscript ../Scripts/format_target/format_target.R \
         --target {params.path}.chr{wildcards.chr} \
@@ -82,9 +107,17 @@ if 'target_list' in config:
         --ref resources/data/ref/ref.chr{wildcards.chr} \
         --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr}"
 
+  def get_chr_range(testing):
+    if testing != 'NA':
+      val = testing[-2:]
+      val = int(val)
+      return val  # Example range for testing
+    else:
+      return range(1, 23)  # Full range for normal operation
+
   rule run_format_target:
     input: 
-      lambda w: expand("{outdir}/{name}/geno/{name}.ref.chr{chr}.bed", name=w.name, chr=range(1, 23), outdir=outdir)
+      lambda w: expand("{outdir}/{name}/geno/{name}.ref.chr{chr}.bed", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
     output:
       touch("{outdir}/resources/data/target_checks/{name}/format_target.done")
 

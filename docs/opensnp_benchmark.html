@@ -466,6 +466,19 @@ wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/
 </details>
 <hr />
 </div>
+<div id="download-precomputed-height-score-file-from-pgs-catalogue"
+class="section level3">
+<h3>Download precomputed height score file from PGS catalogue</h3>
+<details>
+<summary>
+Show code
+</summary>
+<pre class="bash"><code># These are from EUR Yengo 2022 (incl. 23ndMe) - The GWAS sumstats used by GenoPred do not incl. 23andMe
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur_pgs_cat.gz https://ftp.ebi.ac.uk/pub/databases/spot/pgs/scores/PGS002804/ScoringFiles/Harmonized/PGS002804_hmPOS_GRCh37.txt.gz
+</code></pre>
+</details>
+<hr />
+</div>
 <div id="create-gwas_list-target_list-and-config"
 class="section level3">
 <h3>Create gwas_list, target_list and config</h3>
@@ -477,14 +490,15 @@ Show code
 library(data.table)
 
 # Create config file
-conf &lt;- readLines(&#39;config.yaml&#39;)
-conf &lt;- gsub(&#39;outdir: test_data/output/test1&#39;, &#39;outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test1&#39;, conf)
-conf &lt;- gsub(&#39;config_file: config.yaml&#39;, &#39;config_file: misc/opensnp/config.yaml&#39;, conf)
-conf &lt;- gsub(&#39;gwas_list: example_input/gwas_list_example.txt&#39;, &#39;gwas_list: misc/opensnp/gwas_list.txt&#39;, conf)
-conf &lt;- gsub(&#39;target_list: example_input/target_list_example.txt&#39;, &#39;target_list: misc/opensnp/target_list.txt&#39;, conf)
-conf &lt;- conf[conf != &#39;&#39;]
-conf &lt;- conf[!grepl(&#39;\\#&#39;, conf)]
-conf &lt;- conf[!grepl(&#39;score_list&#39;, conf)]
+conf &lt;- c(
+  &#39;outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test1&#39;,
+  &#39;config_file: misc/opensnp/config.yaml&#39;,
+  &#39;gwas_list: misc/opensnp/gwas_list.txt&#39;,
+  &#39;score_list: misc/opensnp/score_list.txt&#39;,
+  &#39;target_list: misc/opensnp/target_list.txt&#39;,
+  &quot;pgs_methods: [&#39;ptclump&#39;,&#39;dbslmm&#39;,&#39;prscs&#39;,&#39;sbayesr&#39;,&#39;lassosum&#39;,&#39;ldpred2&#39;,&#39;megaprs&#39;]&quot;,
+  &#39;testing: NA&#39;
+)
 
 dir.create(&#39;misc/opensnp/&#39;, recursive = T)
 dir.create(&#39;/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred&#39;, recursive = T)
@@ -529,7 +543,16 @@ gwas_list &lt;- rbind(gwas_list,
 
 gwas_list &lt;- gwas_list[gwas_list$name %in% c(&#39;yengo_eur&#39;, &#39;yengo_eas&#39;), ]
 
-write.table(gwas_list, &#39;misc/opensnp/gwas_list.txt&#39;, col.names = T, row.names = F, quote = F, sep = &#39; &#39;)</code></pre>
+write.table(gwas_list, &#39;misc/opensnp/gwas_list.txt&#39;, col.names = T, row.names = F, quote = F, sep = &#39; &#39;)
+
+# Create score_list
+score_list &lt;- data.frame(
+  name = &#39;height_external&#39;,
+  path = &#39;/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur_pgs_cat.gz&#39;,
+  label = &quot;\&quot;Yengo 2022 Height EUR PGSC\&quot;&quot;
+)
+
+write.table(score_list, &#39;misc/opensnp/score_list.txt&#39;, col.names=T, row.names=F, quote=F, sep=&#39; &#39;)</code></pre>
 </details>
 <hr />
 </div>
@@ -574,14 +597,8 @@ source(&#39;../Scripts/functions/misc.R&#39;)
 pheno &lt;- fread(&#39;/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt&#39;)
 pheno$FID&lt;-0
 
-# Read in ancestry data
-keep_list &lt;- fread(&#39;/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test1/opensnp/ancestry/keep_list.txt&#39;)
-
-# Read in pgs
-gwas_list &lt;- fread(&#39;misc/opensnp/gwas_list.txt&#39;)
-
 # Define pgs_methods used
-pgs_methods &lt;- c(&#39;ptclump&#39;, &#39;dbslmm&#39;, &#39;prscs&#39;, &#39;sbayesr&#39;, &#39;lassosum&#39;, &#39;ldpred2&#39;, &#39;megaprs&#39;)
+pgs_methods &lt;- c(&#39;external&#39;,&#39;ptclump&#39;, &#39;dbslmm&#39;, &#39;prscs&#39;, &#39;sbayesr&#39;, &#39;lassosum&#39;, &#39;ldpred2&#39;, &#39;megaprs&#39;)
 
 # Define pgs_methods applied to non-EUR GWAS
 pgs_methods_eur &lt;- c(&#39;ptclump&#39;,&#39;lassosum&#39;,&#39;megaprs&#39;)
@@ -654,48 +671,52 @@ for(pop_i in unique(cor_eur$pop)){
         pseudo_i$model &lt;- &#39;Pseudo&#39;
         cor_eur_subset &lt;- rbind(cor_eur_subset, pseudo_i)
       }
+      
+      # External
+      external_tmp&lt;-cor_eur_i[cor_eur_i$pgs_method == &#39;external&#39;,]
+      external_tmp$model &lt;- &#39;External&#39;
+      cor_eur_subset &lt;- rbind(cor_eur_subset, external_tmp)
+      
     }
   }
 }
 
 # Plot the results
-cor_eur_subset$model &lt;- factor(cor_eur_subset$model, levels = c(&#39;Top&#39;,&#39;Pseudo&#39;))
+cor_eur_subset$model &lt;- factor(cor_eur_subset$model, levels = c(&#39;Top&#39;,&#39;Pseudo&#39;,&#39;External&#39;))
 dir.create(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP&#39;)
 
 # yengo_eur
+plot_obj_eur &lt;- 
+  ggplot(cor_eur_subset[cor_eur_subset$gwas == &#39;yengo_eur&#39;,], aes(x = pgs_method, y = r, fill = model)) +
+  geom_bar(stat = &quot;identity&quot;, position = position_dodge2(preserve = &quot;single&quot;), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  labs(
+    y = &quot;Correlation (SE)&quot;,
+    x = &#39;PGS Method&#39;,
+    fill = &#39;Model&#39;,
+    title = paste0(&quot;Yengo - EUR vs OpenSNP - EUR\n(N = &quot;, cor_eur_subset$n[1], &quot;)&quot;)
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12))
+
 png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-yengo_eur.png&#39;,
     units = &#39;px&#39;,
     width = 2000,
     height = 1000,
     res = 300)
 
-  ggplot(cor_eur_subset[cor_eur_subset$gwas == &#39;yengo_eur&#39;,], aes(x = pgs_method, y = r, fill = model)) +
-    geom_bar(stat = &quot;identity&quot;, position = position_dodge2(preserve = &quot;single&quot;), width = 0.7) +
-    geom_errorbar(
-      aes(ymin = r - se, ymax = r + se),
-      width = .2,
-      position = position_dodge(width = 0.7)
-    ) +
-    labs(
-      y = &quot;Correlation (SE)&quot;,
-      x = &#39;PGS Method&#39;,
-      fill = &#39;Model&#39;,
-      title = paste0(&quot;Yengo - EUR vs OpenSNP - EUR\n(N = &quot;, cor_eur_subset$n[1], &quot;)&quot;)
-    ) +
-    theme_half_open() +
-    background_grid() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5, size=12))
+  plot_obj_eur
 
 dev.off()
 
 # yengo_eas
-png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-yengo_eas.png&#39;,
-    units = &#39;px&#39;,
-    width = 1200,
-    height = 1000,
-    res = 300)
-
+plot_obj_eas &lt;- 
   ggplot(cor_eur_subset[cor_eur_subset$gwas == &#39;yengo_eas&#39;,], aes(x = pgs_method, y = r, fill = model)) +
     geom_bar(stat = &quot;identity&quot;, position = position_dodge2(preserve = &quot;single&quot;), width = 0.7) +
     geom_errorbar(
@@ -714,7 +735,50 @@ png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenS
     theme(axis.text.x = element_text(angle = 45, hjust = 1),
           plot.title = element_text(hjust = 0.5, size=12))
 
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-yengo_eas.png&#39;,
+    units = &#39;px&#39;,
+    width = 1200,
+    height = 1000,
+    res = 300)
+
+  plot_obj_eas
+
 dev.off()
+
+# Make a plot comparing the yengo_eur results to the score file from PGS-catalogue
+not_external &lt;- unique(cor_eur_subset$pgs_method[cor_eur_subset$pgs_method != &#39;external&#39;])
+cor_eur_subset$pgs_method &lt;- factor(cor_eur_subset$pgs_method, levels=c(not_external,&#39;external&#39;))
+
+plot_obj_ext &lt;- 
+  ggplot(cor_eur_subset[cor_eur_subset$gwas == &#39;yengo_eur&#39; | cor_eur_subset$gwas == &#39;height_external&#39;,], aes(x = pgs_method, y = r, fill = model)) +
+  geom_bar(stat = &quot;identity&quot;, position = position_dodge2(preserve = &quot;single&quot;), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  labs(
+    y = &quot;Correlation (SE)&quot;,
+    x = &#39;PGS Method&#39;,
+    fill = &#39;Model&#39;,
+    title = paste0(&quot;Yengo - EUR vs OpenSNP - EUR\n(N = &quot;, cor_eur_subset$n[1], &quot;)&quot;)
+  ) +
+  theme_half_open() +
+  background_grid() +
+  geom_vline(xintercept = 7.5, linetype = &#39;dashed&#39;) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12))
+
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-yengo_eur-external.png&#39;,
+    units = &#39;px&#39;,
+    width = 2000,
+    height = 1000,
+    res = 300)
+  
+  plot_obj_ext
+
+dev.off()
+
 
 # Save the results
 dir.create(&#39;/scratch/prj/oliverpainfel/Data/OpenSNP/assoc&#39;)
@@ -735,6 +799,15 @@ style="width:60.0%" /></p>
 <hr />
 <p><img src="Images/OpenSNP/genopred-yengo_eas.png"
 style="width:40.0%" /></p>
+</details>
+<details>
+<summary>
+Show results in OpenSNP including score from PGS catalogue
+</summary>
+<center>
+<p><img src="Images/OpenSNP/genopred-yengo_eur-external.png"
+style="width:60.0%" /></p>
+<p>Note. ‘external’ is based on a larger GWAS (incl. 23andMe)</p>
 </details>
 <hr />
 </div>
@@ -1257,13 +1330,17 @@ dev.off()</code></pre>
 Show comparison results
 </summary>
 <center>
-<p><img src="../docs/Images/OpenSNP/genopred-v1-comp-yengo_eur.png"
-alt="Out-of-the-box comparison" /> <img
-src="../docs/Images/OpenSNP/genopred-v1-comp_strict-yengo_eur.png"
-alt="Using same ancestry classification threshold" /></p>
 <div class="figure">
-<img
-src="../docs/Images/OpenSNP/genopred-v1-comp_strict_eur-yengo_eur.png"
+<img src="Images/OpenSNP/genopred-v1-comp-yengo_eur.png" alt="" />
+<p class="caption">Out-of-the-box comparison</p>
+</div>
+<div class="figure">
+<img src="Images/OpenSNP/genopred-v1-comp_strict-yengo_eur.png"
+alt="" />
+<p class="caption">Using same ancestry classification threshold</p>
+</div>
+<div class="figure">
+<img src="Images/OpenSNP/genopred-v1-comp_strict_eur-yengo_eur.png"
 alt="" />
 <p class="caption">Showing results in European OpenSNP data only</p>
 </div>
@@ -1277,7 +1354,12 @@ alt="" />
 OpenSNP are highly concordant across version of GenoPred. Small
 differences occur due to a more stringent ancestry classification
 threshold in GenoPred v2, typically increasing the correlation between
-the PGS and observed height.</p>
+the PGS and observed height. The externally derived score for height
+downloaded from the PGS Catalogue outperforms score created by GenoPred
+- This occurs because GenoPred used the publicly available GWAS summary
+statistics, exlcuding the 23andMe dataset, whereas the PGS weights
+downloaded from the PGS catalogue were derived using private GWAS
+sumstats, including 23andMe.</p>
 </div>
 
 <!-- footer.html -->
