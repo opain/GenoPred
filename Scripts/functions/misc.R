@@ -605,14 +605,10 @@ plink_king<-function(bfile, extract = NULL, chr = 1:22, plink = 'plink', plink2 
 }
 
 # Read in PGS
-
 read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL){
 
-  # Read in the config file
-  config_file <- readLines(config)
-
   # Read in target_list
-  target_list <- fread(gsub('target_list: ', '', config_file[grepl('^target_list:', config_file)]))
+  target_list <- read_param(config = config, param = 'target_list')
   if(!is.null(name)){
     if(any(!(name %in% target_list$name))){
       stop('Requested target samples are not present in target_list')
@@ -621,15 +617,10 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   }
 
   # Read in gwas_list
-  gwas_list <- fread(gsub('gwas_list: ', '', config_file[grepl('^gwas_list:', config_file)]))
+  gwas_list <- read_param(config = config, param = 'gwas_list')
 
-  # Read in gwas_list
-  score_list_file <- gsub('score_list: ', '', config_file[grepl('^score_list:', config_file)])
-  score_list_file[score_list_file == 'NA']<-NA
-  score_list <- NULL
-  if(!is.na(score_list_file)){
-    score_list <- fread(gsub('score_list: ', '', config_file[grepl('^score_list:', config_file)]))
-  }
+  # Read in score_list
+  score_list <- read_param(config = config, param = 'score_list')
 
   if(!is.null(gwas)){
     if(!is.null(score_list)){
@@ -649,29 +640,26 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   }
 
   # Identify PGS methods to be included
-  pgs_methods_list <-
-    unlist(strsplit(gsub("'", '',
-                         gsub(']', '',
-                              gsub('\\[', '',
-                                   gsub('pgs_methods: ', '',
-                                        config_file[grepl('^pgs_methods:', config_file)]))
-                         )
-    ),
-    ',')
-    )
+  pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
 
   if(!is.null(pgs_methods)){
-    if(any(!(pgs_methods %in% pgs_methods_list))){
-      stop('Requested pgs_methods are not present in pgs_methods in config')
+    if(!is.null(score_list)){
+      if(any(!(pgs_methods %in% c(pgs_methods_list, 'external')))){
+        stop('Requested pgs_methods are not present in pgs_methods in config')
+      }
+    } else {
+      if(any(!(pgs_methods %in% pgs_methods_list))){
+        stop('Requested pgs_methods are not present in pgs_methods in config')
+      }
     }
-    pgs_methods_list <- pgs_methods_list[pgs_methods_list %in% pgs_methods,]
+    pgs_methods_list <- pgs_methods_list[pgs_methods_list %in% pgs_methods]
   }
 
   # Define PGS methods applied to non-EUR GWAS
   pgs_methods_noneur <- c('ptclump','lassosum','megaprs')
 
   # Identify outdir parameter
-  outdir <- gsub('.*: ', '', config_file[grepl('^outdir', config_file)])
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 
   pgs <- list()
   for (name_i in target_list$name) {
@@ -684,7 +672,7 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
         pgs[[name_i]][[pop_i]][[gwas_i]] <- list()
 
         for (pgs_method_i in pgs_methods_list) {
-          if (gwas_list$population[gwas_list$name == gwas_i] == 'EUR' | (gwas_list$population[gwas_list$name == gwas_i] != 'EUR' & (pgs_method_i %in% pgs_methods_eur))) {
+          if (gwas_list$population[gwas_list$name == gwas_i] == 'EUR' | (gwas_list$population[gwas_list$name == gwas_i] != 'EUR' & (pgs_method_i %in% pgs_methods_noneur))) {
             pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <-
               fread(
                 paste0(
@@ -712,6 +700,78 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   return(pgs)
 }
 
+# Create function to read in parameters in the config file
+read_param <- function(config, param, return_obj = T){
+
+  # Read in the config file
+  config_file <- readLines(config)
+
+  if(all(grepl(paste0('^',param,':'), config_file) == F)){
+    # Check default config file
+    config_file <- readLines(config)
+
+    if(all(grepl(paste0('^',param,':'), config_file) == F)){
+      cat('Requested parameter is not present in user specified config file or default config file.')
+      return(NULL)
+    } else {
+      cat('Parameter is not present in user specified config file, so will use value in default config file.')
+    }
+  }
+
+  # Identify value for param
+  file <- gsub(paste0(param,': '), '', config_file[grepl(paste0('^',param,':'), config_file)])
+  file[file == 'NA']<-NA
+
+  if(return_obj){
+    if(!is.na(file)){
+      obj <- fread(file)
+    } else {
+      obj <- NULL
+    }
+    return(obj)
+  } else {
+
+    file <- unlist(strsplit(gsub("'", '', gsub(']', '', gsub('\\[', '', file))),','))
+    file <- file[order(file)]
+
+    return(file)
+  }
+}
+
+# Read in ancestry classifications
+read_ancestry <- function(config, name){
+
+  # Read in the config file
+  config_file <- readLines(config)
+
+  # Identify outdir
+  outdir <- read_param(config = params$config, param = 'outdir', return_obj = F)
+
+  # Read keep_list
+  keep_list <- fread(paste0(outdir,'/',name,'/ancestry/keep_list.txt'))
+
+  # Read in keep lists
+  keep_files <- list()
+  for(pop in keep_list$POP){
+    keep_files[[pop]] <- fread(keep_list$file[keep_list$POP == pop], header = F)
+  }
+
+  # Read in model predictions
+  model_pred <- fread(paste0(outdir,'/',name,'/ancestry/',name,'.Ancestry.model_pred'))
+
+  # Read in ancestry log file
+  log <- readLines(paste0(outdir,'/',name,'/ancestry/',name,'.Ancestry.log'))
+
+  output <- list(
+    keep_list = keep_list,
+    keep_files = keep_files,
+    model_pred = model_pred,
+    log = log
+  )
+
+  return(output)
+}
+
 # Return score corresponding to pseudovalidation
 find_pseudo <- function(config, gwas, pgs_method){
 
@@ -722,37 +782,51 @@ find_pseudo <- function(config, gwas, pgs_method){
     stop('Only one gwas can be specified at a time')
   }
 
-  # Read in the config file
-  config_file <- readLines(config)
-
   # Read in gwas_list
-  gwas_list <- fread(gsub('gwas_list: ', '', config_file[grepl('^gwas_list:', config_file)]))
-  if(!(gwas %in% gwas_list$name)){
-    stop('Requested GWAS are not present in gwas_list')
+  gwas_list <- read_param(config = config, param = 'gwas_list')
+
+  # Read in score_list
+  score_list <- read_param(config = config, param = 'score_list')
+
+  if(!is.null(gwas)){
+    if(!is.null(score_list)){
+      full_gwas_list <- c(gwas_list$name, score_list$name)
+    } else {
+      full_gwas_list <- gwas_list$name
+    }
+
+    if(any(!(gwas %in% full_gwas_list))){
+      stop('Requested GWAS are not present in gwas_list/score_list')
+    }
+    gwas_list <- gwas_list[target_list$name %in% gwas,]
+
+    if(!is.null(score_list)){
+      score_list <- score_list[score_list$name %in% gwas,]
+    }
   }
 
   # Identify PGS methods to be included
-  pgs_methods_list <-
-    unlist(strsplit(gsub("'", '',
-                         gsub(']', '',
-                              gsub('\\[', '',
-                                   gsub('pgs_methods: ', '',
-                                        config_file[grepl('^pgs_methods:', config_file)]))
-                         )
-    ),
-    ',')
-    )
+  pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
 
-  if(!(pgs_method %in% pgs_methods_list)){
-    stop('Requested pgs_methods are not present in pgs_methods in config')
+  if(!is.null(pgs_method)){
+    if(!is.null(score_list)){
+      if(any(!(pgs_method %in% c(pgs_methods_list, 'external')))){
+        stop('Requested pgs_method are not present in pgs_methods in config')
+      }
+    } else {
+      if(any(!(pgs_method %in% pgs_methods_list))){
+        stop('Requested pgs_method are not present in pgs_methods in config')
+      }
+    }
+    pgs_methods_list <- pgs_methods_list[pgs_methods_list %in% pgs_method]
   }
 
   # Identify outdir parameter
-  outdir <- gsub('.*: ', '', config_file[grepl('^outdir', config_file)])
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 
   # Use most stringent p-value threshold of 0.05 as pseudo
   if(pgs_method == 'ptclump'){
-    return('0_1e-08')
+    return('0_1')
   }
 
   # Pseudoval only methods
@@ -763,7 +837,7 @@ find_pseudo <- function(config, gwas, pgs_method){
     return('DBSLMM')
   }
 
-  # Retrive pseudoval param
+  # Retrieve pseudoval param
   if(pgs_method == 'ldpred2'){
     return('beta_auto')
   }
@@ -783,5 +857,10 @@ find_pseudo <- function(config, gwas, pgs_method){
     s_val <- gsub('.* ', '', log[grepl('^s = ', log)])
     lambda_val <- gsub('.* ', '', log[grepl('^lambda = ', log)])
     return(paste0('s', s_val, '_lambda', lambda_val))
+  }
+
+  # If pgs_method is external, return the only score
+  if(pgs_method == 'external'){
+    return('external')
   }
 }
