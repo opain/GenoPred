@@ -1,184 +1,312 @@
 ---
-title: "GenoPredPipe"
+title: "GenoPred Report"
 params:
-  name: ""
-  output: ""
+  name: "opensnp"
+  config: "misc/opensnp/config.yaml"
 output:
   html_document:
     toc: true
-    theme: united
+    theme: paper
     toc_depth: 3
     toc_float: true
+    css: ../../docs/styles.css
     fig_caption: yes
 
 ---
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = '../')
+knitr::opts_chunk$set(echo = F, eval = T, message=F, warning=F)
+
+# Set working directory to that upstream of this .Rmd file, so other files can be found easily.
+knitr::opts_knit$set(root.dir = dirname(getwd()))
 
 library(data.table)
 library(knitr)
 library(ggplot2)
 library(cowplot)
-library(kableExtra)
-library(stringr)
+library(DT)
+source('../../Scripts/functions/misc.R')
 
 knit_hooks$set(optipng = hook_optipng)
 knit_hooks$set(pngquant = hook_pngquant)
 
 ```
 
-***
+```{r, include = F}
 
-<font size="4"> 
-ID: `r gsub('_',' ',params$name)`
-</font>
+# Create a temporary directory
+tmp_folder<-tempdir()
 
-***
+# Read in outdir
+outdir <- read_param(config = params$config, param = 'outdir', return_obj = F)
 
-# Descriptives
-
-```{R, eval=T, echo=F}
-
-harmoniser_log<-readLines(paste0(params$output,'/',params$name,'/',params$name,'.ref.chr.hm3_harmoniser.log'))
-
-fam<-fread(paste0(params$output,'/',params$name,'/',params$name,'.ref.chr22.fam'))
-
-ref_bim<-NULL
-for(i in 1:22){
-  ref_bim<-rbind(ref_bim, fread(paste0('resources/data/ref/ref.chr',i,'.bim')))
-}
-nvar_in_ref<-nrow(ref_bim)
-
-ref_overlap<-gsub('%.*','%',harmoniser_log[grepl('of variants in reference are in the target.',harmoniser_log)])
-
-ref_overlap_after_imp<-gsub('%.*','%',harmoniser_log[grepl('of variants in reference are in the target.',harmoniser_log)])
-
-```
-
-This sample contains `r nrow(fam)` individuals. The sample had undergone genotype imputation in advance of GenoPredPipe. Of the `r nvar_in_ref` variants in the reference, `r ref_overlap_after_imp` were available as hard calls in the target.
-
-***
-
-# Ancestry
-
-## Population Classification
-
-```{R, eval=T, echo=F, message=F, warning=F}
-
-model_pred<-fread(paste0(params$output,'/',params$name,'/ancestry/ancestry_all/',params$name,'.Ancestry.model_pred'))
-probs_melt<-melt(model_pred[,-1:-2])
-
-model_pred$max_prob<-apply(model_pred[,-1:-2], 1, max)
-n_hard_call<-sum(model_pred$max_prob > 0.95)
-model_pred<-model_pred[model_pred$max_prob > 0.95,]
-model_pred$max_prob<-NULL
-
-model_pred_hard<-NULL
-for(i in names(model_pred[,-1:-2])){
-	tmp_keep<-model_pred[apply(model_pred[,-1:-2], 1, function(x) x[i] == max(x)),1:2]
-	model_pred_hard<-rbind(model_pred_hard, data.frame(tmp_keep, Population=i)) 
-}
-
-hard_call_table<-data.frame(melt(table(model_pred_hard$Population)))
-hard_call_table<-hard_call_table[,c('Var1','value')]
-names(hard_call_table)<-c('Population', 'N')
-
-```
-
-Of the `r nrow(fam)` individuals in the sample, the ancestry model classified `r n_hard_call` individuals to a population with a probability >95%. The number of individuals assigned to each population were:
-
-```{r, eval=T, echo=F}
-kable(hard_call_table, align = "c") %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))
-```
-
-***
-
-```{R, eval=T, echo=F, message=F, warning=F, fig.cap="Distribution of Population Probabilities", fig.dim = c(8, 4)}
-
-ggplot(probs_melt, aes(x=value, fill=variable)) + 
-  geom_histogram(alpha=0.5) +
-  labs(x='Probability', y='N', fill='Population') +
-  xlim(c(-0.05,1.05)) +
-  theme_minimal_hgrid()
-
-```
-
-***
-
-<details><summary>Show principal component plots</summary>
-
-```{r, results='asis', echo=F}
-cat(paste0("![Principal Component Scores Compared to Reference Populations](",normalizePath(params$output, mustWork = FALSE),'/',params$name,'/ancestry/ancestry_all/', params$name,".Ancestry.PCs_plot_POP.png)"))
-```
-
-</details>
-
-***
-
-# Polygenic Scores
-
-```{R, eval=T, echo=F, message=F, warning=F}
-config<-read.table('config.yaml')
+# Read in target_list
+target_list <- read_param(config = params$config, param = 'target_list')
 
 # Read in gwas_list
-gwas_list<-fread(as.character(config$V2[config$V1 == 'gwas_list:']))
+gwas_list <- read_param(config = params$config, param = 'gwas_list')
+
+# Read in score_list
+score_list <- read_param(config = params$config, param = 'score_list')
+
+# Identify PGS methods to be included
+pgs_methods_list <- read_param(config = params$config, param = 'pgs_methods', return_obj = F)
+
+# If testing, change CHROMS to chr value
+testing <- read_param(config = params$config, param = 'testing', return_obj = F)
+
+if(!is.na(testing) && testing == 'NA'){
+  testing<-NA
+}
+if(!is.na(testing)){
+  CHROMS <- as.numeric(gsub('chr','',testing))
+}
+
+# Check whether target sample was specified
+targ_incl <- !is.null(target_list)
+  
+# Check whether polygenic scoring was carried out
+pgs_incl <- !all(c(is.null(gwas_list), is.null(score_list)))
+
+```
+
+```{r, results='asis', eval = targ_incl}
+
+cat0("***\n\n")
+
+cat0("<font size='4'> \n\n")
+cat0("ID: ", params$name, "\n\n")
+cat0("</font>\n\n")
+
+cat0("***\n\n")
+  
+cat0("# Target Descriptives \n\n")
+
+# Read in the .fam file to identify the number of samples
+target_fam <- fread(paste0(outdir, '/', params$name, '/geno/', params$name, '.ref.chr', CHROMS[1], '.fam'))
+
+# Read in the format_target logs
+format_target_logs <- list()
+for(chr in CHROMS){
+  format_target_logs[[paste0('chr', chr)]]<-readLines(paste0(outdir,'/',params$name,'/geno/',params$name,'.ref.chr',chr,'.format_target.log'))
+}
+
+# Count the number of variants in the target sample data that match reference variants
+nvar_in_target <-
+  sum(sapply(format_target_logs, function(x)
+    as.numeric(gsub(' .*', '', x[grepl('reference variants are in the target.$', x)]))))
+
+nvar_in_ref <-
+  sum(sapply(format_target_logs, function(x)
+    as.numeric(gsub('.* ','', gsub(' reference variants are in the target.', '', x[grepl('reference variants are in the target.$', x)])))))
+
+cat0("- The target sample contains ", nrow(target_fam), " individuals.\n")
+cat0("- The target genotype data was provided in ", target_list$type[target_list$name == params$name], " format.\n")
+cat0("- Of the ", as.character(nvar_in_ref), " variants in the reference, ", as.character(nvar_in_target), " were available in the target (", round(nvar_in_target/nvar_in_ref*100, 1),"%).\n\n")
+
+cat0("***\n\n")
+  
+cat0("# Ancestry \n\n")
+
+# Read in ancestry classification log file  
+ancestry_log <- readLines(paste0(outdir,'/',params$name,'/ancestry/', params$name,'.Ancestry.log'))
+
+# Create table listing ancestry classifications
+ancestry_log <- ancestry_log[(which(grepl('N per group based on model:', ancestry_log)) + 2):which(grepl('Unassigned', ancestry_log))]
+target_classifications <- data.frame(
+  Population = gsub(' .*','', gsub('^ ','', ancestry_log)),
+  N = as.numeric(gsub('.* ','', gsub('^ ','', ancestry_log))))
+
+cat0("- ", sum(target_classifications$N[target_classifications$Population != 'Unassigned']), " out of ", nrow(target_fam), " target individuals in the sample, were assigned to a reference population with a probability >95%.\n")
+cat0("- The number of individuals assigned to each population were:\n\n")
+
+```
+
+```{r, eval = targ_incl}
+
+datatable(target_classifications, 
+          rownames = FALSE,
+          options = list(
+            dom = 't', 
+            ordering = FALSE,
+            columnDefs = list(
+              list(className = "dt-center", targets = "_all")  # Apply the class to all columns
+            ),
+            scrollX = TRUE
+          ),
+          selection = 'none',
+          width = '35%')
+      
+
+```
+
+```{r, results='asis', eval = targ_incl}
+cat0("Note. AFR = African, AMR = Admixed American, EAS = East Asian, EUR = European, SAS = South Asian.")
+
+cat0("<details><summary>Show principal component plots</summary>")
+
+cat0(paste0("![Principal Component Scores Compared to Reference Populations](", normalizePath(outdir, mustWork = FALSE), '/', params$name, '/ancestry/', params$name, ".Ancestry.pc_plot.png)"))
+
+cat0("Note. Black circles indicate target sample individuals. \n\n")
+cat0("</details> \n\n")
+
+cat0("*** \n\n")
+
+```
+
+```{r, results='asis', eval = pgs_incl}
+
+cat0("# Polygenic Scores \n\n")
+
+cat0("- ", ifelse(is.null(gwas_list), 0, nrow(gwas_list)), " GWAS summary statistics were provided for polygenic scoring.\n")
+cat0("- ", length(pgs_methods_list), " PGS methods were applied, including (", paste0(pgs_methods_list, collapse = ', '), ").\n")
+
+if(is.null(score_list)){
+  cat0("- No external score files were provided in score_list.\n\n")
+} else {
+  cat0("- ", ifelse(is.null(score_list), 0, nrow(score_list)), " external score files were provided for polygenic scoring.\n\n")
+}
+
+cat0("***\n\n")
+
+```
+
+```{r, results='asis', eval = all(pgs_incl, !is.null(gwas_list))}
+
+cat0("## GWAS summary statistics \n\n")
+
+# Create a summary table for GWAS sumstats
+sumstat_qc <- NULL
+for(gwas in gwas_list$name) {
+    log <- readLines(paste0(outdir,'/resources/data/gwas_sumstat/', gwas, '/', gwas, '-cleaned.log'))
+    
+    orig_n <- as.numeric(gsub(' .*', '', gsub('GWAS contains ','', log[grepl('^GWAS contains ', log)])))
+    final_n <- as.numeric(gsub(' .*', '', gsub('After removal of SNPs with SE == 0, ','', log[grepl('^After removal of SNPs with SE == 0, ', log)])))
+    
+    sumstat_qc <- rbind(sumstat_qc, data.frame(
+      name = gwas,
+      label = gwas_list$label[gwas_list$name == gwas],
+      orig_n = orig_n,
+      final_n = final_n))
+}
+
+names(sumstat_qc) <- c('Name', 'Label', 'NSNP Original', 'NSNP Final')
+
+datatable(sumstat_qc, 
+          rownames = FALSE,
+          options = list(
+            dom = 't',
+            ordering = FALSE,
+            columnDefs = list(
+              list(className = "dt-center", targets = '_all')
+            ),
+            scrollX = TRUE
+          ),
+          width = '100%',
+          selection = 'none')
+
+cat0("***\n\n")
+
+```
+
+```{r, results='asis', eval = all(pgs_incl, !is.null(score_list))}
+
+
+cat0("## Score files \n\n")
+
+# Create a summary table for score files
+score_qc <- NULL
+for(score in score_list$name) {
+    log <- readLines(paste0(outdir,'/resources/data/ref/pgs_score_files/external/', score, '/ref-', score, '.log'))
+
+    orig_n <- as.numeric(gsub(' .*', '', gsub('Score file contains ','', log[grepl('^Score file contains ', log)])))
+    final_n <- as.numeric(gsub(' .*', '', gsub('After matching variants to the reference, ','', log[grepl('^After matching variants to the reference, ', log)])))
+    
+    score_qc <- rbind(score_qc, data.frame(
+      name = score,
+      label = score_list$label[score_list$name == score],
+      orig_n = orig_n,
+      final_n = final_n))
+}
+
+names(score_qc) <- c('Name', 'Label', 'NSNP Original', 'NSNP Final')
+
+datatable(score_qc, 
+          rownames = FALSE,
+          options = list(
+            dom = 't',
+            ordering = FALSE,
+            columnDefs = list(
+              list(className = "dt-center", targets = '_all')
+            ),
+            scrollX = TRUE
+          ),
+          width = '100%',
+          selection = 'none')
+
+cat0("***\n\n")
+
+```
+
+```{r, include = F, eval = all(pgs_incl, targ_incl)}
 
 # Read in prs
-dbslmm_prs_list<-list()
-for(population in unique(model_pred_hard$Population)){
-dbslmm_prs<-NULL
-for(gwas_i in gwas_list$name){
-  prs_i<-fread(paste0(params$output,'/',params$name,'/prs/',population,'/dbslmm/',gwas_i,'/',params$name,'.',gwas_i,'.',population,'.profiles'))
-  dbslmm_prs<-rbind(dbslmm_prs, data.frame(gwas=gwas_i,
-                                           FID=prs_i$FID,
-                                           IID=prs_i$IID,
-                                           prs_z=prs_i[[paste0(gwas_i,'_DBSLMM')]]))
-}
-dbslmm_prs_list[[population]]<-dbslmm_prs
-}
-```
+pgs <- read_pgs(config = params$config, name = params$name)[[1]]
 
-```{R, eval=T, echo=F, message=F, warning=F, fig.cap="Distribution of DBSLMM PRS", fig.dim = c(8, 2*nrow(gwas_list))}
+# Subset pseudovalidated PGS
+pgs_pseudo <- NULL
+for(gwas in names(pgs[[1]])){
+  for(pgs_method in names(pgs[[1]][[gwas]])){
+    pseudo_param <- find_pseudo(config = params$config, gwas = gwas, pgs_method = pgs_method)
+    for(pop in names(pgs)){
+      tmp <- pgs[[pop]][[gwas]][[pgs_method]]
+      names(tmp) <- gsub(paste0(gwas, '_'), '', names(tmp))
 
-dbslmm_prs_all<-do.call(rbind, dbslmm_prs_list)
-dbslmm_prs_all<-merge(dbslmm_prs_all, model_pred_hard, by=c('FID','IID'))
-dbslmm_prs_all<-merge(dbslmm_prs_all, gwas_list[,c('name','label')], by.x='gwas', by.y='name')
-
-dbslmm_prs_all_gwas<-NULL
-for(gwas in gwas_list$name){
-  dbslmm_prs_all_gwas_i<-dbslmm_prs_all[dbslmm_prs_all$gwas == gwas,]
-  dbslmm_prs_all_gwas<-rbind(dbslmm_prs_all_gwas, dbslmm_prs_all_gwas_i)
+      pgs_pseudo <- rbind(pgs_pseudo, data.table(
+        score = tmp[[pseudo_param[1]]],
+        pop = pop,
+        gwas = gwas,
+        pgs_method = pgs_method))
+    }
+  }
 }
 
-dbslmm_prs_all_pop<-NULL
-for(pop in unique(dbslmm_prs_all$pop)){
-  dbslmm_prs_all_pop_i<-dbslmm_prs_all[dbslmm_prs_all$pop == pop,]
-  dbslmm_prs_all_pop_i$label<-'All'
-  dbslmm_prs_all_pop<-rbind(dbslmm_prs_all_pop, dbslmm_prs_all_pop_i)
+# Plot the distribution of polygenic scores
+pgs_dist_plots <- list()
+for(pgs_method_i in unique(pgs_pseudo$pgs_method)){
+  pgs_pseudo_i <- pgs_pseudo[pgs_pseudo$pgs_method %in% pgs_method_i,]
+  pgs_dist_plots[[pgs_method_i]] <- 
+    ggplot(pgs_pseudo_i, aes(x=score, fill=1)) + 
+      geom_density(alpha=0.5) +
+      labs(x='Polygenic Z-Score', y='Density') +
+      theme_minimal_hgrid() +
+      panel_border() +
+      facet_grid(gwas ~ pop) +
+      theme(legend.position = "none")
+  
+  png(paste0(tmp_folder,'/plot_', pgs_method_i,'.png'), height = 200 + (800*length(unique(pgs_pseudo_i$gwas))), width = 3000, res = 300)
+    print(pgs_dist_plots[[pgs_method_i]])
+  dev.off()
 }
-
-dbslmm_prs_all_all<-dbslmm_prs_all
-dbslmm_prs_all_all$label<-'All'
-
-dbslmm_prs_all<-do.call(rbind, list(dbslmm_prs_all, dbslmm_prs_all_gwas, dbslmm_prs_all_pop, dbslmm_prs_all_all))
-
-dbslmm_prs_all$pop_wrap = str_wrap(dbslmm_prs_all$Population, width = 15)
-dbslmm_prs_all$label_wrap = str_wrap(dbslmm_prs_all$label, width = 10)
-
-dbslmm_prs_all$pop_wrap<-factor(dbslmm_prs_all$pop_wrap, levels=unique(dbslmm_prs_all$pop_wrap))
-dbslmm_prs_all$label_wrap<-factor(dbslmm_prs_all$label_wrap, levels=unique(dbslmm_prs_all$label_wrap))
-
-ggplot(dbslmm_prs_all, aes(x=prs_z, fill=1)) + 
-  geom_histogram(alpha=0.5) +
-  labs(x='Polygenic Z-Score', y='N') +
-  theme_minimal_hgrid() +
-  panel_border() +
-  facet_grid(label_wrap ~ pop_wrap) +
-  theme(legend.position = "none")
 
 ```
 
+```{r, results='asis', eval = pgs_incl}
+
+cat0("## PGS Distribution {.tabset .tabset-fade} \n\n")
+
+for(pgs_method_i in unique(pgs_pseudo$pgs_method)){
+  # Create a new tab for each method
+  cat0("### ", pgs_method_i, "\n")
+  
+  # Show the plot
+  cat0(paste0("![Density plot of PGS from ", pgs_method_i,"](", tmp_folder,'/plot_',pgs_method_i,".png)"))
+  
+  # Add some space after the plot
+  cat0("\n\n")
+}
+
+```
+
+***
