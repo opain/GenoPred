@@ -8,7 +8,7 @@ if not any(lst in config for lst in lists_to_check):
   print("Error: At least one of 'gwas_list', 'score_list', or 'target_list' must be specified in the config file.")
   import sys
   sys.exit(1)
-    
+
 # Check for missing required configuration parameters
 required_config_params = ['outdir', 'pgs_methods', 'config_file']
 missing_config_params = [param for param in required_config_params if param not in config]
@@ -34,17 +34,6 @@ import multiprocessing
 ########
 # Download dependencies
 ########
-
-# Download qctool v2
-rule download_qctool2:
-  output:
-    "resources/software/qctool2/qctool"
-  shell:
-    "rm -r -f resources/software/qctool2; \
-     mkdir -p resources/software/qctool2/; \
-     wget --no-check-certificate -O resources/software/qctool2/qctool2.tgz https://www.well.ox.ac.uk/~gav/resources/qctool_v2.0.8-CentOS_Linux7.6.1810-x86_64.tgz; \
-     tar -zxvf resources/software/qctool2/qctool2.tgz -C resources/software/qctool2/ --strip-components=1; \
-     rm resources/software/qctool2/qctool2.tgz"
 
 # Download impute2_data
 rule download_impute2_data:
@@ -80,7 +69,7 @@ rule download_ldsc:
      git clone https://github.com/bulik/ldsc.git resources/software/ldsc/; \
      cd resources/software/ldsc/; \
      git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74"
-     
+
 # Download LDSC reference data
 rule download_ldsc_ref:
   output:
@@ -158,7 +147,7 @@ rule download_prscs_software:
     "git clone https://github.com/getian107/PRScs.git {output}; \
      cd {output}; \
      git reset --hard 621fdc80daac56c93d9528eb1a1187f7b1fc9afb"
-     
+
 # Download gctb reference
 rule download_gctb_ref:
   output:
@@ -198,7 +187,7 @@ rule download_ldpred2_ref:
      mv resources/data/ldpred2_ref/ldref/* resources/data/ldpred2_ref/; \
      rm resources/data/ldpred2_ref/ldref_with_blocks.zip; \
      rm -r resources/data/ldpred2_ref/ldref"
-    
+
 # Download LDAK
 rule download_ldak:
   output:
@@ -285,12 +274,11 @@ rule install_genoutils:
 
 ############
 # Check all dependencies are available
-############ 
+############
 
 # Rule to install and download all dependencies
 rule get_dependencies:
   input:
-    rules.download_qctool2.output,
     rules.download_plink.output,
     rules.download_ldsc.output,
     rules.download_ldsc_ref.output,

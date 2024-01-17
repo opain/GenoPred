@@ -101,7 +101,7 @@ if(!is.na(opt$test)){
 }
 
 #####
-# Calculate correlation between SNP and phenotype 
+# Calculate correlation between SNP and phenotype
 #####
 
 cor <- p2cor(p = gwas$P, n = gwas_N, sign = gwas$BETA)
@@ -129,12 +129,12 @@ if(opt$gwas_pop %in% c('AMR','SAS')){
 
 # Run pipeline
 out <- lassosum.pipeline(
-  cor = cor, 
-  chr = gwas$CHR, 
-  pos = gwas$BP, 
-  A1 = gwas$A1, 
+  cor = cor,
+  chr = gwas$CHR,
+  pos = gwas$BP,
+  A1 = gwas$A1,
   A2 = gwas$A2,
-  ref.bfile = paste0(tmp_dir, '/ref_merge'), 
+  ref.bfile = paste0(tmp_dir, '/ref_merge'),
   LDblocks = ld_block_dat,
   cluster = cl)
 
@@ -177,12 +177,12 @@ setwd(orig_wd)
 out2 <- subset(out, s=v$best.s, lambda=v$best.lambda)
 
 log_add(log_file = log_file, message = c(
-  'Pseudovalidated parameters:', 
-  paste0('s = ', out2$s), 
+  'Pseudovalidated parameters:',
+  paste0('s = ', out2$s),
   paste0('lambda = ', out2$lambda),
-  paste0('value = ', v$validation.table$value[v$validation.table$lambda == v$best.lambda & v$validation.table$s == v$best.s]),
+  paste0('value = ', v$validation.table$value[v$validation.table$lambda == v$best.lambda & v$validation.table$s == v$best.s])
   ))
-  
+
 # Record end time of test
 if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)
@@ -192,7 +192,7 @@ if(!is.na(opt$test)){
 # Calculate mean and sd of polygenic scores
 ####
 
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
+log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
 ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))

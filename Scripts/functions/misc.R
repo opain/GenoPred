@@ -1,5 +1,18 @@
 #!/usr/bin/Rscript
 
+# Make a data.frame giving labels to the 1KG reference populations
+pop_1kg <- data.frame(
+  pop = c('AFR','AMR','EAS','EUR','SAS'),
+  label = c('African','Admixed American','East Asian','European','South Asian')
+)
+
+# Make a data.frame giving labels to the 1KG reference populations
+pgs_method_labels <- data.frame(
+  method = c('ptclump','dbslmm','ldpred2','sbayesr','lassosum','prscs','megaprs','external'),
+  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','lassosum','PRS-CS','MegaPRS','External')
+)
+pgs_method_labels[order(pgs_method_labels$method),]
+
 # Calculate scores in target file
 calc_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, plink2='plink2', threads=1){
     # Create object indicating tmpdir
@@ -863,4 +876,21 @@ find_pseudo <- function(config, gwas, pgs_method){
   if(pgs_method == 'external'){
     return('external')
   }
+}
+
+# Read in lassosum pseudoval results
+read_pseudo_r <- function(config, gwas){
+
+  if(length(gwas) > 1){
+    stop('Only one gwas can be specified at a time')
+  }
+
+  # Find outdir param
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+  # Read in lassosum log file
+  log <- readLines(paste0(outdir,'/resources/data/ref/pgs_score_files/lassosum/',gwas,'/ref-',gwas,'.log'))
+  r <- as.numeric(gsub('value = ','',log[grepl('value = ', log)]))
+
+  return(r)
 }

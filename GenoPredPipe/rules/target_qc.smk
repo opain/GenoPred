@@ -5,14 +5,14 @@
 if 'target_list' in config:
   target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
   target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
-  samp_types = ['samp_imp_plink1', 'samp_imp_bgen', 'samp_imp_vcf']
-  target_list_df_samp_imp = target_list_df[target_list_df['type'].isin(samp_types)]
-  target_list_df_samp_imp_indiv_report = target_list_df_samp_imp.loc[(target_list_df['indiv_report'] == 'T')]
+  samp_types = ['plink1', 'bgen', 'vcf']
+  target_list_df_samp = target_list_df[target_list_df['type'].isin(samp_types)]
+  target_list_df_indiv_report = target_list_df.loc[(target_list_df['indiv_report'].isin(['T', 'TRUE', True]))]
 else:
   target_list_df = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
   target_list_df_23andMe = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
-  target_list_df_samp_imp = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
-  target_list_df_samp_imp_indiv_report = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
+  target_list_df_samp = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
+  target_list_df_indiv_report = pd.DataFrame(columns = ["name", "path" "type", "indiv_report"])
 
 ####
 # Format target data
@@ -33,7 +33,6 @@ if 'target_list' in config:
       config['target_list'],
       config['config_file'],
       rules.download_impute2_data.output,
-      rules.download_qctool2.output,
       "../Scripts/23andMe_imputer/23andMe_imputer.R"
     output:
       touch("{outdir}/resources/data/target_checks/{name}/impute_23andme-{chr}.done")
@@ -52,11 +51,10 @@ if 'target_list' in config:
         --ref resources/data/impute2/1000GP_Phase3 \
         --shapeit shapeit \
         --impute2 impute2 \
-        --n_core {resources.cpus} \
-        --qctool resources/software/qctool2/qctool"
+        --n_core {resources.cpus}"
 
   rule run_impute_23andme:
-    input: 
+    input:
       lambda w: expand("{outdir}/resources/data/target_checks/{name}/impute_23andme-{chr}.done", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
     output:
       touch("{outdir}/resources/data/target_checks/{name}/impute_23andme_all_chr.done")
@@ -81,7 +79,7 @@ def target_path(outdir, name):
 
 def target_type(name):
     if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == '23andMe':
-      return "samp_imp_plink1"
+      return "plink1"
     else:
       return target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0]
 
@@ -116,7 +114,7 @@ if 'target_list' in config:
       return range(1, 23)  # Full range for normal operation
 
   rule run_format_target:
-    input: 
+    input:
       lambda w: expand("{outdir}/{name}/geno/{name}.ref.chr{chr}.bed", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
     output:
       touch("{outdir}/resources/data/target_checks/{name}/format_target.done")
@@ -166,7 +164,7 @@ rule run_ancestry_reporter:
 ####
 
 rule outlier_detection:
-  resources: 
+  resources:
     mem_mb=15000
   input:
     "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",

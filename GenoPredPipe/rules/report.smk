@@ -1,21 +1,12 @@
-#####
-# Create a rule that checks all defaults outputs given certain outputs are present
-#####
-
 output_all_input = list()
 
 if 'target_list' in config:
   output_all_input.append(expand("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done", outdir=outdir, name=target_list_df['name']))
   if 'gwas_list' in config or 'score_list' in config:
     output_all_input.append(expand("{outdir}/resources/data/target_checks/{name}/run_target_pgs_all_method.done", outdir=outdir, name=target_list_df['name']))
-    # For pseudovalidation if not already requested
-    #output_all_input.append(rules.run_prep_pgs_lassosum.input)
 else:
   if 'gwas_list' in config or 'score_list' in config:
     output_all_input.append(rules.pgs_methods_complete.input)
-
-rule output_all:
-  input: output_all_input
 
 #####
 # Create a report for each target sample
@@ -39,7 +30,7 @@ rule sample_report:
      params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\'))\""
 
 rule sample_report_all:
-  input: expand('{outdir}/resources/data/target_checks/{name}/sample_report.done', name=target_list_df_samp_imp['name'], outdir=outdir)
+  input: expand('{outdir}/resources/data/target_checks/{name}/sample_report.done', name=target_list_df_samp['name'], outdir=outdir)
 
 #####
 # Create individual-level reports for each target sample
@@ -62,6 +53,7 @@ def id_munge(name, outdir):
 rule indiv_report:
   input:
     rules.install_ggchicklet.output,
+    rules.run_prep_pgs_lassosum.input,
     'scripts/indiv_report_creator.Rmd',
     output_all_input
   output:
@@ -84,5 +76,14 @@ rule indiv_report_all_id:
     touch('{outdir}/resources/data/target_checks/{name}/indiv_report_all_id.done')
 
 rule indiv_report_all_name:
-  input: expand('{outdir}/resources/data/target_checks/{name}/indiv_report_all_id.done', name=target_list_df_samp_imp_indiv_report['name'], outdir=outdir)
+  input: expand('{outdir}/resources/data/target_checks/{name}/indiv_report_all_id.done', name= target_list_df_indiv_report['name'], outdir=outdir)
 
+#####
+# Create a rule that checks all defaults outputs given certain outputs are present
+#####
+
+rule output_all:
+  input:
+    output_all_input,
+    rules.sample_report_all.input,
+    rules.indiv_report_all_name.input
