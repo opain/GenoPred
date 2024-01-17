@@ -20,7 +20,9 @@ make_option("--Sex", action="store", default='i', type='character',
 make_option("--geno", action="store", default=NULL, type='character',
 		help="Path to 23andMe genetic data [required]"),
 make_option("--plink", action="store", default='plink', type='character',
-		help="Path to plink1.9 [optional]"),
+    help="Path to plink1.9 [optional]"),
+make_option("--plink2", action="store", default='plink2', type='character',
+    help="Path to plink2 [optional]"),
 make_option("--ref", action="store", default=NULL, type='character',
 		help="Path to folder containing IMPUTE2 1KG reference data [required]"),
 make_option("--shapeit", action="store", default='shapeit', type='character',
@@ -31,12 +33,10 @@ make_option("--output", action="store", default=NULL, type='character',
 		help="Name of output files [required]"),
 make_option("--n_core", action="store", default=1, type='numeric',
 		help="Number of cores for parallel computing [optional]"),
-make_option("--qctool", action="store", default='qctool', type='character',
-		help="path to qctool2 [optional]"),
 make_option("--chr", action="store", default=NULL, type='numeric',
 		help="Chromosome number [optional]"),
 make_option("--hardcall_thresh", action="store", default=0.9, type='numeric',
-		help="path to qctool2 [optional]")
+		help="Hardcall threshold [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -58,9 +58,6 @@ if(is.null(opt$ref)){
 }
 if(is.null(opt$output)){
   stop('--output must be specified.\n')
-}
-if(is.null(opt$qctool)){
-  stop('--qctool must be specified.\n')
 }
 if(is.null(opt$chr)){
   stop('--chr must be specified.\n')
@@ -123,13 +120,13 @@ omitBlank <- logStrand$pos[logStrand$main_A == '']
 
 # Extract homozygote SNPs and remove INDELS
 forceHomozygoteTable<-logStrand[
-	logStrand$main_A == logStrand$main_B & 
-	nchar(logStrand$ref_A) == 1 & 
+	logStrand$main_A == logStrand$main_B &
+	nchar(logStrand$ref_A) == 1 &
 	nchar(logStrand$ref_B) == 1 &
 	!logStrand$main_A %in% c("D", "I") &
 	!logStrand$main_B %in% c("D", "I"),]
 
-# Remove SNPS where there are more than two alleles		
+# Remove SNPS where there are more than two alleles
 forceHomozygoteTable <- forceHomozygoteTable[sapply(apply(forceHomozygoteTable[, c('main_A', 'main_B', 'ref_A', 'ref_B')], 1, unique), length) == 2,]
 
 # Remove variants with the same RSID
@@ -154,7 +151,7 @@ ped <- rbind(ped1, ped2)
 write.table(ped, paste0(tmp_dir, '/geno_nodup.ped'), sep=" ", col.names=F, row.names=F, quote=F)
 omitRemaining <- logStrand[!logStrand[, 4] %in% forceHomozygoteTable[, 4], 3]
 write.table(c(omitNonIdentical, omitBlank, omitMissing, omitRemaining), file = paste0(tmp_dir, '/exclusions.txt'), sep = '\t', row.names = F, col.names = F, quote = F)
-	
+
 # Run shapeit command
 system(paste0(opt$shapeit, ' --input-ped ', tmp_dir, '/geno_nodup.ped ', tmp_dir, '/geno_nodup.map -M ', opt$ref,'/genetic_map_chr', opt$chr ,'_combined_b37.txt --input-ref ', opt$ref, '/1000GP_Phase3_chr', opt$chr, '.hap.gz ', opt$ref, '/1000GP_Phase3_chr', opt$chr, '.legend.gz ', opt$ref, '/1000GP_Phase3.sample --output-log ',tmp_dir, '/geno_nodup.shapeit_log --exclude-snp ',tmp_dir, '/exclusions.txt -O ',tmp_dir, '/geno_nodup.harmonised_temp'))
 
@@ -177,7 +174,7 @@ ends <- starts + 5e6
 
 foreach(i=1:length(starts), .combine=c, .options.multicore=list(preschedule=FALSE)) %dopar% {
 	imp_log <- system(paste0(opt$impute2,' -m ', opt$ref, '/genetic_map_chr', opt$chr, '_combined_b37.txt -h ', opt$ref, '/1000GP_Phase3_chr', opt$chr, '.hap.gz -l ', opt$ref, '/1000GP_Phase3_chr', opt$chr, '.legend.gz -known_haps_g ', tmp_dir, '/geno_nodup.harmonised.haps -int ', starts[i], ' ', ends[i], ' -Ne 20000 -o ', tmp_dir, '/geno_nodup.', starts[i], '_', ends[i]))
-    
+
 	# test for memory-lack bug (error will be 137 if killed, otherwise 0)
     if(imp_log == 137){
 		log_add(log_file = log_file, message = paste0("Chunk ", starts[i],'-',ends[i],": There was a memory problem."))
@@ -222,19 +219,35 @@ gen<-gen[nchar(gen$V4) == 1 & nchar(gen$V5) == 1,]
 gen$V2[grepl('rs',gen$V2)]<-gsub(':.*','',gen$V2[grepl('rs',gen$V2)])
 fwrite(gen, paste0(tmp_dir, '/geno_nodup_imp.gen'), col.names=F, row.names=F, quote=F, sep=' ')
 
+# Create a sample file
+write.table(
+  data.frame(
+    ID_1 = c(0, 'X'),
+    ID_2 = c(0, 'X'),
+    missing = c(0, NA),
+    sex = c('D', NA)
+  ),
+  paste0(tmp_dir, '/geno_nodup_imp.sample'),
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+
 # Save as a plink file
-# Make sure qctool will find the library
-system('export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}')
-system(paste0(opt$qctool,' -g ',tmp_dir, '/geno_nodup_imp.gen -threshold ',opt$hardcall_thresh,' -og ', tmp_dir, '/geno_nodup_imp -ofiletype binary_ped'))
+system(paste0(opt$plink2, ' --gen ', tmp_dir, '/geno_nodup_imp.gen ref-last --sample  ',tmp_dir, '/geno_nodup_imp.sample --hard-call-threshold 0.1 --make-bed --memory 5000 --threads 1 --out ', tmp_dir, '/geno_nodup_imp'))
 
 # Remove missing SNPs in the plink files
-system(paste0(opt$plink, ' --bfile ', tmp_dir, '/geno_nodup_imp --geno 0.1 --make-bed --out ', opt$output, ' --memory 2000'))
+system(paste0(opt$plink, ' --bfile ', tmp_dir, '/geno_nodup_imp --geno 0.1 --make-bed --out ', tmp_dir, '/geno_nodup_imp_geno --memory 2000'))
 
 # Insert the chromosome number to the bim file
-bim<-fread(paste0(opt$output,'.bim'))
+bim<-fread(paste0(tmp_dir, '/geno_nodup_imp_geno.bim'))
 bim$V1 <- opt$chr
-fwrite(bim, paste0(opt$output,'.bim'), col.names=F, row.names=F, quote=F, sep='\t')
-	
+fwrite(bim, paste0(tmp_dir, '/geno_nodup_imp_geno.bim'), col.names=F, row.names=F, quote=F, sep='\t')
+
+# Rename the imputed genotype data to output
+system(paste0('mv ',tmp_dir, '/geno_nodup_imp_geno.bed ',opt$output,'.bed'))
+system(paste0('mv ',tmp_dir, '/geno_nodup_imp_geno.bim ',opt$output,'.bim'))
+
 # Rename the gen file
 system(paste0('mv ',tmp_dir, '/geno_nodup_imp.gen ',opt$output,'.gen'))
 
@@ -242,14 +255,15 @@ system(paste0('mv ',tmp_dir, '/geno_nodup_imp.gen ',opt$output,'.gen'))
 system(paste0("cut -f 1-6 -d ' ' ",tmp_dir, '/geno.ped > ', opt$output,'.fam'))
 
 # Create a sample file for the bgen files
-sample_file<-data.frame(ID=c(0,paste0(opt$FID,'_',opt$IID)),
-						sex=c('D','M'))			
+sample_file<-data.frame(
+  ID=c(0,paste0(opt$FID,'_',opt$IID)),
+	sex=c('D', NA))
 
 write.table(sample_file, paste0(opt$output,'.sample'), col.names=T, row.names=F, quote=F)
 
 # Count the number of variants after imputation in gen files and plink files
-final_n_gen<-gsub(' .*', '', system(paste0('wc -l ',opt$output,'.chr*.gen'), intern=T))
-final_n_plink<-gsub(' .*','', system(paste0('wc -l ',opt$output,'.chr*.bim'), intern=T))
+final_n_gen<-gsub(' .*', '', system(paste0('wc -l ',opt$output,'.gen'), intern=T))
+final_n_plink<-gsub(' .*','', system(paste0('wc -l ',opt$output,'.bim'), intern=T))
 
 log_add(log_file = log_file, message = paste0('.gen files contain ',final_n_gen,' SNPs.'))
 log_add(log_file = log_file, message = paste0('.plink files contain ',final_n_plink,' SNPs.'))

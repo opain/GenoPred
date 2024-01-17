@@ -22,7 +22,7 @@ populations=["AFR","AMR","EAS","EUR","SAS"]
 
 rule run_ref_pca:
   input: expand("resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale", population=populations)
-  
+
 ##
 # QC and format GWAS summary statistics
 ##
@@ -56,7 +56,7 @@ if 'gwas_list' in config:
         --population {params.population} \
         --output {outdir}/resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned
       """
-          
+
   rule run_sumstat_prep:
     input: expand("{outdir}/resources/data/gwas_sumstat/{gwas}/{gwas}-cleaned.gz", gwas=gwas_list_df['name'], outdir=outdir)
 
@@ -84,7 +84,7 @@ rule prep_pgs_ptclump:
       --output {outdir}/resources/data/ref/pgs_score_files/ptclump/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
-  
+
 rule run_prep_pgs_ptclump:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/ptclump/{gwas}/ref-{gwas}-EUR.scale", gwas=gwas_list_df['name'], outdir=outdir)
 
@@ -189,7 +189,7 @@ else:
   mem_sbayesr=80000
 
 rule prep_pgs_sbayesr:
-  resources: 
+  resources:
     mem_mb=mem_sbayesr,
     cpus=n_cores_sbayesr
   input:
@@ -224,7 +224,17 @@ rule run_prep_pgs_sbayesr:
 # lassosum
 ##
 
+if config["testing"] != 'NA':
+  n_cores_lassosum=min(1, multiprocessing.cpu_count())
+  mem_lassosum=10000
+else:
+  n_cores_lassosum=min(10, multiprocessing.cpu_count())
+  mem_lassosum=80000
+
 rule prep_pgs_lassosum:
+  resources:
+    mem_mb=mem_lassosum,
+    cpus=n_cores_lassosum
   input:
     "{outdir}/resources/data/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
     rules.get_dependencies.output,
@@ -244,9 +254,10 @@ rule prep_pgs_lassosum:
      --gwas_pop {params.population} \
      --sumstats {outdir}/resources/data/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/resources/data/ref/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
+     --n_cores {n_cores_lassosum} \
      --pop_data resources/data/ref/ref.pop.txt \
      --test {params.testing}"
-    
+
 rule run_prep_pgs_lassosum:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/lassosum/{gwas}/ref-{gwas}-EUR.scale", gwas=gwas_list_df['name'], outdir=outdir)
 
@@ -262,7 +273,7 @@ else:
   mem_ldpred2=80000
 
 rule prep_pgs_ldpred2:
-  resources: 
+  resources:
     mem_mb=mem_ldpred2,
     cpus=n_cores_ldpred2,
     time_min=800
@@ -289,7 +300,7 @@ rule prep_pgs_ldpred2:
       --output {outdir}/resources/data/ref/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
-    
+
 rule run_prep_pgs_ldpred2:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/ldpred2/{gwas}/ref-{gwas}-EUR.scale", gwas=gwas_list_df_eur['name'], outdir=outdir)
 
@@ -337,7 +348,7 @@ rule prep_pgs_megaprs:
       --output {outdir}/resources/data/ref/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
-    
+
 rule run_prep_pgs_megaprs:
   input: expand("{outdir}/resources/data/ref/pgs_score_files/megaprs/{gwas}/ref-{gwas}-EUR.scale", gwas=gwas_list_df['name'], outdir=outdir)
 
@@ -347,7 +358,7 @@ rule run_prep_pgs_megaprs:
 
 if 'score_list' in config and config["score_list"] != 'NA':
   score_list_df = pd.read_table(config["score_list"], sep=r'\s+')
-  pgs_methods = config['pgs_methods'] 
+  pgs_methods = config['pgs_methods']
   pgs_methods.append('external')
 else:
   score_list_df = pd.DataFrame(columns = ["name", "path", "label"])
@@ -375,7 +386,7 @@ if 'score_list' in config:
         --output {outdir}/resources/data/ref/pgs_score_files/external/{wildcards.gwas}/ref-{wildcards.gwas} \
         --pop_data resources/data/ref/ref.pop.txt \
         --test {params.testing}"
-      
+
   rule run_prep_pgs_external:
     input: expand("{outdir}/resources/data/ref/pgs_score_files/external/{gwas}/ref-{gwas}-EUR.scale", gwas=score_list_df['name'], outdir=outdir)
 
