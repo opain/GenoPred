@@ -24,7 +24,7 @@ else:
 # Largely based on Impute.Me by Lasse Folkersen
 
 if 'target_list' in config:
-  rule impute_23andme:
+  rule impute_23andme_i:
     resources:
       mem_mb=80000,
       cpus=config.get("ncores", 10),
@@ -53,11 +53,15 @@ if 'target_list' in config:
         --impute2 impute2 \
         --n_core {resources.cpus}"
 
-  rule run_impute_23andme:
+  rule impute_23andme_all_chr:
     input:
       lambda w: expand("{outdir}/resources/data/target_checks/{name}/impute_23andme-{chr}.done", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
     output:
       touch("{outdir}/resources/data/target_checks/{name}/impute_23andme_all_chr.done")
+
+  rule impute_23andme:
+    input:
+      lambda w: expand("{outdir}/resources/data/target_checks/{name}/impute_23andme_all_chr.done", name=target_list_df_23andMe['name'], outdir=outdir)
 
 ##
 # Convert to PLINK and harmonise with reference
@@ -84,7 +88,7 @@ def target_type(name):
       return target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0]
 
 if 'target_list' in config:
-  rule format_target:
+  rule format_target_i:
     input:
       lambda w: format_target_input(outdir = w.outdir, name = w.name),
       config['target_list'],
@@ -105,25 +109,29 @@ if 'target_list' in config:
         --ref resources/data/ref/ref.chr{wildcards.chr} \
         --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr}"
 
-  def get_chr_range(testing):
-    if testing != 'NA':
-      val = testing[-2:]
-      val = int(val)
-      return val  # Example range for testing
-    else:
-      return range(1, 23)  # Full range for normal operation
+def get_chr_range(testing):
+  if testing != 'NA':
+    val = testing[-2:]
+    val = int(val)
+    return val  # Example range for testing
+  else:
+    return range(1, 23)  # Full range for normal operation
 
-  rule run_format_target:
-    input:
-      lambda w: expand("{outdir}/{name}/geno/{name}.ref.chr{chr}.bed", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
-    output:
-      touch("{outdir}/resources/data/target_checks/{name}/format_target.done")
+rule format_target_all_chr:
+  input:
+    lambda w: expand("{outdir}/{name}/geno/{name}.ref.chr{chr}.bed", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
+  output:
+    touch("{outdir}/resources/data/target_checks/{name}/format_target_all_chr.done")
+
+rule format_target:
+  input:
+    lambda w: expand("{outdir}/resources/data/target_checks/{name}/format_target_all_name.done", name=target_list_df['name'], outdir=outdir)
 
 ####
 # Ancestry inference
 ####
 
-rule ancestry_inference:
+rule ancestry_inference_i:
   input:
     "{outdir}/resources/data/target_checks/{name}/format_target.done",
     "../Scripts/Ancestry_identifier/Ancestry_identifier.R"
@@ -141,7 +149,7 @@ rule ancestry_inference:
       --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
 
-rule run_ancestry_inference:
+rule ancestry_inference:
   input: expand("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done", name=target_list_df['name'], outdir=outdir)
 
 # Create a file listing target samples and population assignments
@@ -163,7 +171,7 @@ rule run_ancestry_reporter:
 # Population outlier detection and target sample specific PC calculation
 ####
 
-rule outlier_detection:
+rule outlier_detection_i:
   resources:
     mem_mb=15000
   input:
@@ -181,3 +189,7 @@ rule outlier_detection:
       --keep_list {outdir}/{wildcards.name}/ancestry/keep_list.txt \
       --test {params.testing} \
       --output {outdir}/{wildcards.name}/pcs/within_sample/{wildcards.name}.outlier_detection"
+
+rule outlier_detection:
+  input:
+    lambda w: expand("{outdir}/resources/data/target_checks/{name}/outlier_detection.done", name=target_list_df_samp['name'], outdir=outdir)
