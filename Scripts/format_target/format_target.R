@@ -9,7 +9,7 @@ make_option("--target", action="store", default=NA, type='character',
 make_option("--ref", action="store", default=NA, type='character',
     help="Prefix to a reference sample plink and .rds files for a given chromosome [required]"),
 make_option("--format", action="store", default=NA, type='character',
-    help="Format of target files. Either samp_imp_plink1, samp_imp_bgen, or samp_imp_vcf. [required]"),
+    help="Format of target files. Either plink1, bgen, or vcf. [required]"),
 make_option("--plink", action="store", default='plink', type='character',
     help="Path to plink1.9 [optional]"),
 make_option("--plink2", action="store", default='plink2', type='character',
@@ -102,13 +102,13 @@ write.table(ref_target$SNP.x, paste0(tmp_dir,'/extract_list_1.txt'), col.names =
 write.table(ref_target$SNP.y, paste0(tmp_dir,'/extract_list_2.txt'), col.names = F, row.names = F, quote=F)
 
 # First extract variants based on original ID
-if(opt$format == 'samp_imp_plink1'){
+if(opt$format == 'plink1'){
   system(paste0(opt$plink2,' --bfile ',opt$target, ' --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
-if(opt$format == 'samp_imp_bgen'){
+if(opt$format == 'bgen'){
   system(paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --hard-call-threshold 0.1 --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
-if(opt$format == 'samp_imp_vcf'){
+if(opt$format == 'vcf'){
   system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 

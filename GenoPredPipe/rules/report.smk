@@ -3,16 +3,16 @@ output_all_input = list()
 if 'target_list' in config:
   output_all_input.append(expand("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done", outdir=outdir, name=target_list_df['name']))
   if 'gwas_list' in config or 'score_list' in config:
-    output_all_input.append(expand("{outdir}/resources/data/target_checks/{name}/run_target_pgs_all_method.done", outdir=outdir, name=target_list_df['name']))
+    output_all_input.append(expand("{outdir}/resources/data/target_checks/{name}/target_pgs_all_method.done", outdir=outdir))
 else:
   if 'gwas_list' in config or 'score_list' in config:
-    output_all_input.append(rules.pgs_methods_complete.input)
+    output_all_input.append(rules.prep_pgs.input)
 
 #####
 # Create a report for each target sample
 #####
 
-rule sample_report:
+rule sample_report_i:
   input:
     'scripts/samp_report_creator.Rmd',
     output_all_input
@@ -29,7 +29,7 @@ rule sample_report:
      output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-report.html\', \
      params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\'))\""
 
-rule sample_report_all:
+rule sample_report:
   input: expand('{outdir}/resources/data/target_checks/{name}/sample_report.done', name=target_list_df_samp['name'], outdir=outdir)
 
 #####
@@ -50,7 +50,7 @@ def id_munge(name, outdir):
 
   return fam_df['id'].tolist()
 
-rule indiv_report:
+rule indiv_report_i:
   input:
     rules.install_ggchicklet.output,
     rules.run_prep_pgs_lassosum.input,
@@ -75,7 +75,7 @@ rule indiv_report_all_id:
   output:
     touch('{outdir}/resources/data/target_checks/{name}/indiv_report_all_id.done')
 
-rule indiv_report_all_name:
+rule indiv_report:
   input: expand('{outdir}/resources/data/target_checks/{name}/indiv_report_all_id.done', name= target_list_df_indiv_report['name'], outdir=outdir)
 
 #####
@@ -85,5 +85,5 @@ rule indiv_report_all_name:
 rule output_all:
   input:
     output_all_input,
-    rules.sample_report_all.input,
-    rules.indiv_report_all_name.input
+    rules.sample_report.input,
+    rules.indiv_report.input
