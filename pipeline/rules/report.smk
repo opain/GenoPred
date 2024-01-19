@@ -1,9 +1,7 @@
 output_all_input = list()
 
 if 'target_list' in config:
-  output_all_input.append(expand("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done", outdir=outdir, name=target_list_df['name']))
-  if 'gwas_list' in config or 'score_list' in config:
-    output_all_input.append(expand("{outdir}/resources/data/target_checks/{name}/target_pgs_all_method.done", outdir=outdir))
+  output_all_input.append(rules.target_pgs.input)
 else:
   if 'gwas_list' in config or 'score_list' in config:
     output_all_input.append(rules.prep_pgs.input)
@@ -53,7 +51,7 @@ def id_munge(name, outdir):
 rule indiv_report_i:
   input:
     rules.install_ggchicklet.output,
-    rules.run_prep_pgs_lassosum.input,
+    rules.prep_pgs_lassosum.input,
     'scripts/indiv_report_creator.Rmd',
     output_all_input
   output:

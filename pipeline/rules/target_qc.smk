@@ -79,7 +79,7 @@ def target_path(outdir, name):
       return outdir + "/" + name + "/geno/imputed/" + name
     else:
       path=target_list_df.loc[target_list_df['name'] == name, 'path'].iloc[0]
-      return path + ".chr"
+      return path
 
 def target_type(name):
     if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == '23andMe':
@@ -113,7 +113,7 @@ def get_chr_range(testing):
   if testing != 'NA':
     val = testing[-2:]
     val = int(val)
-    return val  # Example range for testing
+    return val
   else:
     return range(1, 23)  # Full range for normal operation
 
@@ -133,7 +133,7 @@ rule format_target:
 
 rule ancestry_inference_i:
   input:
-    "{outdir}/resources/data/target_checks/{name}/format_target.done",
+    "{outdir}/resources/data/target_checks/{name}/format_target_all_chr.done",
     "../Scripts/Ancestry_identifier/Ancestry_identifier.R"
   output:
     touch("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done")
