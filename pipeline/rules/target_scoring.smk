@@ -5,6 +5,14 @@ def ancestry_munge(x):
     ancestry_report_df = pd.read_table(checkpoint_output, sep=' ')
     return ancestry_report_df['population'].tolist()
 
+# Create a function summarising which score files matched sufficiently with reference
+def score_munge(outdir):
+    checkpoint_output = checkpoints.score_reporter.get(outdir = outdir).output[0]
+    checkpoint_output = outdir + "/resources/data/ref/pgs_score_files/external/score_report.txt"
+    score_report_df = pd.read_table(checkpoint_output, sep=' ')
+    score_report_df = score_report_df[(score_report_df['pass'].isin(['T', 'TRUE', True]))]
+    return score_report_df['name'].tolist()
+
 ####
 # Projected PCs
 ####
@@ -17,7 +25,7 @@ rule pc_projection_i:
   output:
     touch("{outdir}/resources/data/target_checks/{name}/pc_projection-{population}.done")
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   shell:
     "Rscript ../Scripts/target_scoring/target_scoring.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
@@ -42,16 +50,23 @@ rule pc_projection:
 # Polygenic scoring
 ####
 
+def check_pgs(w):
+  # Check if the path value is not NA
+  if w.method == 'external':
+      return ["{outdir}/resources/data/target_checks/prep_pgs_external_i-{gwas}.done"]
+  else:
+      return ["{outdir}/resources/data/ref/pgs_score_files/{method}/{gwas}/ref-{gwas}-EUR.scale"]
+      
 rule target_pgs_i:
   input:
     "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",
-    "{outdir}/resources/data/ref/pgs_score_files/{method}/{gwas}/ref-{gwas}-EUR.scale",
+    lambda w: check_pgs(w),
     "../Scripts/target_scoring/target_scoring.R",
     "../Scripts/functions/misc.R"
   output:
     touch("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done")
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     testing=config["testing"]
   shell:
@@ -68,7 +83,7 @@ rule target_pgs_i:
 
 rule target_pgs_all_gwas:
   input:
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done", name=w.name, gwas= score_list_df['name'] if w.method == 'external' else (gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs'] else gwas_list_df_eur['name']), population=w.population, method=w.method, outdir=outdir)
+    lambda w: expand("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done", name=w.name, gwas=score_munge(outdir = outdir) if w.method == 'external' else (gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs'] else gwas_list_df_eur['name']), population=w.population, method=w.method, outdir=outdir)
   output:
     touch("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}-{population}.done")
 

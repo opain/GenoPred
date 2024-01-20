@@ -37,7 +37,7 @@ if 'target_list' in config:
     output:
       touch("{outdir}/resources/data/target_checks/{name}/impute_23andme-{chr}.done")
     conda:
-      "../envs/GenoPredPipe.yaml"
+      "../envs/analysis.yaml"
     params:
       name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
       path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
@@ -98,7 +98,7 @@ if 'target_list' in config:
     output:
       "{outdir}/{name}/geno/{name}.ref.chr{chr}.bed"
     conda:
-      "../envs/GenoPredPipe.yaml"
+      "../envs/analysis.yaml"
     params:
       path= lambda w: target_path(outdir = w.outdir, name = w.name),
       type= lambda w: target_type(name = w.name)
@@ -138,7 +138,7 @@ rule ancestry_inference_i:
   output:
     touch("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done")
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     testing=config["testing"]
   shell:
@@ -160,7 +160,7 @@ checkpoint ancestry_reporter:
   output:
     touch("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done")
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   shell:
     "Rscript scripts/ancestry_reporter.R {wildcards.name} {outdir}"
 
@@ -180,7 +180,7 @@ rule outlier_detection_i:
   output:
     touch('{outdir}/resources/data/target_checks/{name}/outlier_detection.done')
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     testing=config["testing"]
   shell:

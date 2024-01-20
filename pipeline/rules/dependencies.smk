@@ -242,35 +242,51 @@ rule download_default_ref:
 # install ggchicklet
 rule install_ggchicklet:
   input:
-    "envs/GenoPredPipe.yaml"
+    "envs/analysis.yaml"
   output:
     touch("resources/software/install_ggchicklet.done")
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   shell:
     "Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\")'"
 
 # install lassosum
 rule install_lassosum:
   input:
-    "envs/GenoPredPipe.yaml"
+    "envs/analysis.yaml"
   output:
     touch("resources/software/install_lassosum.done")
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   shell:
     "Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'"
 
 # Install GenoUtils
 rule install_genoutils:
   input:
-    "envs/GenoPredPipe.yaml"
+    "envs/analysis.yaml"
   output:
     touch("resources/software/install_genoutils.done")
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   shell:
     "Rscript -e 'devtools::install_github(\"opain/GenoUtils\")'"
+
+# Download pgscatalog_utils
+rule download_pgscatalog_utils:
+  output:
+    "resources/software/pgscatalog_utils/download_pgscatalog_utils.done"
+  conda:
+    "../envs/pgscatalog_utils.yaml"
+  shell:
+    "rm -r -f resources/software/pgscatalog_utils; \
+    git clone https://github.com/PGScatalog/pgscatalog_utils.git resources/software/pgscatalog_utils; \
+    cd resources/software/pgscatalog_utils; \
+    git reset --hard 6da7eb0e157ba4e73f941233ee8d8ae4fb5e3926; \
+    poetry install; \
+    poetry build; \
+    pip3 install --user dist/*.whl; \
+    download_scorefiles -h > download_pgscatalog_utils.done"
 
 ############
 # Check all dependencies are available

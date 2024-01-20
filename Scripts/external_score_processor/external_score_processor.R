@@ -54,26 +54,40 @@ log_header(log_file = log_file, opt = opt, script = 'external_score_processor.R'
 if(!is.na(opt$test) && opt$test == 'NA'){
   opt$test<-NA
 }
-if(!is.na(opt$test)){
-  CHROMS <- as.numeric(gsub('chr','',opt$test))
-}
+
+# This leads to an error because some score files do not contain specified chromosome
+#if(!is.na(opt$test)){
+#  CHROMS <- as.numeric(gsub('chr','',opt$test))
+#}
 
 ####
 # Read in score file
 ####
 
-# Assume PGS Catalogue header format (https://www.pgscatalog.org/downloads/#scoring_header)
-score <- fread(opt$score)
+# Check for PGS Catalogue header format (https://www.pgscatalog.org/downloads/#scoring_header)
+score_header <- readLines(opt$score, n = 40)
+score_header <- score_header[grepl("^#", score_header)]
+pgsc_header <- any(grepl('PGS CATALOG SCORING FILE', score_header))
 
-# Relabel header
-score <- score[, names(score) %in% c('rsID','chr_name','chr_position','effect_allele','other_allele','effect_weight'), with = F]
-names(score)[names(score) == 'rsID'] <- 'SNP'
-names(score)[names(score) == 'chr_name'] <- 'CHR'
-names(score)[names(score) == 'chr_position'] <- 'BP'
-names(score)[names(score) == 'effect_allele'] <- 'A1'
-names(score)[names(score) == 'other_allele'] <- 'A2'
+# Use header to determine build if available
+if(pgsc_header){
+	if(any(grepl('HARMONIZATION', pgsc_header))){
+		target_build <- gsub('.*HmPOS_build=', '', score_header[grepl('HmPOS_build', score_header)])
+	} else {
+		target_build <- gsub('.*genome_build=', '', score_header[grepl('genome_build', score_header)])
+	}
+	
+	# Change from hg and ncbi notation to GRCh
+	if(tolower(target_build) == 'hg18' | tolower(target_build) == 'ncbi36') target_build <- 'GRCh36'
+	if(tolower(target_build) == 'hg19' | tolower(target_build) == 'ncbi37') target_build <- 'GRCh37'
+	if(tolower(target_build) == 'hg38' | tolower(target_build) == 'ncbi38') target_build <- 'GRCh38'
+} else {
+	target_build <- NA
+}
 
-score <- score[score$CHR %in% CHROMS,]
+# Read in the score file
+score <- read_score(score = opt$score, log_file = log_file)
+n_snp_orig <- nrow(score)
 
 log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants.'))
 
@@ -105,57 +119,63 @@ rsid_avail<-(sum(grepl('rs', targ$SNP)) > 0.9*length(targ$SNP))
 
 targ_matched<-NULL
 flip_logical_all<-NULL
-target_build<-NA
-
 if(chr_bp_avail){
 	log_add(log_file = log_file, message = 'Merging sumstats with reference using CHR, BP, A1, and A2')
 
-	###
-	# Determine build
-	###
-  	ref_22<-readRDS(file = paste0(ref_rds, 22, '.rds'))
+	if(!pgsc_header){
+		###
+		# Determine build
+		###
 
-	target_build <- detect_build(	ref = ref_22,
-									targ = targ[targ$CHR == 22,],
-									log_file = log_file)
+		# If the score file is sparse, try using a few chromosomes until the build can be distinguished
+		for(ref_chr in rev(sort(unique(targ$CHR)))){
+			target_build <-  
+				detect_build(ref = readRDS(file = paste0(ref_rds, ref_chr, '.rds')),
+											targ = targ[targ$CHR == ref_chr,])
+
+			if(!is.na(target_build)){
+				log_add(log_file = log_file, message = paste0('Genome build ', target_build,' detected.'))
+				break
+			}
+		}
+	}
 
 	if(!is.na(target_build)){
 		for(i in chrs){
+			# Read reference data
+			ref_i<-readRDS(file = paste0(ref_rds,i,'.rds'))
 
-		# Read reference data
-		ref_i<-readRDS(file = paste0(ref_rds,i,'.rds'))
+			# Retain only non-ambiguous SNPs
+			ref_i<-remove_ambig(ref_i)
 
-		# Retain only non-ambiguous SNPs
-		ref_i<-remove_ambig(ref_i)
+			# Rename columns prior to merging with target
+			names(ref_i)<-paste0('REF.',names(ref_i))
+			ref_i<-ref_i[, c('REF.CHR','REF.SNP',paste0('REF.BP_',target_build),'REF.A1','REF.A2','REF.IUPAC'), with=F]
 
-		# Rename columns prior to merging with target
-		names(ref_i)<-paste0('REF.',names(ref_i))
-		ref_i<-ref_i[, c('REF.CHR','REF.SNP',paste0('REF.BP_',target_build),'REF.A1','REF.A2','REF.IUPAC'), with=F]
+			# Subset chromosome i from target
+			targ_i<-targ[targ$CHR == i,]
 
-		# Subset chromosome i from target
-		targ_i<-targ[targ$CHR == i,]
+			# Merge target and reference by BP
+			ref_target<-merge(targ_i, ref_i, by.x='BP', by.y=paste0('REF.BP_',target_build))
 
-		# Merge target and reference by BP
-		ref_target<-merge(targ_i, ref_i, by.x='BP', by.y=paste0('REF.BP_',target_build))
+			# Identify targ-ref strand flips, and flip target
+			flip_logical<-detect_strand_flip(targ = ref_target$IUPAC, ref = ref_target$REF.IUPAC)
+			flip_logical_all<-c(flip_logical_all, flip_logical)
 
-		# Identify targ-ref strand flips, and flip target
-		flip_logical<-detect_strand_flip(targ = ref_target$IUPAC, ref = ref_target$REF.IUPAC)
-		flip_logical_all<-c(flip_logical_all, flip_logical)
+			flipped<-ref_target[flip_logical,]
+			flipped$A1<-snp_allele_comp(flipped$A1)
+			flipped$A2<-snp_allele_comp(flipped$A2)
+			flipped$IUPAC<-snp_iupac(flipped$A1, flipped$A2)
 
-		flipped<-ref_target[flip_logical,]
-		flipped$A1<-snp_allele_comp(flipped$A1)
-		flipped$A2<-snp_allele_comp(flipped$A2)
-		flipped$IUPAC<-snp_iupac(flipped$A1, flipped$A2)
+			# Identify SNPs that have matched IUPAC
+			matched<-ref_target[ref_target$IUPAC == ref_target$REF.IUPAC,]
+			matched<-rbind(matched, flipped)
 
-		# Identify SNPs that have matched IUPAC
-		matched<-ref_target[ref_target$IUPAC == ref_target$REF.IUPAC,]
-		matched<-rbind(matched, flipped)
+			# Retain reference SNP and REF.FREQ data
+			matched<-matched[, names(matched) %in% c('CHR','BP','A1','A2','effect_weight'), with=F]
+			names(matched)[names(matched) == 'REF.SNP']<-'SNP'
 
-		# Retain reference SNP and REF.FREQ data
-		matched<-matched[, names(matched) %in% c('CHR','BP','A1','A2','effect_weight'), with=F]
-		names(matched)[names(matched) == 'REF.SNP']<-'SNP'
-
-		targ_matched<-rbind(targ_matched, matched)
+			targ_matched<-rbind(targ_matched, matched)
 		}
 	}
 
@@ -199,9 +219,6 @@ if(is.na(target_build) & rsid_avail){
 		matched<-ref_target[ref_target$IUPAC == ref_target$REF.IUPAC,]
 		matched<-rbind(matched, flipped)
 
-		# Flip REF.FREQ if alleles are swapped
-		matched$REF.FREQ[matched$A1 != matched$REF.A1]<-1-matched$REF.FREQ[matched$A1 != matched$REF.A1]
-
 		# Retain reference CHR and BP_GRCh37 data
 		matched<-matched[, names(matched) %in% c('REF.CHR','REF.BP_GRCh37','SNP','A1','A2','effect_weight'), with=F]
 		names(matched)[names(matched) == 'REF.CHR']<-'CHR'
@@ -214,37 +231,44 @@ if(is.na(target_build) & rsid_avail){
 log_add(log_file = log_file, message = paste0('After matching variants to the reference, ',nrow(targ_matched),' variants remain.'))
 log_add(log_file = log_file, message = paste0(sum(flip_logical_all), ' variants were flipped to match reference.'))
 
-####
-# Format as score file for GenoPred
-####
+if(nrow(targ_matched) < 0.75*n_snp_orig){
+	log_add(log_file = log_file, message = paste0("<75% of variants in score file are present in the reference (", nrow(targ_matched)," out of ", n_snp_orig, ")"))
+	log_add(log_file = log_file, message = 'Skipping')
 
-score$CHR <- NULL
-score$BP <- NULL
-score <- score[, c('SNP','A1','A2','effect_weight'), with = F]
-names(score)[names(score) == 'effect_weight']<-paste0('SCORE_external')
+} else {
+	####
+	# Format as score file for GenoPred
+	####
 
-fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+	score$CHR <- NULL
+	score$BP <- NULL
+	score <- score[, c('SNP','A1','A2','effect_weight'), with = F]
+	names(score)[names(score) == 'effect_weight']<-paste0('SCORE_external')
 
-if(file.exists(paste0(opt$output,'.score.gz'))){
-  system(paste0('rm ',opt$output,'.score.gz'))
-}
-system(paste0('gzip ',opt$output,'.score'))
+	fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
-####
-# Calculate mean and sd of polygenic scores
-####
+	if(file.exists(paste0(opt$output,'.score.gz'))){
+		system(paste0('rm ',opt$output,'.score.gz'))
+	}
+	
+	system(paste0('gzip ',opt$output,'.score'))
 
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
+	####
+	# Calculate mean and sd of polygenic scores
+	####
 
-# Calculate scores in the full reference
-ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+	log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
 
-# Calculate scale within each reference population
-pop_data <- fread(opt$pop_data)
+	# Calculate scores in the full reference
+	ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
-for(pop_i in unique(pop_data$POP)){
-  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
+	# Calculate scale within each reference population
+	pop_data <- fread(opt$pop_data)
+
+	for(pop_i in unique(pop_data$POP)){
+	ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
+	fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
+	}
 }
 
 end.time <- Sys.time()

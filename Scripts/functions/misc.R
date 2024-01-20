@@ -898,3 +898,49 @@ read_pseudo_r <- function(config, gwas){
 
   return(r)
 }
+
+# Read in external score file
+read_score <- function(score, log_file = NULL){
+	# Read in score file
+	score <- fread(score)
+
+	# Check whether harmonised columns present
+	if(any(c("hm_rsID", "hm_chr", "hm_pos") %in% names(score))){
+		log_add(log_file = log_file, message = 'PGSC harmonisation data present.')
+
+    # If other_allele is not present in score file, try to use inferred other allele data in score file
+    if(all(names(score) != 'other_allele')){
+      score$other_allele <- score$hm_inferOtherAllele
+      log_add(log_file = log_file, message = 'A2 is missing so using PGSC inferred A2.')
+    }
+
+		# Relabel header
+		score <- score[, names(score) %in% c('hm_rsID','hm_chr','hm_pos','effect_allele','other_allele','effect_weight'), with = F]
+		names(score)[names(score) == 'hm_rsID'] <- 'SNP'
+		names(score)[names(score) == 'hm_chr'] <- 'CHR'
+		names(score)[names(score) == 'hm_pos'] <- 'BP'
+		names(score)[names(score) == 'effect_allele'] <- 'A1'
+		names(score)[names(score) == 'other_allele'] <- 'A2'
+    
+	} else {
+		# Relabel header
+		score <- score[, names(score) %in% c('rsID','chr_name','chr_position','effect_allele','other_allele','effect_weight'), with = F]
+		names(score)[names(score) == 'rsID'] <- 'SNP'
+		names(score)[names(score) == 'chr_name'] <- 'CHR'
+		names(score)[names(score) == 'chr_position'] <- 'BP'
+		names(score)[names(score) == 'effect_allele'] <- 'A1'
+		names(score)[names(score) == 'other_allele'] <- 'A2'
+	}
+
+  if(!('SNP' %in% names(score)) & !(all(c('CHR','BP') %in% names(score)))){
+    log_add(log_file = log_file, message = 'Either SNP, or CHR and BP data must be present in the score file')
+    stop('Either SNP, or CHR and BP data must be present in the score file.')
+  }
+
+  if(!(all(c('A1','A2') %in% names(score)))){
+    log_add(log_file = log_file, message = 'Both A1 and A2 data must be present in the score file')
+    stop('Both A1 and A2 data must be present in the score file.')
+  }
+
+	return(score)
+}

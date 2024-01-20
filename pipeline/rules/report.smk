@@ -17,7 +17,7 @@ rule sample_report_i:
   output:
     touch('{outdir}/resources/data/target_checks/{name}/sample_report.done')
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     config_file = config["config_file"],
     report_out= lambda w: outdir if outdir[0] == "/" else "../" + outdir
@@ -57,7 +57,7 @@ rule indiv_report_i:
   output:
     touch('{outdir}/resources/data/target_checks/{name}/indiv_report-{id}-report.done')
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     config_file = config["config_file"],
     report_out= lambda w: outdir if outdir[0] == "/" else "../" + outdir

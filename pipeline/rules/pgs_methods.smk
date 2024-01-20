@@ -7,7 +7,7 @@ rule ref_pca_i:
   output:
     "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml",
+    "../envs/analysis.yaml",
   params:
     testing=config["testing"]
   shell:
@@ -43,7 +43,7 @@ if 'gwas_list' in config:
     output:
       "{outdir}/resources/data/gwas_sumstat/{gwas}/{gwas}-cleaned.gz"
     conda:
-      "../envs/GenoPredPipe.yaml"
+      "../envs/analysis.yaml"
     params:
       population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
       path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
@@ -72,7 +72,7 @@ rule prep_pgs_ptclump_i:
   output:
     "{outdir}/resources/data/ref/pgs_score_files/ptclump/{gwas}/ref-{gwas}-EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"]
@@ -101,7 +101,7 @@ rule prep_pgs_dbslmm_i:
   output:
     "{outdir}/resources/data/ref/pgs_score_files/dbslmm/{gwas}/ref-{gwas}-EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
@@ -156,7 +156,7 @@ rule prep_pgs_prscs_i:
   output:
     "{outdir}/resources/data/ref/pgs_score_files/prscs/{gwas}/ref-{gwas}-EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     testing=config["testing"]
   shell:
@@ -202,7 +202,7 @@ rule prep_pgs_sbayesr_i:
   output:
     "{outdir}/resources/data/ref/pgs_score_files/sbayesr/{gwas}/ref-{gwas}-EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     testing=config["testing"]
   shell:
@@ -243,7 +243,7 @@ rule prep_pgs_lassosum_i:
   output:
     "{outdir}/resources/data/ref/pgs_score_files/lassosum/{gwas}/ref-{gwas}-EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"]
@@ -286,7 +286,7 @@ rule prep_pgs_ldpred2_i:
   output:
     "{outdir}/resources/data/ref/pgs_score_files/ldpred2/{gwas}/ref-{gwas}-EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     testing=config["testing"]
   shell:
@@ -331,7 +331,7 @@ rule prep_pgs_megaprs_i:
   output:
     "{outdir}/resources/data/ref/pgs_score_files/megaprs/{gwas}/ref-{gwas}-EUR.scale"
   conda:
-    "../envs/GenoPredPipe.yaml"
+    "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"]
@@ -358,37 +358,95 @@ rule prep_pgs_megaprs:
 
 if 'score_list' in config and config["score_list"] != 'NA':
   score_list_df = pd.read_table(config["score_list"], sep=r'\s+')
+  score_list_catalogue_df = score_list_df[pd.isna(score_list_df['path'])]
   pgs_methods = config['pgs_methods']
   pgs_methods.append('external')
 else:
   score_list_df = pd.DataFrame(columns = ["name", "path", "label"])
+  score_list_catalogue_df = pd.DataFrame(columns = ["name", "path", "label"])
   pgs_methods = config['pgs_methods']
 
-if 'score_list' in config:
-  rule prep_pgs_external_i:
-    input:
-      config['score_list'],
-      rules.get_dependencies.output,
-      lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
-      "../Scripts/external_score_processor/external_score_processor.R",
-      "../Scripts/functions/misc.R"
-    output:
-      "{outdir}/resources/data/ref/pgs_score_files/external/{gwas}/ref-{gwas}-EUR.scale"
-    params:
-      score= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
-      testing=config["testing"]
-    conda:
-      "../envs/GenoPredPipe.yaml"
-    shell:
-      "Rscript ../Scripts/external_score_processor/external_score_processor.R \
-        --ref_plink_chr resources/data/ref/ref.chr \
-        --score {params.score} \
-        --output {outdir}/resources/data/ref/pgs_score_files/external/{wildcards.gwas}/ref-{wildcards.gwas} \
-        --pop_data resources/data/ref/ref.pop.txt \
-        --test {params.testing}"
+def check_score_path(w):
+  # Check if the path value is not NA
+  if not pd.isna(score_list_df.loc[score_list_df['name'] == w.gwas, 'path'].iloc[0]):
+      return [score_list_df.loc[score_list_df['name'] == w.gwas, 'path'].iloc[0]]
+  else:
+      return []
+      
+def check_score_list():
+  # Check if the path value is not NA
+  if 'score_list' in config and config["score_list"] != 'NA':
+      return [config['score_list']]
+  else:
+      return []
+
+def score_path(w):
+  # Check if the path value is not NA
+  if not pd.isna(score_list_df.loc[score_list_df['name'] == w.gwas, 'path'].iloc[0]):
+      return [score_list_df.loc[score_list_df['name'] == w.gwas, 'path'].iloc[0]]
+  else:
+      return [outdir + "/resources/data/score_files/" + w.gwas + "_hmPOS_GRCh37.txt.gz"]  
+
+rule download_pgs_external:
+  input:
+    check_score_list(),
+    rules.get_dependencies.output,
+    "../Scripts/functions/misc.R"
+  output:
+    touch("{outdir}/resources/data/target_checks/download_pgs_external.done")
+  params:
+    cat_score_ids= ' '.join(score_list_df['name'].astype(str)),
+  conda:
+    "../envs/analysis.yaml"
+  shell:
+    "mkdir -p {outdir}/resources/data/score_files; \
+    download_scorefiles -w -i {params.cat_score_ids} -o {outdir}/resources/data/score_files -b GRCh37"
+
+prep_pgs_external_input = list()
+if not score_list_catalogue_df.empty:
+  prep_pgs_external_input.append(rules.download_pgs_external.output)
+
+rule prep_pgs_external_i:
+  input:
+    check_score_list(),
+    rules.get_dependencies.output,
+    lambda w: check_score_path(w),
+    prep_pgs_external_input,
+    "../Scripts/functions/misc.R",
+    "../Scripts/external_score_processor/external_score_processor.R"
+  output:
+    touch("{outdir}/resources/data/target_checks/prep_pgs_external_i-{gwas}.done")
+  params:
+    score= lambda w: score_path(w),
+    testing=config["testing"]
+  conda:
+    "../envs/analysis.yaml"
+  shell:
+    "Rscript ../Scripts/external_score_processor/external_score_processor.R \
+      --ref_plink_chr resources/data/ref/ref.chr \
+      --score {params.score} \
+      --output {outdir}/resources/data/ref/pgs_score_files/external/{wildcards.gwas}/ref-{wildcards.gwas} \
+      --pop_data resources/data/ref/ref.pop.txt \
+      --test {params.testing}"
 
 rule prep_pgs_external:
-  input: expand("{outdir}/resources/data/ref/pgs_score_files/external/{gwas}/ref-{gwas}-EUR.scale", gwas=score_list_df['name'], outdir=outdir)
+  input: expand("{outdir}/resources/data/target_checks/prep_pgs_external_i-{gwas}.done", gwas=score_list_df['name'], outdir=outdir)
+
+print(check_score_list())
+
+# Create a file listing target samples and population assignments
+checkpoint score_reporter:
+  input:
+    expand("{outdir}/resources/data/target_checks/prep_pgs_external_i-{gwas}.done", gwas=score_list_df['name'], outdir=outdir),
+    "scripts/score_reporter.R"
+  output:
+    touch("{outdir}/resources/data/target_checks/score_reporter.done")
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    config_file = config["config_file"]
+  shell:
+    "Rscript scripts/score_reporter.R {params.config_file}"
 
 ##
 # Use a rule to check requested PGS methods have been run for all GWAS
