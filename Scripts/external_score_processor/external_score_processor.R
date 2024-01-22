@@ -23,7 +23,8 @@ opt = parse_args(OptionParser(option_list=option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 
 # Check required inputs
 if(is.null(opt$ref_plink_chr)){
@@ -76,7 +77,7 @@ if(pgsc_header){
 	} else {
 		target_build <- gsub('.*genome_build=', '', score_header[grepl('genome_build', score_header)])
 	}
-	
+
 	# Change from hg and ncbi notation to GRCh
 	if(tolower(target_build) == 'hg18' | tolower(target_build) == 'ncbi36') target_build <- 'GRCh36'
 	if(tolower(target_build) == 'hg19' | tolower(target_build) == 'ncbi37') target_build <- 'GRCh37'
@@ -129,7 +130,7 @@ if(chr_bp_avail){
 
 		# If the score file is sparse, try using a few chromosomes until the build can be distinguished
 		for(ref_chr in rev(sort(unique(targ$CHR)))){
-			target_build <-  
+			target_build <-
 				detect_build(ref = readRDS(file = paste0(ref_rds, ref_chr, '.rds')),
 											targ = targ[targ$CHR == ref_chr,])
 
@@ -250,17 +251,17 @@ if(nrow(targ_matched) < 0.75*n_snp_orig){
 	if(file.exists(paste0(opt$output,'.score.gz'))){
 		system(paste0('rm ',opt$output,'.score.gz'))
 	}
-	
+
 	system(paste0('gzip ',opt$output,'.score'))
 
 	####
 	# Calculate mean and sd of polygenic scores
 	####
 
-	log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
+	log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 	# Calculate scores in the full reference
-	ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+	ref_pgs <- plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 	# Calculate scale within each reference population
 	pop_data <- fread(opt$pop_data)

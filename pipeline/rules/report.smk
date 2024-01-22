@@ -12,23 +12,22 @@ else:
 
 rule sample_report_i:
   input:
-    'scripts/samp_report_creator.Rmd',
     output_all_input
   output:
-    touch('{outdir}/resources/data/target_checks/{name}/sample_report.done')
+    touch('{outdir}/reference/target_checks/{name}/sample_report.done')
   conda:
     "../envs/analysis.yaml"
   params:
     config_file = config["config_file"],
-    report_out= lambda w: outdir if outdir[0] == "/" else "../" + outdir
+    report_out= lambda w: outdir if outdir[0] == "/" else "../../pipeline/" + outdir
   shell:
     "mkdir -p {outdir}/{wildcards.name}/reports; \
-     Rscript -e \"rmarkdown::render(\'scripts/samp_report_creator.Rmd\', \
+     Rscript -e \"rmarkdown::render(\'../Scripts/pipeline_reports/samp_report_creator.Rmd\', \
      output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-report.html\', \
      params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\'))\""
 
 rule sample_report:
-  input: expand('{outdir}/resources/data/target_checks/{name}/sample_report.done', name=target_list_df_samp['name'], outdir=outdir)
+  input: expand('{outdir}/reference/target_checks/{name}/sample_report.done', name=target_list_df_samp['name'], outdir=outdir)
 
 #####
 # Create individual-level reports for each target sample
@@ -52,29 +51,28 @@ rule indiv_report_i:
   input:
     rules.install_ggchicklet.output,
     rules.prep_pgs_lassosum.input,
-    'scripts/indiv_report_creator.Rmd',
     output_all_input
   output:
-    touch('{outdir}/resources/data/target_checks/{name}/indiv_report-{id}-report.done')
+    touch('{outdir}/reference/target_checks/{name}/indiv_report-{id}-report.done')
   conda:
     "../envs/analysis.yaml"
   params:
     config_file = config["config_file"],
-    report_out= lambda w: outdir if outdir[0] == "/" else "../" + outdir
+    report_out= lambda w: outdir if outdir[0] == "/" else "../../pipeline/" + outdir
   shell:
     "mkdir -p {outdir}/{wildcards.name}/reports; \
-     Rscript -e \"rmarkdown::render(\'scripts/indiv_report_creator.Rmd\', \
+     Rscript -e \"rmarkdown::render(\'../Scripts/pipeline_reports/indiv_report_creator.Rmd\', \
      output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-{wildcards.id}-report.html\', \
      params = list(name = \'{wildcards.name}\', id = \'{wildcards.id}\', config = \'{params.config_file}\'))\""
 
 rule indiv_report_all_id:
   input:
-    lambda w: expand('{outdir}/resources/data/target_checks/{name}/indiv_report-{id}-report.done', name=w.name, id=id_munge(name="{}".format(w.name), outdir=w.outdir), outdir=w.outdir)
+    lambda w: expand('{outdir}/reference/target_checks/{name}/indiv_report-{id}-report.done', name=w.name, id=id_munge(name="{}".format(w.name), outdir=w.outdir), outdir=w.outdir)
   output:
-    touch('{outdir}/resources/data/target_checks/{name}/indiv_report_all_id.done')
+    touch('{outdir}/reference/target_checks/{name}/indiv_report_all_id.done')
 
 rule indiv_report:
-  input: expand('{outdir}/resources/data/target_checks/{name}/indiv_report_all_id.done', name= target_list_df_indiv_report['name'], outdir=outdir)
+  input: expand('{outdir}/reference/target_checks/{name}/indiv_report_all_id.done', name= target_list_df_indiv_report['name'], outdir=outdir)
 
 #####
 # Create a rule that checks all defaults outputs given certain outputs are present

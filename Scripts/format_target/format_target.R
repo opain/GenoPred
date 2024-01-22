@@ -24,7 +24,8 @@ opt = parse_args(OptionParser(option_list=option_list))
 library(GenoUtils)
 library(data.table)
 library(RSQLite)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 
 # Create output directory
 opt$out_dir<-paste0(dirname(opt$output),'/')

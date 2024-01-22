@@ -32,10 +32,9 @@ if 'target_list' in config:
     input:
       config['target_list'],
       config['config_file'],
-      rules.download_impute2_data.output,
-      "../Scripts/23andMe_imputer/23andMe_imputer.R"
+      rules.download_impute2_data.output
     output:
-      touch("{outdir}/resources/data/target_checks/{name}/impute_23andme-{chr}.done")
+      touch("{outdir}/reference/target_checks/{name}/impute_23andme-{chr}.done")
     conda:
       "../envs/analysis.yaml"
     params:
@@ -55,13 +54,13 @@ if 'target_list' in config:
 
   rule impute_23andme_all_chr:
     input:
-      lambda w: expand("{outdir}/resources/data/target_checks/{name}/impute_23andme-{chr}.done", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
+      lambda w: expand("{outdir}/reference/target_checks/{name}/impute_23andme-{chr}.done", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
     output:
-      touch("{outdir}/resources/data/target_checks/{name}/impute_23andme_all_chr.done")
+      touch("{outdir}/reference/target_checks/{name}/impute_23andme_all_chr.done")
 
   rule impute_23andme:
     input:
-      lambda w: expand("{outdir}/resources/data/target_checks/{name}/impute_23andme_all_chr.done", name=target_list_df_23andMe['name'], outdir=outdir)
+      lambda w: expand("{outdir}/reference/target_checks/{name}/impute_23andme_all_chr.done", name=target_list_df_23andMe['name'], outdir=outdir)
 
 ##
 # Convert to PLINK and harmonise with reference
@@ -71,7 +70,7 @@ def format_target_input(outdir, name):
     inputs = []
     filtered_df = target_list_df.loc[target_list_df['name'] == name, 'type']
     if filtered_df.iloc[0] == '23andMe':
-        inputs.append(f"{outdir}/resources/data/target_checks/{name}/impute_23andme_all_chr.done")
+        inputs.append(f"{outdir}/reference/target_checks/{name}/impute_23andme_all_chr.done")
     return inputs
 
 def target_path(outdir, name):
@@ -93,8 +92,7 @@ if 'target_list' in config:
       lambda w: format_target_input(outdir = w.outdir, name = w.name),
       config['target_list'],
       config['config_file'],
-      rules.get_dependencies.output,
-      "../Scripts/format_target/format_target.R"
+      rules.get_dependencies.output
     output:
       "{outdir}/{name}/geno/{name}.ref.chr{chr}.bed"
     conda:
@@ -121,11 +119,11 @@ rule format_target_all_chr:
   input:
     lambda w: expand("{outdir}/{name}/geno/{name}.ref.chr{chr}.bed", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/format_target_all_chr.done")
+    touch("{outdir}/reference/target_checks/{name}/format_target_all_chr.done")
 
 rule format_target:
   input:
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/format_target_all_name.done", name=target_list_df['name'], outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/format_target_all_name.done", name=target_list_df['name'], outdir=outdir)
 
 ####
 # Ancestry inference
@@ -133,10 +131,9 @@ rule format_target:
 
 rule ancestry_inference_i:
   input:
-    "{outdir}/resources/data/target_checks/{name}/format_target_all_chr.done",
-    "../Scripts/Ancestry_identifier/Ancestry_identifier.R"
+    "{outdir}/reference/target_checks/{name}/format_target_all_chr.done"
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done")
+    touch("{outdir}/reference/target_checks/{name}/ancestry_inference.done")
   conda:
     "../envs/analysis.yaml"
   params:
@@ -150,22 +147,21 @@ rule ancestry_inference_i:
       --test {params.testing}"
 
 rule ancestry_inference:
-  input: expand("{outdir}/resources/data/target_checks/{name}/ancestry_inference.done", name=target_list_df['name'], outdir=outdir)
+  input: expand("{outdir}/reference/target_checks/{name}/ancestry_inference.done", name=target_list_df['name'], outdir=outdir)
 
 # Create a file listing target samples and population assignments
 checkpoint ancestry_reporter:
   input:
-    "{outdir}/resources/data/target_checks/{name}/ancestry_inference.done",
-    "scripts/ancestry_reporter.R"
+    "{outdir}/reference/target_checks/{name}/ancestry_inference.done",
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done")
+    touch("{outdir}/reference/target_checks/{name}/ancestry_reporter.done")
   conda:
     "../envs/analysis.yaml"
   shell:
-    "Rscript scripts/ancestry_reporter.R {wildcards.name} {outdir}"
+    "Rscript ../Scripts/pipeline_misc/ancestry_reporter.R {wildcards.name} {outdir}"
 
 rule run_ancestry_reporter:
-  input: expand("{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done", name=target_list_df['name'], outdir=outdir)
+  input: expand("{outdir}/reference/target_checks/{name}/ancestry_reporter.done", name=target_list_df['name'], outdir=outdir)
 
 ####
 # Population outlier detection and target sample specific PC calculation
@@ -175,10 +171,9 @@ rule outlier_detection_i:
   resources:
     mem_mb=15000
   input:
-    "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",
-    "../Scripts/outlier_detection/outlier_detection.R"
+    "{outdir}/reference/target_checks/{name}/ancestry_reporter.done"
   output:
-    touch('{outdir}/resources/data/target_checks/{name}/outlier_detection.done')
+    touch('{outdir}/reference/target_checks/{name}/outlier_detection.done')
   conda:
     "../envs/analysis.yaml"
   params:
@@ -192,4 +187,4 @@ rule outlier_detection_i:
 
 rule outlier_detection:
   input:
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/outlier_detection.done", name=target_list_df_samp['name'], outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/outlier_detection.done", name=target_list_df_samp['name'], outdir=outdir)

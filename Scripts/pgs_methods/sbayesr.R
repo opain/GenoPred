@@ -39,7 +39,8 @@ opt = parse_args(OptionParser(option_list = option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 library(foreach)
 library(doMC)
 registerDoMC(opt$n_cores)
@@ -103,7 +104,7 @@ names(gwas) <- c('SNP','A1','A2','freq','b','se','p','N')
 if(length(unique(gwas$N)) == 1){
   per_var_N <- F
   log_add(log_file = log_file, message = 'Per variant N is not present.')
-  
+
   if(opt$impute_N == T){
     log_add(log_file = log_file, message = 'Per variant N will be imputed.')
   }
@@ -142,7 +143,7 @@ if(per_var_N == F & opt$impute_N == T){
 
 error<-foreach(i = CHROMS, .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
   log <- system(paste0(opt$gctb, ' --sbayes R --ldm ', opt$ld_matrix_chr, i, '.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ', tmp_dir, '/GWAS_sumstats_COJO.txt --chain-length 10000 ', sbayesr_opt, '--exclude-mhc --burn-in 2000 --impute-n --out-freq 1000 --out ', tmp_dir, '/GWAS_sumstats_SBayesR.chr', i),  intern = T)
-  
+
   # Check whether the analysis converged
   if(any(grepl("Analysis finished", log))){
     if(any(grepl("MCMC cycles completed", log))){
@@ -201,13 +202,13 @@ for(par in names(parRes_mcmc[[i]])){
 	for(i in CHROMS){
 		parRes_mcmc_par <- cbind(parRes_mcmc_par, parRes_mcmc[[i]][[par]])
 	}
-	
+
 	parRes_mcmc_par_sum <- rowSums(parRes_mcmc_par)
-	
+
 	parRes_par <- data.frame( Par = par,
                             Mean = mean(parRes_mcmc_par_sum),
                             SD = sd(parRes_mcmc_par_sum))
-							
+
 	parRes <- rbind(parRes, parRes_par)
 }
 
@@ -218,10 +219,10 @@ log_add(log_file = log_file, message = paste0('SNP-heritability estimate is ',pa
 # Calculate mean and sd of polygenic scores
 ####
 
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
+log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 # Calculate scale within each reference population
 pop_data <- fread(opt$pop_data)
