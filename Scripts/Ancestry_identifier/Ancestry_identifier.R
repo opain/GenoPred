@@ -27,15 +27,15 @@ make_option("--plink2", action="store", default='plink2', type='character',
 make_option("--output", action="store", default=NULL, type='character',
 		help="Path for output files [required]"),
 make_option("--pop_data", action="store", default=NULL, type='character',
-    help="Population data for the reference samples [required]"),    
+    help="Population data for the reference samples [required]"),
 make_option("--model_method", action="store", default='glmnet', type='character',
-    help="Method used for generate prediction model [optional]"),    
+    help="Method used for generate prediction model [optional]"),
 make_option("--sd_rule", action="store", default=F, type='logical',
-    help="Logical indicating whether the 3SD rule should be used to define ancestry, or the model-based approach [optional]"),    
+    help="Logical indicating whether the 3SD rule should be used to define ancestry, or the model-based approach [optional]"),
 make_option("--prob_thresh", action="store", default=0.95, type='numeric',
     help="Indicates whether probability threshold should be used when defining ancestry [optional]"),
 make_option("--test", action="store", default=NA, type='character',
-    help="Specify test mode [optional]"),    
+    help="Specify test mode [optional]"),
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]")
 )
@@ -44,7 +44,8 @@ opt = parse_args(OptionParser(option_list=option_list))
 
 # Load dependencies
 library(GenoUtils)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 library(data.table)
 library(caret)
 library(pROC)
@@ -134,7 +135,7 @@ if(nrow(fam) > 100){
   target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 } else {
   target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno)
-  log_add(log_file = log_file, message = 'Target sample size is <100 so only checking genotype missingness.')  
+  log_add(log_file = log_file, message = 'Target sample size is <100 so only checking genotype missingness.')
 }
 
 ###########
@@ -169,31 +170,31 @@ flip <- detect_strand_flip(target_ref$IUPAC.x, target_ref$IUPAC.y)
 flip_snplist<-NULL
 if(sum(flip) > 0){
   flip_snplist<-target_ref$SNP.y[flip]
-  log_add(log_file = log_file, message = paste0(sum(flip), 'variants will be flipped.'))  
+  log_add(log_file = log_file, message = paste0(sum(flip), 'variants will be flipped.'))
 }
 
 # Remove variants where IUPAC codes do not match (allowing for strand flips)
 matched <- which((target_ref$IUPAC.x == target_ref$IUPAC.y) | flip)
 target_ref<-target_ref[matched,]
 
-log_add(log_file = log_file, message = paste0(nrow(target_ref),' variants match between target and reference after QC.'))  
+log_add(log_file = log_file, message = paste0(nrow(target_ref),' variants match between target and reference after QC.'))
 
 ###########
 # Identify list of LD independent SNPs
 ###########
 
-log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on reference data.')  
+log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on reference data.')
 
 # Subset ref_bim to contain QC'd variants
 ref_bim<-ref_bim[ref_bim$SNP %in% target_ref$SNP,]
 
 # Remove regions of high LD
 ref_bim <- remove_regions(bim = ref_bim, regions = long_ld_coord)
-log_add(log_file = log_file, message = paste0(nrow(ref_bim),' variants after removal of LD high regions.'))  
+log_add(log_file = log_file, message = paste0(nrow(ref_bim),' variants after removal of LD high regions.'))
 
 # Perform LD pruning
 ld_indep <- plink_prune(bfile = opt$ref_plink_chr_subset, plink = opt$plink, extract = ref_bim$SNP)
-log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))  
+log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))
 
 ###########
 # Perform PCA based on reference
@@ -208,10 +209,10 @@ fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F,
 # Calculate PCs in the reference sample for scaling the target sample factor scores.
 ###
 
-log_add(log_file = log_file, message = 'Computing reference PCs.')  
+log_add(log_file = log_file, message = 'Computing reference PCs.')
 
 # Calculate PCs in the reference
-ref_pcs<-calc_score(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+ref_pcs<-plink_score(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 
 # Scale across all individuals
 ref_pcs_centre_scale <- score_mean_sd(scores = ref_pcs)
@@ -220,7 +221,7 @@ ref_pcs_centre_scale <- score_mean_sd(scores = ref_pcs)
 # Create model predicting reference populations
 ###
 
-log_add(log_file = log_file, message = 'Deriving model predicting ref_pop groups.')  
+log_add(log_file = log_file, message = 'Deriving model predicting ref_pop groups.')
 pop_data<-fread(opt$pop_data)
 
 # Scale the reference PCs
@@ -236,31 +237,31 @@ saveRDS(model$finalModel, paste0(opt$output,'.model.rds'))
 # Calculate PCs in target sample
 #####
 
-log_add(log_file = log_file, message = 'Calculating PCs in the target sample.')  
-targ_pcs<-calc_score(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+log_add(log_file = log_file, message = 'Calculating PCs in the target sample.')
+targ_pcs<-plink_score(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 targ_pcs_scaled<-score_scale(score = targ_pcs, ref_scale = ref_pcs_centre_scale)
 
 ###
 # Create plot PC scores of target sample compared to the reference
 ###
 
-log_add(log_file = log_file, message = 'Plotting target sample PCs on reference.')  
+log_add(log_file = log_file, message = 'Plotting target sample PCs on reference.')
 
 # Combine ref and targ PCs
 targ_pcs_scaled$POP<-'Target'
 ref_pcs_targ_pcs<-rbind(ref_pcs_scaled_pop,targ_pcs_scaled)
 
-PC_1_2<-ggplot(ref_pcs_targ_pcs[ref_pcs_targ_pcs$POP != 'Target',], aes(x=PC1,y=PC2, colour=POP)) + 
-  geom_point() + 
-	geom_point(data=ref_pcs_targ_pcs[ref_pcs_targ_pcs$POP == 'Target',], aes(x=PC1,y=PC2), colour='black', shape=21) + 
+PC_1_2<-ggplot(ref_pcs_targ_pcs[ref_pcs_targ_pcs$POP != 'Target',], aes(x=PC1,y=PC2, colour=POP)) +
+  geom_point() +
+	geom_point(data=ref_pcs_targ_pcs[ref_pcs_targ_pcs$POP == 'Target',], aes(x=PC1,y=PC2), colour='black', shape=21) +
 	labs(title = "PCs 1 and 2", colour="") +
   theme_half_open() +
   background_grid() +
   theme(plot.title = element_text(hjust = 0.5))
 
-PC_3_4<-ggplot(ref_pcs_targ_pcs[ref_pcs_targ_pcs$POP != 'Target',], aes(x=PC3,y=PC4, colour=POP)) + 
-  geom_point() + 
-	geom_point(data=ref_pcs_targ_pcs[ref_pcs_targ_pcs$POP == 'Target',], aes(x=PC3,y=PC4), colour='black', shape=21) + 
+PC_3_4<-ggplot(ref_pcs_targ_pcs[ref_pcs_targ_pcs$POP != 'Target',], aes(x=PC3,y=PC4, colour=POP)) +
+  geom_point() +
+	geom_point(data=ref_pcs_targ_pcs[ref_pcs_targ_pcs$POP == 'Target',], aes(x=PC3,y=PC4), colour='black', shape=21) +
 	labs(title = "PCs 3 and 4", colour="") +
   theme_half_open() +
   background_grid() +
@@ -274,7 +275,7 @@ dev.off()
 # Estimate probability of outcomes in model
 ###
 
-log_add(log_file = log_file, message = 'Inferring population membership in target.')  
+log_add(log_file = log_file, message = 'Inferring population membership in target.')
 
 # Read in model
 pop_model_pred<-predict(object = model$finalModel, newx = data.matrix(targ_pcs_scaled[, grepl('PC',names(targ_pcs_scaled)), with=F]), type = "response", s=model$finalModel$lambdaOpt)
@@ -283,7 +284,7 @@ pop_model_pred<-data.table(	FID=targ_pcs_scaled$FID,
 														IID=targ_pcs_scaled$IID,
 														pop=as.character(pop_model_pred$Var2),
 														prob=round(pop_model_pred$Freq,3))
-		
+
 pop_model_pred<-dcast.data.table(pop_model_pred, formula=FID + IID~pop, value.var = "prob")
 
 fwrite(pop_model_pred, paste0(opt$output,'.model_pred'), sep='\t')
@@ -327,7 +328,7 @@ if(opt$sd_rule){
     targ_pcs_scaled_i<-targ_pcs_scaled_i[!apply(targ_pcs_scaled_i[,-1:-2], 1, function(x) any(x > 3 | x < -3)),]
 
     N_group<-rbind(N_group, data.frame(Group=pop_i, N=nrow(targ_pcs_scaled_i)))
-    
+
     # Save keep file of individuals that fit the population
     fwrite(targ_pcs_scaled_i[,1:2], paste0(opt$out_dir,'/keep_files/sd_based/',pop_i,'.keep'), col.names=F, sep='\t')
   }
@@ -337,7 +338,7 @@ if(opt$sd_rule){
   cat('N per group based on SD rule:\n')
   print.data.frame(N_group, row.names = FALSE, quote = FALSE, right = FALSE)
   cat('----------\n')
-  sink() 
+  sink()
 }
 
 end.time <- Sys.time()

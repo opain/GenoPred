@@ -28,15 +28,11 @@ option_list = list(
 
 opt = parse_args(OptionParser(option_list=option_list))
 
-opt$target_plink_chr<-'/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test1/opensnp/geno/opensnp.ref.chr'
-opt$keep_list<-'/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test1/opensnp/ancestry/keep_list.txt'
-opt$test<-NA
-opt$output<-'/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test1/opensnp/pcs/within_sample/opensnp.outlier_detection'
-
 # Load dependencies
 library(GenoUtils)
 library(data.table)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 library(ggplot2)
 library(cowplot)
 library(NbClust)
@@ -106,7 +102,7 @@ log_add(log_file = log_file, message = 'Excluding long range LD regions.')
 targ_bim <- read_bim(dat = opt$target_plink_chr, chr = CHROMS)
 targ_bim <- remove_regions(bim = targ_bim, regions = long_ld_coord)
 
-log_add(log_file = log_file, message = paste0(nrow(targ_bim),' variants after removal of LD high regions.'))  
+log_add(log_file = log_file, message = paste0(nrow(targ_bim),' variants after removal of LD high regions.'))
 
 ########
 # Within ancestry QC
@@ -123,7 +119,7 @@ for(pop in keep_list$POP){
   # Read in keep file for population
   keep_file <- fread(keep_list$file[keep_list$POP == pop])
   if(nrow(keep_file) < 100){
-    log_add(log_file = log_file, message = c('Skipped due to insufficient sample size.', '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'))    
+    log_add(log_file = log_file, message = c('Skipped due to insufficient sample size.', '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'))
     next
   }
 
@@ -133,7 +129,7 @@ for(pop in keep_list$POP){
 
   # Create QC'd SNP-list
   target_qc_snplist <- plink_qc_snplist(bfile = opt$target_plink_chr, keep = keep_file, maf = opt$maf, geno = opt$geno, hwe = opt$hwe)
-  
+
   # Remove high LD regions
   target_qc_snplist <- target_qc_snplist[target_qc_snplist %in% targ_bim$SNP]
 
@@ -151,7 +147,7 @@ for(pop in keep_list$POP){
   fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
 
   # Project into the full population
-  target_pcs <- calc_score(bfile = opt$target_plink_chr, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+  target_pcs <- plink_score(bfile = opt$target_plink_chr, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 
   # Create plot PC scores of target sample
   pairs_plot <- ggpairs(target_pcs[,-1:-2])
@@ -163,7 +159,7 @@ for(pop in keep_list$POP){
   ###
   # Identify outliers
   ###
-  
+
   log_add(log_file = log_file, message = 'Defining number of centroids')
 
   png(paste0(opt$output, '.', pop, '.NbClust.png'), units = 'px', res = 300, width = 3000, height = 2000)
@@ -171,31 +167,31 @@ for(pop in keep_list$POP){
     target_pcs_subset <- merge(target_pcs, keep_file_subset, by.x = c('FID','IID'), by.y = c('V1','V2'))
     n_clust_sol <- NbClust(data = target_pcs_subset[,-1:-2], distance = "euclidean", min.nc = 2, max.nc = 10, method = 'kmeans', index='all')
   dev.off()
-  
+
   n_clust_opt<-length(unique(n_clust_sol$Best.partition))
-  
+
   log_add(log_file = log_file, message = paste0(n_clust_opt, ' centroids was found to fit best.'))
-  
+
   # Identify centroids using kmeans and calculate distance from them
   k_res <- kmeans(target_pcs[-1:-2], n_clust_opt)
   k_res$centers<-data.frame(k_res$centers)
-  
+
   target_pcs_distance<-list()
   for(centroid_n in 1:n_clust_opt){
     target_pcs_distance[[centroid_n]] <- data.frame(target_pcs[, c('FID', 'IID'), with = F])
     for(pc_n in 1:opt$n_pcs){
       # Subtract the mean of centroid from PC
       target_pcs_distance[[centroid_n]][paste0('PC',pc_n)]<-k_res$centers[[paste0('PC',pc_n)]][centroid_n]-target_pcs[[paste0('PC',pc_n)]]
-      
+
       # square the value (to make all positive)
       target_pcs_distance[[centroid_n]][paste0('PC',pc_n)]<-target_pcs_distance[[centroid_n]][paste0('PC',pc_n)]^2
-      
+
       # Divide by the variance of the PC
       target_pcs_distance[[centroid_n]][paste0('PC',pc_n)]<-target_pcs_distance[[centroid_n]][paste0('PC',pc_n)]/var(target_pcs[[paste0('PC',pc_n)]])
-      
+
       # Scale the distance from centroids
       target_pcs_distance[[centroid_n]][paste0('PC',pc_n)]<-target_pcs_distance[[centroid_n]][paste0('PC',pc_n)]/var(target_pcs[[paste0('PC',pc_n)]])
-      
+
     }
   }
 
@@ -207,20 +203,20 @@ for(pop in keep_list$POP){
       }
     }
   dev.off()
-  
+
   # Remove outliers using a cut off defined as Q3+30*IQR
   outliers<-NULL
   for(centroid_n in 1:n_clust_opt){
     for(pc_n in 1:opt$n_pcs){
-      
+
       Q <- quantile(target_pcs_distance[[centroid_n]][[paste0('PC',pc_n)]], probs=c(.75), na.rm = FALSE)
       IQR <- IQR(target_pcs_distance[[centroid_n]][[paste0('PC',pc_n)]])
-      
+
       outliers<-c(outliers,which(target_pcs_distance[[centroid_n]][[paste0('PC',pc_n)]] > Q+30*IQR))
     }
   }
   outliers<-unique(outliers)
-  
+
   target_pcs_distance_no_outliers<-target_pcs_distance
   for(centroid_n in 1:n_clust_opt){
     for(pc_n in 1:opt$n_pcs){
@@ -228,7 +224,7 @@ for(pop in keep_list$POP){
     }
     target_pcs_distance_no_outliers[[centroid_n]]<-target_pcs_distance_no_outliers[[centroid_n]][complete.cases(target_pcs_distance_no_outliers[[centroid_n]]),]
   }
-  
+
   # Plot centroid distance afte removing outliers
   pdf(paste0(opt$output, '.', pop, '.centroid_distance_noOutlier_plot.pdf'))
     for(centroid_n in 1:n_clust_opt){
@@ -243,7 +239,7 @@ for(pop in keep_list$POP){
   ###
 
   target_pcs_noOutliers<-target_pcs[-outliers,]
-  
+
   pairs_plot<-ggpairs(target_pcs_noOutliers[,-1:-2])
 
   png(paste0(opt$output,'.',pop,'.pc_noOutlier_plot.png'), units='px', res=300, width=6000, height=6000)
@@ -251,11 +247,11 @@ for(pop in keep_list$POP){
   dev.off()
 
   log_add(log_file = log_file, message = paste0(nrow(target_pcs_noOutliers),' out of ', nrow(target_pcs),' remain.'))
-  
+
   ###
   # Save PCs, distances and keep file for each population
   ###
-  
+
   write.table(target_pcs_noOutliers[,c('FID', 'IID')], paste0(opt$output, '.', pop, '.keep'), col.names = F, row.names = F, quote = F)
   write.table(target_pcs, paste0(opt$output, '.', pop, '.PCs.txt'), col.names = T, row.names = F, quote = F)
   saveRDS(target_pcs_distance, file = paste0(opt$output, '.', pop, '.centroid_distance.RDS'))

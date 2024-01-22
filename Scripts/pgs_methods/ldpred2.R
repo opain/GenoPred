@@ -31,7 +31,8 @@ opt = parse_args(OptionParser(option_list = option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 library(bigsnpr)
 library(ggplot2)
 
@@ -120,7 +121,7 @@ png(paste0(opt$output_dir,'/LDpred2_sd_qc.png'), res=300, unit='px',height=2000,
         color = "Removed?")
   print(plot_obj)
 dev.off()
-  
+
 sumstats<-info_snp[!is_bad, ]
 
 log_add(log_file = log_file, message = paste0('Sumstats contains ', nrow(sumstats),' after additional genotype SD check.'))
@@ -140,14 +141,14 @@ if(!is.na(opt$test) & ldsc[["h2"]] < 0.05){
 log_add(log_file = log_file, message = 'Creating genome-wide sparse matrix.')
 
 # Create genome-wide sparse LD matrix
-for (chr in CHROMS) {  
+for (chr in CHROMS) {
   ## indices in 'sumstats'
   ind.chr <- which(sumstats$chr == chr)
   ## indices in 'map'
   ind.chr2 <- sumstats$`_NUM_ID_`[ind.chr]
   ## indices in 'corr_chr'
   ind.chr3 <- match(ind.chr2, which(map$chr == chr))
-  
+
   corr0 <- readRDS(paste0(opt$ldpred2_ref_dir, '/LD_with_blocks_chr', chr, '.rds'))[ind.chr3, ind.chr3]
 
   if (chr == CHROMS[1]) {
@@ -244,10 +245,10 @@ if(!is.na(opt$test)){
 # Calculate mean and sd of polygenic scores
 ####
 
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
+log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 # Calculate scale within each reference population
 pop_data <- fread(opt$pop_data)

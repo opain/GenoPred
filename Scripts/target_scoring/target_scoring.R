@@ -33,7 +33,8 @@ opt = parse_args(OptionParser(option_list=option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 
 # Check required inputs
 if(is.null(opt$target_plink_chr)){
@@ -78,14 +79,14 @@ if(!is.na(opt$test)){
 # Perform polygenic risk scoring
 #####
 
-log_add(log_file = log_file, message = 'Calculating polygenic scores in the target sample.')  
-scores<-calc_score(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = opt$ref_score, keep = opt$target_keep, frq = opt$ref_freq_chr)
+log_add(log_file = log_file, message = 'Calculating polygenic scores in the target sample.')
+scores<-plink_score(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = opt$ref_score, keep = opt$target_keep, frq = opt$ref_freq_chr)
 
 ###
 # Scale the polygenic scores based on the reference
 ###
 
-log_add(log_file = log_file, message = 'Scaling target polygenic scores to the reference.')  
+log_add(log_file = log_file, message = 'Scaling target polygenic scores to the reference.')
 ref_scale<-fread(opt$ref_scale)
 scores_scaled<-score_scale(score=scores, ref_scale=ref_scale)
 
@@ -98,7 +99,7 @@ if(!is.null(opt$pheno_name)){
 }
 
 fwrite(scores_scaled, paste0(opt$output,'.profiles'), sep=' ', na='NA', quote=F)
-log_add(log_file = log_file, message = paste0('Saved polygenic scores to: ',opt$output,'.profiles.'))  
+log_add(log_file = log_file, message = paste0('Saved polygenic scores to: ',opt$output,'.profiles.'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

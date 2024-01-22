@@ -23,7 +23,7 @@ make_option("--plink2", action="store", default='plink2', type='character',
 make_option("--output", action="store", default=NULL, type='character',
 		help="Path for output files [required]"),
 make_option("--pop_data", action="store", default=NULL, type='character',
-    help="Population data for the reference samples [required]"),    
+    help="Population data for the reference samples [required]"),
 make_option("--memory", action="store", default=5000, type='numeric',
 		help="Memory limit [optional]"),
   make_option("--test", action="store", default=NA, type='character',
@@ -35,7 +35,8 @@ opt = parse_args(OptionParser(option_list=option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 
 # Check required inputs
 if(is.null(opt$pop_data)){
@@ -88,7 +89,7 @@ ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, chr = CHROMS,
 # Identify list of LD independent SNPs
 ###########
 
-log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on reference data.')  
+log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on reference data.')
 
 # read in reference bim file
 ref_bim<-read_bim(opt$ref_plink_chr_subset, chr = CHROMS)
@@ -98,11 +99,11 @@ ref_bim<-ref_bim[ref_bim$SNP %in% ref_qc_snplist,]
 
 # Remove regions of high LD
 ref_bim <- remove_regions(bim = ref_bim, regions = long_ld_coord)
-log_add(log_file = log_file, message = paste0(nrow(ref_bim),' variants after removal of LD high regions.'))  
+log_add(log_file = log_file, message = paste0(nrow(ref_bim),' variants after removal of LD high regions.'))
 
 # Perform LD pruning
 ld_indep <- plink_prune(bfile = opt$ref_plink_chr, chr = CHROMS, plink = opt$plink, extract = ref_bim$SNP)
-log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))  
+log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))
 
 ###########
 # Perform PCA based on reference
@@ -123,10 +124,10 @@ system(paste0('gzip ',opt$output,'.eigenvec.var'))
 # Calculate PCs in the reference sample for scaling the target sample factor scores.
 ###
 
-log_add(log_file = log_file, message = 'Computing reference PCs.')  
+log_add(log_file = log_file, message = 'Computing reference PCs.')
 
 # Calculate PCs in the full reference
-ref_pcs<-calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
+ref_pcs<-plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
 
 # Calculate scale within each reference population
 pop_data<-fread(opt$pop_data)

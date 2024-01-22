@@ -8,7 +8,7 @@ def ancestry_munge(x):
 # Create a function summarising which score files matched sufficiently with reference
 def score_munge(outdir):
     checkpoint_output = checkpoints.score_reporter.get(outdir = outdir).output[0]
-    checkpoint_output = outdir + "/resources/data/ref/pgs_score_files/external/score_report.txt"
+    checkpoint_output = outdir + "/reference/pgs_score_files/external/score_report.txt"
     score_report_df = pd.read_table(checkpoint_output, sep=' ')
     score_report_df = score_report_df[(score_report_df['pass'].isin(['T', 'TRUE', True]))]
     return score_report_df['name'].tolist()
@@ -19,11 +19,10 @@ def score_munge(outdir):
 
 rule pc_projection_i:
   input:
-    "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",
-    rules.ref_pca.input,
-    "../Scripts/target_scoring/target_scoring.R"
+    "{outdir}/reference/target_checks/{name}/ancestry_reporter.done",
+    rules.ref_pca.input
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/pc_projection-{population}.done")
+    touch("{outdir}/reference/target_checks/{name}/pc_projection-{population}.done")
   conda:
     "../envs/analysis.yaml"
   shell:
@@ -38,13 +37,13 @@ rule pc_projection_i:
 
 rule pc_projection_all_pop:
   input:
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/pc_projection-{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/pc_projection-{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), outdir=outdir)
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/pc_projection_all_pop.done")
+    touch("{outdir}/reference/target_checks/{name}/pc_projection_all_pop.done")
 
 rule pc_projection:
   input:
-    expand("{outdir}/resources/data/target_checks/{name}/pc_projection_all_pop.done", name=target_list_df['name'], outdir=outdir)
+    expand("{outdir}/reference/target_checks/{name}/pc_projection_all_pop.done", name=target_list_df['name'], outdir=outdir)
 
 ####
 # Polygenic scoring
@@ -53,18 +52,16 @@ rule pc_projection:
 def check_pgs(w):
   # Check if the path value is not NA
   if w.method == 'external':
-      return ["{outdir}/resources/data/target_checks/prep_pgs_external_i-{gwas}.done"]
+      return ["{outdir}/reference/target_checks/prep_pgs_external_i-{gwas}.done"]
   else:
-      return ["{outdir}/resources/data/ref/pgs_score_files/{method}/{gwas}/ref-{gwas}-EUR.scale"]
-      
+      return ["{outdir}/reference/pgs_score_files/{method}/{gwas}/ref-{gwas}-EUR.scale"]
+
 rule target_pgs_i:
   input:
-    "{outdir}/resources/data/target_checks/{name}/ancestry_reporter.done",
-    lambda w: check_pgs(w),
-    "../Scripts/target_scoring/target_scoring.R",
-    "../Scripts/functions/misc.R"
+    "{outdir}/reference/target_checks/{name}/ancestry_reporter.done",
+    lambda w: check_pgs(w)
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done")
+    touch("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done")
   conda:
     "../envs/analysis.yaml"
   params:
@@ -73,8 +70,8 @@ rule target_pgs_i:
     "Rscript ../Scripts/target_scoring/target_scoring.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --target_keep {outdir}/{wildcards.name}/ancestry/keep_files/model_based/{wildcards.population}.keep \
-      --ref_score {outdir}/resources/data/ref/pgs_score_files/{wildcards.method}/{wildcards.gwas}/ref-{wildcards.gwas}.score.gz \
-      --ref_scale {outdir}/resources/data/ref/pgs_score_files/{wildcards.method}/{wildcards.gwas}/ref-{wildcards.gwas}-{wildcards.population}.scale \
+      --ref_score {outdir}/reference/pgs_score_files/{wildcards.method}/{wildcards.gwas}/ref-{wildcards.gwas}.score.gz \
+      --ref_scale {outdir}/reference/pgs_score_files/{wildcards.method}/{wildcards.gwas}/ref-{wildcards.gwas}-{wildcards.population}.scale \
       --ref_freq_chr resources/data/ref/freq_files/{wildcards.population}/ref.{wildcards.population}.chr \
       --plink2 plink2 \
       --pheno_name {wildcards.gwas} \
@@ -83,22 +80,22 @@ rule target_pgs_i:
 
 rule target_pgs_all_gwas:
   input:
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done", name=w.name, gwas=score_munge(outdir = outdir) if w.method == 'external' else (gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs'] else gwas_list_df_eur['name']), population=w.population, method=w.method, outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done", name=w.name, gwas=score_munge(outdir = outdir) if w.method == 'external' else (gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs'] else gwas_list_df_eur['name']), population=w.population, method=w.method, outdir=outdir)
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}-{population}.done")
+    touch("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}.done")
 
 rule target_pgs_all_pop:
   input:
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}-{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), method=w.method, outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), method=w.method, outdir=outdir)
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}.done")
+    touch("{outdir}/reference/target_checks/{name}/target_pgs-{method}.done")
 
 rule target_pgs_all_method:
   input:
-    lambda w: expand("{outdir}/resources/data/target_checks/{name}/target_pgs-{method}.done", method=pgs_methods, name=w.name, outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}.done", method=pgs_methods, name=w.name, outdir=outdir)
   output:
-    touch("{outdir}/resources/data/target_checks/{name}/target_pgs.done")
+    touch("{outdir}/reference/target_checks/{name}/target_pgs.done")
 
 rule target_pgs:
   input:
-    expand("{outdir}/resources/data/target_checks/{name}/target_pgs.done", name=target_list_df['name'], outdir=outdir)
+    expand("{outdir}/reference/target_checks/{name}/target_pgs.done", name=target_list_df['name'], outdir=outdir)

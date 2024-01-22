@@ -35,7 +35,8 @@ opt = parse_args(OptionParser(option_list = option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
-source('../Scripts/functions/misc.R')
+source('../functions/misc.R')
+source_all('../functions')
 library(foreach)
 library(doMC)
 registerDoMC(opt$n_cores)
@@ -127,7 +128,7 @@ log <- foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(presche
 
 
 ####
-# Combine score files 
+# Combine score files
 ####
 
 score_all<-NULL
@@ -164,10 +165,10 @@ if(!is.na(opt$test)){
 # Calculate mean and sd of polygenic scores
 ####
 
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')  
+log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- calc_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 # Calculate scale within each reference population
 pop_data <- fread(opt$pop_data)
