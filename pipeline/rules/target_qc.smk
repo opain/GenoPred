@@ -5,7 +5,7 @@
 if 'target_list' in config:
   target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
   target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
-  samp_types = ['plink1', 'bgen', 'vcf']
+  samp_types = ['plink1', 'plink2', 'bgen', 'vcf']
   target_list_df_samp = target_list_df[target_list_df['type'].isin(samp_types)]
   target_list_df_indiv_report = target_list_df.loc[(target_list_df['indiv_report'].isin(['T', 'TRUE', True]))]
 else:
@@ -17,6 +17,9 @@ else:
 ####
 # Format target data
 ####
+
+# Check specific target paths exist
+check_target_paths(df = target_list_df, chr = str(get_chr_range(config['testing'])[0]))
 
 ##
 # 23andMe
@@ -30,14 +33,14 @@ if 'target_list' in config:
       cpus=config.get("ncores", 10),
       time_min=800
     input:
-      config['target_list'],
-      config['config_file'],
+      lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
       rules.download_impute2_data.output
     output:
-      touch("{outdir}/reference/target_checks/{name}/impute_23andme-{chr}.done")
+      "{outdir}/{name}/geno/imputed/{name}.chr{chr}.bed"
     conda:
       "../envs/analysis.yaml"
     params:
+      config_file = config["config_file"],
       name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
       path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
     shell:
@@ -48,13 +51,11 @@ if 'target_list' in config:
         --output {outdir}/{params.name}/geno/imputed/{params.name}.chr{wildcards.chr} \
         --chr {wildcards.chr} \
         --ref resources/data/impute2/1000GP_Phase3 \
-        --shapeit shapeit \
-        --impute2 impute2 \
         --n_core {resources.cpus}"
 
   rule impute_23andme_all_chr:
     input:
-      lambda w: expand("{outdir}/reference/target_checks/{name}/impute_23andme-{chr}.done", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
+      lambda w: expand("{outdir}/{name}/geno/imputed/{name}.chr{chr}.bed", name=w.name, chr=get_chr_range(testing = config['testing']), outdir=outdir)
     output:
       touch("{outdir}/reference/target_checks/{name}/impute_23andme_all_chr.done")
 
@@ -73,12 +74,24 @@ def format_target_input(outdir, name):
         inputs.append(f"{outdir}/reference/target_checks/{name}/impute_23andme_all_chr.done")
     return inputs
 
-def target_path(outdir, name):
+def target_prefix(outdir, name):
     if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == '23andMe':
       return outdir + "/" + name + "/geno/imputed/" + name
     else:
       path=target_list_df.loc[target_list_df['name'] == name, 'path'].iloc[0]
       return path
+
+def target_path(outdir, name, chr):
+    if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == '23andMe':
+      return outdir + "/" + name + "/geno/imputed/" + name + ".chr" + chr + ".bed"
+    if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == 'plink1':
+      return target_list_df.loc[target_list_df['name'] == name, 'path'].iloc[0] + ".chr" + chr + ".bed"
+    if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == 'plink2':
+      return target_list_df.loc[target_list_df['name'] == name, 'path'].iloc[0] + ".chr" + chr + ".pgen"
+    if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == 'bgen':
+      return target_list_df.loc[target_list_df['name'] == name, 'path'].iloc[0] + ".chr" + chr + ".bgen"
+    if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == 'vcf':
+      return target_list_df.loc[target_list_df['name'] == name, 'path'].iloc[0] + ".chr" + chr + ".vcf.gz"
 
 def target_type(name):
     if target_list_df.loc[target_list_df['name'] == name, 'type'].iloc[0] == '23andMe':
@@ -90,30 +103,24 @@ if 'target_list' in config:
   rule format_target_i:
     input:
       lambda w: format_target_input(outdir = w.outdir, name = w.name),
-      config['target_list'],
-      config['config_file'],
-      rules.get_dependencies.output
+      lambda w: target_path(outdir = w.outdir, name = w.name, chr = w.chr),
+      rules.download_default_ref.output,
+      rules.install_genoutils.output
     output:
       "{outdir}/{name}/geno/{name}.ref.chr{chr}.bed"
     conda:
       "../envs/analysis.yaml"
     params:
-      path= lambda w: target_path(outdir = w.outdir, name = w.name),
+      config_file = config["config_file"],
+      testing=config["testing"],
+      prefix= lambda w: target_prefix(outdir = w.outdir, name = w.name),
       type= lambda w: target_type(name = w.name)
     shell:
       "Rscript ../Scripts/format_target/format_target.R \
-        --target {params.path}.chr{wildcards.chr} \
+        --target {params.prefix}.chr{wildcards.chr} \
         --format {params.type} \
         --ref resources/data/ref/ref.chr{wildcards.chr} \
         --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr}"
-
-def get_chr_range(testing):
-  if testing != 'NA':
-    val = testing[-2:]
-    val = int(val)
-    return val
-  else:
-    return range(1, 23)  # Full range for normal operation
 
 rule format_target_all_chr:
   input:
@@ -123,7 +130,7 @@ rule format_target_all_chr:
 
 rule format_target:
   input:
-    lambda w: expand("{outdir}/reference/target_checks/{name}/format_target_all_name.done", name=target_list_df['name'], outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/format_target_all_chr.done", name=target_list_df['name'], outdir=outdir)
 
 ####
 # Ancestry inference

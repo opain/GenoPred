@@ -56,10 +56,9 @@ if(!is.na(opt$test) && opt$test == 'NA'){
   opt$test<-NA
 }
 
-# This leads to an error because some score files do not contain specified chromosome
-#if(!is.na(opt$test)){
-#  CHROMS <- as.numeric(gsub('chr','',opt$test))
-#}
+if(!is.na(opt$test)){
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
+}
 
 ####
 # Read in score file
@@ -72,7 +71,7 @@ pgsc_header <- any(grepl('PGS CATALOG SCORING FILE', score_header))
 
 # Use header to determine build if available
 if(pgsc_header){
-	if(any(grepl('HARMONIZATION', pgsc_header))){
+	if(any(grepl('HARMONIZATION', score_header))){
 		target_build <- gsub('.*HmPOS_build=', '', score_header[grepl('HmPOS_build', score_header)])
 	} else {
 		target_build <- gsub('.*genome_build=', '', score_header[grepl('genome_build', score_header)])

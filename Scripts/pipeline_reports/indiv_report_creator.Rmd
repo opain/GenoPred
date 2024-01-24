@@ -4,6 +4,7 @@ params:
   name: ""
   id: ""
   config: ""
+  cwd: ""
 output:
   html_document:
     toc: true
@@ -20,7 +21,7 @@ output:
 knitr::opts_chunk$set(echo = F, eval = T, message=F, warning=F)
 
 # Set working directory to that upstream of this .Rmd file, so other files can be found easily.
-knitr::opts_knit$set(root.dir = paste0(dirname(dirname(getwd())),'/pipeline'))
+knitr::opts_knit$set(root.dir = params$cwd)
 
 library(data.table)
 library(knitr)
@@ -30,8 +31,6 @@ library(ggchicklet)
 library(DT)
 library(kableExtra)
 library(tmvtnorm)
-source('../../functions/misc.R')
-source_all('../../functions')
 
 knit_hooks$set(optipng = hook_optipng)
 knit_hooks$set(pngquant = hook_pngquant)
@@ -39,9 +38,13 @@ knit_hooks$set(pngquant = hook_pngquant)
 ```
 
 ```{r, include = F}
+# Load functions
+source('../functions/misc.R')
+source_all('../functions')
 
 # Create a temporary directory
-tmp_folder<-tempdir()
+tmp_folder <- paste0(tempdir(), "/sub_dir.",params$name,'.',params$id)
+dir.create(tmp_folder, recursive = T)
 
 # Read in outdir
 outdir <- read_param(config = params$config, param = 'outdir', return_obj = F)
@@ -239,6 +242,7 @@ cat0("</details>\n\n")
 cat0("***\n\n")
 
 ```
+`r print(list.files(tmp_folder))`
 
 ```{r, results='asis'}
 
@@ -322,7 +326,11 @@ for(score in score_list$name) {
       final_n = final_n))
 }
 
-names(score_qc) <- c('Name', 'Label', 'NSNP Original', 'NSNP Final')
+# Read in score_reporter output
+score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
+score_qc <- merge(score_qc, score_reporter, by='name')
+
+names(score_qc) <- c('Name', 'Label', 'NSNP Original', 'NSNP Final', 'Pass')
 
 datatable(score_qc, 
           rownames = FALSE,
@@ -647,7 +655,6 @@ names(gwas_list_brief)<-c('gwas','label','pop_mean','pop_sd')
 gwas_list_brief<-merge(pseudoval, gwas_list_brief, by='gwas')
 all_dat<-merge(pgs_dat, abs_res, by=c('gwas','pgs_method'))
 all_dat<-merge(all_dat, gwas_list_brief, by='gwas')
-
 
 for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
   
