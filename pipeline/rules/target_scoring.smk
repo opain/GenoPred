@@ -20,7 +20,7 @@ def score_munge(outdir):
 rule pc_projection_i:
   input:
     "{outdir}/reference/target_checks/{name}/ancestry_reporter.done",
-    rules.ref_pca.input
+    "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
   output:
     touch("{outdir}/reference/target_checks/{name}/pc_projection-{population}.done")
   conda:
@@ -49,17 +49,11 @@ rule pc_projection:
 # Polygenic scoring
 ####
 
-def check_pgs(w):
-  # Check if the path value is not NA
-  if w.method == 'external':
-      return ["{outdir}/reference/target_checks/prep_pgs_external_i-{gwas}.done"]
-  else:
-      return ["{outdir}/reference/pgs_score_files/{method}/{gwas}/ref-{gwas}-EUR.scale"]
-
 rule target_pgs_i:
   input:
     "{outdir}/reference/target_checks/{name}/ancestry_reporter.done",
-    lambda w: check_pgs(w)
+    "{outdir}/reference/target_checks/score_reporter.done",
+    "{outdir}/reference/target_checks/prep_pgs_{method}_i-{gwas}.done"
   output:
     touch("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done")
   conda:
@@ -80,22 +74,32 @@ rule target_pgs_i:
 
 rule target_pgs_all_gwas:
   input:
-    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done", name=w.name, gwas=score_munge(outdir = outdir) if w.method == 'external' else (gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs'] else gwas_list_df_eur['name']), population=w.population, method=w.method, outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done", name=w.name, gwas = gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs'] else gwas_list_df_eur['name'], population=w.population, method=w.method, outdir=outdir)
   output:
-    touch("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}.done")
-
-rule target_pgs_all_pop:
-  input:
-    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), method=w.method, outdir=outdir)
-  output:
-    touch("{outdir}/reference/target_checks/{name}/target_pgs-{method}.done")
+    touch("{outdir}/reference/target_checks/{name}/target_pgs_all_gwas-{method}-{population}.done")
 
 rule target_pgs_all_method:
   input:
-    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}.done", method=pgs_methods, name=w.name, outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs_all_gwas-{method}-{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), method=pgs_methods,  outdir=outdir)
+  output:
+    touch("{outdir}/reference/target_checks/{name}/target_pgs_all_gwas-{population}.done")
+
+rule target_pgs_all_score:
+  input:
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-external-{population}-{score}.done", name=w.name, score=score_munge(outdir = outdir), population=w.population, outdir=outdir)
+  output:
+    touch("{outdir}/reference/target_checks/{name}/target_pgs_all_score-{population}.done")
+
+rule target_pgs_all_pop:
+  input:
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs_all_gwas-{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), outdir=outdir),
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs_all_score-{population}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), outdir=outdir)
   output:
     touch("{outdir}/reference/target_checks/{name}/target_pgs.done")
 
 rule target_pgs:
   input:
     expand("{outdir}/reference/target_checks/{name}/target_pgs.done", name=target_list_df['name'], outdir=outdir)
+
+
+

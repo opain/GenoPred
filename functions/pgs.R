@@ -26,7 +26,7 @@ score_scale<-function(score, ref_scale){
 
 # Read in SNP data from either plink1 binary, bgen or vcf
 read_geno <- function(target, format) {
-  if (!all(format %in% c('plink1', 'bgen', 'vcf'))) {
+  if (!all(format %in% c('plink1', 'plink2', 'bgen', 'vcf'))) {
     stop('Specified format must be either plink1, bgen, or vcf.')
   }
 
@@ -34,6 +34,11 @@ read_geno <- function(target, format) {
     target_snp <- fread(paste0(target, '.bim'))
     target_snp$V3 <- NULL
     names(target_snp) <- c('CHR', 'SNP', 'BP', 'A1', 'A2')
+  }
+
+  if (format == 'plink2') {
+    target_snp <- fread(paste0(target, '.pvar'))
+    names(target_snp)[1:5] <- c('CHR', 'BP', 'SNP', 'A1', 'A2')
   }
 
   if (format == 'bgen') {

@@ -9,7 +9,8 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
     if(any(!(name %in% target_list$name))){
       stop('Requested target samples are not present in target_list')
     }
-    target_list <- target_list[target_list$name %in% name,]
+    name_i <- name
+    target_list <- target_list[target_list$name %in% name_i,]
   }
 
   # Read in gwas_list
@@ -17,6 +18,15 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
 
   # Read in score_list
   score_list <- read_param(config = config, param = 'score_list')
+
+  if(!is.null(score_list)){
+    # Read in score_reporter output
+    score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
+    score_list <- merge(score_list, score_reporter, by='name')
+
+    # Remove scores that did not pass ref harmonisation
+    score_list <- score_list[score_list$pass == T,]
+  }
 
   if(!is.null(gwas)){
     if(!is.null(score_list)){
@@ -183,6 +193,18 @@ find_pseudo <- function(config, gwas, pgs_method){
 
   # Read in score_list
   score_list <- read_param(config = config, param = 'score_list')
+
+  if(!is.null(score_list)){
+    # Read in score_reporter output
+    score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
+    score_list <- merge(score_list, score_reporter, by='name')
+
+    # Remove scores that did not pass ref harmonisation
+    score_list <- score_list[score_list$pass == T,]
+  }
+
+  # Find outdir
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 
   if(!is.null(gwas)){
     if(!is.null(score_list)){

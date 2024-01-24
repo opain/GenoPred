@@ -2,9 +2,22 @@ output_all_input = list()
 
 if 'target_list' in config:
   output_all_input.append(rules.target_pgs.input)
-else:
-  if 'gwas_list' in config or 'score_list' in config:
-    output_all_input.append(rules.prep_pgs.input)
+  label_list = []
+
+if 'gwas_list' in config or 'score_list' in config:
+  output_all_input.append(rules.prep_pgs.input)
+
+if 'gwas_list' in config:
+  label_list = gwas_list_df['label']
+  if 'score_list' in config and config["score_list"] != 'NA':
+    label_list = pd.concat([label_list, score_list_df['label']])
+
+# Identify temp directory
+tmpdir = os.environ.get('TMPDIR')
+
+# Make a list of all values in sampling prevalence mean sd columns in gwas_list
+gwas_dist = [gwas_list_df['sampling'], gwas_list_df['prevalence'], gwas_list_df['mean'], gwas_list_df['sd']]
+gwas_dist = [item for sublist in gwas_dist for item in sublist]
 
 #####
 # Create a report for each target sample
@@ -18,13 +31,20 @@ rule sample_report_i:
   conda:
     "../envs/analysis.yaml"
   params:
+    labels=' '.join(label_list),
+    gwas_dist=gwas_dist,
+    cwd=os.getcwd(),
+    tempdir= lambda w: tmpdir + "/" + w.name + "/",
     config_file = config["config_file"],
-    report_out= lambda w: outdir if outdir[0] == "/" else "../../pipeline/" + outdir
+    report_out= lambda w: outdir if outdir[0] == "/" else os.getcwd() + "/" + outdir
   shell:
-    "mkdir -p {outdir}/{wildcards.name}/reports; \
-     Rscript -e \"rmarkdown::render(\'../Scripts/pipeline_reports/samp_report_creator.Rmd\', \
+    "mkdir -p {params.tempdir} ; \
+     cp ../Scripts/pipeline_reports/samp_report_creator.Rmd {params.tempdir}/samp_report_creator.Rmd ; \
+     mkdir -p {outdir}/{wildcards.name}/reports; \
+     Rscript -e \"rmarkdown::render(\'{params.tempdir}/samp_report_creator.Rmd\', \
      output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-report.html\', \
-     params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\'))\""
+     params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
+     rm -r {params.tempdir}"
 
 rule sample_report:
   input: expand('{outdir}/reference/target_checks/{name}/sample_report.done', name=target_list_df_samp['name'], outdir=outdir)
@@ -41,6 +61,7 @@ def id_munge(name, outdir):
     val = str(22)
 
   checkpoint_output = checkpoints.ancestry_reporter.get(name=name, outdir=outdir).output[0]
+  checkpoint_output = checkpoints.score_reporter.get(name=name, outdir=outdir).output[0]
   checkpoint_output = outdir + "/" + name + "/geno/" + name + ".ref.chr" + val + ".fam"
   fam_df = pd.read_table(checkpoint_output, delim_whitespace=True, usecols=[0,1], names=['FID', 'IID'], header=None)
   fam_df['id'] = fam_df.FID.apply(str) + '.' + fam_df.IID.apply(str)
@@ -57,13 +78,20 @@ rule indiv_report_i:
   conda:
     "../envs/analysis.yaml"
   params:
+    labels=' '.join(label_list),
+    gwas_dist=gwas_dist,
+    cwd=os.getcwd(),
+    tempdir= lambda w: tmpdir + "/" + w.name + "." + w.id + "/",
     config_file = config["config_file"],
-    report_out= lambda w: outdir if outdir[0] == "/" else "../../pipeline/" + outdir
+    report_out= lambda w: outdir if outdir[0] == "/" else os.getcwd() + "/" + outdir
   shell:
-    "mkdir -p {outdir}/{wildcards.name}/reports; \
-     Rscript -e \"rmarkdown::render(\'../Scripts/pipeline_reports/indiv_report_creator.Rmd\', \
-     output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-{wildcards.id}-report.html\', \
-     params = list(name = \'{wildcards.name}\', id = \'{wildcards.id}\', config = \'{params.config_file}\'))\""
+    "mkdir -p {params.tempdir} ; \
+     cp ../Scripts/pipeline_reports/indiv_report_creator.Rmd {params.tempdir}/indiv_report_creator.Rmd ; \
+     mkdir -p {outdir}/{wildcards.name}/reports/individual; \
+     Rscript -e \"rmarkdown::render(\'{params.tempdir}/indiv_report_creator.Rmd\', \
+     output_file = \'{params.report_out}/{wildcards.name}/reports/individual/{wildcards.name}-{wildcards.id}-report.html\', \
+     params = list(name = \'{wildcards.name}\', id = \'{wildcards.id}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
+     rm -r {params.tempdir}"
 
 rule indiv_report_all_id:
   input:

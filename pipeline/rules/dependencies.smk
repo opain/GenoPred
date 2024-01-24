@@ -1,3 +1,15 @@
+########
+# Import required packages
+########
+
+import pandas as pd
+from pathlib import Path
+import multiprocessing
+import hashlib
+import sys
+import tempfile
+import os
+
 ######
 # Check config file
 ######
@@ -6,7 +18,6 @@
 lists_to_check = ['gwas_list', 'target_list', 'score_list']
 if not any(lst in config for lst in lists_to_check):
   print("Error: At least one of 'gwas_list', 'score_list', or 'target_list' must be specified in the config file.")
-  import sys
   sys.exit(1)
 
 # Check for missing required configuration parameters
@@ -17,19 +28,47 @@ if missing_config_params:
   print(f"Missing required configuration parameters: {', '.join(missing_config_params)}. Please specify these in the configuration file.")
 
   # Exit Snakemake gracefully
-  import sys
   sys.exit(1)
 
 # Set outdir parameter
 outdir=config['outdir']
 
 ########
-# Import required packages
+# Create required functions
 ########
 
-import pandas as pd
-from pathlib import Path
-import multiprocessing
+# Create function to check whether path of gwas or score exist
+def check_list_paths(df):
+  for index, row in df.iterrows():
+    file_path = row['path']
+    if pd.isna(file_path):
+        continue
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+# Create function to return the range of chromosomes requested
+def get_chr_range(testing):
+  if testing != 'NA':
+    val = int(testing[-2:])
+    return range(val, val + 1)
+  else:
+    return range(1, 23)
+
+# Create function to check whether path of gwas or score exist
+def check_target_paths(df, chr):
+  for index, row in df.iterrows():
+    if row['type'] == '23andMe':
+      file_path = row['path']
+    if row['type'] == 'plink1':
+      file_path =  row['path'] + ".chr" + chr + ".bed"
+    if row['type'] == 'plink2':
+      file_path =  row['path'] + ".chr" + chr + ".pgen"
+    if row['type'] == 'bgen':
+      file_path =  row['path'] + ".chr" + chr + ".bgen"
+    if row['type'] == 'vcf':
+      file_path =  row['path'] + ".chr" + chr + ".vcf.gz"
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
 
 ########
 # Download dependencies
@@ -109,24 +148,6 @@ rule download_ld_blocks:
   shell:
     "git clone https://bitbucket.org/nygcresearch/ldetect-data.git {output}; \
     mv resources/data/ld_blocks/ASN resources/data/ld_blocks/EAS"
-
-# Download liftover
-rule install_liftover:
-  output:
-    touch("resources/software/install_liftover.done")
-  shell:
-    "rm -r -f resources/software/liftover; \
-     mkdir -p resources/software/liftover/; \
-     wget --no-check-certificate -O resources/software/liftover/liftover https://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/liftOver"
-
-# Download liftover track
-rule download_liftover_track:
-  output:
-    touch("resources/software/download_liftover_track.done")
-  shell:
-    "rm -r -f resources/data/liftover; \
-     mkdir -p resources/data/liftover/; \
-     wget --no-check-certificate -O resources/data/liftover/hg19ToHg38.over.chain.gz ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz"
 
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
@@ -302,7 +323,6 @@ rule get_dependencies:
     rules.download_default_ref.output,
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output,
-    rules.download_liftover_track.output,
     rules.install_ggchicklet.output,
     rules.install_lassosum.output,
     rules.install_genoutils.output
