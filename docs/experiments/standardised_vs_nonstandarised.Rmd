@@ -1,0 +1,180 @@
+---
+title: "Standardised vs. Non-Standardised"
+output: 
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+    number_sections: true
+    toc_float: true
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+p.caption {
+  font-size: 1.5em;
+}
+</style>
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+This page compares my reference standardised polygenic scores to non-reference standardised polygenic scores.
+
+# Original scores
+
+Polygenic scores for UKB were derived using PRSice, genotyped SNPs only, including the MHC region, with LD-estimates from the UKB sample. My polygenic scores were derived without using the pT+clump method but not using PRSice, I used HapMap3 variants from the UKB imputed genetic data, I used only the single top SNP from the MHC region, and LD estimates from the EUR popultion in 1KG Phase 3.
+
+Check the correlation between the two types of polygenic scores and how well they predict outcomes.
+
+<details><summary>Show code</summary>
+
+```{R, eval=F, echo=T}
+library(data.table)
+
+pheno_name<-c('BMI','CAD','Intelligence','IBD','T2D','Height','RheuArth','MultiScler')
+gwas<-c('BODY03','COAD01','COLL01','CROH01','DIAB05','HEIG03','RHEU01','SCLE02')
+
+Results<-NULL
+cor_res<-NULL
+for(i in 1:length(gwas)){
+  PRS_geno<-fread(paste0('/mnt/lustre/groups/ukbiobank/sumstats/PRS/ukb18177_glanville/PRS_for_use/',gwas[i],'_header.all.score'))
+  PRS_stand<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/PRS_for_comparison/1KG_ref/pt_clump/',gwas[i],'/UKBB.subset.w_hm3.',gwas[i],'.profiles'))
+  PRS_geno$FID<-NULL
+  PRS_stand$FID<-NULL
+
+  # Extract individuals in common between the two PRSs
+  overlap<-intersect(PRS_geno$IID, PRS_stand$IID)
+  PRS_geno<-PRS_geno[PRS_geno$IID %in% overlap,]
+  PRS_stand<-PRS_stand[PRS_stand$IID %in% overlap,]
+
+  # Extract individuals surviving QC
+  keep<-fread('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/ukb18177_glanville_post_qc_id_list.UpdateIDs.fam')
+  PRS_geno<-PRS_geno[PRS_geno$IID %in% keep$V2,]
+  PRS_stand<-PRS_stand[PRS_stand$IID %in% keep$V2,]
+
+  # Extract pTs in common
+  overlap_pT<-intersect(names(PRS_stand), names(PRS_geno))
+  pTs<-overlap_pT[grepl(gwas[i], overlap_pT)]
+  PRS_geno<-PRS_geno[,names(PRS_geno) %in% overlap_pT, with=F]
+  PRS_stand<-PRS_stand[,names(PRS_stand) %in% overlap_pT, with=F]
+
+  # Read in the phenotype file
+  pheno<-fread(paste0('/users/k1806347/brc_scratch/Data/UKBB/Phenotype/PRS_comp_subset/UKBB.',pheno_name[i],'.txt'))
+  pheno$FID<-NULL
+  pheno_var<-names(pheno)[2]
+
+  # Merge pheno and PRS
+  PRS_geno_pheno<-merge(pheno, PRS_geno, by='IID')
+  PRS_stand_pheno<-merge(pheno, PRS_stand, by='IID')
+
+  # Run regressions
+  for(k in 1:length(pTs)){
+    geno_PRS_mod<-lm(as.formula(paste0('scale(',pheno_var,') ~ scale(',pTs[k],')')), data=PRS_geno_pheno)
+    geno_PRS_mod_summary<-summary(geno_PRS_mod)
+    stand_PRS_mod<-lm(as.formula(paste0('scale(',pheno_var,') ~ scale(',pTs[k],')')), data=PRS_stand_pheno)
+    stand_PRS_mod_summary<-summary(stand_PRS_mod)
+
+    Results<-rbind(Results, data.frame( Phenotype=rep(pheno_name[i],2),
+                                        pT=rep(gsub(paste0(gwas[i],'_'),'',pTs[k]),2),
+                                        Type=c('Current   ','Standardised'),
+                                        BETA=c(coef(geno_PRS_mod_summary)[2,1],coef(stand_PRS_mod_summary)[2,1]),
+                                        SE=c(coef(geno_PRS_mod_summary)[2,2],coef(stand_PRS_mod_summary)[2,2])))
+  }
+  
+  # Calculate correlation between the two PRS
+  names(PRS_stand)[-1]<-paste0(names(PRS_stand),'_geno')[-1]
+  prs_both<-merge(PRS_geno,PRS_stand,by='IID')
+  
+  pT<-gsub('.*_','',names(PRS_geno)[-1])
+    
+  for(k in pT){
+    res<-cor(prs_both[[paste0(gwas[i],'_',k)]], prs_both[[paste0(gwas[i],'_',k,'_geno')]])
+    cor_res<-rbind(cor_res, data.frame( GWAS=gwas[i],
+										                    pT=k,
+                                        cor=res))
+  }
+  
+  # Fit model with both PRS
+  both_PRS_mod_pheno<-merge(pheno, prs_both, by='IID')
+
+  for(k in 1:length(pTs)){
+    both_PRS_mod<-lm(as.formula(paste0('scale(',pheno_var,') ~ scale(',pTs[k],') + scale(',pTs[k],'_geno)')), data=both_PRS_mod_pheno)
+    
+    both_PRS_mod_summary<-summary(lm(as.formula(paste0('scale(both_PRS_mod_pheno$',pheno_var,') ~ scale(predict(both_PRS_mod, newdata = both_PRS_mod_pheno))'))))
+    
+    Results<-rbind(Results, data.frame( Phenotype=pheno_name[i],
+                                        pT=gsub(paste0(gwas[i],'_'),'',pTs[k]),
+                                        Type=c('Both   '),
+                                        BETA=coef(both_PRS_mod_summary)[2,1],
+                                        SE=coef(both_PRS_mod_summary)[2,2]))
+  }
+
+}
+
+# Plot the results
+library(ggplot2)
+library(cowplot)
+
+Plots<-list()
+for(i in 1:length(gwas)){
+Plots[[pheno_name[i]]]<-ggplot(Results[Results$Phenotype == pheno_name[i],], aes(x=pT, y=BETA, fill=Type)) +
+                        geom_bar(position=position_dodge(), stat="identity") +
+                        geom_errorbar(aes(ymin=BETA-SE, ymax=BETA+SE), width=.2, position=position_dodge(.9)) +
+                        labs(title=pheno_name[i], y='Correlation', x=paste0('pT for ',gwas[i],' PRS')) +
+                        theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = 'top', legend.justification = c(0.5, 0), legend.title=element_blank())
+}
+
+png('/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/Current_PRS_vs_standardised_PRS.png', unit='px', width=2000, height=3500, res=300)
+plot_grid(plotlist=Plots, labels = "AUTO", ncol=2)
+dev.off()
+
+write.csv(cor_res, '/users/k1806347/brc_scratch/Analyses/PRS_comparison/UKBB_outcomes_for_prediction/Current_PRS_vs_standardised_PRS_cor.csv', row.names=F, quote=F)
+
+```
+
+</details>
+
+```{bash, eval=T, echo=F}
+mkdir -p /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/Functionally_informed_prediction
+
+cp /users/k1806347/brc_scratch/Analyses/PRS_comparison_OLD/UKBB_outcomes_for_prediction/Current_PRS_vs_standardised_PRS.png /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Images/standardised_vs_nonstandardised/
+
+```
+
+<details><summary>Show correlation between phenotype and different PRS</summary>
+
+<center>
+
+![Correlation between phenotype and PRS](Images/standardised_vs_nonstandardised/Current_PRS_vs_standardised_PRS.png)
+
+\center
+
+</details>
+
+<details><summary>Show correlation between PRS</summary>
+
+```{r, echo=F, eval=T, results='asis'}
+res<-read.csv("/users/k1806347/brc_scratch/Analyses/PRS_comparison_OLD/UKBB_outcomes_for_prediction/Current_PRS_vs_standardised_PRS_cor.csv")
+
+library(knitr)
+kable(res, rownames = FALSE, caption='Correlation between standardised and non-standardised PRS')
+```
+
+</details>
+
+<br/>
+
+The results show the PRS calcualted using these two approaches predict phenotypes to a similar degree, and although he scores are not highly correlated, their covariance with phenotypic data is higlighy correlated as a joint model does not improve prediction substantially.
