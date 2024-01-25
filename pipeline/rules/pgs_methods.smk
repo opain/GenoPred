@@ -8,7 +8,8 @@ rule ref_pca_i:
   conda:
     "../envs/analysis.yaml",
   params:
-    testing=config["testing"]
+    testing=config["testing"],
+    outdir=config["outdir"]
   shell:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr resources/data/ref/ref.chr \
@@ -27,7 +28,7 @@ rule ref_pca:
 ##
 
 # Read in the gwas_list or make an empty version
-if 'gwas_list' in config:
+if 'gwas_list' in config and config["gwas_list"] != 'NA':
   gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
 else:
   gwas_list_df = pd.DataFrame(columns = ["name", "path", "population", "n", "sampling", "prevalence", "mean", "sd", "label"])
@@ -41,7 +42,6 @@ gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
 if 'gwas_list' in config:
   rule sumstat_prep_i:
     input:
-      config['outdir'],
       rules.download_default_ref.output,
       rules.install_genoutils.output,
       lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
@@ -50,6 +50,7 @@ if 'gwas_list' in config:
     conda:
       "../envs/analysis.yaml"
     params:
+      outdir=config["outdir"],
       config_file = config["config_file"],
       testing = config['testing'],
       population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
@@ -372,12 +373,12 @@ check_list_paths(score_list_df)
 # Download PGS score files for PGSC if path is NA
 rule download_pgs_external:
   input:
-    config['outdir'],
     rules.download_pgscatalog_utils.output
   output:
     touch("{outdir}/reference/pgs_score_files/raw_external/{score}/{score}_hmPOS_GRCh37.txt.gz")
   params:
     config_file = config["config_file"],
+    outdir=config["outdir"],
     path= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.score), 'path'].iloc[0],
     testing = config['testing']
   conda:
@@ -396,7 +397,6 @@ def score_path(w):
 # Harmonise external score files to reference
 rule prep_pgs_external_i:
   input:
-    config['outdir'],
     lambda w: score_path(w),
     rules.download_default_ref.output,
     rules.install_genoutils.output
@@ -404,6 +404,7 @@ rule prep_pgs_external_i:
     touch("{outdir}/reference/target_checks/prep_pgs_external_i-{score}.done")
   params:
     config_file = config["config_file"],
+    outdir=config["outdir"],
     score= lambda w: score_path(w),
     testing=config["testing"]
   conda:

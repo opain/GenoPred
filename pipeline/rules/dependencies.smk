@@ -69,6 +69,8 @@ def check_target_paths(df, chr):
       file_path =  row['path'] + ".chr" + chr + ".vcf.gz"
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
+    else :
+      return []
 
 ########
 # Download dependencies

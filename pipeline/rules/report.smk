@@ -1,16 +1,17 @@
 output_all_input = list()
+label_list = pd.Series(dtype=object)
 
-if 'target_list' in config:
+if 'target_list' in config and config["target_list"] != 'NA':
   output_all_input.append(rules.target_pgs.input)
-  label_list = []
 
-if 'gwas_list' in config or 'score_list' in config:
+if 'gwas_list' in config and config["gwas_list"] != 'NA':
   output_all_input.append(rules.prep_pgs.input)
+  output_all_input.append(rules.sumstat_prep.input)
+  label_list = pd.concat([label_list, gwas_list_df['label']])
 
-if 'gwas_list' in config:
-  label_list = gwas_list_df['label']
-  if 'score_list' in config and config["score_list"] != 'NA':
-    label_list = pd.concat([label_list, score_list_df['label']])
+if 'score_list' in config and config["score_list"] != 'NA':
+  output_all_input.append(rules.prep_pgs.input)
+  label_list = pd.concat([label_list, score_list_df['label']])
 
 # Identify temp directory
 tmpdir = os.environ.get('TMPDIR')
@@ -31,6 +32,7 @@ rule sample_report_i:
   conda:
     "../envs/analysis.yaml"
   params:
+    outdir=config["outdir"],
     labels=' '.join(label_list),
     gwas_dist=gwas_dist,
     cwd=os.getcwd(),
@@ -78,6 +80,7 @@ rule indiv_report_i:
   conda:
     "../envs/analysis.yaml"
   params:
+    outdir=config["outdir"],
     labels=' '.join(label_list),
     gwas_dist=gwas_dist,
     cwd=os.getcwd(),

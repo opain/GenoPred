@@ -2,7 +2,7 @@
 # Read target_list
 #######
 
-if 'target_list' in config:
+if 'target_list' in config and config["target_list"] != 'NA':
   target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
   target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
   samp_types = ['plink1', 'plink2', 'bgen', 'vcf']
@@ -40,6 +40,7 @@ if 'target_list' in config:
     conda:
       "../envs/analysis.yaml"
     params:
+      outdir=config["outdir"],
       config_file = config["config_file"],
       name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
       path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
@@ -111,6 +112,7 @@ if 'target_list' in config:
     conda:
       "../envs/analysis.yaml"
     params:
+      outdir=config["outdir"],
       config_file = config["config_file"],
       testing=config["testing"],
       prefix= lambda w: target_prefix(outdir = w.outdir, name = w.name),
