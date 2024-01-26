@@ -247,7 +247,7 @@ ldak_pred_cor<-function(bfile, ldak, n_cores, chr = 1:22, keep = NULL){
 }
 
 # Read in external score file
-read_score <- function(score, log_file = NULL){
+read_score <- function(score, chr = 1:22, log_file = NULL){
 	# Read in score file
 	score <- fread(score)
 
@@ -288,6 +288,10 @@ read_score <- function(score, log_file = NULL){
     log_add(log_file = log_file, message = 'Both A1 and A2 data must be present in the score file')
     stop('Both A1 and A2 data must be present in the score file.')
   }
+
+	if(any(names(score) == 'CHR')){
+	  score <- score[score$CHR %in% chr,]
+	}
 
 	return(score)
 }

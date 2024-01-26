@@ -382,7 +382,7 @@ rule download_pgs_external:
     path= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.score), 'path'].iloc[0],
     testing = config['testing']
   conda:
-    "../envs/analysis.yaml"
+    "../envs/pgscatalog_utils.yaml"
   shell:
     "mkdir -p {outdir}/reference/pgs_score_files/raw_external/{wildcards.score}; \
     download_scorefiles -w -i {wildcards.score} -o {outdir}/reference/pgs_score_files/raw_external/{wildcards.score} -b GRCh37"
