@@ -19,6 +19,8 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   # Read in score_list
   score_list <- read_param(config = config, param = 'score_list')
 
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
   if(!is.null(score_list)){
     # Read in score_reporter output
     score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
@@ -38,7 +40,7 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
     if(any(!(gwas %in% full_gwas_list))){
       stop('Requested GWAS are not present in gwas_list/score_list')
     }
-    gwas_list <- gwas_list[target_list$name %in% gwas,]
+    gwas_list <- gwas_list[gwas_list$name %in% gwas,]
 
     if(!is.null(score_list)){
       score_list <- score_list[score_list$name %in% gwas,]
@@ -194,6 +196,8 @@ find_pseudo <- function(config, gwas, pgs_method){
   # Read in score_list
   score_list <- read_param(config = config, param = 'score_list')
 
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
   if(!is.null(score_list)){
     # Read in score_reporter output
     score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
@@ -216,7 +220,7 @@ find_pseudo <- function(config, gwas, pgs_method){
     if(any(!(gwas %in% full_gwas_list))){
       stop('Requested GWAS are not present in gwas_list/score_list')
     }
-    gwas_list <- gwas_list[target_list$name %in% gwas,]
+    gwas_list <- gwas_list[gwas_list$name %in% gwas,]
 
     if(!is.null(score_list)){
       score_list <- score_list[score_list$name %in% gwas,]

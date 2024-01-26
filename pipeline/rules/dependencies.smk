@@ -293,7 +293,7 @@ rule install_genoutils:
   conda:
     "../envs/analysis.yaml"
   shell:
-    "Rscript -e 'devtools::install_github(\"opain/GenoUtils\")'"
+    "Rscript -e 'devtools::install_github(\"opain/GenoUtils@83d458ced164c5b6e9577c6ea9817bef3f0b16ca\")'"
 
 # Download pgscatalog_utils
 rule download_pgscatalog_utils:
