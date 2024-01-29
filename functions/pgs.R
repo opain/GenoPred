@@ -27,7 +27,7 @@ score_scale<-function(score, ref_scale){
 # Read in SNP data from either plink1 binary, bgen or vcf
 read_geno <- function(target, format) {
   if (!all(format %in% c('plink1', 'plink2', 'bgen', 'vcf'))) {
-    stop('Specified format must be either plink1, bgen, or vcf.')
+    stop('Specified format must be either plink1, plink2, bgen, or vcf.')
   }
 
   if (format == 'plink1') {

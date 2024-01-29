@@ -144,19 +144,19 @@ rule prep_pgs_dbslmm:
 ##
 
 # Set default values
-n_cores_prscs = config.get("ncores", 10)
+n_cores_prscs = 10
 mem_prscs = 80000
 
 # Modify if the 'testing' condition is met
 if config["testing"] != 'NA':
+    n_cores_prscs = 5
     mem_prscs = 40000
-    n_cores_prscs = config.get("ncores", 5)
 
 rule prep_pgs_prscs_i:
   resources:
     mem_mb=mem_prscs,
-    cpus=n_cores_prscs,
     time_min=800
+  threads: n_cores_prscs
   input:
     "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
     rules.download_prscs_software.output,
@@ -168,19 +168,21 @@ rule prep_pgs_prscs_i:
   params:
     testing=config["testing"]
   shell:
-    "export MKL_NUM_THREADS=1; \
-     export NUMEXPR_NUM_THREADS=1; \
-     export OMP_NUM_THREADS=1; \
-     Rscript ../Scripts/pgs_methods/prscs.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
-      --PRScs_path resources/software/prscs/PRScs.py \
-      --PRScs_ref_path resources/data/prscs_ref/ldblk_1kg_eur \
-      --n_cores {n_cores_prscs} \
-      --phi_param 1e-6,1e-4,1e-2,1,auto \
-      --test {params.testing}"
+    """
+    export MKL_NUM_THREADS=1; \
+    export NUMEXPR_NUM_THREADS=1; \
+    export OMP_NUM_THREADS=1; \
+    Rscript ../Scripts/pgs_methods/prscs.R \
+    --ref_plink_chr resources/data/ref/ref.chr \
+    --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+    --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
+    --pop_data resources/data/ref/ref.pop.txt \
+    --PRScs_path resources/software/prscs/PRScs.py \
+    --PRScs_ref_path resources/data/prscs_ref/ldblk_1kg_eur \
+    --n_cores {threads} \
+    --phi_param 1e-6,1e-4,1e-2,1,auto \
+    --test {params.testing}
+    """
 
 rule prep_pgs_prscs:
   input: expand("{outdir}/reference/target_checks/prep_pgs_prscs_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
@@ -190,16 +192,16 @@ rule prep_pgs_prscs:
 ##
 
 if config["testing"] != 'NA':
-  n_cores_sbayesr=min(1, multiprocessing.cpu_count())
+  n_cores_sbayesr = 1
   mem_sbayesr=10000
 else:
-  n_cores_sbayesr=min(10, multiprocessing.cpu_count())
+  n_cores_sbayesr = 10
   mem_sbayesr=80000
 
 rule prep_pgs_sbayesr_i:
   resources:
-    mem_mb=mem_sbayesr,
-    cpus=n_cores_sbayesr
+    mem_mb=mem_sbayesr
+  threads: n_cores_sbayesr
   input:
     "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
     rules.download_gctb_ref.output,
@@ -217,7 +219,7 @@ rule prep_pgs_sbayesr_i:
       --gctb resources/software/gctb/gctb_2.03beta_Linux/gctb \
       --ld_matrix_chr resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
       --robust T \
-      --n_cores {n_cores_sbayesr} \
+      --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
@@ -230,16 +232,16 @@ rule prep_pgs_sbayesr:
 ##
 
 if config["testing"] != 'NA':
-  n_cores_lassosum=min(1, multiprocessing.cpu_count())
+  n_cores_lassosum = 1
   mem_lassosum=10000
 else:
-  n_cores_lassosum=min(10, multiprocessing.cpu_count())
+  n_cores_lassosum = 10
   mem_lassosum=80000
 
 rule prep_pgs_lassosum_i:
   resources:
-    mem_mb=mem_lassosum,
-    cpus=n_cores_lassosum
+    mem_mb=mem_lassosum
+  threads: n_cores_lassosum
   input:
     "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
     rules.install_lassosum.output
@@ -257,7 +259,7 @@ rule prep_pgs_lassosum_i:
      --gwas_pop {params.population} \
      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
-     --n_cores {n_cores_lassosum} \
+      --n_cores {threads} \
      --pop_data resources/data/ref/ref.pop.txt \
      --test {params.testing}"
 
@@ -269,17 +271,17 @@ rule prep_pgs_lassosum:
 ##
 
 if config["testing"] != 'NA':
-  n_cores_ldpred2=min(5, multiprocessing.cpu_count())
+  n_cores_ldpred2 = 5
   mem_ldpred2=40000
 else:
-  n_cores_ldpred2=min(10, multiprocessing.cpu_count())
+  n_cores_ldpred2 = 10
   mem_ldpred2=80000
 
 rule prep_pgs_ldpred2_i:
   resources:
     mem_mb=mem_ldpred2,
-    cpus=n_cores_ldpred2,
     time_min=800
+  threads: n_cores_ldpred2
   input:
     "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
     rules.download_ldpred2_ref.output
@@ -296,7 +298,7 @@ rule prep_pgs_ldpred2_i:
       --ref_keep resources/data/ref/keep_files/EUR.keep \
       --ldpred2_ref_dir resources/data/ldpred2_ref \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --n_cores {n_cores_ldpred2} \
+      --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
@@ -309,17 +311,17 @@ rule prep_pgs_ldpred2:
 ##
 
 if config["testing"] != 'NA':
-  n_cores_megaprs=min(5, multiprocessing.cpu_count())
+  n_cores_megaprs = 5
   mem_megaprs=40000
 else:
-  n_cores_megaprs=min(10, multiprocessing.cpu_count())
+  n_cores_megaprs = 10
   mem_megaprs=80000
 
 rule prep_pgs_megaprs_i:
   resources:
     mem_mb=mem_megaprs,
-    cpus=n_cores_megaprs,
     time_min=800
+  threads: n_cores_megaprs
   input:
     "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
     rules.download_ldak_highld.output,
@@ -341,7 +343,7 @@ rule prep_pgs_megaprs_i:
       --ldak_map resources/data/ldak_map/genetic_map_b37 \
       --ldak_tag resources/data/ldak_bld \
       --ldak_highld resources/data/ldak_highld/highld.txt \
-      --n_cores {n_cores_megaprs} \
+      --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data resources/data/ref/ref.pop.txt \
       --test {params.testing}"
