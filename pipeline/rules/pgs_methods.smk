@@ -326,6 +326,7 @@ rule prep_pgs_megaprs_i:
     "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
     rules.download_ldak_highld.output,
     rules.download_ldak.output,
+    rules.download_ldak_map.output,
     rules.download_ldak_bld.output
   output:
     touch("{outdir}/reference/target_checks/prep_pgs_megaprs_i-{gwas}.done")
