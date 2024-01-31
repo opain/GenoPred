@@ -214,7 +214,7 @@ rule download_ldpred2_ref:
 # Download LDAK
 rule download_ldak:
   output:
-    directory("resources/software/ldak")
+    "resources/software/ldak/ldak5.1.linux"
   shell:
     "mkdir -p resources/software/ldak; \
      wget --no-check-certificate -O resources/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; \
@@ -224,7 +224,7 @@ rule download_ldak:
 # Download LDAK map data
 rule download_ldak_map:
   output:
-    directory("resources/data/ldak_map")
+    "resources/data/ldak_map/genetic_map_b37/genetic_map_chr22_combined_b37.txt"
   shell:
     "mkdir -p resources/data/ldak_map; \
      wget --no-check-certificate -O resources/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; \
@@ -234,7 +234,7 @@ rule download_ldak_map:
 # Download LDAK bld snp annotations
 rule download_ldak_bld:
   output:
-    directory("resources/data/ldak_bld")
+    "resources/data/ldak_bld/README.txt"
   shell:
     "mkdir -p resources/data/ldak_bld; \
      wget --no-check-certificate -O resources/data/ldak_bld/bld.zip https://genetics.ghpc.au.dk/doug/bld.zip; \
@@ -244,7 +244,7 @@ rule download_ldak_bld:
 # Download LDAK high ld regions file
 rule download_ldak_highld:
   output:
-    directory("resources/data/ldak_highld")
+    "resources/data/ldak_highld/highld.txt"
   shell:
     "mkdir -p resources/data/ldak_highld; \
      wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt"
