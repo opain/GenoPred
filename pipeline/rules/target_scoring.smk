@@ -9,8 +9,13 @@ def ancestry_munge(x):
 def score_munge(outdir):
     checkpoint_output = checkpoints.score_reporter.get(outdir = outdir).output[0]
     checkpoint_output = outdir + "/reference/pgs_score_files/external/score_report.txt"
-    score_report_df = pd.read_table(checkpoint_output, sep=' ')
-    score_report_df = score_report_df[(score_report_df['pass'].isin(['T', 'TRUE', True]))]
+
+    if os.path.exists(checkpoint_output):
+      score_report_df = pd.read_table(checkpoint_output, sep=' ')
+      score_report_df = score_report_df[(score_report_df['pass'].isin(['T', 'TRUE', True]))]
+    else:
+      score_report_df = pd.DataFrame(columns=['name', 'pass'])
+
     return score_report_df['name'].tolist()
 
 ####
