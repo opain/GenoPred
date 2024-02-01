@@ -80,7 +80,7 @@ if(!is.na(opt$test)){
 #####
 
 log_add(log_file = log_file, message = 'Calculating polygenic scores in the target sample.')
-scores<-plink_score(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = opt$ref_score, keep = opt$target_keep, frq = opt$ref_freq_chr)
+scores<-plink_score(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = opt$ref_score, keep = opt$target_keep, frq = opt$ref_freq_chr, threads = opt$n_cores)
 
 ###
 # Scale the polygenic scores based on the reference
