@@ -55,6 +55,10 @@ rule pc_projection:
 ####
 
 rule target_pgs_i:
+  resources:
+    mem_mb=8000,
+    time_min=800
+  threads: lambda w: 1 if w.method in ['dbslmm', 'sbayesr'] else 5
   input:
     "{outdir}/reference/target_checks/{name}/ancestry_reporter.done",
     "{outdir}/reference/target_checks/score_reporter.done",
@@ -75,6 +79,7 @@ rule target_pgs_i:
       --plink2 plink2 \
       --pheno_name {wildcards.gwas} \
       --test {params.testing} \
+      --n_cores {threads} \
       --output {outdir}/{wildcards.name}/pgs/{wildcards.population}/{wildcards.method}/{wildcards.gwas}/{wildcards.name}-{wildcards.gwas}-{wildcards.population}"
 
 rule target_pgs_all_gwas:

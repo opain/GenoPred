@@ -86,7 +86,7 @@ if(pgsc_header){
 }
 
 # Read in the score file
-score <- read_score(score = opt$score, log_file = log_file)
+score <- read_score(score = opt$score, chr = CHROMS, log_file = log_file)
 n_snp_orig <- nrow(score)
 
 log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants.'))

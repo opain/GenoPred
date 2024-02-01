@@ -217,9 +217,9 @@ plink_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL,
     cmd<-paste0(cmd, ' --extract ', extract)
   }
   if(!is.null(frq)){
-    cmd<-paste0(cmd, ' --read-freq ', frq,'CHROMOSOME_NUMBER.frq --score ',score,' header-read')
+    cmd<-paste0(cmd, ' --read-freq ', frq,'CHROMOSOME_NUMBER.frq --score ', score,' header-read')
   } else {
-    cmd<-paste0(cmd, ' --score ',score,' header-read no-mean-imputation')
+    cmd<-paste0(cmd, ' --score ', score,' header-read no-mean-imputation')
   }
   if(n_scores > 1){
     cmd<-paste0(cmd, ' --score-col-nums 4-',3+n_scores)
