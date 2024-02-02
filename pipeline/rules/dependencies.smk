@@ -107,11 +107,15 @@ rule download_plink:
   log:
     "resources/data/logs/download_plink.log"
   shell:
-    "rm -r -f resources/software/plink; \
-     mkdir -p resources/software/plink; \
-     wget --no-check-certificate -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
-     unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; \
-     rm resources/software/plink/plink_linux_x86_64_20210606.zip"
+    """
+    {{
+      rm -r -f resources/software/plink; \
+      mkdir -p resources/software/plink; \
+      wget --no-check-certificate -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
+      unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; \
+      rm resources/software/plink/plink_linux_x86_64_20210606.zip
+    }} > {log} 2>&1
+    """
 
 # Download LDSC
 rule download_ldsc:
@@ -122,11 +126,14 @@ rule download_ldsc:
   log:
     "resources/data/logs/download_ldsc.log"
   shell:
-    "rm -r -f resources/software/ldsc; \
-     git clone https://github.com/bulik/ldsc.git resources/software/ldsc/; \
-     cd resources/software/ldsc/; \
-     git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74"
-
+    """
+    {{
+      rm -r -f resources/software/ldsc; \
+      git clone https://github.com/bulik/ldsc.git resources/software/ldsc/; \
+      cd resources/software/ldsc/; \
+      git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74
+    }} > {log} 2>&1
+    """
 # Download LDSC reference data
 rule download_ldsc_ref:
   output:
@@ -136,11 +143,15 @@ rule download_ldsc_ref:
   log:
     "resources/data/logs/download_ldsc_ref.log"
   shell:
-    "rm -r -f resources/data/ldsc_ref; \
-     mkdir -p resources/data/ldsc_ref; \
-     wget --no-check-certificate -O resources/data/ldsc_ref/eur_w_ld_chr.tar.gz https://zenodo.org/record/8182036/files/eur_w_ld_chr.tar.gz?download=1; \
-     tar -xvf resources/data/ldsc_ref/eur_w_ld_chr.tar.gz -C resources/data/ldsc_ref/; \
-     rm resources/data/ldsc_ref/eur_w_ld_chr.tar.gz"
+    """
+    {{
+      rm -r -f resources/data/ldsc_ref; \
+      mkdir -p resources/data/ldsc_ref; \
+      wget --no-check-certificate -O resources/data/ldsc_ref/eur_w_ld_chr.tar.gz https://zenodo.org/record/8182036/files/eur_w_ld_chr.tar.gz?download=1; \
+      tar -xvf resources/data/ldsc_ref/eur_w_ld_chr.tar.gz -C resources/data/ldsc_ref/; \
+      rm resources/data/ldsc_ref/eur_w_ld_chr.tar.gz
+    }} > {log} 2>&1
+    """
 
 # Download hapmap3 snplist
 rule download_hm3_snplist:
@@ -151,11 +162,14 @@ rule download_hm3_snplist:
   log:
     "resources/data/logs/download_hm3_snplist.log"
   shell:
-    "rm -r -f resources/data/hm3_snplist; \
-     mkdir -p resources/data/hm3_snplist; \
-     wget --no-check-certificate -O resources/data/hm3_snplist/w_hm3.snplist.gz https://zenodo.org/record/7773502/files/w_hm3.snplist.gz?download=1; \
-     gunzip resources/data/hm3_snplist/w_hm3.snplist.gz"
-
+    """
+    {{
+      rm -r -f resources/data/hm3_snplist; \
+      mkdir -p resources/data/hm3_snplist; \
+      wget --no-check-certificate -O resources/data/hm3_snplist/w_hm3.snplist.gz https://zenodo.org/record/7773502/files/w_hm3.snplist.gz?download=1; \
+      gunzip resources/data/hm3_snplist/w_hm3.snplist.gz
+    }} > {log} 2>&1
+    """
 # Download DBSLMM
 # Specifying old commit as developer has deleted dbslmm binary (accidentally?)
 rule download_dbslmm:
@@ -166,11 +180,14 @@ rule download_dbslmm:
   log:
     "resources/data/logs/download_dbslmm.log"
   shell:
-    "git clone https://github.com/biostat0903/DBSLMM.git {output}; \
-     cd {output}; \
-     git reset --hard aa6e7ad5b8a7d3b6905556a4007c4a1fa2925b7d; \
-     chmod a+x software/dbslmm"
-
+    """
+    {{
+      git clone https://github.com/biostat0903/DBSLMM.git {output}; \
+      cd {output}; \
+      git reset --hard aa6e7ad5b8a7d3b6905556a4007c4a1fa2925b7d; \
+      chmod a+x software/dbslmm
+    }} > {log} 2>&1
+    """
 # Download LD block data
 rule download_ld_blocks:
   output:
@@ -180,9 +197,12 @@ rule download_ld_blocks:
   log:
     "resources/data/logs/download_ld_blocks.log"
   shell:
-    "git clone https://bitbucket.org/nygcresearch/ldetect-data.git {output}; \
-    mv resources/data/ld_blocks/ASN resources/data/ld_blocks/EAS"
-
+    """
+    {{
+      git clone https://bitbucket.org/nygcresearch/ldetect-data.git {output}; \
+      mv resources/data/ld_blocks/ASN resources/data/ld_blocks/EAS
+    }} > {log} 2>&1
+    """
 # Download PRScs reference
 rule download_prscs_ref_1kg_eur:
   output:
@@ -192,12 +212,15 @@ rule download_prscs_ref_1kg_eur:
   log:
     "resources/data/logs/download_prscs_ref_1kg_eur.log"
   shell:
-    "rm -r -f resources/data/prscs_ref; \
-     mkdir -p resources/data/prscs_ref; \
-     wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
-     tar -zxvf resources/data/prscs_ref/ldblk_1kg_eur.tar.gz -C resources/data/prscs_ref/; \
-     rm resources/data/prscs_ref/ldblk_1kg_eur.tar.gz"
-
+    """
+    {{
+      rm -r -f resources/data/prscs_ref; \
+      mkdir -p resources/data/prscs_ref; \
+      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
+      tar -zxvf resources/data/prscs_ref/ldblk_1kg_eur.tar.gz -C resources/data/prscs_ref/; \
+      rm resources/data/prscs_ref/ldblk_1kg_eur.tar.gz
+    }} > {log} 2>&1
+    """
 # Download PRScs software
 rule download_prscs_software:
   output:
@@ -207,10 +230,13 @@ rule download_prscs_software:
   log:
     "resources/data/logs/download_prscs_software.log"
   shell:
-    "git clone https://github.com/getian107/PRScs.git {output}; \
-     cd {output}; \
-     git reset --hard 621fdc80daac56c93d9528eb1a1187f7b1fc9afb"
-
+    """
+    {{
+      git clone https://github.com/getian107/PRScs.git {output}; \
+      cd {output}; \
+      git reset --hard 621fdc80daac56c93d9528eb1a1187f7b1fc9afb
+    }} > {log} 2>&1
+    """
 # Download gctb reference
 rule download_gctb_ref:
   output:
@@ -220,16 +246,19 @@ rule download_gctb_ref:
   log:
     "resources/data/logs/download_gctb_ref.log"
   shell:
-    "mkdir -p resources/data/gctb_ref; \
-     wget --no-check-certificate -O resources/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; \
-     unzip resources/data/gctb_ref/ukbEURu_hm3_sparse.zip -d resources/data/gctb_ref; \
-     for chr in $(seq 1 22);do \
-     mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; \
-     mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; \
-     mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; \
-     done; \
-     rm resources/data/gctb_ref/ukbEURu_hm3_sparse.zip"
-
+    """
+    {{
+      mkdir -p resources/data/gctb_ref; \
+      wget --no-check-certificate -O resources/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; \
+      unzip resources/data/gctb_ref/ukbEURu_hm3_sparse.zip -d resources/data/gctb_ref; \
+      for chr in $(seq 1 22);do \
+      mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; \
+      mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; \
+      mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; \
+      done; \
+      rm resources/data/gctb_ref/ukbEURu_hm3_sparse.zip
+    }} > {log} 2>&1
+    """
 # Download GCTB
 rule download_gctb_software:
   output:
@@ -239,12 +268,15 @@ rule download_gctb_software:
   log:
     "resources/data/logs/download_gctb_software.log"
   shell:
-    "rm -r -f resources/software/gctb; \
-     mkdir -p resources/software/gctb; \
-     wget --no-check-certificate -O resources/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
-     unzip resources/software/gctb/gctb_2.03beta_Linux.zip -d resources/software/gctb; \
-     rm resources/software/gctb/gctb_2.03beta_Linux.zip"
-
+    """
+    {{
+      rm -r -f resources/software/gctb; \
+      mkdir -p resources/software/gctb; \
+      wget --no-check-certificate -O resources/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
+      unzip resources/software/gctb/gctb_2.03beta_Linux.zip -d resources/software/gctb; \
+      rm resources/software/gctb/gctb_2.03beta_Linux.zip
+    }} > {log} 2>&1
+    """
 # Download LDpred2 reference
 rule download_ldpred2_ref:
   output:
@@ -254,15 +286,18 @@ rule download_ldpred2_ref:
   log:
     "resources/data/logs/download_ldpred2_ref.log"
   shell:
-    "mkdir -p resources/data/ldpred2_ref; \
-     wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
-     unzip resources/data/ldpred2_ref/download.zip -d resources/data/ldpred2_ref/; \
-     rm resources/data/ldpred2_ref/download.zip; \
-     unzip resources/data/ldpred2_ref/ldref_with_blocks.zip -d resources/data/ldpred2_ref/; \
-     mv resources/data/ldpred2_ref/ldref/* resources/data/ldpred2_ref/; \
-     rm resources/data/ldpred2_ref/ldref_with_blocks.zip; \
-     rm -r resources/data/ldpred2_ref/ldref"
-
+    """
+    {{
+      mkdir -p resources/data/ldpred2_ref; \
+      wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
+      unzip resources/data/ldpred2_ref/download.zip -d resources/data/ldpred2_ref/; \
+      rm resources/data/ldpred2_ref/download.zip; \
+      unzip resources/data/ldpred2_ref/ldref_with_blocks.zip -d resources/data/ldpred2_ref/; \
+      mv resources/data/ldpred2_ref/ldref/* resources/data/ldpred2_ref/; \
+      rm resources/data/ldpred2_ref/ldref_with_blocks.zip; \
+      rm -r resources/data/ldpred2_ref/ldref
+    }} > {log} 2>&1
+    """
 # Download LDAK
 rule download_ldak:
   output:
@@ -272,11 +307,14 @@ rule download_ldak:
   log:
     "resources/data/logs/download_ldak.log"
   shell:
-    "mkdir -p resources/software/ldak; \
-     wget --no-check-certificate -O resources/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; \
-     unzip resources/software/ldak/ldak5.1.linux_.zip -d resources/software/ldak/; \
-     rm resources/software/ldak/ldak5.1.linux_.zip"
-
+    """
+    {{
+      mkdir -p resources/software/ldak; \
+      wget --no-check-certificate -O resources/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; \
+      unzip resources/software/ldak/ldak5.1.linux_.zip -d resources/software/ldak/; \
+      rm resources/software/ldak/ldak5.1.linux_.zip
+    }} > {log} 2>&1
+    """
 # Download LDAK map data
 rule download_ldak_map:
   output:
@@ -286,11 +324,14 @@ rule download_ldak_map:
   log:
     "resources/data/logs/download_ldak_map.log"
   shell:
-    "mkdir -p resources/data/ldak_map; \
-     wget --no-check-certificate -O resources/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; \
-     unzip resources/data/ldak_map/genetic_map_b37.zip -d resources/data/ldak_map/; \
-     rm resources/data/ldak_map/genetic_map_b37.zip"
-
+    """
+    {{
+      mkdir -p resources/data/ldak_map; \
+      wget --no-check-certificate -O resources/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; \
+      unzip resources/data/ldak_map/genetic_map_b37.zip -d resources/data/ldak_map/; \
+      rm resources/data/ldak_map/genetic_map_b37.zip
+    }} > {log} 2>&1
+    """
 # Download LDAK bld snp annotations
 rule download_ldak_bld:
   output:
@@ -300,11 +341,14 @@ rule download_ldak_bld:
   log:
     "resources/data/logs/download_ldak_bld.log"
   shell:
-    "mkdir -p resources/data/ldak_bld; \
-     wget --no-check-certificate -O resources/data/ldak_bld/bld.zip https://genetics.ghpc.au.dk/doug/bld.zip; \
-     unzip resources/data/ldak_bld/bld.zip -d resources/data/ldak_bld/; \
-     rm resources/data/ldak_bld/bld.zip"
-
+    """
+    {{
+      mkdir -p resources/data/ldak_bld; \
+      wget --no-check-certificate -O resources/data/ldak_bld/bld.zip https://genetics.ghpc.au.dk/doug/bld.zip; \
+      unzip resources/data/ldak_bld/bld.zip -d resources/data/ldak_bld/; \
+      rm resources/data/ldak_bld/bld.zip
+    }} > {log} 2>&1
+    """
 # Download LDAK high ld regions file
 rule download_ldak_highld:
   output:
@@ -314,9 +358,12 @@ rule download_ldak_highld:
   log:
     "resources/data/logs/download_ldak_highld.log"
   shell:
-    "mkdir -p resources/data/ldak_highld; \
-     wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt"
-
+    """
+    {{
+      mkdir -p resources/data/ldak_highld; \
+      wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt
+    }} > {log} 2>&1
+    """
 # Download preprocessed reference data (1KG HapMap3)
 rule download_default_ref:
   output:
@@ -326,14 +373,17 @@ rule download_default_ref:
   log:
     "resources/data/logs/download_default_ref.log"
   shell:
-    "rm -r resources/data/ref; \
-     mkdir -p resources/data/ref; \
-     wget --no-check-certificate -O resources/data/ref/genopredpipe_1kg.tar.gz https://zenodo.org/records/10371754/files/genopredpipe_1kg.tar.gz?download=1; \
-     tar -xzvf resources/data/ref/genopredpipe_1kg.tar.gz -C resources/data/ref/; \
-     mv resources/data/ref/ref/* resources/data/ref/; \
-     rm -r resources/data/ref/ref; \
-     rm resources/data/ref/genopredpipe_1kg.tar.gz"
-
+    """
+    {{
+      rm -r resources/data/ref; \
+      mkdir -p resources/data/ref; \
+      wget --no-check-certificate -O resources/data/ref/genopredpipe_1kg.tar.gz https://zenodo.org/records/10371754/files/genopredpipe_1kg.tar.gz?download=1; \
+      tar -xzvf resources/data/ref/genopredpipe_1kg.tar.gz -C resources/data/ref/; \
+      mv resources/data/ref/ref/* resources/data/ref/; \
+      rm -r resources/data/ref/ref; \
+      rm resources/data/ref/genopredpipe_1kg.tar.gz
+    }} > {log} 2>&1
+    """
 # install ggchicklet
 rule install_ggchicklet:
   input:
@@ -347,8 +397,11 @@ rule install_ggchicklet:
   log:
     "resources/data/logs/install_ggchicklet.log"
   shell:
-    "Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\")'"
-
+    """
+    {{
+      Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\")'
+    }} > {log} 2>&1
+    """
 # install lassosum
 rule install_lassosum:
   input:
@@ -362,8 +415,11 @@ rule install_lassosum:
   log:
     "resources/data/logs/install_lassosum.log"
   shell:
-    "Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'"
-
+    """
+    {{
+      Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'
+    }} > {log} 2>&1
+    """
 # Install GenoUtils
 rule install_genoutils:
   input:
@@ -377,8 +433,11 @@ rule install_genoutils:
   log:
     "resources/data/logs/install_genoutils.log"
   shell:
-    "Rscript -e 'devtools::install_github(\"opain/GenoUtils@edf5bec1be0e396d953eb8974488dc4e3d57c134\")'"
-
+    """
+    {{
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@edf5bec1be0e396d953eb8974488dc4e3d57c134\")'
+    }} > {log} 2>&1
+    """
 # Download pgscatalog_utils
 rule download_pgscatalog_utils:
   output:
@@ -390,15 +449,18 @@ rule download_pgscatalog_utils:
   log:
     "resources/data/logs/download_pgscatalog_utils.log"
   shell:
-    "rm -r -f resources/software/pgscatalog_utils; \
-    git clone https://github.com/PGScatalog/pgscatalog_utils.git resources/software/pgscatalog_utils; \
-    cd resources/software/pgscatalog_utils; \
-    git reset --hard 6da7eb0e157ba4e73f941233ee8d8ae4fb5e3926; \
-    poetry install; \
-    poetry build; \
-    pip3 install --user dist/*.whl; \
-    download_scorefiles -h > download_pgscatalog_utils.done"
-
+    """
+    {{
+      rm -r -f resources/software/pgscatalog_utils; \
+      git clone https://github.com/PGScatalog/pgscatalog_utils.git resources/software/pgscatalog_utils; \
+      cd resources/software/pgscatalog_utils; \
+      git reset --hard 6da7eb0e157ba4e73f941233ee8d8ae4fb5e3926; \
+      poetry install; \
+      poetry build; \
+      pip3 install --user dist/*.whl; \
+      download_scorefiles -h > download_pgscatalog_utils.done
+    }} > {log} 2>&1
+    """
 ############
 # Check all dependencies are available
 ############
