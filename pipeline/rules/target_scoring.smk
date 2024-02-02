@@ -28,6 +28,10 @@ rule pc_projection_i:
     "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
   output:
     touch("{outdir}/reference/target_checks/{name}/pc_projection-{population}.done")
+  benchmark:
+    "{outdir}/reference/benchmarks/pc_projection_i-{name}-{population}.txt"
+  log:
+    "{outdir}/reference/logs/pc_projection_i-{name}-{population}.log"
   conda:
     "../envs/analysis.yaml"
   shell:
@@ -38,7 +42,7 @@ rule pc_projection_i:
       --ref_score resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.eigenvec.var.gz \
       --ref_scale resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.{wildcards.population}.scale \
       --plink2 plink2 \
-      --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}-{wildcards.population}"
+      --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}-{wildcards.population} > {log} 2>&1"
 
 rule pc_projection_all_pop:
   input:
@@ -65,6 +69,10 @@ rule target_pgs_i:
     "{outdir}/reference/target_checks/prep_pgs_{method}_i-{gwas}.done"
   output:
     touch("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done")
+  benchmark:
+    "{outdir}/reference/benchmarks/target_pgs_i-{name}-{method}-{population}-{gwas}.txt"
+  log:
+    "{outdir}/reference/logs/target_pgs_i-{name}-{method}-{population}-{gwas}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -80,7 +88,7 @@ rule target_pgs_i:
       --pheno_name {wildcards.gwas} \
       --test {params.testing} \
       --n_cores {threads} \
-      --output {outdir}/{wildcards.name}/pgs/{wildcards.population}/{wildcards.method}/{wildcards.gwas}/{wildcards.name}-{wildcards.gwas}-{wildcards.population}"
+      --output {outdir}/{wildcards.name}/pgs/{wildcards.population}/{wildcards.method}/{wildcards.gwas}/{wildcards.name}-{wildcards.gwas}-{wildcards.population} > {log} 2>&1"
 
 rule target_pgs_all_gwas:
   input:

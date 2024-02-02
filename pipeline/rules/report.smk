@@ -29,6 +29,10 @@ rule sample_report_i:
     output_all_input
   output:
     touch('{outdir}/reference/target_checks/{name}/sample_report.done')
+  benchmark:
+    "{outdir}/reference/benchmarks/sample_report_i-{name}.txt"
+  log:
+    "{outdir}/reference/logs/sample_report_i-{name}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -40,13 +44,17 @@ rule sample_report_i:
     config_file = config["config_file"],
     report_out= lambda w: outdir if outdir[0] == "/" else os.getcwd() + "/" + outdir
   shell:
-    "mkdir -p {params.tempdir} ; \
-     cp ../Scripts/pipeline_reports/samp_report_creator.Rmd {params.tempdir}/samp_report_creator.Rmd ; \
-     mkdir -p {outdir}/{wildcards.name}/reports; \
-     Rscript -e \"rmarkdown::render(\'{params.tempdir}/samp_report_creator.Rmd\', \
-     output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-report.html\', \
-     params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
-     rm -r {params.tempdir}"
+    """
+    {{
+      mkdir -p {params.tempdir} ; \
+      cp ../Scripts/pipeline_reports/samp_report_creator.Rmd {params.tempdir}/samp_report_creator.Rmd ; \
+      mkdir -p {outdir}/{wildcards.name}/reports; \
+      Rscript -e \"rmarkdown::render(\'{params.tempdir}/samp_report_creator.Rmd\', \
+      output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-report.html\', \
+      params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
+      rm -r {params.tempdir}
+    }} > {log} 2>&1
+    """
 
 rule sample_report:
   input: expand('{outdir}/reference/target_checks/{name}/sample_report.done', name=target_list_df_samp['name'], outdir=outdir)
@@ -77,6 +85,10 @@ rule indiv_report_i:
     output_all_input
   output:
     touch('{outdir}/reference/target_checks/{name}/indiv_report-{id}-report.done')
+  benchmark:
+    "{outdir}/reference/benchmarks/indiv_report_i-{name}-{id}.txt"
+  log:
+    "{outdir}/reference/logs/indiv_report_i-{name}-{id}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -88,13 +100,17 @@ rule indiv_report_i:
     config_file = config["config_file"],
     report_out= lambda w: outdir if outdir[0] == "/" else os.getcwd() + "/" + outdir
   shell:
-    "mkdir -p {params.tempdir} ; \
-     cp ../Scripts/pipeline_reports/indiv_report_creator.Rmd {params.tempdir}/indiv_report_creator.Rmd ; \
-     mkdir -p {outdir}/{wildcards.name}/reports/individual; \
-     Rscript -e \"rmarkdown::render(\'{params.tempdir}/indiv_report_creator.Rmd\', \
-     output_file = \'{params.report_out}/{wildcards.name}/reports/individual/{wildcards.name}-{wildcards.id}-report.html\', \
-     params = list(name = \'{wildcards.name}\', id = \'{wildcards.id}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
-     rm -r {params.tempdir}"
+    """
+    {{
+      mkdir -p {params.tempdir} ; \
+      cp ../Scripts/pipeline_reports/indiv_report_creator.Rmd {params.tempdir}/indiv_report_creator.Rmd ; \
+      mkdir -p {outdir}/{wildcards.name}/reports/individual; \
+      Rscript -e \"rmarkdown::render(\'{params.tempdir}/indiv_report_creator.Rmd\', \
+      output_file = \'{params.report_out}/{wildcards.name}/reports/individual/{wildcards.name}-{wildcards.id}-report.html\', \
+      params = list(name = \'{wildcards.name}\', id = \'{wildcards.id}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
+      rm -r {params.tempdir}
+    }} > {log} 2>&1
+    """
 
 rule indiv_report_all_id:
   input:
