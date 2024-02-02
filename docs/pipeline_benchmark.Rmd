@@ -1,0 +1,146 @@
+---
+title: GenoPred Pipeline - Benchmark
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+library(knitr)
+library(data.table)
+```
+
+***
+
+In this document we will benchmark the time taken and max memory for each part of the GenoPred pipeline. We are using the benchmark results from the snakemake benchmark functionality. We will record the time taken to run the pipeline restricted to chromosome 22 to save time, and then results can be extrapolated.
+
+We will test the pipeline using 10 GWAS, 10 external scoring files, 3 target samples with sample sizes 100, 1000 and 10000, with 10M SNPs originally. The number of SNPs in external scoring files can vary a lot, so we will use scoring files based on methods restricted to hapmap3 variants.
+
+***
+
+# Prepare input data
+
+```{bash}
+mkdir 
+```
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+bm_1 <- paste0('resources/data/benchmarks/', list.files('resources/data/benchmarks'))
+bm_2 <- paste0('test_data/output/test1/reference/benchmarks/', list.files('test_data/output/test1/reference/benchmarks'))
+bm_all <- c(bm_1, bm_2)
+
+bm_dat <- do.call(rbind, lapply(bm_all, function(file) {
+  tmp <- fread(file)
+  tmp$file <- basename(file) # Assuming the file name indicates the rule
+  return(tmp)
+}))
+
+bm_dat$rule <- gsub('-.*','',bm_dat$file)
+
+# Catagorise rules
+dependencies <- c(
+  'download_impute2_data',
+  'download_plink',
+  'download_ldsc',
+  'download_ldsc_ref',
+  'download_hm3_snplist',
+  'download_dbslmm',
+  'download_ld_blocks',
+  'download_prscs_ref_1kg_eur',
+  'download_prscs_software',
+  'download_gctb_ref',
+  'download_gctb_software',
+  'download_ldpred2_ref',
+  'download_ldak',
+  'download_ldak_map',
+  'download_ldak_bld',
+  'download_ldak_highld',
+  'download_default_ref',
+  'install_ggchicklet',
+  'install_lassosum',
+  'install_genoutils',
+  'download_pgscatalog_utils'
+)
+
+pgs_methods <- c(
+  'ref_pca_i',
+  'sumstat_prep_i',
+  'prep_pgs_ptclump_i',
+  'prep_pgs_dbslmm_i',
+  'prep_pgs_prscs_i',
+  'prep_pgs_megaprs_i',
+  'prep_pgs_ldpred2_i',
+  'prep_pgs_sbayesr_i',
+  'download_pgs_external',
+  'prep_pgs_external_i',
+  'score_reporter'
+)
+
+target_qc <- c(
+  'impute_23andme_i',
+  'format_target_i',
+  'ancestry_inference_i',
+  'ancestry_reporter',
+  'outlier_detection_i'
+)
+
+target_scoring <- c(
+  'pc_projection_i',
+  'target_pgs_i'
+)
+report <- c(
+  'sample_report_i',
+  'indiv_report_i'
+)
+
+# Calculate mean time and memory for each rule
+bm_dat_summary <- NULL
+for (i in unique(bm_dat$rule)) {
+  tmp <- data.table(
+    rule = i,
+    mean_time = mean(bm_dat$s[bm_dat$rule == i]),
+    max_time = max(bm_dat$s[bm_dat$rule == i]),
+    mean_mem = mean(bm_dat$max_rss[bm_dat$rule == i]),
+    max_mem = max(bm_dat$max_rss[bm_dat$rule == i])
+  )
+  bm_dat_summary <- rbind(bm_dat_summary, tmp)
+}
+
+# Parse the s column for total time in seconds (adjust if your format is different)
+benchmarks$s <- as.numeric(benchmarks$s)
+
+# Create a summary table
+summary_table <- benchmarks %>%
+  group_by(rule) %>%
+  summarize(
+    Average_Time_S = mean(s),
+    Max_Memory_MB = max(max_rss)
+  )
+
+print(summary_table)
+
+# Plotting
+# Time taken by each rule
+ggplot(benchmarks, aes(x = rule, y = s)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Time Taken by Each Rule", x = "Rule", y = "Time (seconds)")
+
+# Memory used by each rule
+ggplot(benchmarks, aes(x = rule, y = max_rss)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Peak Memory Used by Each Rule", x = "Rule", y = "Memory (MB)")
+
+```
