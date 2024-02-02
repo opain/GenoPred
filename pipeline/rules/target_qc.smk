@@ -37,6 +37,10 @@ if 'target_list' in config:
       rules.download_impute2_data.output
     output:
       "{outdir}/{name}/geno/imputed/{name}.chr{chr}.bed"
+    benchmark:
+      "{outdir}/reference/benchmarks/impute_23andme_i-{name}-{chr}.txt"
+    log:
+      "{outdir}/reference/logs/impute_23andme_i-{name}-{chr}.log"
     conda:
       "../envs/analysis.yaml"
     params:
@@ -52,7 +56,7 @@ if 'target_list' in config:
         --output {outdir}/{params.name}/geno/imputed/{params.name}.chr{wildcards.chr} \
         --chr {wildcards.chr} \
         --ref resources/data/impute2/1000GP_Phase3 \
-        --n_core {resources.cpus}"
+        --n_core {resources.cpus} > {log} 2>&1"
 
   rule impute_23andme_all_chr:
     input:
@@ -109,6 +113,10 @@ if 'target_list' in config:
       rules.install_genoutils.output
     output:
       "{outdir}/{name}/geno/{name}.ref.chr{chr}.bed"
+    benchmark:
+      "{outdir}/reference/benchmarks/format_target_i-{name}-{chr}.txt"
+    log:
+      "{outdir}/reference/logs/format_target_i-{name}-{chr}.log"
     conda:
       "../envs/analysis.yaml"
     params:
@@ -122,7 +130,7 @@ if 'target_list' in config:
         --target {params.prefix}.chr{wildcards.chr} \
         --format {params.type} \
         --ref resources/data/ref/ref.chr{wildcards.chr} \
-        --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr}"
+        --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr} > {log} 2>&1"
 
 rule format_target_all_chr:
   input:
@@ -143,6 +151,10 @@ rule ancestry_inference_i:
     "{outdir}/reference/target_checks/{name}/format_target_all_chr.done"
   output:
     touch("{outdir}/reference/target_checks/{name}/ancestry_inference.done")
+  benchmark:
+    "{outdir}/reference/benchmarks/ancestry_inference_i-{name}.txt"
+  log:
+    "{outdir}/reference/logs/ancestry_inference_i-{name}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -153,7 +165,7 @@ rule ancestry_inference_i:
       --ref_plink_chr resources/data/ref/ref.chr \
       --output {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry \
       --pop_data resources/data/ref/ref.pop.txt \
-      --test {params.testing}"
+      --test {params.testing} > {log} 2>&1"
 
 rule ancestry_inference:
   input: expand("{outdir}/reference/target_checks/{name}/ancestry_inference.done", name=target_list_df['name'], outdir=outdir)
@@ -164,10 +176,14 @@ checkpoint ancestry_reporter:
     "{outdir}/reference/target_checks/{name}/ancestry_inference.done",
   output:
     touch("{outdir}/reference/target_checks/{name}/ancestry_reporter.done")
+  benchmark:
+    "{outdir}/reference/benchmarks/ancestry_reporter-{name}.txt"
+  log:
+    "{outdir}/reference/logs/ancestry_reporter-{name}.log"
   conda:
     "../envs/analysis.yaml"
   shell:
-    "Rscript ../Scripts/pipeline_misc/ancestry_reporter.R {wildcards.name} {outdir}"
+    "Rscript ../Scripts/pipeline_misc/ancestry_reporter.R {wildcards.name} {outdir} > {log} 2>&1"
 
 rule run_ancestry_reporter:
   input: expand("{outdir}/reference/target_checks/{name}/ancestry_reporter.done", name=target_list_df['name'], outdir=outdir)
@@ -183,6 +199,10 @@ rule outlier_detection_i:
     "{outdir}/reference/target_checks/{name}/ancestry_reporter.done"
   output:
     touch('{outdir}/reference/target_checks/{name}/outlier_detection.done')
+  benchmark:
+    "{outdir}/reference/benchmarks/outlier_detection_i-{name}.txt"
+  log:
+    "{outdir}/reference/logs/outlier_detection_i-{name}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -192,7 +212,7 @@ rule outlier_detection_i:
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --keep_list {outdir}/{wildcards.name}/ancestry/keep_list.txt \
       --test {params.testing} \
-      --output {outdir}/{wildcards.name}/pcs/within_sample/{wildcards.name}.outlier_detection"
+      --output {outdir}/{wildcards.name}/pcs/within_sample/{wildcards.name}.outlier_detection > {log} 2>&1"
 
 rule outlier_detection:
   input:
