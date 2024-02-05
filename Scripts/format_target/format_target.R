@@ -134,6 +134,7 @@ names(targ_bim)<-c('CHR','SNP','POS','BP','A1','A2')
 # Update SNP with reference SNP value based on CHR:BP:IUPAC in the previously matched ref and target data
 targ_bim$IUPAC<-snp_iupac(targ_bim$A1, targ_bim$A2)
 targ_bim$ID<-paste0(targ_bim$CHR,':',targ_bim$BP,':',targ_bim$IUPAC)
+targ_bim$SNP<-targ_bim$ID # Give SNP column a unique value before updating to reference value
 ref_target$ID<-paste0(ref_target$CHR,':',ref_target$BP,':',ref_target$IUPAC.x)
 targ_bim[ref_target, on=.(ID), SNP := i.SNP.y]
 targ_bim<-targ_bim[,c('CHR','SNP','POS','BP','A1','A2'),with=F]

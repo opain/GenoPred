@@ -21,7 +21,7 @@ option_list = list(
   make_option("--keep_list", action="store", default=NULL, type='character',
       help="File containing list of keep files and corresponding population code [optional]"),
   make_option("--test", action="store", default=NA, type='character',
-	    help="Specify number of SNPs to include [optional]"),
+	    help="Specify test mode [optional]"),
   make_option("--output", action="store", default=NULL, type='character',
       help="Path for output files [required]")
 )
@@ -128,13 +128,13 @@ for(pop in keep_list$POP){
   ###########
 
   # Create QC'd SNP-list
-  target_qc_snplist <- plink_qc_snplist(bfile = opt$target_plink_chr, keep = keep_file, maf = opt$maf, geno = opt$geno, hwe = opt$hwe)
+  target_qc_snplist <- plink_qc_snplist(bfile = opt$target_plink_chr, chr = CHROMS, keep = keep_file, maf = opt$maf, geno = opt$geno, hwe = opt$hwe)
 
   # Remove high LD regions
   target_qc_snplist <- target_qc_snplist[target_qc_snplist %in% targ_bim$SNP]
 
   # Perform LD pruning
-  ld_indep <- plink_prune(bfile = opt$target_plink_chr, keep = keep_file, plink = opt$plink, extract = target_qc_snplist)
+  ld_indep <- plink_prune(bfile = opt$target_plink_chr, chr = CHROMS, keep = keep_file, plink = opt$plink, extract = target_qc_snplist)
 
   # To improve efficiency, derive PCs using random subset of 1000 individuals.
   # These individuals should be unrelated
@@ -147,7 +147,7 @@ for(pop in keep_list$POP){
   fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
 
   # Project into the full population
-  target_pcs <- plink_score(bfile = opt$target_plink_chr, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+  target_pcs <- plink_score(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 
   # Create plot PC scores of target sample
   pairs_plot <- ggpairs(target_pcs[,-1:-2])
