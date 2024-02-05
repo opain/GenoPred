@@ -309,6 +309,7 @@ rule download_ldak:
   shell:
     """
     {{
+      rm -r resources/software/ldak; \
       mkdir -p resources/software/ldak; \
       wget --no-check-certificate -O resources/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; \
       unzip resources/software/ldak/ldak5.1.linux_.zip -d resources/software/ldak/; \
@@ -326,6 +327,7 @@ rule download_ldak_map:
   shell:
     """
     {{
+      rm -r resources/data/ldak_map; \
       mkdir -p resources/data/ldak_map; \
       wget --no-check-certificate -O resources/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; \
       unzip resources/data/ldak_map/genetic_map_b37.zip -d resources/data/ldak_map/; \
@@ -343,6 +345,7 @@ rule download_ldak_bld:
   shell:
     """
     {{
+      rm -r resources/data/ldak_bld; \
       mkdir -p resources/data/ldak_bld; \
       wget --no-check-certificate -O resources/data/ldak_bld/bld.zip https://genetics.ghpc.au.dk/doug/bld.zip; \
       unzip resources/data/ldak_bld/bld.zip -d resources/data/ldak_bld/; \
@@ -360,6 +363,7 @@ rule download_ldak_highld:
   shell:
     """
     {{
+      rm -r resources/data/ldak_highld; \
       mkdir -p resources/data/ldak_highld; \
       wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt
     }} > {log} 2>&1

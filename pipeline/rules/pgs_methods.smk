@@ -159,15 +159,16 @@ rule prep_pgs_dbslmm:
 ##
 # PRScs
 ##
+# Note. Threads are set to 1, and phi and chr are run in parallel. Increasing number of threads shows no improvement in speed.
 
 # Set default values
-n_cores_prscs = 10
-mem_prscs = 80000
+n_cores_prscs = config.get("ncores", 10)
 
 # Modify if the 'testing' condition is met
 if config["testing"] != 'NA':
-    n_cores_prscs = 5
-    mem_prscs = 40000
+    n_cores_prscs = config.get("ncores", 5)
+
+mem_prscs = 5000*n_cores_prscs
 
 rule prep_pgs_prscs_i:
   resources:
@@ -213,11 +214,11 @@ rule prep_pgs_prscs:
 ##
 
 if config["testing"] != 'NA':
-  n_cores_sbayesr = 1
-  mem_sbayesr=10000
+  n_cores_sbayesr = config.get("ncores", 1)
 else:
-  n_cores_sbayesr = 10
-  mem_sbayesr=80000
+  n_cores_sbayesr = config.get("ncores", 10)
+
+mem_sbayesr=5000*n_cores_sbayesr
 
 rule prep_pgs_sbayesr_i:
   resources:
@@ -257,11 +258,11 @@ rule prep_pgs_sbayesr:
 ##
 
 if config["testing"] != 'NA':
-  n_cores_lassosum = 1
-  mem_lassosum=10000
+  n_cores_lassosum = config.get("ncores", 1)
+  mem_lassosum=5000
 else:
-  n_cores_lassosum = 10
-  mem_lassosum=80000
+  n_cores_lassosum = config.get("ncores", 10)
+  mem_lassosum=20000
 
 rule prep_pgs_lassosum_i:
   resources:
@@ -300,11 +301,11 @@ rule prep_pgs_lassosum:
 ##
 
 if config["testing"] != 'NA':
-  n_cores_ldpred2 = 5
-  mem_ldpred2=40000
+  n_cores_ldpred2 = config.get("ncores", 5)
+  mem_ldpred2=5000
 else:
-  n_cores_ldpred2 = 10
-  mem_ldpred2=80000
+  n_cores_ldpred2 = config.get("ncores", 10)
+  mem_ldpred2=20000
 
 rule prep_pgs_ldpred2_i:
   resources:
@@ -344,11 +345,11 @@ rule prep_pgs_ldpred2:
 ##
 
 if config["testing"] != 'NA':
-  n_cores_megaprs = 5
-  mem_megaprs=40000
+  n_cores_megaprs = config.get("ncores", 5)
+  mem_megaprs=5000
 else:
-  n_cores_megaprs = 10
-  mem_megaprs=80000
+  n_cores_megaprs = config.get("ncores", 10)
+  mem_megaprs=20000
 
 rule prep_pgs_megaprs_i:
   resources:

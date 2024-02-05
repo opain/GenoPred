@@ -14,6 +14,7 @@ score_list <- read_param(config = config, param = 'score_list')
 if(!is.null(score_list)){
   outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 
+  print(outdir)
   if(nrow(score_list) > 0){
       score_check <- NULL
       for(name_i in score_list$name){
