@@ -490,12 +490,12 @@ class="section level3">
 <summary>
 Show code
 </summary>
-<pre class="r"><code>setwd(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/GenoPredPipe&#39;)
+<pre class="r"><code>setwd(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline&#39;)
 library(data.table)
 
 # Create config file
 conf &lt;- c(
-  &#39;outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test2&#39;,
+  &#39;outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test3&#39;,
   &#39;config_file: misc/opensnp/config.yaml&#39;,
   &#39;gwas_list: misc/opensnp/gwas_list.txt&#39;,
   &#39;score_list: misc/opensnp/score_list.txt&#39;,
@@ -568,6 +568,77 @@ write.table(score_list, &#39;misc/opensnp/score_list.txt&#39;, col.names=T, row.
 Show code
 </summary>
 <pre class="bash"><code>snakemake --profile slurm --use-conda --configfile=misc/opensnp/config.yaml output_all</code></pre>
+</details>
+<hr />
+</div>
+<div id="check-time-and-memory-requirements" class="section level2">
+<h2>Check time and memory requirements</h2>
+<details>
+<summary>
+Show code
+</summary>
+<pre class="r"><code>library(data.table)
+library(ggplot2)
+library(cowplot)
+
+# Read in configuration specific benchmark files
+bm_files_i &lt;-
+  paste0(
+    &#39;/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test3/reference/benchmarks/&#39;,
+    list.files(&#39;/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test3/reference/benchmarks/&#39;)
+  )
+
+# Read in benchmark files
+bm_dat_all &lt;- do.call(rbind, lapply(bm_files_i, function(file) {
+  tmp &lt;- fread(file)
+  tmp$file &lt;- basename(file)
+  return(tmp)
+}))
+
+# Create rule column
+bm_dat_all$rule &lt;- gsub(&#39;-.*&#39;,&#39;&#39;,bm_dat_all$file)
+
+#####
+# PGS methods
+#####
+# Look at the memory required for each PGS method using the EUR GWAS
+bm_dat_yengo_eur &lt;-
+  bm_dat_all[grepl(&#39;prep_pgs&#39;, bm_dat_all$file) &amp;
+               grepl(&#39;yengo_eur.txt&#39;, bm_dat_all$file), ]
+
+bm_dat_yengo_eur$method &lt;- gsub(&#39;_i&#39;, &#39;&#39;, gsub(&#39;prep_pgs_&#39;,&#39;&#39;,bm_dat_yengo_eur$rule))
+bm_dat_yengo_eur&lt;-merge(bm_dat_yengo_eur, pgs_method_labels, by=&#39;method&#39;)
+
+pgs_method_time &lt;-
+  ggplot(bm_dat_yengo_eur, aes(x = label, y = s, fill = label)) +
+  geom_bar(stat = &quot;identity&quot;, position = &quot;dodge&quot;) +
+  labs(x = &quot;PGS Method&quot;, y = &quot;Time (seconds)&quot;) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position=&quot;none&quot;)
+
+pgs_method_mem &lt;-
+  ggplot(bm_dat_yengo_eur, aes(x = label, y = max_rss, fill = label)) +
+  geom_bar(stat = &quot;identity&quot;, position=&quot;dodge&quot;) +
+  labs(x = &quot;PGS Method&quot;, y = &quot;Max Memory (Mb)&quot;) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position=&quot;none&quot;)
+
+png(&#39;Images/OpenSNP/time_cpu_bench_pgs_methods.png&#39;, res = 300, width = 1800, height = 1800, units = &#39;px&#39;)
+  plot_grid(pgs_method_time, pgs_method_mem, nrow=2)
+dev.off()
+
+write.csv(bm_dat_yengo_eur, &#39;Images/OpenSNP/time_cpu_bench_pgs_methods.csv&#39;, row.names=F, quote=F)</code></pre>
+</details>
+<details>
+<summary>
+Show PGS methods benchmark
+</summary>
+<p><img src="Images/OpenSNP/time_cpu_bench_pgs_methods.png"
+style="width:50.0%" /></p>
+<p><strong>Note:</strong> pT+clump and DBSLMM are run using 1 core. All
+other methods are run using 10 cores.</p>
 </details>
 <hr />
 </div>
