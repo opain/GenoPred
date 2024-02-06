@@ -16,9 +16,46 @@ library(cowplot)
 library(scales)
 library(ggchicklet)
 
+# Create effect size conversion functions
+
+r2_r2l <- function(k, r2l, p) {
+    #Lee SH, Goddard ME, Wray NR, Visscher PM. (2012)
+    x= qnorm(1-k)
+    z= dnorm(x)
+    i=z/k
+    C= k*(1-k)*k*(1-k)/(z^2*p*(1-p))
+    theta= i*((p-k)/(1-k))*(i*((p-k)/(1-k))-x)
+    r = sqrt(r2l)/sqrt(C-(C*(r2l)*theta))
+    r2<-r^2
+    r2
+}
+
+d_r2<-function(r2,p){
+    r<-sqrt(r2)
+    
+    n_case<-p
+    n_con<-1-p
+    
+    a<-(n_case+n_con)^2/(n_case*n_con)
+    
+    d<-sqrt(a)*r/sqrt(1-r^2)
+    d
+}
+
+# Define dnorm functions for plotting
+dnorm_new<-function(x, mean=0, sd=1, log=F, height=1){
+    out<-dnorm(x=x,mean=mean,sd=sd,log=log)
+    out*height
+}
+
+dnorm_2_new<-function(x, mean_1=0, mean_2=0, sd_1=1, sd_2=1, log=F, p_2=0.5){
+    out_1<-dnorm_new(x, mean=mean_1, sd=sd_1, log=log, height=1-p_2)
+    out_2<-dnorm_new(x, mean=mean_2, sd=sd_2, log=log, height=p_2)
+    out_1+out_2
+}
+
 # Create function for z-score to absolute risk
-ccprobs.f <- function(PRS_auc=0.641, prev=0.7463, n_quantile=20){
-    d <- sqrt(2)*qnorm(PRS_auc)
+ccprobs.f <- function(d=0.641, prev=0.7463, n_quantile=20){
     mu_case <- d
     mu_control <- 0
     
@@ -72,25 +109,35 @@ ui <- fluidPage(
                         step=0.01),
             
             sliderInput("prev",
-                        "Prevalence (%):",
+                        "Population Prevalence (%):",
                         min = 0.1,
                         max = 99.9,
                         value = 50,
                         step=0.1),
-            
-            br(),
-            
-            sliderInput("auc",
-                        "AUC:",
-                        min = 0.51,
-                        max = 0.99,
-                        value = 0.75,
-                        step=0.01)
-        ),
+
+            selectInput("type", "Polygenic Score Effect Size Type:",
+                            c("Cohen's D" = "d",
+                              "Area Under-the-ROC Curve (AUC)" = "auc",
+                              "Odds Ratio (1SD)" = "or",
+                              "Observed R-squared" = "r2_obs",
+                              "Liability R-squared" = "r2_liab")),
+            numericInput("val", "Polygenic Score Effect Size Value:", 0.7, step = 0.001),
+            conditionalPanel(
+                condition = "input.type == 'r2_obs' || input.type == 'r2_liab' || input.type == 'or'",
+                sliderInput("samp",
+                        "Sampling Fraction (%):",
+                        min = 0.1,
+                        max = 99.9,
+                        value = 50,
+                        step=0.1)),
+       ),
         
         # Show plot
         mainPanel(
-            plotOutput("Plot", height = "1000px", width = "600px")
+            h3("Relative Risk"),
+            plotOutput("Plot_rel", height = "350px", width = "600px"),
+            h3("Absolute Risk"),
+            plotOutput("Plot_abs", height = "1150px", width = "600px")
         )
     )
 )
@@ -98,16 +145,93 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
     
-    output$Plot <- renderPlot({
+    output$Plot_rel <- renderPlot({
+        k<-input$prev/100
+        p<-input$samp/100
+        
+        # Convert effect size to cohen's d
+        if(input$type == 'd'){
+            d<-input$val
+        }
+        if(input$type == 'auc'){
+            auc<-input$val
+            d<-sqrt(2)*qnorm(auc)
+        }
+        if(input$type == 'or'){
+            or<-input$val
+            f<-function(d,OR,p){OR - (exp(d*sqrt(1 + d^2*p*(1-p))))}
+            d<-uniroot(f, p=p, OR=or, interval=c(-1, 1), extendInt = "yes", tol=6e-12)$root
+        }
+        if(input$type == 'r2_obs'){
+            r2_obs<-input$val
+            d<-d_r2(r2=r2_obs, p=p)
+        }
+        if(input$type == 'r2_liab'){
+            r2_liab<-input$val
+            r2<-r2_r2l(k=k,r2l=r2_liab,p=p)
+            d<-d_r2(r2=r2, p=p)
+        }
+        
+        E_PRS <- d*(input$prev/100)
+        varPRS <- (input$prev/100)*(1+(d^2) - (d*(input$prev/100))^2) + (1-(input$prev/100))*(1 - (d*(input$prev/100))^2)
+        
+        tmp<-dnorm_2_new(x=seq(-4,4,length.out=101), mean_1 = (0-(E_PRS))/sqrt(varPRS), sd_1 = 1/sqrt(varPRS), mean_2 = (d-(E_PRS))/sqrt(varPRS), sd_2 = 1/sqrt(varPRS), p_2=(input$prev/100))
+        
+        prs_dist<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
+            stat_function(fun = dnorm_2_new, n = 101, args = list(mean_1 = (0-(E_PRS))/sqrt(varPRS), sd_1 = 1/sqrt(varPRS), mean_2 = (d-(E_PRS))/sqrt(varPRS), sd_2 = 1/sqrt(varPRS), p_2=(input$prev/100))) +
+            ylab("") +
+            stat_function(fun = dnorm_2_new, args = list(mean_1 = (0-(E_PRS))/sqrt(varPRS), sd_1 = 1/sqrt(varPRS), mean_2 = (d-(E_PRS))/sqrt(varPRS), sd_2 = 1/sqrt(varPRS), p_2=(input$prev/100)), xlim = c(input$z_score, -5),
+                          geom = "area", fill = "#CC66FF", alpha = .4) +
+            stat_function(fun = dnorm_2_new, args = list(mean_1 = (0-(E_PRS))/sqrt(varPRS), sd_1 = 1/sqrt(varPRS), mean_2 = (d-(E_PRS))/sqrt(varPRS), sd_2 = 1/sqrt(varPRS), p_2=(input$prev/100)), xlim = c(input$z_score, 5),
+                          geom = "area", fill = "#FF6633", alpha = .4) +
+            geom_vline(xintercept=input$z_score, linetype='dashed') +
+            geom_text(label=paste0(round(pnorm(input$z_score)*100,1),"% have lower \npolygenic scores"), mapping=aes(x=input$z_score-0.1, y=max(tmp)+(max(tmp)/5)), colour='#CC66FF', hjust='right', vjust=0.8, size=5) +
+            geom_text(label=paste0(round(100-(pnorm(input$z_score)*100),1),"% have higher \npolygenic scores"), mapping=aes(x=input$z_score+0.1, y=max(tmp)+(max(tmp)/5)), colour='#FF6633', hjust='left', vjust=0.8, size=5) +
+            scale_y_continuous(breaks = NULL) +
+            theme_half_open() +
+            xlim(-5,5) +
+            labs(y='Number of people', x='Polygenic Score', title='Distribution of polygenic scores') +
+            theme(plot.title = element_text(hjust = 0.5))
+        
+        prs_dist
+    })
+    
+    output$Plot_abs <- renderPlot({
+        k<-input$prev/100
+        p<-input$samp/100
+        
+        # Convert effect size to cohen's d
+        if(input$type == 'd'){
+            d<-input$val
+        }
+        if(input$type == 'auc'){
+            auc<-input$val
+            d<-sqrt(2)*qnorm(auc)
+        }
+        if(input$type == 'or'){
+            or<-input$val
+            f<-function(d,OR,p){OR - (exp(d*sqrt(1 + d^2*p*(1-p))))}
+            d<-uniroot(f, p=p, OR=or, interval=c(-1, 1), extendInt = "yes", tol=6e-12)$root
+        }
+        if(input$type == 'r2_obs'){
+            r2_obs<-input$val
+            d<-d_r2(r2=r2_obs, p=p)
+        }
+        if(input$type == 'r2_liab'){
+            r2_liab<-input$val
+            r2<-r2_r2l(k=k,r2l=r2_liab,p=p)
+            d<-d_r2(r2=r2, p=p)
+        }
+        
+        E_PRS <- d*(input$prev/100)
+        varPRS <- (input$prev/100)*(1+(d^2) - (d*(input$prev/100))^2) + (1-(input$prev/100))*(1 - (d*(input$prev/100))^2)
+        
+        tmp<-dnorm_2_new(x=seq(-4,4,length.out=101), mean_1 = (0-(E_PRS))/sqrt(varPRS), sd_1 = 1/sqrt(varPRS), mean_2 = (d-(E_PRS))/sqrt(varPRS), sd_2 = 1/sqrt(varPRS), p_2=(input$prev/100))
+        
         # Define parameters
-        trait<-'trait'
-        PRS_z_score<-input$z_score
-        prev<-input$prev/100
-        AUC=input$auc
+        risk_quantiles<-ccprobs.f(d=d, prev=(input$prev/100), n_quantile=1000)
         
-        risk_quantiles<-ccprobs.f(PRS_auc=AUC, prev=prev, n_quantile=1000)
-        
-        indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score < risk_quantiles$q_max,]
+        indiv_result_all<-risk_quantiles[input$z_score > risk_quantiles$q_min & input$z_score < risk_quantiles$q_max,]
         indiv_result<-indiv_result_all[, c('p_case', 'p_control')]
         
         indiv_result<-melt(indiv_result)
@@ -130,7 +254,7 @@ server <- function(input, output) {
         pop_control_1<-round(100-input$prev,1)
         pop_control<-round(100-input$prev)
         pop_result<-data.frame(variable=c('Case','Control'),
-                               value=c(prev,1-prev))
+                               value=c((input$prev/100),1-(input$prev/100)))
         
         pop_result$variable<-factor(pop_result$variable, levels = c('Control','Case'))
         
@@ -138,15 +262,15 @@ server <- function(input, output) {
         plot_dat_pop<-data.frame(melt(plot_dat_pop))
         plot_dat_pop$value<-factor(plot_dat_pop$value, levels = c('Control','Case'))
         
-        prs_dist<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
-            stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) + ylab("") +
-            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
-                          geom = "area", fill = "#84CA72", alpha = .4) +
-            stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
-                          geom = "area", fill = "#0066CC", alpha = .4) +
-            geom_vline(xintercept=PRS_z_score, linetype='dashed') +
-            geom_text(label=paste0(round(pnorm(PRS_z_score)*100,1),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#84CA72', hjust='right', vjust=0.8, size=5) +
-            geom_text(label=paste0(round(100-(pnorm(PRS_z_score)*100),1),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#0066CC', hjust='left', vjust=0.8, size=5) +
+        prs_dist_2<- ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
+            stat_function(fun = dnorm_2_new, n = 101, args = list(mean_1 = (0-(E_PRS))/sqrt(varPRS), sd_1 = 1/sqrt(varPRS), mean_2 = (d-(E_PRS))/sqrt(varPRS), sd_2 = 1/sqrt(varPRS), p_2=(input$prev/100))) +
+            stat_function(fun = dnorm_new, n = 101, args = list(mean = (0-(E_PRS))/sqrt(varPRS), sd = 1/sqrt(varPRS), height=1-(input$prev/100))) +
+            stat_function(fun = dnorm_new, n = 101, args = list(mean = (d-(E_PRS))/sqrt(varPRS), sd = 1/sqrt(varPRS), height=(input$prev/100))) +
+            stat_function(fun = dnorm_new, args = list(mean = (0-(E_PRS))/sqrt(varPRS), sd = 1/sqrt(varPRS), height=1-(input$prev/100)), geom = "area", fill = "#84CA72", alpha = .4) +
+            stat_function(fun = dnorm_new, args = list(mean = (d-(E_PRS))/sqrt(varPRS), sd = 1/sqrt(varPRS), height=(input$prev/100)), geom = "area", fill = "#0066CC", alpha = .4) +
+            geom_vline(xintercept=input$z_score, linetype='dashed') +
+            geom_text(label=paste0(n_control_1,"% don't\nhave trait"), mapping=aes(x=input$z_score-0.1, y=max(tmp)+(max(tmp)/5)), colour='#84CA72', hjust='right', vjust=0.8, size=5) +
+            geom_text(label=paste0(n_case_1,'% have\ntrait'), mapping=aes(x=input$z_score+0.1, y=max(tmp)+(max(tmp)/5)), colour='#0066CC', hjust='left', vjust=0.8, size=5) +
             scale_y_continuous(breaks = NULL) +
             theme_half_open() +
             xlim(-5,5) +
@@ -156,8 +280,8 @@ server <- function(input, output) {
         bar_chart<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
             geom_chicklet(radius = grid::unit(1, 'mm'), data=indiv_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
             scale_fill_manual(values=c("#84CA72","#0066CC"), drop = F) +
-            annotate("text", x=1.5, y=((((n_control_1)/2))+n_case_1)/100, label=paste0(n_control_1,"%\ndo not have ",trait), colour = '#84CA72', hjust=0, size=6) +
-            annotate("text", x=1.5, y=((n_case_1/2))/100, label=paste0(n_case_1,'%\nhave ',trait), colour = '#0066CC', hjust=0, size=6) +
+            annotate("text", x=1.5, y=((((n_control_1)/2))+n_case_1)/100, label=paste0(n_control_1,"%\ndo not have trait"), colour = '#84CA72', hjust=0, size=6) +
+            annotate("text", x=1.5, y=((n_case_1/2))/100, label=paste0(n_case_1,'%\nhave trait'), colour = '#0066CC', hjust=0, size=6) +
             ylim(-0.1,1.05) +
             theme_half_open() +
             labs(title='Of people with your genetics,') +
@@ -172,8 +296,8 @@ server <- function(input, output) {
         bar_chart_pop<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
             geom_chicklet(radius = grid::unit(1, 'mm'), data=pop_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
             scale_fill_manual(values=c("#84CA72","#0066CC"), drop = F) +
-            annotate("text", x=1.5, y=(((pop_control_1/2))+pop_case_1)/100, label=paste0(pop_control_1,"%\ndo not have ",trait), colour = '#84CA72', hjust=0, size=6) +
-            annotate("text", x=1.5, y=((pop_case_1/2))/100, label=paste0(pop_case_1,'%\nhave ',trait), colour = '#0066CC', hjust=0, size=6) +
+            annotate("text", x=1.5, y=(((pop_control_1/2))+pop_case_1)/100, label=paste0(pop_control_1,"%\ndo not have trait"), colour = '#84CA72', hjust=0, size=6) +
+            annotate("text", x=1.5, y=((pop_case_1/2))/100, label=paste0(pop_case_1,'%\nhave trait'), colour = '#0066CC', hjust=0, size=6) +
             ylim(-0.1,1.05) +
             theme_half_open() +
             labs(title='In the general population,') +
@@ -192,8 +316,8 @@ server <- function(input, output) {
             geom_point(mapping=aes(x=Var1, y=Var2, colour=value), size=2) +
             geom_point(mapping=aes(x=Var1, y=Var2-0.3, colour=value), size=4.5) +
             scale_colour_manual(values=c("#84CA72","#0066CC"), drop = F) +
-            annotate("text", x=12, y=((n_case/2))/10+0.5, label=paste0(n_case,"%\nhave ",trait), colour = '#0066CC', hjust=0, size=6) +
-            annotate("text", x=12, y=(((100-n_case)/2)+n_case)/10, label=paste0(100-n_case,"%\ndon't have ",trait), colour = '#84CA72', hjust=0, size=6) +
+            annotate("text", x=12, y=((n_case/2))/10+0.5, label=paste0(n_case,"%\nhave trait"), colour = '#0066CC', hjust=0, size=6) +
+            annotate("text", x=12, y=(((100-n_case)/2)+n_case)/10, label=paste0(100-n_case,"%\ndon't have trait"), colour = '#84CA72', hjust=0, size=6) +
             xlim(0.5,20) +
             ylim(0,11) +
             theme_half_open() +
@@ -210,8 +334,8 @@ server <- function(input, output) {
             geom_point(mapping=aes(x=Var1, y=Var2, colour=value), size=2) +
             geom_point(mapping=aes(x=Var1, y=Var2-0.3, colour=value), size=4.5) +
             scale_colour_manual(values=c("#84CA72","#0066CC"), drop = F) +
-            annotate("text", x=12, y=((pop_case/2))/10+0.5, label=paste0(pop_case,"%\nhave ",trait), colour = '#0066CC', hjust=0, size=6) +
-            annotate("text", x=12, y=(((100-pop_case)/2)+pop_case)/10, label=paste0(100-pop_case,"%\ndon't have ",trait), colour = '#84CA72', hjust=0, size=6) +
+            annotate("text", x=12, y=((pop_case/2))/10+0.5, label=paste0(pop_case,"%\nhave trait"), colour = '#0066CC', hjust=0, size=6) +
+            annotate("text", x=12, y=(((100-pop_case)/2)+pop_case)/10, label=paste0(100-pop_case,"%\ndon't have trait"), colour = '#84CA72', hjust=0, size=6) +
             xlim(0.5,20) +
             ylim(0,11) +
             theme_half_open() +
@@ -225,7 +349,7 @@ server <- function(input, output) {
         
         person_plot_grid<-plot_grid(person_plot, person_plot_pop, labels = NULL, nrow = 1)
         
-        plot_grid(prs_dist, bar_chart_grid, person_plot_grid, ncol = 1)
+        plot_grid(prs_dist_2, bar_chart_grid, person_plot_grid, ncol = 1)
         
     })
 }

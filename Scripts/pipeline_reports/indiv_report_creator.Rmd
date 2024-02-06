@@ -1,0 +1,708 @@
+---
+title: "GenoPred Report"
+params:
+  name: ""
+  id: ""
+  config: ""
+  cwd: ""
+output:
+  html_document:
+    toc: true
+    theme: cosmo
+    toc_depth: 3
+    toc_float: true
+    fig_caption: yes
+
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = F, eval = T, message=F, warning=F)
+
+# Set working directory to that upstream of this .Rmd file, so other files can be found easily.
+knitr::opts_knit$set(root.dir = params$cwd)
+
+library(data.table)
+library(knitr)
+library(ggplot2)
+library(cowplot)
+library(ggchicklet)
+library(DT)
+library(kableExtra)
+library(tmvtnorm)
+
+knit_hooks$set(optipng = hook_optipng)
+knit_hooks$set(pngquant = hook_pngquant)
+
+```
+
+```{r, include = F}
+# Load functions
+source('../functions/misc.R')
+source_all('../functions')
+
+# Create a temporary directory
+tmp_folder <- paste0(tempdir(), "/sub_dir.",params$name,'.',params$id)
+dir.create(tmp_folder, recursive = T)
+
+# Read in outdir
+outdir <- read_param(config = params$config, param = 'outdir', return_obj = F)
+
+# Read in target_list
+target_list <- read_param(config = params$config, param = 'target_list')
+
+# Read in gwas_list
+gwas_list <- read_param(config = params$config, param = 'gwas_list')
+
+# Read in score_list
+score_list <- read_param(config = params$config, param = 'score_list')
+
+# Identify PGS methods to be included
+pgs_methods_list <- read_param(config = params$config, param = 'pgs_methods', return_obj = F)
+
+# If testing, change CHROMS to chr value
+testing <- read_param(config = params$config, param = 'testing', return_obj = F)
+
+```
+
+```{r, results = 'asis'}
+
+if(!is.na(testing) && testing == 'NA'){
+  testing<-NA
+}
+if(!is.na(testing)){
+  CHROMS <- as.numeric(gsub('chr','',testing))
+  cat0("Testing mode was used, restricting analyses to chromosome ", CHROMS,".\n\n")
+  ancestry_prob_thresh <- 0.5
+} else {
+  ancestry_prob_thresh <- 0.95
+}
+
+# Check whether imputation was performed
+imp_incl <- ifelse(target_list$type[target_list$name == params$name] == '23andMe', T, F)
+
+# Check whether polygenic scoring was carried out
+pgs_incl <- !all(c(is.null(gwas_list), is.null(score_list)))
+
+```
+
+```{r, results='asis'}
+
+cat0("***\n\n")
+
+cat0("<font size='4'> \n\n")
+
+if(imp_incl){
+  cat0("Individual: ", paste(unlist(strsplit(params$name, "_|-|\\.")), collapse = ' '), "\n\n")
+} else {
+  target_fam <- fread(paste0(outdir, '/', params$name, '/geno/', params$name, '.ref.chr', CHROMS[1], '.fam'))
+  id_tmp <- target_fam[paste0(target_fam$V1,'.',target_fam$V2) == params$id,] 
+  
+  cat0("Sample: ", params$name, "\n\n")
+  cat0("Family ID: ", id_tmp$V1, "\n\n")
+  cat0("Individual ID: ", id_tmp$V2, "\n\n")
+}
+cat0("</font>\n\n")
+
+cat0("***\n\n")
+
+```
+  
+# Target Descriptives
+
+```{r, results='asis'}
+
+# Read in the format_target logs
+format_target_logs <- list()
+for(chr in CHROMS){
+  format_target_logs[[paste0('chr', chr)]]<-readLines(paste0(outdir,'/',params$name,'/geno/',params$name,'.ref.chr',chr,'.format_target.log'))
+}
+
+# Count the number of variants in the target sample data that match reference variants
+nvar_in_target <-
+  sum(sapply(format_target_logs, function(x)
+    as.numeric(gsub(' .*', '', x[grepl('reference variants are in the target.$', x)]))))
+
+nvar_in_ref <-
+  sum(sapply(format_target_logs, function(x)
+    as.numeric(gsub('.* ','', gsub(' reference variants are in the target.', '', x[grepl('reference variants are in the target.$', x)])))))
+
+if(imp_incl){
+  
+  # Read in imputation logs
+  imputation_logs <- list()
+  for(chr_i in CHROMS){
+    imputation_logs[[paste0('chr', chr_i)]] <- readLines(paste0(outdir,'/',params$name,'/geno/imputed/',params$name,'.chr', chr_i, '.log'))
+  }
+  
+  nvar_preimp <-
+    sum(sapply(imputation_logs, function(x)
+      as.numeric(gsub(' .*', '', gsub('^Input target data contains ', '', x[grepl('^Input target data contains ', x)])))))
+  
+  nvar_postimp <-
+    sum(sapply(imputation_logs, function(x)
+      as.numeric(gsub(' .*', '', gsub('^.gen files contain ', '', x[grepl('^.gen files contain ', x)])))))
+  
+  nvar_hardcall <-
+    sum(sapply(imputation_logs, function(x)
+      as.numeric(gsub(' .*', '', gsub('^.plink files contain ', '', x[grepl('^.plink files contain ', x)])))))
+  
+  cat0("- The genotype data originally contained ", nvar_preimp, " variants.\n")
+  cat0("- The target genotype data was provided in ", target_list$type[target_list$name == params$name], " format.\n")
+  cat0("- After imputation, the genotype data contained ", nvar_postimp, " variants.\n")
+  cat0("- After applying a hard call threshold, the genotype data contained ", nvar_hardcall, " variants.\n")
+} else {
+  cat0("- The target sample contains ", nrow(target_fam), " individuals.\n")
+  cat0("- The target genotype data was provided in ", target_list$type[target_list$name == params$name], " format.\n")
+}
+
+cat0("Of the ", as.character(nvar_in_ref), " variants in the reference, ", as.character(nvar_in_target), " were available in the target (", round(nvar_in_target/nvar_in_ref*100, 1), "%).\n\n")
+
+```
+
+***
+
+# Ancestry
+
+```{r, results = 'asis'}
+
+# Read in ancestry inference results
+ancestry <- read_ancestry(config = params$config, name = params$name)
+
+# Kind which keep file the individual is in
+keep_all <- do.call(rbind, Map(cbind, ancestry$keep_files, pop = names(ancestry$keep_files)))
+keep_all <- keep_all[paste0(keep_all$V1, '.', keep_all$V2) == params$id,]
+
+# Find the population probabilities for this individual
+model_pred <- ancestry$model_pred[
+  paste0(ancestry$model_pred$FID, '.', ancestry$model_pred$IID) == params$id, 
+  !(names(ancestry$model_pred) %in% c('FID', 'IID')), 
+  with = F]
+
+top_pop <- names(model_pred)[model_pred == max(model_pred)] 
+
+if(nrow(keep_all) == 0){
+  cat0("- The target individual did not match well to any reference population.\n") 
+  cat0("- The indivdual best matches the ", pop_1kg$label[pop_1kg$pop == top_pop], " reference population, but did not reach the ", ancestry_prob_thresh*100, "% probability threshold.\n\n")
+  pgs_incl <- F
+} else {
+  cat0("- The target individual matches the ", pop_1kg$label[pop_1kg$pop == keep_all$pop], " reference population with a probability >", ancestry_prob_thresh*100, "%.\n\n")
+}
+
+```
+
+***
+
+```{r, include = F}
+
+dat <- melt(round(model_pred,2))
+dat[dat == 0] <-NA
+dat <- merge(dat, pop_1kg, by.x = 'variable', by.y = 'pop')
+dat$label <- gsub(' ', '\n', dat$label)
+dat$annot <- paste0(dat$value*100, '%')
+y_max <- ifelse(max(dat$value, na.rm = T) > 0.95, 105, 100)
+
+png(paste0(tmp_folder,'/plot_ancestry.png'), height = 450, width = 600, res = 120)
+
+  ggplot(dat, aes(x=label, y=value*100, fill=label)) +
+    geom_chicklet(radius = grid::unit(1, 'mm')) +
+    geom_hline(yintercept = ancestry_prob_thresh*100, linetype = 'dashed') +
+    labs(x='Population', y="Probability (%)") +
+    theme_half_open() +
+    background_grid() +
+    theme(legend.position = "none") +
+    ylim(0,y_max) +
+    geom_text(aes(label = annot), position = position_dodge(width = 0.9), vjust = -0.5)
+
+dev.off()
+
+```
+
+```{r, results='asis'}
+
+# Show the plot
+cat0(paste0("![Ancestry inference: Population probabilities.](", tmp_folder,"/plot_ancestry.png){width=500px}\n\n"))
+cat0("Note. The dashed line indicates the probability threshold used for ancestry classification. \n\n")
+cat0("\n\n")
+
+```
+
+***
+
+```{r, results='asis', eval = imp_incl}
+
+cat0("<details><summary>Show principal component plots</summary>\n\n")
+
+cat0(paste0("![Principal Component Scores Compared to Reference Populations](", normalizePath(outdir, mustWork = FALSE), '/', params$name, '/ancestry/', params$name, ".Ancestry.pc_plot.png)\n\n"))
+
+cat0("Note. Black circle indicates the target individual. \n\n")
+
+cat0("</details>\n\n")
+cat0("***\n\n")
+
+```
+
+
+```{r, results='asis'}
+
+cat0("# Polygenic Scores \n\n")
+
+if(!pgs_incl){
+  cat0("Polygenic scoring was not carried out for this individual since they could not be assigned to a reference population.\n\n")
+}
+
+```
+
+```{r, results='asis', eval = pgs_incl}
+
+cat0("- ", ifelse(is.null(gwas_list), 0, nrow(gwas_list)), " GWAS summary statistics were provided for polygenic scoring.\n")
+cat0("- ", length(pgs_methods_list), " PGS methods were applied, including (", paste0(pgs_method_labels$label[pgs_method_labels$method %in% pgs_methods_list], collapse = ', '), ").\n")
+
+if(is.null(score_list)){
+  cat0("- No external score files were provided in score_list.\n\n")
+} else {
+  cat0("- ", ifelse(is.null(score_list), 0, nrow(score_list)), " external score files were provided for polygenic scoring.\n\n")
+}
+
+cat0("***\n\n")
+
+```
+
+```{r, results='asis', eval = all(pgs_incl, !is.null(gwas_list))}
+
+cat0("## GWAS summary statistics \n\n")
+
+# Create a summary table for GWAS sumstats
+sumstat_qc <- NULL
+for(gwas in gwas_list$name) {
+    log <- readLines(paste0(outdir,'/reference/gwas_sumstat/', gwas, '/', gwas, '-cleaned.log'))
+    
+    orig_n <- as.numeric(gsub(' .*', '', gsub('GWAS contains ','', log[grepl('^GWAS contains ', log)])))
+    final_n <- as.numeric(gsub(' .*', '', gsub('After removal of SNPs with SE == 0, ','', log[grepl('^After removal of SNPs with SE == 0, ', log)])))
+    
+    sumstat_qc <- rbind(sumstat_qc, data.frame(
+      name = gwas,
+      label = gwas_list$label[gwas_list$name == gwas],
+      orig_n = orig_n,
+      final_n = final_n))
+}
+
+names(sumstat_qc) <- c('Name', 'Label', 'NSNP Original', 'NSNP Final')
+
+datatable(sumstat_qc, 
+          rownames = FALSE,
+          options = list(
+            dom = 't',
+            ordering = FALSE,
+            columnDefs = list(
+              list(className = "dt-center", targets = '_all')
+            ),
+            scrollX = TRUE
+          ),
+          width = '100%',
+          selection = 'none')
+
+cat0("***\n\n")
+
+```
+
+```{r, results='asis', eval = all(pgs_incl, !is.null(score_list))}
+
+cat0("## Score files \n\n")
+
+# Create a summary table for score files
+score_qc <- NULL
+for(score in score_list$name) {
+    log <- readLines(paste0(outdir,'/reference/pgs_score_files/external/', score, '/ref-', score, '.log'))
+
+    orig_n <- as.numeric(gsub(' .*', '', gsub('Score file contains ','', log[grepl('^Score file contains ', log)])))
+    final_n <- as.numeric(gsub(' .*', '', gsub('After matching variants to the reference, ','', log[grepl('^After matching variants to the reference, ', log)])))
+    
+    score_qc <- rbind(score_qc, data.frame(
+      name = score,
+      label = score_list$label[score_list$name == score],
+      orig_n = orig_n,
+      final_n = final_n))
+}
+
+# Read in score_reporter output
+score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
+score_qc <- merge(score_qc, score_reporter, by='name')
+
+names(score_qc) <- c('Name', 'Label', 'NSNP Original', 'NSNP Final', 'Pass')
+
+datatable(score_qc, 
+          rownames = FALSE,
+          options = list(
+            dom = 't',
+            ordering = FALSE,
+            columnDefs = list(
+              list(className = "dt-center", targets = '_all')
+            ),
+            scrollX = TRUE
+          ),
+          width = '100%',
+          selection = 'none')
+
+cat0("***\n\n")
+
+```
+
+```{r, results='asis', eval = pgs_incl}
+
+cat0("## Target Polygenic Profile {.tabset .tabset-fade} \n\n")
+
+```
+
+```{r, include = F, eval = pgs_incl}
+
+# Read in prs
+pgs <- read_pgs(config = params$config, name = params$name)[[1]]
+
+# Retain pseudovalidated PGS for target individual
+pgs <- pgs[[top_pop]]
+pgs_dat <- NULL
+for (gwas_i in names(pgs)) {
+  for (pgs_method_i in names(pgs[[gwas_i]])) {
+    pseudo_param <-
+      find_pseudo(config = params$config,
+                  gwas = gwas_i,
+                  pgs_method = pgs_method_i)
+    
+    tmp <- pgs[[gwas_i]][[pgs_method_i]]
+    names(tmp) <- gsub(paste0(gwas_i, '_'), '', names(tmp))
+    tmp <- tmp[paste0(tmp$FID, '.', tmp$IID) == params$id, pseudo_param[1], with = F]
+    tmp <- data.table(
+      score = names(tmp),
+      value = as.numeric(tmp),
+      gwas = gwas_i,
+      pgs_method = pgs_method_i
+    )
+    
+    pgs_dat <- rbind(pgs_dat, tmp)
+  }
+}
+
+# Remove score with NA values
+pgs_dat <- pgs_dat[complete.cases(pgs_dat),]
+
+##
+# Convert to absolute scale
+##
+
+# Read in lassosum pseudoval results and convert to other metrics
+# Do not include 'external' score
+pseudoval<-NULL
+for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
+  pseudo_r2 <- read_pseudo_r(config = params$config, gwas = gwas_i)^2
+
+  if(is.na(gwas_list$sampling[gwas_list$name == gwas_i])){
+    pseudoval <- rbind(
+      pseudoval,
+      data.frame(
+        gwas = gwas_i,
+        pseudoval_r2obs = pseudo_r2,
+        pseudoval_d = NA,
+        pseudoval_auc = NA
+      )
+    )
+    
+  } else {
+    n_case <- gwas_list$sampling[gwas_list$name == gwas_i]
+    n_con <- 1 - gwas_list$sampling[gwas_list$name == gwas_i]
+    
+    a <- (n_case + n_con) ^ 2 / (n_case * n_con)
+    
+    pseudo_d <- sqrt(a) * pseudo_r2 / sqrt(1 - pseudo_r2 ^ 2)
+    pseudo_auc <- pnorm(pseudo_d / sqrt(2), 0, 1)
+    
+    pseudoval <- rbind(
+      pseudoval,
+      data.frame(
+        gwas = gwas_i,
+        pseudoval_r2obs = pseudo_r2,
+        pseudoval_d = pseudo_d,
+        pseudoval_auc = pseudo_auc
+      )
+    )
+    
+  }
+}
+
+# Calculate absolute risk
+abs_res <- NULL
+n_quant <- 1000
+for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
+  for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
+    
+    pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
+    
+    if (is.na(gwas_list$prevalence[gwas_list$name == gwas_i])) {
+      quant <-
+        which_quant(PRS_z_score = pgs_dat_i$value, n_quantile = n_quant)
+      
+      indiv_result <-
+        mean_sd_quant.f(
+          PRS_R2 = pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],
+          Outcome_mean = 0,
+          Outcome_sd = 1,
+          n_quantile = n_quant,
+          quant = quant
+        )
+      
+      abs_res <- rbind(
+        abs_res,
+        data.frame(
+          pgs_method = pgs_method_i,
+          gwas = gwas_i,
+          prev = NA,
+          abs_prob = NA,
+          mean = indiv_result$x_mean,
+          sd = indiv_result$x_sd
+        )
+      )
+    } else {
+      risk_quantiles <-
+        ccprobs.f(
+          d = pseudoval$pseudoval_d[pseudoval$gwas == gwas_i],
+          prev = gwas_list$prevalence[gwas_list$name == gwas_i],
+          n_quantile = n_quant
+        )
+      
+      indiv_result_all <-
+        risk_quantiles[
+          pgs_dat_i$value > risk_quantiles$q_min &
+          pgs_dat_i$value < risk_quantiles$q_max, ]
+      
+      indiv_result <- indiv_result_all[, c('p_case', 'p_control')]
+      
+      abs_res <- rbind(
+        abs_res,
+        data.frame(
+          pgs_method = pgs_method_i,
+          gwas = gwas_i,
+          prev = gwas_list$prevalence[gwas_list$name == gwas_i],
+          abs_prob = indiv_result$p_case,
+          mean = NA,
+          sd = NA
+        )
+      )
+    }
+  }
+}
+
+# Create plots
+for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
+  for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
+  
+    pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
+    abs_res_i <- abs_res[abs_res$pgs_method == pgs_method_i & abs_res$gwas == gwas_i,]
+    
+    PRS_z_score <- pgs_dat_i$value
+    
+    # Create relative plot
+    rel_plot<-ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
+      stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) +
+      stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
+                    geom = "area", fill = "#CC66FF", alpha = .4) +
+      stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
+                    geom = "area", fill = "#FF6633", alpha = .4) +
+      geom_vline(xintercept=PRS_z_score, linetype='dashed') +
+      geom_text(label=paste0(round(pnorm(PRS_z_score)*100,1),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#CC66FF', hjust='right', vjust=0.8, size=5) +
+      geom_text(label=paste0(round(100-(pnorm(PRS_z_score)*100),1),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#FF6633', hjust='left', vjust=0.8, size=5) +
+      scale_y_continuous(breaks = NULL) +
+      theme_half_open() +
+      xlim(-5,5) +
+      labs(y='Number of people', x='Polygenic Score', title='Polygenic Score Distribution') +
+      theme(plot.title = element_text(hjust = 0.5))
+    
+    # Create absolute plot
+    if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
+      # Define parameters
+      PRS_R2=pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i]
+      Outcome_mean=gwas_list$mean[gwas_list$name == gwas_i]
+      Outcome_sd=gwas_list$sd[gwas_list$name == gwas_i]
+      conf_int=95/100
+      n_quant<-1000
+      
+      # Run analysis
+      quant<-which_quant(PRS_z_score = PRS_z_score, n_quantile = n_quant)
+      
+      risk_quantiles<-mean_sd_quant.f(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n_quantile=n_quant, quant=quant)
+      indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
+      
+      ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
+      ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
+                           y=ref,
+                           Group='General public')
+      
+      indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
+      indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
+                             y=indiv,
+                             Group='People like you')
+      
+      plot_dat<-rbind(ref_plot, indiv_plot)
+      plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
+      
+      # Calculate 95CI for target individual
+      lowCI<-qnorm((1-conf_int)/2,indiv_result_all$x_mean,indiv_result_all$x_sd)
+      highCI<-qnorm(1-((1-conf_int)/2),indiv_result_all$x_mean,indiv_result_all$x_sd)
+      
+      abs_plot<-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
+        geom_area(alpha=0.4, colour='black') +
+        scale_fill_manual(values=c("#84CA72","#0066CC")) +
+        labs(y='Number of people', x='Trait', title='Absolute Risk', fill=NULL) +
+        geom_segment(aes(x = indiv_result_all$x_mean , y = 0, xend = indiv_result_all$x_mean, yend = 0.4), color="black") +
+        geom_segment(aes(x = lowCI , y = 0, xend = lowCI, yend = 0.38), color="#0066CC", linetype="dashed") +
+        geom_segment(aes(x = highCI , y = 0, xend = highCI, yend = 0.38), color="#0066CC", linetype="dashed") +
+        geom_text(label=paste0('Estimate = ',round(indiv_result_all$x_mean,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='black', hjust='left', vjust=0.8, size=5, check_overlap = TRUE) +
+        geom_text(label=paste0(conf_int*100,'% CI = ',round(lowCI,2),' – ',round(highCI,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='#0066CC', hjust='left', vjust=2.5, size=5, check_overlap = TRUE) +
+        scale_y_continuous(breaks = NULL) +
+        theme_half_open() +
+        theme(plot.title = element_text(hjust = 0.5)) +
+        theme(legend.position=c(0.01,0.95), legend.box = "horizontal")
+      
+    } else {
+      d <- pseudoval$pseudoval_d[pseudoval$gwas == gwas_i]
+      prev <- gwas_list$prevalence[gwas_list$name == gwas_i] * 100
+      E_PRS <- d * (prev / 100)
+      varPRS <- (prev / 100) * (1 + (d ^ 2) - (d * (prev / 100)) ^ 2) + (1 - (prev / 100)) * (1 - (d * (prev / 100)) ^ 2)
+      
+      tmp <-
+        dnorm_2_new(
+          x = seq(-4, 4, length.out = 101),
+          mean_1 = (0 - (E_PRS)) / sqrt(varPRS),
+          sd_1 = 1 / sqrt(varPRS),
+          mean_2 = (d - (E_PRS)) / sqrt(varPRS),
+          sd_2 = 1 / sqrt(varPRS),
+          p_2 = (prev / 100)
+        )
+      
+      # Define parameters
+      indiv_result <- data.table(p_case = abs_res_i$abs_prob,
+                                 p_control = 1 - abs_res_i$abs_prob)
+      
+      indiv_result<-melt(indiv_result)
+      indiv_result$variable<-c('Case','Control')
+      indiv_result$variable<-factor(indiv_result$variable,levels = c('Control','Case'))
+      
+      # Create a grid of dots, some red and some blue
+      n_case_1<-round(indiv_result$value*100,1)[1]
+      n_control_1<-round(indiv_result$value*100,1)[2]
+      n_case<-round(indiv_result$value*100)[1]
+      n_control<-round(indiv_result$value*100)[2]
+      
+      # Create data for general population example
+      pop_case_1<-round(prev,1)
+      pop_case<-round(prev)
+      pop_control_1<-round(100-prev,1)
+      pop_control<-round(100-prev)
+      pop_result<-data.frame(variable=c('Case','Control'),
+                             value=c((prev/100),1-(prev/100)))
+      
+      pop_result$variable<-factor(pop_result$variable, levels = c('Control','Case'))
+      
+      bar_chart<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
+        geom_chicklet(radius = grid::unit(1, 'mm'), data=indiv_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
+        scale_fill_manual(values=c("#84CA72","#0066CC"), drop = F) +
+        annotate("text", x=1.5, y=((((n_control_1)/2))+n_case_1)/100, label=paste0(n_control_1,"%\ndo not have trait"), colour = '#84CA72', hjust=0, size=4) +
+        annotate("text", x=1.5, y=((n_case_1/2))/100, label=paste0(n_case_1,'%\nhave trait'), colour = '#0066CC', hjust=0, size=4) +
+        ylim(-0.1,1.05) +
+        theme_half_open() +
+        labs(title='Of people with your genetics,') +
+        xlim(0.25,2.5) +
+        theme(axis.line=element_blank(),axis.text.x=element_blank(),
+              axis.text.y=element_blank(),axis.ticks=element_blank(),
+              axis.title.x=element_blank(),
+              axis.title.y=element_blank(),
+              panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+              panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
+      
+      bar_chart_pop<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
+        geom_chicklet(radius = grid::unit(1, 'mm'), data=pop_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
+        scale_fill_manual(values=c("#84CA72","#0066CC"), drop = F) +
+        annotate("text", x=1.5, y=(((pop_control_1/2))+pop_case_1)/100, label=paste0(pop_control_1,"%\ndo not have trait"), colour = '#84CA72', hjust=0, size=4) +
+        annotate("text", x=1.5, y=((pop_case_1/2))/100, label=paste0(pop_case_1,'%\nhave trait'), colour = '#0066CC', hjust=0, size=4) +
+        ylim(-0.1,1.05) +
+        theme_half_open() +
+        labs(title='In the general population,') +
+        xlim(0.25,2.5) +
+        theme(axis.line=element_blank(),axis.text.x=element_blank(),
+              axis.text.y=element_blank(),axis.ticks=element_blank(),
+              axis.title.x=element_blank(),
+              axis.title.y=element_blank(),
+              panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+              panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
+      
+      abs_plot <- plot_grid(bar_chart, bar_chart_pop, labels = NULL, nrow = 1)
+      
+    }
+    
+    png(paste0(tmp_folder,'/plot_absrisk_', gwas_i,'_',pgs_method_i,'.png'), height = 800, width = 700, res = 95)
+      print(plot_grid(rel_plot, abs_plot, ncol = 1, rel_heights = c(1, 1)))
+    dev.off()
+    
+  }
+}
+
+```
+
+```{r, results='asis', eval = pgs_incl}
+
+gwas_list_brief<-gwas_list[,c('name','label','mean','sd')]
+names(gwas_list_brief)<-c('gwas','label','pop_mean','pop_sd')
+gwas_list_brief<-merge(pseudoval, gwas_list_brief, by='gwas')
+all_dat<-merge(pgs_dat, abs_res, by=c('gwas','pgs_method'))
+all_dat<-merge(all_dat, gwas_list_brief, by='gwas')
+
+for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
+  
+  all_dat_i<-all_dat[all_dat$pgs_method == pgs_method_i, ]
+  all_dat_i$pgs_method <- NULL
+  all_dat_i<-all_dat_i[, c('label','pseudoval_r2obs','pseudoval_auc','prev','pop_mean','pop_sd','value','abs_prob','mean','sd')]
+  all_dat_i <- data.frame(all_dat_i)
+  all_dat_i[,-1]<-round(all_dat_i[,-1],3)
+  names(all_dat_i)<-c('Outcome','PGS R-squared','PGS AUC','Prevelance','Mean','SD','PGS Z-score','Prevalence','Mean','SD')
+
+  cat0('### Method: ',pgs_method_labels$label[pgs_method_labels$method == pgs_method_i],' {.tabset .tabset-fade} \n')
+
+  print(kable(all_dat_i, align = "c", row.names = FALSE) %>%
+    add_header_above(c(" " = 1, "PGS Descriptives" = 2, "Distribution in General\nPopulation"=3, "Distribution in People\nLike You" = 4)) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "responsive")))
+  
+  cat('\n\n')
+  
+  for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
+    cat0('#### GWAS: ',gwas_list$label[gwas_list$name == gwas_i],' {.tabset .tabset-fade}\n')
+    
+    cat0("<center>\n")
+
+    cat0(paste0("![](", tmp_folder,'/plot_absrisk_', gwas_i,'_',pgs_method_i,".png){width=600px}\n\n"))
+
+    cat0("</center>\n")
+
+    pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
+    abs_res_i <- abs_res[abs_res$pgs_method == pgs_method_i & abs_res$gwas == gwas_i,]
+
+    cat0('- Your PRS Z-score for ', gwas_list$label[gwas_list$name == gwas_i], ' is ', pgs_dat_i$value,' which is higher than ', paste0(round(100*pnorm(pgs_dat_i$value),1),'%'),' of other ', pop_1kg$label[pop_1kg$pop == top_pop],' individuals.\n')
+    
+    if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
+      
+      cat0('- Given the PRS explains ', round(100*pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],1),'% of the variance in ', gwas_list$label[gwas_list$name == gwas_i],',\n and the mean and SD of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$mean[gwas_list$name == gwas_i],' and ',gwas_list$sd[gwas_list$name == gwas_i],' respectively,\n on average people with your PRS have a ', gwas_list$label[gwas_list$name == gwas_i],' of ', round(abs_res_i$mean,2), " (95% CI = ",round(lowCI,2),' - ',round(highCI,2),").\n\n")
+
+    } else {
+        
+      cat0('- Given the PRS has an AUC of ', round(pseudoval$pseudoval_auc[pseudoval$gwas == gwas_i],3),', and the prevelance of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$prevalence[gwas_list$name == gwas_i],',\n on average ',round(100*abs_res_i$abs_prob,1),'% of people with your PRS have ', gwas_list$label[gwas_list$name == gwas_i],'.\n\n')
+      
+    }
+  
+  }
+}
+
+### {-}
+## {-}
+
+cat('***\n\n')
+
+```
+

@@ -1,0 +1,1123 @@
+---
+title: GenoPred Pipeline - Instructions
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+library(knitr)
+library(data.table)
+```
+
+***
+
+# Overview
+
+This document will provide a demonstration of the GenoPred pipeline. I will cover the following topics:
+
+-   [Installation](#installation)
+-   [Pipeline configuration](#pipeline-configuration)
+-   [Run using test data](#run-using-test-data)
+-   [A little about Snakemake](#a-little-about-snakemake)
+-   [Running on an HPC](#running-on-an-hpc)
+-   [Requesting outputs](#requesting-outputs)
+
+***
+
+# Video tutorials 
+
+Video tutorials for the GenoPred pipeline are available [here](https://www.youtube.com/playlist?list=PLZwmskofEu7W-wqCdqFGRHc8m6NH0HZ2h)!
+
+***
+
+# Installation
+
+There are three steps:
+
+1.  Download GenoPred repository
+2.  Create conda environment
+3.  Download dependencies
+
+***
+
+## Step 1: Download GenoPred repository
+
+First, you will need to download the GenoPred repository from GitHub. Open your terminal, go to the directory where you would like the repository to be stored, and clone the repository.
+
+**Note:** If you are using an high performance cluster (HPC), it is best run the setup in an interactive session (see [here](#Dont-run-on-the-login-node)).
+
+```{bash}
+git clone https://github.com/opain/GenoPred.git
+```
+
+***
+
+## Step 2: Create conda environment for pipeline
+
+Conda is a software environment management system which is great way for easily downloading and storing software. We will use conda to create an environment that the GenoPred pipeline will run in.
+
+If you don't already have conda installed, we will install it using miniconda.
+
+```{bash}
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+sh Miniconda3-latest-Linux-x86_64.sh
+```
+
+I would say `yes` to the default options. You may then need to refresh your workspace to initiate conda, by running `source ~/.bashrc`. You should see `(base)` written in the bottom left of the terminal. Once miniconda installation is complete, you can then delete the `Miniconda3-latest-Linux-x86_64.sh` file.
+
+Now create the conda environment based on the `GenoPred/pipeline/envs/pipeline.yaml` file. This will create an environment called `genopred` with some essential packages installed.
+
+```{bash}
+conda env create -f GenoPred/pipeline/envs/pipeline.yaml
+```
+
+Now activate the new `genopred` environment.
+
+```{bash}
+conda activate genopred
+```
+
+***
+
+## Step 3: Download dependencies
+
+Now, go we will download some prepare some additional dependencies of the pipeline. First, go into the `pipeline` folder within the GenoPred repo. Now we are in the pipeline folder, we can use our first Snakemake command to download the dependencies of the GenoPred pipeline.
+
+```{bash}
+snakemake --restart-times 3 -j 1 --use-conda --conda-frontend mamba get_dependencies
+```
+
+This will start by building another conda environment, which the pipeline uses to to perform certain analyses. Then it will download various essential dependencies of the pipeline. In total this process may take ~15 minutes.
+
+**Note:** Check out advice [here](#running-jobs-in-parallel) for running in parallel on an HPC. The command might take some time, so you run via a compute node, and if run interactively, I would suggest using a terminal multiplexer (like tmux) to avoid connection issues (see [here](#avoid-connection-issues)).
+
+<details>
+
+<summary>See explanation of Snakemake command</summary>
+
+-   `--restart-times 3` - Tells Snakemake to try again if a job fails. This is particularly useful when jobs include downloading files from the internet where connections may fail.
+-   `-j 1`- This parameter tells Snakemake how many jobs can be run in parallel. 
+-   `--use-conda` - This tells Snakemake to use conda environments as specified in the pipeline. This parameter should always be included when using GenoPred.
+-   `--conda-frontend mamba` - This tells Snakemake to use mamba when creating new conda environments, which is a faster version of conda. This parameter is only required when running the GenoPred Snakemake for the first time, as the environment only needs to be built once.
+-   `get_dependencies` - This is the *rule* we want Snakemake to run. Other useful in GenoPred are described [here](#requesting-specific-outputs). rules The rules included in GenoPred will be described
+
+For more information on Snakemake commands see [here](#basic-Snakemake-commands).
+
+</details>
+
+***
+
+# Pipeline configuration
+
+The pipeline is configured using a configfile, which tell the pipeline what to do, and the location of input data listed by the target_list, gwas_list, and score_list files.
+
+![](Images/pipeline_readme/input_schematic_wide.png){width=75%}
+
+***
+
+## `configfile`
+
+By default, when you run snakemake it reads the `config.yaml` file in the snakemake directory, which lists various parameters, telling it what to do. 
+
+When using your own data, instead of updating the default `config.yaml` file, I would recommend creating a new config file, and then telling snakemake to use that config file, using the `--configfile` parameter. This allows you to use the GenoPred pipeline with multiple configurations.
+
+```{bash}
+ snakemake -j1 --use-conda --configfile=misc/23andMe/config.yaml output_all
+```
+
+<details>
+
+<summary>View configfile parameters</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+config <- list(
+  Parameter = list(
+    outdir = list(
+      description = 'Directory to save pipeline outputs',
+      example = '`test_data/output/test1`',
+      note = "Required. I recommend using an absolute path starting from the root of the file system (starting with `/`)"
+    ),
+    config_file = list(
+      description = 'Location of the config file itself',
+      example = '`config.yaml`',
+      note = 'Required'
+    ),
+    gwas_list = list(
+      description = "Path to `gwas_list` file, listing GWAS sumstats",
+      example = '`example_input/gwas_list.txt`',
+      note = "Set to NA if you don't want to include and GWAS sumstats"
+    ),
+    score_list = list(
+      description = "Path to `score_list` file, listing external score files",
+      example = '`example_input/score_list.txt`',
+      note = "Set to NA if you don't want to include any external score files"
+    ),
+    target_list = list(
+      description = "Path to `target_list` file, listing target datasets",
+      example = '`example_input/target_list.txt`',
+      note = "Set to NA if you don't want to include any target datasets"
+    ),
+    pgs_methods = list(
+      description = 'List of polygenic scoring methods to run',
+      example = "`['ptclump','dbslmm']`",
+      note = "Options are: `ptclump`, `dbslmm`, `prscs`, `sbayesr`, `lassosum`, `ldpred2`, `megaprs`"
+    ),
+    testing = list(
+      description = 'Controls testing mode',
+      example = '`chr22`',
+      note = "Set to NA to turn off test mode. Set to `chr22` if you want to run the pipeline using only chromosome 22."
+    )
+  )
+)
+
+config_df <- NULL
+for (param in names(config$Parameter)) {
+  description <- config$Parameter[[param]]$description
+  example <- config$Parameter[[param]]$example
+  note <- config$Parameter[[param]]$note
+  
+  # Append each parameter's details to the data frame
+  config_df <- rbind(
+    config_df,
+    data.frame(
+      Parameter = paste0("`",param,"`"),
+      Description = description,
+      Example = example,
+      Note = note,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+print(kable(config_df, 'markdown'))
+
+```
+
+**Note:** If you do not provide a target_list, then only rules that do not require a target_list can be performed, such as GWAS sumstat QC. Similarly, if you do not provide a gwas_list or score_list, only rules that do not require these files can be performed, such as target sample ancestry inference.
+
+</details>
+
+***
+
+## `gwas_list`
+
+The `gwas_list` is a white-space delimited text file, providing information of the GWAS summary statistics to be used by the pipeline.
+
+<details>
+
+<summary>View gwas_list format</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+gwas_list <- list(
+  Column = list(
+    name = list(
+      example = '`COAD01`',
+      description = "ID for the GWAS sumstats. Cannot contain spaces (' ') or hyphens ('-')"
+    ),
+    path = list(
+      example = '`gwas_sumstats/COAD01.gz`',
+      description = "File path to the GWAS summary statistics (uncompressed or gzipped)."
+    ),
+    population = list(
+      example = '`EUR`',
+      description = "Reference population that the GWAS sample matches best. Options are `AFR` - African, `AMR` = Admixed American, `EAS` = East Asian, `EUR` = European, and `SAS` = South Asian. If you are using a mixed ancestry GWAS, though there are limitations, I would suggest specifying the population that matches the majority of the GWAS sample."
+    ),
+    n = list(
+      example = '`10000`',
+      description = "The total sample size of the GWAS. This is required if there is no column indicating sample size in the sumstats. Otherwise, it can be set to `NA`"
+    ),
+    sampling = list(
+      example = '`0.5`',
+      description = "The proportion of the GWAS sample that were cases (if outcome is binary - otherwise specify `NA`)"
+    ),
+    prevalence = list(
+      example = '`0.1`',
+      description = "The prevalence of the phenotype in the general population (if outcome is binary - otherwise specify `NA`)"
+    ),
+    mean = list(
+      example = '`100`',
+      description = "The phenotype mean in the general population (if outcome is continuous, otherwise specify `NA`)"
+    ),
+    sd = list(
+      example = '`15`',
+      description = "The phenotype sd in the general population (if outcome is continuous, otherwise specify `NA`)"
+    ),
+    label = list(
+      example = '`\"Coronary Artery Disease\"`',
+      description = "A human readable name for the GWAS phenotype. Wrap in double quotes if multiple words. For example, `\"Body Mass Index\"`."
+    )
+  )
+)
+
+gwas_list_df <- NULL
+for (column in names(gwas_list$Column)) {
+  description <- gwas_list$Column[[column]]$description
+  example <- gwas_list$Column[[column]]$example
+
+  # Append each parameter's details to the data frame
+  gwas_list_df <- rbind(
+    gwas_list_df,
+    data.frame(
+      Column = column,
+      Example = example,
+      Description = description,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+kable(gwas_list_df, 'markdown')
+
+```
+
+**Note: ** The `prevalence` and `sampling` values are used to estimate the SNP-based heritability on the liability scale, as requested by some PGS methods. Furthermore, `prevalence` and `sampling`, or `mean` and `sd` values are used to interpret the polygenic scores on the absolute scale.
+
+</details>
+
+<details>
+
+<summary>View GWAS sumstat format</summary>
+
+</br>
+
+The pipeline can accept GWAS sumstats with a range of header formats. It uses a dictionary to interpret the meaning of certain column names. This is useful but potentially risky. You have two options to ensure the columns are being interpreted correctly:
+
+1. Hope for the best and check the sumstat QC log file to see whether header we correctly interpreted (lazy option but fine in most cases).
+2. Check whether the headers in your sumstats correspond to the correct values in the sumstat header dictionary ([here](https://github.com/opain/GenoUtils/blob/main/R/constants.R#L6)), and update as necessary in advance of running the pipeline.
+
+The sumstats must contain either RSIDs or chromosome and basepair position information. The sumstats must also contain an effect size, either BETA, odds ratio, log(OR), or a signed Z-score. Either P-values or standard errors must also be present. It is also best if the following are present: sample size per variant, GWAS sample allele frequencies (for the effect allele), and imputation quality metrics.
+
+I would suggest checking the sumstat QC log files, to make to check the number of SNPs after QC is expected.
+
+</details>
+
+***
+
+## `score_list`
+
+The `score_list` is a white-space delimited text file, providing information of externally generated score files for polygenic scoring are to be used by the pipeline. The `score_list` should have `name`, `path` and `label` columns, that the `gwas_list` has, except the `path` column should indicate the location of the score file. 
+
+PGS Catalogue score files can be directly downloaded by GenoPred, by using the PGS ID in the `name` column, and setting the `path` column to `NA`. 
+
+**Note:** Externally derived PGS score files may have a poor variant overlap with the default GenoPred reference data, which is restricted to HapMap3 variants. Score files with <75% of variants present in the reference are excluded from downstream target scoring. Several popular PGS methods restrict to HapMap3 variants, so this is not always an issue.
+
+<details>
+
+<summary>View score file format</summary>
+
+</br>
+
+The format of the score files should be consistent with the PGS Catalogue header format (https://www.pgscatalog.org/downloads/#scoring_header). GenoPred can read the harmonised and unharmonised column names from PGS Catalogue. It will preferentially use the harmonised columns if they are present. The PGS Catalogue format comments are not required by GenoPred, though they are useful so don't actively remove them. GenoPred allows only one column of effect sizes per score file. GenoPred is lenient, and only requires either the RSIDs, or chromosome  and basepair position columns to be present.
+
+- `rsID` or `hm_rsID` - RSID
+- `chr_name` or `hm_chr` - Chromosome number
+- `chr_position` or `hm_pos` - Basepair position
+- `effect_allele` - Allele corresponding to `effect_weight` column
+- `other_allele` - The other allele
+- `effect_weight` - The effect size of `effect_allele`
+
+</details>
+
+***
+
+## `target_list`
+
+The `target_list` is a white-space delimited text file, providing information of the target datasets to be used by the pipeline. The file must have the following columns:
+
+<details>
+
+<summary>View target_list format</summary>
+
+</br>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+target_list <- list(
+  Column = list(
+    name = list(
+      example = '`test_data/output/test1`',
+      description = "ID for the target dataset. Cannot contain spaces (' ') or hyphens ('-')"
+    ),
+    path = list(
+      example = '`imputed_sample_plink1/example`',
+      description = "Path to the target genotype data. For type `23andMe`, provide full file path either zipped (`.zip`) or uncompressed (`.txt`). For `type` `plink1`, `plink2`, `bgen`, and `vcf`, per-chromosome genotype data should be provided with the following filename format: `<prefix>.chr<1-22>.<.bed/ .bim/ .fam/ .pgen/ .pvar/ .psam/ .bgen/ .vcf.gz>`. If `type` is `samp_imp_bgen`, the sample file should be called `<prefix>.sample`, and each `.bgen` file should have a corresponding `.bgi` file"
+    ),
+    type = list(
+      example = '`plink1`',
+      description = "Format of the target genotype dataset. Either `23andMe`, `plink1`, `plink2`, `bgen`, or `vcf`. `23andMe` = 23andMe formatted data for an individual. `plink1` = Preimputed PLINK1 binary format data (.bed/.bim/.fam). `plink2` = Preimputed PLINK2 binary format data (.pgen/.pvar/.psam). `bgen` = Preimputed Oxford format data (.bgen/.sample). `vcf` = Preimputed gzipped VCF format data (`.vcf.gz`) for a group of individuals."
+    ),
+    indiv_report = list(
+      example = '`T`',
+      description = "Logical indicating whether reports for each individual should be generated. Either `T` or `F`. Use with caution if target data contains many individuals, as it will create an .html report for each individual."
+    )
+  )
+)
+
+target_list_df <- NULL
+for (column in names(target_list$Column)) {
+  description <- target_list$Column[[column]]$description
+  example <- target_list$Column[[column]]$example
+
+  # Append each parameter's details to the data frame
+  target_list_df <- rbind(
+    target_list_df,
+    data.frame(
+      Column = paste0("`",column,"`"),
+      Example = example,
+      Description = description,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+kable(target_list_df, 'markdown')
+
+```
+
+**Note:** If prefix of your target genetic data files do not meet the requirements of GenoPred, you can create  symlinks (like a shortcut) to the original genetic data, and then specify these symlinks in the `target_list`.
+
+</details>
+
+***
+
+# Run using test data
+
+Once you have installed GenoPred, we can run the pipeline using the test data.
+
+***
+
+## Step 1: Download the test data
+
+First, we need to download and decompress the test data. Do this within the `GenoPred/pipeline` folder.
+
+```{bash}
+# Download from Zenodo
+wget -O test_data.tar.gz https://zenodo.org/record/10549041/files/test_data.tar.gz?download=1
+
+# Decompress
+tar -xf test_data.tar.gz
+
+# Once decompressed, delete compressed version to save space
+rm test_data.tar.gz
+```
+
+***
+
+## Step 2: Run the pipeline
+
+To run the pipeline with the test_data, we will use the `example_input/config.yaml`. It specifies some basic options and specifies the `target_list`, `gwas_list` and `score_list` in the `example_input` folder. The `testing` parameter is set to `chr22` so only chromosome 22.
+
+<details>
+
+<summary>See contents of default configfile</summary>
+
+```{bash}
+# Specify output directory
+outdir: test_data/output/test1
+
+# Location of this config file
+config_file: example_input/config.yaml
+
+# Specify location of gwas_list file
+gwas_list: example_input/gwas_list.txt
+
+# Specify location of target_list file
+target_list: example_input/target_list.txt
+
+# Specify location of score_list file
+score_list: example_input/score_list.txt
+
+# Specify pgs_methods ('ptclump','dbslmm','prscs','sbayesr','lassosum','ldpred2','megaprs')
+pgs_methods: ['ptclump','dbslmm']
+
+# Specify if you want test mode. Set to NA if you don't want test mode
+testing: chr22
+```
+
+</details>
+
+<details>
+
+<summary>See contents of example target_list</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+target_list <- fread('../pipeline/example_input/target_list.txt')
+
+kable(target_list, 'markdown')
+
+```
+
+</details>
+
+<details>
+
+<summary>See contents of example gwas_list</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+gwas_list <- fread('../pipeline/example_input/gwas_list.txt')
+gwas_list$label <- paste0("\"",gwas_list$label,"\"")
+kable(gwas_list, 'markdown')
+
+```
+
+</details>
+
+<details>
+
+<summary>See contents of example score_list</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+score_list <- fread('../pipeline/example_input/score_list.txt')
+score_list$label <- paste0("\"",score_list$label,"\"")
+kable(score_list, 'markdown')
+
+```
+
+</details>
+
+
+***
+
+To run the pipeline with the example configfile and test data, we just need to specify the number of jobs we want to run in parallel (`-j`), the `--use-conda` parameter, and then the rule we want the pipeline to run (`output_all`). See [here](#requesting-outputs) to see what this rule will output, and for information on other rules that can be run.
+
+Executing the `output_all` rule will run many steps in the pipeline. If you want to check what will happen before you run the pipeline, it is often useful to use the `-n` parameter, which will do a dry-run, printing out all the steps it would run, without actually running it.
+
+```{bash}
+# Remember to activate the genopred environment before running the pipeline
+conda activate genopred
+
+# Do a dry run to see what would happen
+snakemake -n --configfile=example_input/config.yaml output_all
+
+# Run the pipeline running one step at a time 
+snakemake -j1 --configfile=example_input/config.yaml --use-conda output_all
+
+```
+
+Once the pipeline is complete, you can check that there is nothing else do by doing another dry run, and it should say 'Nothing to be done'.
+
+**Note:** It is important 
+
+***
+
+## Step 3: Look through the output
+
+There is detailed information [here](#requesting-outputs). When using the default `config.yaml`, the `outdir` parameter is `test_data/output/test1`. 
+
+For example, if you wanted to find the sample-level report, summarising what the pipeline did, it can be found here: `test_data/output/test1/example_plink1/reports/example_plink1-report.html`.
+
+Or, if you wanted to find the DBSLMM PGS based on the COAD01 GWAS in European target individuals, the file can be found here: `test_data/output/test1/example_plink1/pgs/EUR/dbslmm/COAD01/example_plink1-COAD01-EUR.profiles`
+
+```{}
+FID IID COAD01_DBSLMM
+1_EUR 1_EUR -1.782
+2_EUR 2_EUR -1.104
+```
+
+***
+
+## Step 4: How to modify the configuration
+
+After running the pipeline, it is often useful to update the configuration of our analysis, for example to added a new GWAS to the gwas_list. This is not a problem - GenoPred uses snakemake to only rerun analyses that are affected by the changes in configuration, rather than running the full pipeline from scratch. 
+
+I will demonstrate by adding a new GWAS, but its a similar process when adding new score files or target samples, or when changing certain parameters in `configfile`. We simply add a new row to the `gwas_list`, rerun GenoPred, and it will rerun the required steps. As an example, I will add a row with the name 'COAD02', which uses the same sumstats file as COAD01.
+
+<details>
+<summary>Code updating gwas_list</summary>
+```{r}
+# Read in gwas_list
+gwas_list <- fread('../pipeline/example_input/gwas_list.txt')
+
+# Add new gwas (for demonstration I will reuse the sumstats for COAD01, but will name it 'COAD02')
+gwas_list <- rbind(gwas_list, gwas_list[gwas_list$name == 'COAD01',])
+gwas_list$name[3] <- 'COAD02'
+
+# Put quotes around the label column
+gwas_list$label <- paste0("\"", gwas_list$label, "\"")
+
+# Save file
+fwrite(gwas_list, '../pipeline/example_input/gwas_list.txt', quote = F, sep = ' ', na='NA')
+```
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+gwas_list <- fread('../pipeline/example_input/gwas_list.txt')
+gwas_list <- rbind(gwas_list, gwas_list[gwas_list$name == 'COAD01',])
+gwas_list$name[3] <- 'COAD02'
+gwas_list$label <- paste0("\"", gwas_list$label, "\"")
+kable(gwas_list, 'markdown')
+
+```
+</details>
+
+***
+
+Now, we have edited the `gwas_list`, if I rerun the pipeline using the `-n` parameter, I can see what new jobs the pipeline would run.
+
+```{bash}
+snakemake -n --configfile=example_input/config.yaml output_all
+```
+
+It will output all the rules it would run, with inputs and outputs, summarising the steps in a table like this:
+
+```{}
+Job stats:
+job                      count    min threads    max threads
+---------------------  -------  -------------  -------------
+indiv_report_all_id          1              1              1
+indiv_report_i              10              1              1
+output_all                   1              1              1
+prep_pgs_dbslmm_i            1              1              1
+prep_pgs_lassosum_i          1              1              1
+prep_pgs_ptclump_i           1              1              1
+sample_report_i              1              1              1
+sumstat_prep_i               1              1              1
+target_pgs_all_gwas         10              1              1
+target_pgs_all_method        5              1              1
+target_pgs_all_pop           1              1              1
+target_pgs_i                10              1              1
+total                       43              1              1
+```
+
+This output is expected - The new GWAS will need to undergo sumstat QC (`sumstat_qc`), downstream processing using PGS methods (`prep_pgs_ptclump_i`,`prep_pgs_dbslmm_i`,`prep_pgs_lassosum_i`), then target sample scoring (`target_pgs_i`), and finally update the sample- and individual-level reports (`sample_report_i` and `indiv_report_i`).
+
+After seeing the expected jobs will be run, I would then run the pipeline:
+
+```{bash}
+snakemake -j1 --use-conda --configfile=example_input/config.yaml output_all
+```
+
+***
+
+# A little about Snakemake
+
+There is full documentation of snakemake [here](https://snakemake.readthedocs.io/en/v7.32.3/), but in this section I will give a brief overview and outline a few commands that are particularly useful.
+
+Snakemake is a python based pipeline tool. It contains lists of **rules** - Each rule is like a set of instructions, telling snakemake to create certain outputs given certain inputs. If the user requests an output, Snakemake will run all the rules that are needed to create that output.
+
+Importantly, snakemake check the timestamps of input and output files, and parameters applied, ensuring the output file is created after the input file, using the latest parameters. This helps if you need to rerun your analysis after some changes, and want to make sure the output has been correctly updated.
+
+***
+
+## Useful snakemake options
+
+Here are some useful snakemake options/commands to run the pipeline:
+
+***
+
+### `--use-conda`
+
+This command tells snakemake to create and use conda environment specified for each rule. This is a handy and reprodible way of installing and running code in a tightly controlled software environment.
+
+This command should always be used when running GenoPred. All rules in GenoPred use the same conda environment, so it only has to be build once.
+
+### `-j`
+
+This command allows to set the number of jobs that can run simultaneously. E.g. `-j 1` will run one job at a time. This is most often what you want if you are running interactively.
+
+### `-n`
+
+This command performs a dry run, where snakemake prints out all the jobs it would run, without actually running them. This is particularly useful if you want to see what would happen if you were to specify a certain output or rule. This helps avoid accidentally triggering 100s of unwanted jobs.
+
+### --configfile
+
+This parameter can be used to specify the .yaml file you want snakemake to use as the configuration file. This file is described above (see [here](#configfile)).
+
+```{bash}
+snakemake -j1 --use-conda --configfile=new_config.yaml output_all
+```
+
+### `-p`
+
+This will print the command snakemake will run beneath of the jobs. This is handy if you want to see what the jobs are doing. This is mainly useful when debugging.
+
+***
+
+# Running on an HPC
+
+The GenoPred pipeline can be easily run in parallel using an HPC. Here I outline a few suggestions on how to do this.
+
+***
+
+## Don't run on the login node
+
+HPC's are a shared resource, and the login node is for logging in, not for running analyses. Instead, connect interactively to a compute node before setting up or using the GenoPred pipeline, or submit your snakemake command as a batch job. There are likely time and memory restrictions on the login node, leading to errors, or unhappy colleagues. Read the documentation for your HPC for more information.
+
+***
+
+## Running jobs in parallel
+
+Snakemake pipelines (such as GenoPred) can be easily parallelised. If you have access to multiple cores, then you can increase the `-j` parameter. Or if you have access to an HPC, then you can tell snakemake to submit jobs to the HPC (this is the most powerful approach and I would recommend if possible). To submit jobs to the cluster, I use the `--profile` flag. This flag points snakemake to a specific .yaml file, specifying snakemake parameters, including those that instruct it to use the HPC. I have provided an example profile file (`example_input/slurm.yaml`), with parameters telling snakemake how to submit jobs to a SLURM scheduler. SLURM users should create a folder called `slurm` in `$HOME/.config/snakemake`, and then copy in the `slurm.yaml`, renaming it to `config.yaml`. More information about profiles in Snakemake can be found [here](https://snakemake.readthedocs.io/en/stable/executing/cli.html#profiles). 
+
+Once you have set up a .yaml for your scheduler, you can tell Snakemake to submit jobs to the scheduler by using the `--profile slurm` parameter, instead of the `-j1` parameter. E.g.
+
+```{bash}
+snakemake --profile slurm --use-conda output_all
+```
+
+Although, running the snakemake command with the `--profile` flag uses very little memory, I would still suggest running it on a compute node to avoid clogging up the login node.
+
+***
+
+## Avoid connection issues
+
+The pipeline can take hours for certain tasks, so if you are running the snakemake command using interactive session on your HPC, you will likely run into issues due to your connection dropping out, leading to the snakemake analysis to end.
+
+To avoid this, I use a terminal multiplexer, either `tmux` or `screen`. When you are on the login node, start one of these multiplexers. Once inside the multiplexer, start your interactive session. The main reason for using a multiplexer here is that you can reconnect to the session even if your connection stops. There are several other advantages as well. They are really easy to use and will make your life a lot better. 
+
+**Note:** If you have multiple login nodes on your HPC, you will need to log in to the same login node to find your running tmux session. 
+
+tmux documentation: https://github.com/tmux/tmux/wiki
+
+***
+
+# Requesting outputs
+
+The GenoPred pipeline has many potential outputs. Here is a detailed schematic diagram illustrating the inputs, outputs and processes of the GenoPred pipeline.
+
+![](Images/pipeline_readme/pipeline_schematic.png)
+
+**Note:** To see this image more clearly, right click and open in a new tab.
+
+***
+
+## Main rules
+
+Each of the key outputs from the pipeline can be requested using the corresponding snakemake rule. For example, if I just wanted to obtain QC'd GWAS summary statistics I could run the `sumstat_prep` rule.
+
+```{bash}
+snakemake -j1 --use-conda sumstat_prep
+```
+
+<details>
+
+<summary>Show table of rules for key outputs</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+pipeline_dict <- list(
+  Type = list(
+    Target = list(
+      output_all = 'Generates both sample-level and individual-level .html reports',
+      sample_report = "Generates sample-level .html reports for target datasets with `format` = 'plink1', 'plink2', 'bgen', or 'vcf'.",
+      indiv_report = 'Generates individual-level .html reports for all individuals in target datasets with `indiv_report = T`',
+      ancestry_inference = 'Perform ancestry inference for all target datasets.',
+      target_pgs = 'Calculates polygenic scores in all target datasets using score files for all GWAS and all PGS methods.',
+      pc_projection = 'Projects reference genetic PCs into all target datasets',
+      format_target = 'Harmonises all target datasets with the reference.',
+      outlier_detection = 'Perform QC within the target datasets, seperately for each population with N > 100. Includes relatedness estimation, PCA, and population outlier detection.',
+      impute_23andme = "Perform genotype imputation of target datasets with `format` = '23andMed'."
+    ),
+    Reference = list(
+      sumstat_prep = 'Performs quality control of all GWAS summary statistics.',
+      pgs_prep = 'Prepares scoring files for all GWAS using all PGS methods.',
+      ref_pca = 'Performs PCA using reference genotype data.'
+    )
+  )
+)
+
+pipeline_df <- NULL
+for (type in names(pipeline_dict$Type)) {
+  for (step in names(pipeline_dict$Type[[type]])) {
+    description <- pipeline_dict$Type[[type]][[step]]
+    pipeline_df <- rbind(pipeline_df, data.frame(Type = type, Rule = step, Description = description, stringsAsFactors = FALSE))
+  }
+}
+
+print(kable(pipeline_df, 'markdown'))
+
+```
+
+</details>
+
+</br>
+
+***
+
+## Specific outputs
+
+The rules above trigger sets of outputs to be created. For example the `sumstat_prep` rule performs QC of all GWAS in the `gwas_list`. However, it is also possible to request more specific outputs, such as QC'd sumstats for just one of the GWAS in the `gwas_list`. If we had a GWAS with the name `COAD01`, we could request QC'd sumstats for just that GWAS like this:
+
+```{bash}
+# Create variables indicating the desired GWAS and the outdir parameter in the config file (by default snakemake reads uses config.yaml)
+gwas = COAD01
+outdir = test_data/output/test1
+
+# Run snakemake command
+snakemake -j1 --use-conda ${outdir}/reference/gwas_sumstat/${gwas}/${gwas}-cleaned.gz
+```
+
+<details>
+
+<summary>Show table of all available outputs</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+output_dict <- list(
+  type = list(
+    target = list(
+      group = list(
+        `QC'd genotype` = list(
+          output = c(
+            "{outdir}/{name}/geno/{name}.ref.chr{chr}.bed",
+            "{outdir}/reference/target_checks/{name}/format_target_all_chr.done"
+          ),
+          description = c(
+            'Specific chromosome of a specific dataset',
+            'Specific target dataset'
+          )
+        ),
+        `Imputed genotype` = list(
+          output = c(
+            "{outdir}/reference/target_checks/{name}/impute_23andme-{chr}.done",
+            "{outdir}/reference/target_checks/{name}/impute_23andme_all_chr.done"
+          ),
+          description = c(
+            'Specific chromosome of a specific dataset',
+            'Specific target dataset'
+          )
+        ),
+        `Ancestry Inference` = list(
+          output = c(
+            "{outdir}/reference/target_checks/{name}/ancestry_inference.done"
+          ),
+          description = c(
+            'Specific target dataset'
+          )
+        ),
+        `Within-target QC` = list(
+          output = c(
+            "{outdir}/reference/target_checks/{name}/outlier_detection.done"
+          ),
+          description = c(
+            'Specific target dataset'
+          )
+        ),
+        `Projected PCs` = list(
+          output = c(
+            "{outdir}/reference/target_checks/{name}/pc_projection-{population}.done",
+            "{outdir}/reference/target_checks/{name}/pc_projection_all_pop.done"
+          ),
+          description = c(
+            'Specific target dataset and specific population',
+            'Specific target dataset'
+          )
+        ),
+        `Target PGS` = list(
+          output = c(
+            "{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done",
+            "{outdir}/reference/target_checks/{name}/target_pgs_all_gwas-{method}-{population}.done",
+            "{outdir}/reference/target_checks/{name}/target_pgs_all_gwas-{population}.done",
+            "{outdir}/reference/target_checks/{name}/target_pgs-external-{population}-{score}.done",
+            "{outdir}/reference/target_checks/{name}/target_pgs_all_score-{population}.done",
+            "{outdir}/reference/target_checks/{name}/target_pgs.done"
+          ),
+          description = c(
+            'Specific target dataset, specific PGS method, specific population and specific GWAS',
+            'Specific target dataset, specific PGS method and specific population, all GWAS',
+            'Specific target dataset and specific population, all GWAS',
+            'Specific target dataset specific population, specific score file',
+            'Specific target dataset specific population, all score files',
+            'Specific target dataset'
+          )
+        )
+      )
+    ),
+    reference = list(
+      group = list(
+        `QC'd sumstats` = list(
+          output = c(
+            "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz"
+          ),
+          description = c(
+            "Specific GWAS"
+          )
+        ),
+        `PGS score file` = list(
+          output = c(
+            "{outdir}/reference/target_checks/prep_pgs_{method}_i-{gwas}.done"
+          ),
+          description = c(
+            'Specific GWAS/score file using specific PGS method'
+          )
+        ),
+        `Reports` = list(
+          output = c(
+            "{outdir}/reference/target_checks/{name}/sample_report.done",
+            "{outdir}/reference/target_checks/{name}/indiv_report-{id}-report.done",
+            "{outdir}/reference/target_checks/{name}/indiv_report_all_id.done"
+          ),
+          description = c(
+            'Sample-level report for specific target dataset',
+            'Individual-level report for specific individual in specific target dataset',
+            'Individual-level report for all individuals in a specific target dataset'
+          )
+        )
+      )
+    )
+  )
+)
+
+# Loop through each level of the list
+output_df <- NULL
+for (type_name in names(output_dict$type)) {
+  for (group_name in names(output_dict$type[[type_name]]$group)) {
+    outputs <- output_dict$type[[type_name]]$group[[group_name]]$output
+    descriptions <- output_dict$type[[type_name]]$group[[group_name]]$description
+    
+    # Assuming each 'output' corresponds to a 'description'
+    for (i in seq_along(outputs)) {
+      output <- outputs[i]
+      description <- descriptions[i]
+      output_df <- rbind(output_df, data.frame(type = type_name, group = group_name, output = output, description = description, stringsAsFactors = FALSE))
+    }
+  }
+}
+
+print(kable(output_df, 'markdown'))
+
+```
+
+</details>
+
+***
+
+## Output structure
+
+
+Outputs specific to the configuration used are stored in the `outdir` specified in the configfile:
+
+```{}
+[outdir]
+  ├── [target name] (results for each target dataset)
+  │   ├── ancestry (ancestry inference results)
+  │   │   ├── [target_name].Ancestry.model_pred (population probabilities)
+  │   │   ├── [target_name].Ancestry.pc_plot.png (plot of target and reference pcs)
+  │   │   └── keep_files (files listing individuals assigned to each population)
+  │   ├── geno (harmonised genotype data)
+  │   ├── pgs (polygenic scores)
+  │   │   └── [population] (pgs for each target population)
+  │   │       └── [pgs method] (pgs for each pgs method)
+  │   │           └── [gwas/score name] (pgs for each gwas or score file)
+  │   └── reports (polygenic scores)
+  │       ├── [target_name]-report.html (sample-level report)
+  │       └── individual (individual-level reports)
+  │    
+  └── reference (nextflow pipeline execution data)
+      ├── gwas_sumstat (processed gwas sumstats)
+      │   └── [gwas name] (pgs for each gwas or score file)
+      ├── pgs_score_files (score files for polygenic scoring)
+      │   └── [pgs method] (pgs for each pgs method)
+      │       └── [gwas/score name] (pgs for each GWAS or score file)
+      └── target_checks (pipeline logs)
+```
+
+Some additional outputs that are independent of the configuration used, are store in the resources folder of the `GenoPred/pipeline` folder:
+
+```{}
+GenoPred/pipeline
+  └── resources
+      ├── data (downloaded data)
+      │   ├── target_checks (pipeline logs)
+      │   └── ref (default reference data)
+      │       └── pc_score_files (score files for reference pcs)
+      └── software (downloaded software)
+```
+
+***
+
+# Reading outputs into R
+
+I have included some handy R functions for reading in the outputs of the pipeline. You just need to source the file `GenoPred/functions/pipeline.R`. Here is a list of useful R functions.
+
+***
+
+## `read_param`
+
+Reads in parameters from a configuration file.
+
+- **Parameters**
+  - `config`: Path to the configuration file.
+  - `param`: The name of the parameter to read.
+  - `return_obj` (optional): Boolean indicating whether to return the parameter as an object (if possible) or as a file path. Default is TRUE.
+  
+- **Returns**
+  - The value of the requested parameter if `return_obj == F`, or as a data.table if `return_obj == T`.
+
+<details>
+<summary>See usage</summary>
+
+```{r}
+# Read in gwas_list
+gwas_list <-
+  read_param(config = 'example_input/config.yaml', 
+             param = 'gwas_list')
+
+# Read in outdir
+outdir <-
+  read_param(config = 'example_input/config.yaml', 
+             param = 'gwas_list',
+             return_obj = F)
+```
+
+</details>
+
+***
+
+## `read_pgs`
+
+Reads in polygenic scores (PGS) based on the provided configuration and filters.
+
+- **Parameters**
+  - `config`: Configuration file specifying paths and parameters.
+  - `name` (optional): A vector of names to filter the target list. Default is NULL.
+  - `pgs_methods` (optional): A vector of PGS methods to include. Default is NULL.
+  - `gwas` (optional): A vector of GWAS to include. Default is NULL.
+  - `pop` (optional): A vector of populations to include. Default is NULL.
+  
+- **Returns**
+  - A list containing the filtered PGS data structured by target name, population, GWAS, and PGS method.
+
+<details>
+<summary>See usage</summary>
+
+```{r}
+# All PGS for all target datasets
+pgs <- read_pgs(config = 'example_input/config.yaml')
+
+# All PGS for specific dataset
+pgs <-
+  read_pgs(config = 'example_input/config.yaml', name = 'example_plink1')
+
+# PGS for specific dataset, using a specific PGS method
+pgs <-
+  read_pgs(config = 'example_input/config.yaml',
+           name = 'example_plink1',
+           pgs_method = 'dbslmm')
+
+# PGS for specific dataset, using specific PGS method, and specific GWAS
+pgs <-
+  read_pgs(
+    config = 'example_input/config.yaml',
+    name = 'example_plink1',
+    pgs_method = 'dbslmm',
+    gwas = 'COAD01'
+  )
+
+# PGS for specific target population in a specific dataset, using specific PGS method, and specific GWAS
+pgs <-
+  read_pgs(
+    config = 'example_input/config.yaml',
+    name = 'example_plink1',
+    pgs_method = 'dbslmm',
+    gwas = 'COAD01',
+    pop = 'EUR'
+  )
+
+# PGS for a specific dataset, using based on external score files only
+pgs <-
+  read_pgs(
+    config = 'example_input/config.yaml',
+    name = 'example_plink1',
+    pgs_method = 'external'
+  )
+```
+
+</details>
+
+***
+
+## `read_ancestry`
+
+Reads in ancestry inference results for a given target_dataset.
+
+- **Parameters**
+  - `config`: Configuration file specifying paths and parameters.
+  - `name`: Name identifier for which to read ancestry data.
+  
+- **Returns**
+  - A list containing ancestry inference outputs, including keep lists indicating population classifications, population probabilities model, and the ancestry inference log file.
+
+<details>
+<summary>See usage</summary>
+
+```{r}
+ancestry_info <-
+  read_ancestry(config = 'example_input/config.yaml', 
+                name = 'example_plink1')
+```
+
+</details>
+
+***
+
+## `find_pseudo`
+
+Determines the pseudo-validation parameter for a given GWAS and PGS method.
+
+- **Parameters**
+  - `config`: Configuration file specifying paths and parameters.
+  - `gwas`: A single GWAS identifier.
+  - `pgs_method`: A single PGS method identifier.
+- **Returns**
+  - A string representing the pseudo-validation parameter.
+- **Note**
+  - `ptclump` has no pseudovalidation approach, so this function will return the PGS based on a p-value threshold of 1.
+
+<details>
+<summary>See usage</summary>
+
+```{r}
+
+pseudo_param <-
+  find_pseudo(config = 'example_input/config.yaml',
+              gwas = 'COAD01',
+              pgs_method = 'ptclump')
+
+```
+
+</details>
+
+***
+
+## `read_pseudo_r`
+
+Reads correlation (R) value from the lassosum pseudovalidation results for a specified GWAS.
+
+- **Parameters**
+  - `config`: Configuration file specifying paths and parameters.
+  - `gwas`: A single GWAS identifier.
+- **Returns**
+  - A numeric value representing the R value from lassosum pseudovalidation.
+
+<details>
+<summary>See usage</summary>
+
+```{r}
+pseudo_r <-
+  read_pseudo_r(
+    config = 'example_input/config.yaml', 
+    gwas = 'COAD01')
+```
+
+</details>
+
+***
+
+# Troubleshooting
+
+Please post questions as an issue on the GenoPred GitHub repo [here](https://github.com/opain/GenoPred/issues). If errors occur while running the pipeline, log files will be saved in the `GenoPred/pipeline/logs` folder. If running interactively (i.e. -j1), the error should be printed on the screen.
+
+If there is an unclear error message, feel free to post an issue. A good approach for understanding the issue, is running the failed job interactively, by using the `-p` parameter to print the failed command, and then running interactively to understand the cause of the error. 

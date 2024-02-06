@@ -264,6 +264,64 @@ sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Analyses/PRS_comparison/Ben
 
 ***
 
+## Lassosum (1 thread)
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+# Create directory
+mkdir /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread
+
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/todo.txt
+for gwas in $(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01);do
+for test in $(echo chr22);do
+if [ ! -f /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/${gwas}/test_${test}/1KGPhase3.w_hm3.${gwas}.test_${test}.log ]; then
+echo $gwas ${test} >> /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/todo.txt
+fi
+done
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+#SBATCH --mem 5G
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/todo.txt)
+test=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/todo.txt)
+
+echo ${gwas}
+echo ${test}
+
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_lassosum/polygenic_score_file_creator_lassosum.R \
+	--ref_plink_gw ${Geno_1KG_dir}/1KGPhase3.w_hm3.GW \
+	--ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+  --output /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/${gwas}/test_${test}/1KGPhase3.w_hm3.${gwas}.test_${test} \
+	--plink ${plink1_9} \
+  --test ${test} \
+	--ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/todo.txt | cut -d' ' -f1)%5 /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/lassosum_1thread/sbatch.sh
+
+```
+</details>
+
+<br/>
+
+***
+
 ## PRScs
 
 
@@ -784,6 +842,83 @@ sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Analyses/PRS_comparison/Ben
 
 ***
 
+## DBSLMM (1 thread)
+
+<details><summary>Show code</summary>
+```{bash, eval=F, echo=T}
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(echo DEPR06 COLL01 HEIG03 BODY04 DIAB05 COAD01 CROH01 SCLE03 RHEU02 EDUC03 ADHD04 BODY11 PRCA01 BRCA01)
+pop_prev=$(echo 0.15 NA NA NA 0.05 0.03 0.013 0.00164 0.005 NA 0.05 NA 0.125 0.125)
+samp_prev=$(echo 0.27 NA NA NA 0.298 0.5 0.069 0.023 0.246 NA 0.36 NA 0.564 0.537)
+
+# Create directory
+mkdir /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread
+
+# Create file listing GWAS that haven't been processed.
+> /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/todo.txt
+for i in $(seq 1 14);do
+gwas_i=$(echo ${gwas} | cut -f ${i} -d ' ')
+pop_prev_i=$(echo ${pop_prev} | cut -f ${i} -d ' ')
+sample_prev_i=$(echo ${samp_prev} | cut -f ${i} -d ' ')
+for test in $(echo chr22);do
+if [ ! -f /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/${gwas_i}/test_${test}/1KGPhase3.w_hm3.${gwas_i}.test_${test}.log ]; then
+echo ${gwas_i} ${pop_prev_i} ${sample_prev_i} ${test} >> /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/todo.txt
+fi
+done
+done
+
+# Create shell script to run using sbatch
+cat > /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/sbatch.sh << 'EOF'
+#!/bin/sh
+
+#SBATCH -p shared,brc
+
+. /users/k1806347/brc_scratch/Software/MyGit/GenoPred/config_used/Pipeline_prep.config
+
+gwas=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $1}' /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/todo.txt)
+pop_prev=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $2}' /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/todo.txt)
+sample_prev=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $3}' /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/todo.txt)
+test=$(awk -v var="$SLURM_ARRAY_TASK_ID" 'NR == var {print $4}' /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/todo.txt)
+
+echo ${gwas}
+echo ${pop_prev}
+echo ${sample_prev}
+echo ${test}
+
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+
+/users/k1806347/brc_scratch/Software/Rscript.sh /users/k1806347/brc_scratch/Software/MyGit/GenoPred/Scripts/polygenic_score_file_creator_DBSLMM/polygenic_score_file_creator_DBSLMM.R \
+  --ref_plink_chr ${Geno_1KG_dir}/1KGPhase3.w_hm3.chr \
+  --ref_keep ${Geno_1KG_dir}/keep_files/EUR_samples.keep \
+  --sumstats ${gwas_rep_qcd}/${gwas}.cleaned.gz \
+  --plink ${plink1_9} \
+  --memory 5000 \
+  --ld_blocks /users/k1806347/brc_scratch/Data/LDetect/EUR \
+  --rscript /users/k1806347/brc_scratch/Software/Rscript.sh \
+  --dbslmm /users/k1806347/brc_scratch/Software/DBSLMM/software \
+  --munge_sumstats ${munge_sumstats} \
+  --ldsc ${ldsc} \
+  --ldsc_ref ${ldsc_ref} \
+  --hm3_snplist ${HapMap3_snplist_dir}/w_hm3.snplist \
+  --sample_prev ${sample_prev} \
+  --pop_prev ${pop_prev} \
+  --output /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/${gwas}/test_${test}/1KGPhase3.w_hm3.${gwas}.test_${test} \
+  --test ${test} \
+  --ref_pop_scale ${Geno_1KG_dir}/super_pop_keep.list
+EOF
+
+sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/todo.txt | cut -d' ' -f1)%3 /users/k1806347/brc_scratch/Analyses/PRS_comparison/Benchmark/DBSLMM_1thread/sbatch.sh
+
+```
+</details>
+
+<br/>
+
+***
+
 ## LDAK
 
 MegaPRS contains Lasso-SS (--model lasso), Lasso-SS-Sparse (--model lasso-sparse), Ridge-SS (--model ridge), Bolt-SS (--model bolt), BayesR-SS (--model bayesr) and BayesR-Shrink (--model bayesr-shrink). If you use --model mega
@@ -1087,7 +1222,7 @@ sbatch --array 1-$(wc -l /users/k1806347/brc_scratch/Analyses/PRS_comparison/Ben
 <details><summary>Show code</summary>
 ```{R, eval=F, echo=T}
 
-method<-c('pt_clump','lassosum','PRScs','SBLUP','SBayesR','LDPred','LDPred2','LDPred2_compact','DBSLMM','MegaPRS','Lasso-SS','Ridge-SS','Bolt-SS','BayesR-SS')
+method<-c('pt_clump','lassosum','lassosum_1thread','PRScs','SBLUP','SBayesR','LDPred','LDPred2','LDPred2_compact','DBSLMM','DBSLMM_1thread','MegaPRS','Lasso-SS','Ridge-SS','Bolt-SS','BayesR-SS')
 
 gwas<-c('DEPR06','COLL01','HEIG03','BODY04','DIAB05','COAD01','CROH01','SCLE03','RHEU02','EDUC03','ADHD04','BODY11','PRCA01','BRCA01')
 test<-c('chr22')
