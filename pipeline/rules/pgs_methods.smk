@@ -168,7 +168,7 @@ n_cores_prscs = config.get("ncores", 10)
 if config["testing"] != 'NA':
     n_cores_prscs = config.get("ncores", 5)
 
-mem_prscs = 5000*n_cores_prscs
+mem_prscs = 2000*n_cores_prscs
 
 rule prep_pgs_prscs_i:
   resources:
@@ -194,6 +194,7 @@ rule prep_pgs_prscs_i:
     export MKL_NUM_THREADS=1; \
     export NUMEXPR_NUM_THREADS=1; \
     export OMP_NUM_THREADS=1; \
+    export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/prscs.R \
     --ref_plink_chr resources/data/ref/ref.chr \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -218,7 +219,7 @@ if config["testing"] != 'NA':
 else:
   n_cores_sbayesr = config.get("ncores", 10)
 
-mem_sbayesr=5000*n_cores_sbayesr
+mem_sbayesr=4000*n_cores_sbayesr
 
 rule prep_pgs_sbayesr_i:
   resources:
@@ -259,10 +260,10 @@ rule prep_pgs_sbayesr:
 
 if config["testing"] != 'NA':
   n_cores_lassosum = config.get("ncores", 1)
-  mem_lassosum=5000
 else:
   n_cores_lassosum = config.get("ncores", 10)
-  mem_lassosum=20000
+
+mem_lassosum=10000
 
 rule prep_pgs_lassosum_i:
   resources:
@@ -302,10 +303,10 @@ rule prep_pgs_lassosum:
 
 if config["testing"] != 'NA':
   n_cores_ldpred2 = config.get("ncores", 5)
-  mem_ldpred2=5000
 else:
   n_cores_ldpred2 = config.get("ncores", 10)
-  mem_ldpred2=20000
+
+mem_ldpred2=30000
 
 rule prep_pgs_ldpred2_i:
   resources:
@@ -346,10 +347,10 @@ rule prep_pgs_ldpred2:
 
 if config["testing"] != 'NA':
   n_cores_megaprs = config.get("ncores", 5)
-  mem_megaprs=5000
 else:
   n_cores_megaprs = config.get("ncores", 10)
-  mem_megaprs=20000
+
+mem_megaprs=20000
 
 rule prep_pgs_megaprs_i:
   resources:
