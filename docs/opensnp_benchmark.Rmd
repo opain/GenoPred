@@ -206,8 +206,80 @@ write.table(score_list, 'misc/opensnp/score_list.txt', col.names=T, row.names=F,
 <details><summary>Show code</summary>
 
 ```{bash}
-snakemake -n --profile slurm --use-conda --configfile=misc/opensnp/config.yaml output_all
+snakemake --profile slurm --use-conda --configfile=misc/opensnp/config.yaml output_all
 ```
+
+</details>
+
+***
+
+## Check time and memory requirements
+
+<details><summary>Show code</summary>
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+# Read in configuration specific benchmark files
+bm_files_i <-
+  paste0(
+    '/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test3/reference/benchmarks/',
+    list.files('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test3/reference/benchmarks/')
+  )
+
+# Read in benchmark files
+bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
+  tmp <- fread(file)
+  tmp$file <- basename(file)
+  return(tmp)
+}))
+
+# Create rule column
+bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
+
+#####
+# PGS methods
+#####
+# Look at the memory required for each PGS method using the EUR GWAS
+bm_dat_yengo_eur <-
+  bm_dat_all[grepl('prep_pgs', bm_dat_all$file) &
+               grepl('yengo_eur.txt', bm_dat_all$file), ]
+
+bm_dat_yengo_eur$method <- gsub('_i', '', gsub('prep_pgs_','',bm_dat_yengo_eur$rule))
+bm_dat_yengo_eur<-merge(bm_dat_yengo_eur, pgs_method_labels, by='method')
+
+pgs_method_time <-
+  ggplot(bm_dat_yengo_eur, aes(x = label, y = s, fill = label)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "PGS Method", y = "Time (seconds)") +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+
+pgs_method_mem <-
+  ggplot(bm_dat_yengo_eur, aes(x = label, y = max_rss, fill = label)) +
+  geom_bar(stat = "identity", position="dodge") +
+  labs(x = "PGS Method", y = "Max Memory (Mb)") +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+
+png('Images/OpenSNP/time_cpu_bench_pgs_methods.png', res = 300, width = 1800, height = 1800, units = 'px')
+  plot_grid(pgs_method_time, pgs_method_mem, nrow=2)
+dev.off()
+
+write.csv(bm_dat_yengo_eur, 'Images/OpenSNP/time_cpu_bench_pgs_methods.csv', row.names=F, quote=F)
+
+```
+</details>
+
+<details><summary>Show PGS methods benchmark</summary>
+
+![](Images/OpenSNP/time_cpu_bench_pgs_methods.png){width=50%}
+
+**Note:** pT+clump and DBSLMM are run using 1 core. All other methods are run using 10 cores.
 
 </details>
 
