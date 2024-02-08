@@ -9,6 +9,8 @@ import hashlib
 import sys
 import tempfile
 import os
+import subprocess
+import re
 
 ######
 # Check config file
@@ -73,6 +75,50 @@ def check_target_paths(df, chr):
       return []
 
 ########
+# Check for repo version updates
+########
+
+# If there has been a major update (v1 to v2), we will rerun the entire pipeline
+
+# Define the path for storing the last known major version
+os.makedirs("resources", exist_ok = True)
+last_version_file = "resources/last_major_version.txt"
+
+def get_current_major_version():
+    cmd = "git describe --tags `git rev-list --tags --max-count=1`"
+    tag = subprocess.check_output(cmd, shell=True).decode().strip()
+    match = re.match(r"v?(\d+)", tag)
+    if match:
+        return int(match.group(1))
+    else:
+        raise ValueError("Git tag does not contain a valid major version.")
+
+def read_last_major_version():
+    if os.path.exists(last_version_file):
+        with open(last_version_file, "r") as file:
+            return int(file.read().strip())
+    return 0  # Default to 0 if file does not exist
+
+def write_last_major_version(version):
+    with open(last_version_file, "w") as file:
+        file.write(str(version))
+
+# Access overwrite flag from config
+overwrite = config.get("overwrite", "false").lower() == "true"
+
+# Main logic to check version and decide on execution
+current_version = get_current_major_version()
+last_version = read_last_major_version()
+
+if current_version != last_version:
+    if not overwrite:
+        print("Change to major version of GenoPred detected from v{} to v{}. Use --overwrite to proceed.".format(last_version, current_version))
+        sys.exit(1)
+    else:
+        print("Proceeding with major version update due to --overwrite flag.")
+        write_last_major_version(current_version)  # Update the stored version
+
+########
 # Download dependencies
 ########
 
@@ -100,6 +146,8 @@ rule download_impute2_data:
 
 # Download PLINK. DBSLMM requires the binary to be specified, which is challenging with conda environments. I have tried to avoid this again but no joy. The conda environment may not exist when the snakemake is executed which will cause problems if trying to access the conda environment manually.
 rule download_plink:
+  params:
+    genopred_version=last_version
   output:
     "resources/software/plink/plink"
   benchmark:
@@ -481,7 +529,8 @@ rule get_dependencies:
     rules.download_ld_blocks.output,
     rules.install_ggchicklet.output,
     rules.install_lassosum.output,
-    rules.install_genoutils.output
+    rules.install_genoutils.output,
+    rules.download_pgscatalog_utils.output
   output:
     touch("resources/software/get_dependencies.done")
 
