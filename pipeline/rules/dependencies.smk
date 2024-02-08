@@ -251,6 +251,14 @@ rule download_ld_blocks:
     """
 
 # Download PRScs reference
+prscs_ref_dropbox = {
+    'eur': 'https://www.dropbox.com/s/t9opx2ty6ucrpib/ldblk_ukbb_eur.tar.gz?dl=0',
+    'eas': 'https://www.dropbox.com/s/fz0y3tb9kayw8oq/ldblk_ukbb_eas.tar.gz?dl=0',
+    'afr': 'https://www.dropbox.com/s/dtccsidwlb6pbtv/ldblk_ukbb_afr.tar.gz?dl=0',
+    'amr': 'https://www.dropbox.com/s/y7ruj364buprkl6/ldblk_ukbb_amr.tar.gz?dl=0',
+    'sas': 'https://www.dropbox.com/s/nto6gdajq8qfhh0/ldblk_ukbb_sas.tar.gz?dl=0',
+}
+
 rule download_prscs_ref_ukb:
   output:
     "resources/data/prscs_ref/ldblk_ukbb_{population}/ldblk_ukbb_chr1.hdf5"
@@ -258,12 +266,14 @@ rule download_prscs_ref_ukb:
     "resources/data/benchmarks/download_prscs_ref_ukb-{population}.txt"
   log:
     "resources/data/logs/download_prscs_ref_ukb-{population}.log"
+  params:
+    url=lambda w: prscs_ref_dropbox.get(w.population)
   shell:
     """
     {{
       mkdir -p resources/data/prscs_ref; \
       rm -r -f resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}; \
-      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz https://www.dropbox.com/s/t9opx2ty6ucrpib/ldblk_ukbb_{wildcards.population}.tar.gz?dl=0; \
+      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
       tar -zxvf resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz -C resources/data/prscs_ref/; \
       rm resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz
     }} > {log} 2>&1
