@@ -64,7 +64,7 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   }
 
   # Define PGS methods applied to non-EUR GWAS
-  pgs_methods_noneur <- c('ptclump','lassosum','megaprs')
+  pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs')
 
   # Identify outdir parameter
   outdir <- read_param(config = config, param = 'outdir', return_obj = F)

@@ -178,7 +178,7 @@ rule prep_pgs_prscs_i:
   input:
     "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
     rules.download_prscs_software.output,
-    rules.download_prscs_ref_1kg_eur.output
+    lambda w: "resources/data/prscs_ref/ldblk_ukbb_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_ukbb_chr1.hdf5"
   output:
     touch("{outdir}/reference/target_checks/prep_pgs_prscs_i-{gwas}.done")
   conda:
@@ -188,6 +188,7 @@ rule prep_pgs_prscs_i:
   log:
     "{outdir}/reference/logs/prep_pgs_prscs_i-{gwas}.log"
   params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower(),
     testing=config["testing"]
   shell:
     """
@@ -201,14 +202,14 @@ rule prep_pgs_prscs_i:
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data resources/data/ref/ref.pop.txt \
     --PRScs_path resources/software/prscs/PRScs.py \
-    --PRScs_ref_path resources/data/prscs_ref/ldblk_1kg_eur \
+    --PRScs_ref_path resources/data/prscs_ref/ldblk_ukbb_{params.population} \
     --n_cores {threads} \
     --phi_param 1e-6,1e-4,1e-2,1,auto \
     --test {params.testing} > {log} 2>&1
     """
 
 rule prep_pgs_prscs:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_prscs_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
+  input: expand("{outdir}/reference/target_checks/prep_pgs_prscs_i-{gwas}.done", gwas=gwas_list_df['name'], outdir=outdir)
 
 ##
 # SBayesR

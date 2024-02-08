@@ -92,7 +92,7 @@ rule target_pgs_i:
 
 rule target_pgs_all_gwas:
   input:
-    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done", name=w.name, gwas = gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs'] else gwas_list_df_eur['name'], population=w.population, method=w.method, outdir=outdir)
+    lambda w: expand("{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done", name=w.name, gwas = gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs','prscs'] else gwas_list_df_eur['name'], population=w.population, method=w.method, outdir=outdir)
   output:
     touch("{outdir}/reference/target_checks/{name}/target_pgs_all_gwas-{method}-{population}.done")
 

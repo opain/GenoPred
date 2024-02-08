@@ -249,24 +249,26 @@ rule download_ld_blocks:
       mv resources/data/ld_blocks/ASN resources/data/ld_blocks/EAS
     }} > {log} 2>&1
     """
+
 # Download PRScs reference
-rule download_prscs_ref_1kg_eur:
+rule download_prscs_ref_ukb:
   output:
-    "resources/data/prscs_ref/ldblk_1kg_eur/ldblk_1kg_chr1.hdf5"
+    "resources/data/prscs_ref/ldblk_ukbb_{population}/ldblk_ukbb_chr1.hdf5"
   benchmark:
-    "resources/data/benchmarks/download_prscs_ref_1kg_eur.txt"
+    "resources/data/benchmarks/download_prscs_ref_ukb-{population}.txt"
   log:
-    "resources/data/logs/download_prscs_ref_1kg_eur.log"
+    "resources/data/logs/download_prscs_ref_ukb-{population}.log"
   shell:
     """
     {{
-      rm -r -f resources/data/prscs_ref; \
       mkdir -p resources/data/prscs_ref; \
-      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
-      tar -zxvf resources/data/prscs_ref/ldblk_1kg_eur.tar.gz -C resources/data/prscs_ref/; \
-      rm resources/data/prscs_ref/ldblk_1kg_eur.tar.gz
+      rm -r -f resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}; \
+      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz https://www.dropbox.com/s/t9opx2ty6ucrpib/ldblk_ukbb_{wildcards.population}.tar.gz?dl=0; \
+      tar -zxvf resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz -C resources/data/prscs_ref/; \
+      rm resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
+
 # Download PRScs software
 rule download_prscs_software:
   output:
