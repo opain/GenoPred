@@ -22,6 +22,8 @@ option_list = list(
       help="Specify number of SNPs to include [optional]"),
   make_option("--binary", action="store", default=F, type='logical',
       help="Specify T if GWAS phenotyp is binary [optional]"),
+  make_option("--seed", action="store", default=1, type='numeric',
+      help="Set seed to ensure reproducibility  [optional]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
       help="GWAS summary statistics [required]")
 )
@@ -163,6 +165,9 @@ for (chr in CHROMS) {
 #####
 
 log_add(log_file = log_file, message = 'Running LDpred models.')
+
+# Set seed to ensure reproducibility
+set.seed(opt$seed)
 
 #####
 # LDpred2-inf
