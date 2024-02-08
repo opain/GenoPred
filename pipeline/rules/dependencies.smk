@@ -85,7 +85,7 @@ os.makedirs("resources", exist_ok = True)
 last_version_file = "resources/last_major_version.txt"
 
 def get_current_major_version():
-    cmd = "git describe --tags `git rev-list --tags --max-count=1`"
+    cmd = "git describe --tags"
     tag = subprocess.check_output(cmd, shell=True).decode().strip()
     match = re.match(r"v?(\d+)", tag)
     if match:
@@ -112,7 +112,7 @@ last_version = read_last_major_version()
 
 if current_version != last_version:
     if not overwrite:
-        print("Change to major version of GenoPred detected from v{} to v{}. Use --overwrite to proceed.".format(last_version, current_version))
+        print("Change to major version of GenoPred detected from v{} to v{}. Use --params overwrite=true to proceed.".format(last_version, current_version))
         sys.exit(1)
     else:
         print("Proceeding with major version update due to --overwrite flag.")
@@ -146,8 +146,6 @@ rule download_impute2_data:
 
 # Download PLINK. DBSLMM requires the binary to be specified, which is challenging with conda environments. I have tried to avoid this again but no joy. The conda environment may not exist when the snakemake is executed which will cause problems if trying to access the conda environment manually.
 rule download_plink:
-  params:
-    genopred_version=last_version
   output:
     "resources/software/plink/plink"
   benchmark:
