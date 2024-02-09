@@ -13,6 +13,15 @@ import subprocess
 import re
 
 ######
+# Check genopred conda env is activated
+######
+
+conda_env_name = os.getenv('CONDA_DEFAULT_ENV')
+if not conda_env_name == 'genopred':
+  print("Error: The genopred conda environment must be active when running the pipeline.\nFor more information: https://opain.github.io/GenoPred/pipeline_readme.html#Step_2:_Create_conda_environment_for_pipeline")
+  sys.exit(1)
+
+######
 # Check config file
 ######
 
@@ -426,7 +435,8 @@ rule download_ldak_highld:
       wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt
     }} > {log} 2>&1
     """
-# Download preprocessed reference data (1KG HapMap3)
+
+# Download preprocessed reference data (1KG+HGDP HapMap3)
 rule download_default_ref:
   output:
     "resources/data/ref/ref.pop.txt"
@@ -439,13 +449,14 @@ rule download_default_ref:
     {{
       rm -r resources/data/ref; \
       mkdir -p resources/data/ref; \
-      wget --no-check-certificate -O resources/data/ref/genopredpipe_1kg.tar.gz https://zenodo.org/records/10371754/files/genopredpipe_1kg.tar.gz?download=1; \
-      tar -xzvf resources/data/ref/genopredpipe_1kg.tar.gz -C resources/data/ref/; \
+      wget --no-check-certificate -O resources/data/ref/genopred_1kg_hgdp.tar.gz https://zenodo.org/records/10640523/files/genopred_1kg_hgdp.tar.gz?download=1; \
+      tar -xzvf resources/data/ref/genopred_1kg_hgdp.tar.gz -C resources/data/ref/; \
       mv resources/data/ref/ref/* resources/data/ref/; \
       rm -r resources/data/ref/ref; \
-      rm resources/data/ref/genopredpipe_1kg.tar.gz
+      rm resources/data/ref/genopred_1kg_hgdp.tar.gz
     }} > {log} 2>&1
     """
+
 # install ggchicklet
 rule install_ggchicklet:
   input:
@@ -500,6 +511,14 @@ rule install_genoutils:
       Rscript -e 'devtools::install_github(\"opain/GenoUtils@edf5bec1be0e396d953eb8974488dc4e3d57c134\")'
     }} > {log} 2>&1
     """
+
+# Install R packages (handy function for when conda env updates erroneously)
+rule install_r_packages:
+  input:
+    rules.install_ggchicklet.output,
+    rules.install_lassosum.output,
+    rules.install_genoutils.output
+
 # Download pgscatalog_utils
 rule download_pgscatalog_utils:
   output:
