@@ -50,11 +50,11 @@ if 'gwas_list' in config:
       rules.install_genoutils.output,
       lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
     output:
-      "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz"
+      f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz"
     benchmark:
-      "{outdir}/reference/benchmarks/sumstat_prep_i-{gwas}.txt"
+      f"{outdir}/reference/benchmarks/sumstat_prep_i-{{gwas}}.txt"
     log:
-      "{outdir}/reference/logs/sumstat_prep_i-{gwas}.log"
+      f"{outdir}/reference/logs/sumstat_prep_i-{{gwas}}.log"
     conda:
       "../envs/analysis.yaml"
     params:
@@ -77,7 +77,7 @@ if 'gwas_list' in config:
       """
 
 rule sumstat_prep:
-  input: expand("{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=gwas_list_df['name'])
 
 ##
 # pT+clump (sparse, nested)
@@ -85,15 +85,15 @@ rule sumstat_prep:
 
 rule prep_pgs_ptclump_i:
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz"
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz"
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_ptclump_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_ptclump_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_ptclump_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_ptclump_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_ptclump_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_ptclump_i-{{gwas}}.log"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"]
@@ -107,7 +107,7 @@ rule prep_pgs_ptclump_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ptclump:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_ptclump_i-{gwas}.done", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_ptclump_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # DBSLMM
@@ -115,7 +115,7 @@ rule prep_pgs_ptclump:
 
 rule prep_pgs_dbslmm_i:
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_plink.output,
     rules.download_ldsc.output,
     rules.download_ldsc_ref.output,
@@ -123,13 +123,13 @@ rule prep_pgs_dbslmm_i:
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_dbslmm_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_dbslmm_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_dbslmm_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_dbslmm_i-{{gwas}}.log"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
@@ -154,7 +154,7 @@ rule prep_pgs_dbslmm_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_dbslmm:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
 
 ##
 # PRScs
@@ -176,17 +176,17 @@ rule prep_pgs_prscs_i:
     time_min=800
   threads: n_cores_prscs
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
     lambda w: "resources/data/prscs_ref/ldblk_ukbb_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_ukbb_chr1.hdf5"
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_prscs_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_prscs_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_prscs_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_prscs_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_prscs_i-{{gwas}}.log"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower(),
     testing=config["testing"]
@@ -209,7 +209,7 @@ rule prep_pgs_prscs_i:
     """
 
 rule prep_pgs_prscs:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_prscs_i-{gwas}.done", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # SBayesR
@@ -227,17 +227,17 @@ rule prep_pgs_sbayesr_i:
     mem_mb=mem_sbayesr
   threads: n_cores_sbayesr
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_gctb_ref.output,
     rules.download_gctb_software.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_sbayesr_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_sbayesr_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_sbayesr_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_sbayesr_i-{{gwas}}.log"
   params:
     testing=config["testing"]
   shell:
@@ -253,7 +253,7 @@ rule prep_pgs_sbayesr_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_sbayesr:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
 
 ##
 # lassosum
@@ -271,14 +271,14 @@ rule prep_pgs_lassosum_i:
     mem_mb=mem_lassosum
   threads: n_cores_lassosum
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.install_lassosum.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_lassosum_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_lassosum_i-{{gwas}}.done")
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_lassosum_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_lassosum_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_lassosum_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_lassosum_i-{{gwas}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -296,7 +296,7 @@ rule prep_pgs_lassosum_i:
      --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_lassosum:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_lassosum_i-{gwas}.done", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_lassosum_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # LDpred2
@@ -315,14 +315,14 @@ rule prep_pgs_ldpred2_i:
     time_min=800
   threads: n_cores_ldpred2
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldpred2_ref.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{{gwas}}.done")
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_ldpred2_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_ldpred2_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_ldpred2_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_ldpred2_i-{{gwas}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -340,7 +340,7 @@ rule prep_pgs_ldpred2_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
 
 ##
 # LDAK MegaPRS
@@ -359,17 +359,17 @@ rule prep_pgs_megaprs_i:
     time_min=800
   threads: n_cores_megaprs
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldak_highld.output,
     rules.download_ldak.output,
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_megaprs_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_megaprs_i-{{gwas}}.done")
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_megaprs_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_megaprs_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_megaprs_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_megaprs_i-{{gwas}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -390,7 +390,7 @@ rule prep_pgs_megaprs_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_megaprs:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_megaprs_i-{gwas}.done", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_megaprs_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # Process externally created score files
@@ -418,16 +418,16 @@ rule download_pgs_external:
   input:
     rules.download_pgscatalog_utils.output
   output:
-    touch("{outdir}/reference/pgs_score_files/raw_external/{score}/{score}_hmPOS_GRCh37.txt.gz")
+    touch(f"{outdir}/reference/pgs_score_files/raw_external/{{score}}/{{score}}_hmPOS_GRCh37.txt.gz")
   params:
     config_file = config["config_file"],
     outdir=config["outdir"],
     path= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.score), 'path'].iloc[0],
     testing = config['testing']
   benchmark:
-    "{outdir}/reference/benchmarks/download_pgs_external-{score}.txt"
+    f"{outdir}/reference/benchmarks/download_pgs_external-{{score}}.txt"
   log:
-    "{outdir}/reference/logs/download_pgs_external-{score}.log"
+    f"{outdir}/reference/logs/download_pgs_external-{{score}}.log"
   conda:
     "../envs/pgscatalog_utils.yaml"
   shell:
@@ -448,16 +448,16 @@ rule prep_pgs_external_i:
     rules.download_default_ref.output,
     rules.install_genoutils.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_external_i-{score}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done")
   params:
     config_file = config["config_file"],
     outdir=config["outdir"],
     score= lambda w: score_path(w),
     testing=config["testing"]
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_external_i-{score}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_external_i-{{score}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_external_i-{score}.log"
+    f"{outdir}/reference/logs/prep_pgs_external_i-{{score}}.log"
   conda:
     "../envs/analysis.yaml"
   shell:
@@ -469,18 +469,18 @@ rule prep_pgs_external_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_external:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_external_i-{score}.done", score=score_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done", score=score_list_df['name'])
 
 # Create a file listing score files and whether they had sufficient overlap with reference
 checkpoint score_reporter:
   input:
-    expand("{outdir}/reference/target_checks/prep_pgs_external_i-{score}.done", score=score_list_df['name'], outdir=outdir)
+    expand(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done", score=score_list_df['name'])
   output:
-    touch("{outdir}/reference/target_checks/score_reporter.done")
+    touch(f"{outdir}/reference/target_checks/score_reporter.done")
   benchmark:
-    "{outdir}/reference/benchmarks/score_reporter.txt"
+    f"{outdir}/reference/benchmarks/score_reporter.txt"
   log:
-    "{outdir}/reference/logs/score_reporter.log"
+    f"{outdir}/reference/logs/score_reporter.log"
   conda:
     "../envs/analysis.yaml"
   params:

@@ -28,11 +28,11 @@ rule sample_report_i:
   input:
     output_all_input
   output:
-    touch('{outdir}/reference/target_checks/{name}/sample_report.done')
+    touch(f"{outdir}/reference/target_checks/{{name}}/sample_report.done")
   benchmark:
-    "{outdir}/reference/benchmarks/sample_report_i-{name}.txt"
+    f"{outdir}/reference/benchmarks/sample_report_i-{{name}}.txt"
   log:
-    "{outdir}/reference/logs/sample_report_i-{name}.log"
+    f"{outdir}/reference/logs/sample_report_i-{{name}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -57,22 +57,22 @@ rule sample_report_i:
     """
 
 rule sample_report:
-  input: expand('{outdir}/reference/target_checks/{name}/sample_report.done', name=target_list_df_samp['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/{{name}}/sample_report.done", name=target_list_df_samp['name'])
 
 #####
 # Create individual-level reports for each target sample
 #####
 
-def id_munge(name, outdir):
+def id_munge(name):
   if config['testing'] != 'NA':
     val = config['testing'][-2:]
     val = str(val)
   else:
     val = str(22)
 
-  checkpoint_output = checkpoints.ancestry_reporter.get(name=name, outdir=outdir).output[0]
-  checkpoint_output = checkpoints.score_reporter.get(name=name, outdir=outdir).output[0]
-  checkpoint_output = outdir + "/" + name + "/geno/" + name + ".ref.chr" + val + ".fam"
+  checkpoint_output = checkpoints.ancestry_reporter.get(name=name).output[0]
+  checkpoint_output = checkpoints.score_reporter.get(name=name).output[0]
+  checkpoint_output = f"{outdir}/{name}/geno/{name}.ref.chr{val}.fam"
   fam_df = pd.read_table(checkpoint_output, delim_whitespace=True, usecols=[0,1], names=['FID', 'IID'], header=None)
   fam_df['id'] = fam_df.FID.apply(str) + '.' + fam_df.IID.apply(str)
 
@@ -84,11 +84,11 @@ rule indiv_report_i:
     rules.prep_pgs_lassosum.input,
     output_all_input
   output:
-    touch('{outdir}/reference/target_checks/{name}/indiv_report-{id}-report.done')
+    touch(f"{outdir}/reference/target_checks/{{name}}/indiv_report-{{id}}-report.done")
   benchmark:
-    "{outdir}/reference/benchmarks/indiv_report_i-{name}-{id}.txt"
+    f"{outdir}/reference/benchmarks/indiv_report_i-{{name}}-{{id}}.txt"
   log:
-    "{outdir}/reference/logs/indiv_report_i-{name}-{id}.log"
+    f"{outdir}/reference/logs/indiv_report_i-{{name}}-{{id}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -114,12 +114,12 @@ rule indiv_report_i:
 
 rule indiv_report_all_id:
   input:
-    lambda w: expand('{outdir}/reference/target_checks/{name}/indiv_report-{id}-report.done', name=w.name, id=id_munge(name="{}".format(w.name), outdir=w.outdir), outdir=w.outdir)
+    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report-{{id}}-report.done", name=w.name, id=id_munge(name="{}".format(w.name)))
   output:
-    touch('{outdir}/reference/target_checks/{name}/indiv_report_all_id.done')
+    touch(f"{outdir}/reference/target_checks/{{name}}/indiv_report_all_id.done")
 
 rule indiv_report:
-  input: expand('{outdir}/reference/target_checks/{name}/indiv_report_all_id.done', name= target_list_df_indiv_report['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report_all_id.done", name= target_list_df_indiv_report['name'])
 
 #####
 # Create a rule that checks all defaults outputs given certain outputs are present
