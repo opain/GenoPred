@@ -110,7 +110,7 @@ if 'target_list' in config:
     input:
       lambda w: format_target_input(name = w.name),
       lambda w: target_path(name = w.name, chr = w.chr),
-      rules.download_default_ref.output,
+      ref_input,
       rules.install_genoutils.output
     output:
       f"{outdir}/{{name}}/geno/{{name}}.ref.chr{{chr}}.bed"
@@ -122,6 +122,7 @@ if 'target_list' in config:
       "../envs/analysis.yaml"
     params:
       outdir=config["outdir"],
+      refdir=config["refdir"],
       config_file = config["config_file"],
       testing=config["testing"],
       prefix= lambda w: target_prefix(name = w.name),
@@ -130,7 +131,7 @@ if 'target_list' in config:
       "Rscript ../Scripts/format_target/format_target.R \
         --target {params.prefix}.chr{wildcards.chr} \
         --format {params.type} \
-        --ref resources/data/ref/ref.chr{wildcards.chr} \
+        --ref {refdir}/ref.chr{wildcards.chr} \
         --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr} > {log} 2>&1"
 
 rule format_target_all_chr:
@@ -164,9 +165,9 @@ rule ancestry_inference_i:
     "rm -r -f {outdir}/{wildcards.name}/ancestry; \
      Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
-      --ref_plink_chr resources/data/ref/ref.chr \
+      --ref_plink_chr {refdir}/ref.chr \
       --output {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule ancestry_inference:

@@ -11,6 +11,7 @@ import tempfile
 import os
 import subprocess
 import re
+import glob
 
 ######
 # Check genopred conda env is activated
@@ -43,6 +44,20 @@ if missing_config_params:
 
 # Set outdir parameter
 outdir=config['outdir']
+
+# Set refdir parameter
+# If refdir is NA, set refdir to resources/data/ref
+if config['refdir'] == 'NA':
+  refdir='resources/data/ref'
+  ref_input="resources/data/ref/ref.pop.txt"
+else:
+  refdir=config['refdir']
+  ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in range(1, 23) for ext in ['bed', 'bim', 'fam', 'rds']] + \
+                 [os.path.join(refdir, file_name) for file_name in ['ref.pop.txt', 'ref.keep.list']]
+
+  for full_path in ref_input:
+      if not os.path.exists(full_path):
+          raise FileNotFoundError(f"File not found: {full_path}. Check reference data format.")
 
 ########
 # Create required functions

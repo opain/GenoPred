@@ -1,7 +1,7 @@
 # Create PC score files specific to each population
 rule ref_pca_i:
   input:
-    rules.download_default_ref.output,
+    ref_input,
     rules.install_genoutils.output
   output:
     "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
@@ -9,16 +9,17 @@ rule ref_pca_i:
     "../envs/analysis.yaml",
   params:
     testing=config["testing"],
-    outdir=config["outdir"]
+    outdir=config["outdir"],
+    refdir=config["refdir"]
   benchmark:
     "resources/data/benchmarks/ref_pca_i-{population}.txt"
   log:
     "resources/data/logs/ref_pca_i-{population}.log"
   shell:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{wildcards.population}.keep \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{wildcards.population}.keep \
+      --pop_data {refdir}/ref.pop.txt \
       --output resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
       --test {params.testing} > {log} 2>&1"
 
@@ -46,7 +47,7 @@ gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
 if 'gwas_list' in config:
   rule sumstat_prep_i:
     input:
-      rules.download_default_ref.output,
+      ref_input,
       rules.install_genoutils.output,
       lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
     output:
@@ -59,6 +60,7 @@ if 'gwas_list' in config:
       "../envs/analysis.yaml"
     params:
       outdir=config["outdir"],
+      refdir=config["refdir"],
       config_file = config["config_file"],
       testing = config['testing'],
       population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
@@ -70,7 +72,7 @@ if 'gwas_list' in config:
       Rscript $sumstat_cleaner_script \
         --sumstats {params.path} \
         --n {params.n} \
-        --ref_chr resources/data/ref/ref.chr \
+        --ref_chr {refdir}/ref.chr \
         --population {params.population} \
         --output {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned \
         --test {params.testing} > {log} 2>&1
@@ -99,11 +101,11 @@ rule prep_pgs_ptclump_i:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/ptclump.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --output {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ptclump:
@@ -137,8 +139,8 @@ rule prep_pgs_dbslmm_i:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/dbslmm.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ld_blocks resources/data/ld_blocks/{params.population} \
       --plink resources/software/plink/plink \
@@ -150,7 +152,7 @@ rule prep_pgs_dbslmm_i:
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
       --output {outdir}/reference/pgs_score_files/dbslmm/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_dbslmm:
@@ -197,10 +199,10 @@ rule prep_pgs_prscs_i:
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/prscs.R \
-    --ref_plink_chr resources/data/ref/ref.chr \
+    --ref_plink_chr {refdir}/ref.chr \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
-    --pop_data resources/data/ref/ref.pop.txt \
+    --pop_data {refdir}/ref.pop.txt \
     --PRScs_path resources/software/prscs/PRScs.py \
     --PRScs_ref_path resources/data/prscs_ref/ldblk_ukbb_{params.population} \
     --n_cores {threads} \
@@ -242,14 +244,14 @@ rule prep_pgs_sbayesr_i:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/sbayesr.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
+      --ref_plink_chr {refdir}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb resources/software/gctb/gctb_2.03beta_Linux/gctb \
       --ld_matrix_chr resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
       --robust T \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_sbayesr:
@@ -286,13 +288,13 @@ rule prep_pgs_lassosum_i:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/lassosum.R \
-     --ref_plink_chr resources/data/ref/ref.chr \
-     --ref_keep resources/data/ref/keep_files/{params.population}.keep \
+     --ref_plink_chr {refdir}/ref.chr \
+     --ref_keep {refdir}/keep_files/{params.population}.keep \
      --gwas_pop {params.population} \
      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
       --n_cores {threads} \
-     --pop_data resources/data/ref/ref.pop.txt \
+     --pop_data {refdir}/ref.pop.txt \
      --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_lassosum:
@@ -330,13 +332,13 @@ rule prep_pgs_ldpred2_i:
   shell:
     "export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/ldpred2.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/EUR.keep \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/EUR.keep \
       --ldpred2_ref_dir resources/data/ldpred2_ref \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:
@@ -377,8 +379,8 @@ rule prep_pgs_megaprs_i:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak resources/software/ldak/ldak5.1.linux \
       --ldak_map resources/data/ldak_map/genetic_map_b37 \
@@ -386,7 +388,7 @@ rule prep_pgs_megaprs_i:
       --ldak_highld resources/data/ldak_highld/highld.txt \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_megaprs:
@@ -445,13 +447,14 @@ def score_path(w):
 rule prep_pgs_external_i:
   input:
     lambda w: score_path(w),
-    rules.download_default_ref.output,
+    ref_input,
     rules.install_genoutils.output
   output:
     touch(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done")
   params:
     config_file = config["config_file"],
     outdir=config["outdir"],
+    refdir=config["refdir"],
     score= lambda w: score_path(w),
     testing=config["testing"]
   benchmark:
@@ -462,10 +465,10 @@ rule prep_pgs_external_i:
     "../envs/analysis.yaml"
   shell:
     "Rscript ../Scripts/external_score_processor/external_score_processor.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
+      --ref_plink_chr {refdir}/ref.chr \
       --score {params.score} \
       --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_external:
