@@ -75,16 +75,27 @@ read_bim<-function(dat, chr = 1:22){
   return(bim)
 }
 
+# Read in PLINK2 .pvar file
+read_pvar<-function(dat, chr = 1:22){
+  pvar<-NULL
+  for(i in chr){
+    pvar<-rbind(pvar, fread(paste0(dat, i,'.pvar')))
+  }
+  names(pvar)<-c('CHR','BP','SNP','A2','A1')
+
+  return(pvar)
+}
+
 # Remove variants within genomic regions (REF: PMC2443852)
-remove_regions<-function(bim, regions){
+remove_regions<-function(dat, regions){
   exclude<-NULL
   for(i in 1:nrow(regions)){
-    exclude<-c(exclude, bim$SNP[(   bim$CHR == regions$CHR[i]  &
-                                    bim$BP >= regions$P0[i] &
-                                    bim$BP <= regions$P1[i])])
+    exclude<-c(exclude, dat$SNP[(   dat$CHR == regions$CHR[i]  &
+                                    dat$BP >= regions$P0[i] &
+                                    dat$BP <= regions$P1[i])])
   }
 
-  return(bim[!(bim$SNP %in% exclude),])
+  return(dat[!(dat$SNP %in% exclude),])
 }
 
 # Read in GWAS summary statistics

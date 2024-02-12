@@ -5,7 +5,7 @@ library("optparse")
 
 option_list = list(
 make_option("--ref_plink_chr", action="store", default=NULL, type='character',
-		help="Path to per chromosome reference PLINK files [required]"),
+		help="Path to per chromosome reference PLINK2 files [required]"),
 make_option("--ref_keep", action="store", default=NULL, type='character',
 		help="Keep file to subset individuals in reference for PCA [required]"),
 make_option("--maf", action="store", default=0.05, type='numeric',
@@ -16,8 +16,6 @@ make_option("--hwe", action="store", default=1e-6, type='numeric',
     help="Hardy Weinberg p-value threshold. [optional]"),
 make_option("--n_pcs", action="store", default=6, type='numeric',
 		help="Number of PCs [optional]"),
-make_option("--plink", action="store", default='plink', type='character',
-		help="Path PLINKv1.9 software binary [optional]"),
 make_option("--plink2", action="store", default='plink2', type='character',
 		help="Path PLINKv2 software binary [optional]"),
 make_option("--output", action="store", default=NULL, type='character',
@@ -73,7 +71,7 @@ if(!is.na(opt$test)){
 ###########
 
 if(!is.null(opt$ref_keep)){
-  plink_subset(keep = opt$ref_keep, chr = CHROMS, plink = opt$plink, bfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
+  plink_subset(keep = opt$ref_keep, chr = CHROMS, plink2 = opt$plink2, pfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
   opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset.chr')
 } else {
   opt$ref_plink_chr_subset<-opt$ref_plink_chr
@@ -83,7 +81,7 @@ if(!is.null(opt$ref_keep)){
 # QC reference
 ###########
 
-ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
+ref_qc_snplist<-plink_qc_snplist(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 
 ###########
 # Identify list of LD independent SNPs
@@ -92,17 +90,17 @@ ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, chr = CHROMS,
 log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on reference data.')
 
 # read in reference bim file
-ref_bim<-read_bim(opt$ref_plink_chr_subset, chr = CHROMS)
+ref_pvar<-read_pvar(opt$ref_plink_chr_subset, chr = CHROMS)
 
 # Subset ref_bim to contain QC'd variants
-ref_bim<-ref_bim[ref_bim$SNP %in% ref_qc_snplist,]
+ref_pvar<-ref_pvar[ref_pvar$SNP %in% ref_qc_snplist,]
 
 # Remove regions of high LD
-ref_bim <- remove_regions(bim = ref_bim, regions = long_ld_coord)
-log_add(log_file = log_file, message = paste0(nrow(ref_bim),' variants after removal of LD high regions.'))
+ref_pvar <- remove_regions(dat = ref_pvar, regions = long_ld_coord)
+log_add(log_file = log_file, message = paste0(nrow(ref_pvar),' variants after removal of LD high regions.'))
 
 # Perform LD pruning
-ld_indep <- plink_prune(bfile = opt$ref_plink_chr, chr = CHROMS, plink = opt$plink, extract = ref_bim$SNP)
+ld_indep <- plink_prune(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, extract = ref_bim$SNP)
 log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))
 
 ###########
@@ -111,7 +109,7 @@ log_add(log_file = log_file, message = paste0(length(ld_indep),' independent var
 
 log_add(log_file = log_file, message = 'Performing PCA based on reference.')
 
-snp_weights<-plink_pca(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink = opt$plink, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs)
+snp_weights<-plink_pca(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs)
 fwrite(snp_weights, paste0(opt$output,'.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
 
 if(file.exists(paste0(opt$output,'.eigenvec.var.gz'))){
@@ -127,10 +125,15 @@ system(paste0('gzip ',opt$output,'.eigenvec.var'))
 log_add(log_file = log_file, message = 'Computing reference PCs.')
 
 # Calculate PCs in the full reference
-ref_pcs<-plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
+ref_pcs<-plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
 
 # Calculate scale within each reference population
 pop_data<-fread(opt$pop_data)
+pop_data<-data.table(
+  FID=pop_data$`#IID`,
+  IID=pop_data$`#IID`,
+  POP=pop_data$POP
+)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pcs_scale_i <- score_mean_sd(scores = ref_pcs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])

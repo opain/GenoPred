@@ -1,10 +1,35 @@
 #!/usr/bin/Rscript
 
 # Make a subset of plink1 binaries
-plink_subset<-function(plink='plink', chr = 1:22, keep = NULL, extract = NULL, bfile, out, memory = 4000, threads = 1){
+plink_subset<-function(plink=NULL, plink2=NULL, chr = 1:22, keep = NULL, extract = NULL, bfile=NULL, pfile=NULL, out, memory = 4000, threads = 1){
+  if(is.null(bfile) & is.null(pfile)){
+    stop("bfile or pfile must be specified.")
+  }
+  if(!is.null(bfile) & !is.null(pfile)){
+    stop("Both bfile and pfile cannot be specified.")
+  }
+  if(is.null(plink) & is.null(plink2)){
+    stop("plink or plink2 must be specified.")
+  }
+  if(!is.null(plink) & !is.null(plink2)){
+    stop("Both plink and plink2 cannot be specified.")
+  }
+  if(!is.null(pfile) & is.null(plink2)){
+    stop("plink2 must be specified when using pfile.")
+  }
 
   # Prepare plink options
   plink_opt<-NULL
+  if(!is.null(plink)){
+    plink_opt<-paste0(plink_opt, paste0(plink, ' '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0(plink2, ' '))
+  }
+  if(!is.null(bfile)){
+    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER --make-bed '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER --make-pgen '))
+  }
   if(!is.null(keep)){
     keep <- obj_or_file(keep)
     plink_opt<-paste0(plink_opt, paste0('--keep ', keep, ' '))
@@ -16,7 +41,8 @@ plink_subset<-function(plink='plink', chr = 1:22, keep = NULL, extract = NULL, b
 
   # Run plink
   for(chr_i in chr){
-    cmd <- paste0(plink,' --bfile ',bfile,chr_i,' --threads ', threads,' ',plink_opt,'--make-bed --out ',out,chr_i,' --memory ',memory)
+    plink_opt <- gsub('CHROMOSOME_NUMBER', chr_i, plink_opt)
+    cmd <- paste0(plink_opt, '--threads ', threads,' --out ',out,chr_i,' --memory ',memory)
     exit_status <- system(cmd, intern=FALSE)
     if (exit_status == 2) {
       stop()
@@ -25,8 +51,34 @@ plink_subset<-function(plink='plink', chr = 1:22, keep = NULL, extract = NULL, b
 }
 
 # Return a list of variants surviving QC using plink
-plink_qc_snplist<-function(bfile, plink = 'plink', keep = NULL, chr = 1:22, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
+plink_qc_snplist<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, keep = NULL, chr = 1:22, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
+  if(is.null(bfile) & is.null(pfile)){
+    stop("bfile or pfile must be specified.")
+  }
+  if(!is.null(bfile) & !is.null(pfile)){
+    stop("Both bfile and pfile cannot be specified.")
+  }
+  if(is.null(plink) & is.null(plink2)){
+    stop("plink or plink2 must be specified.")
+  }
+  if(!is.null(plink) & !is.null(plink2)){
+    stop("Both plink and plink2 cannot be specified.")
+  }
+  if(!is.null(pfile) & is.null(plink2)){
+    stop("plink2 must be specified when using pfile.")
+  }
+
   plink_opt<-NULL
+  if(!is.null(plink)){
+    plink_opt<-paste0(plink_opt, paste0(plink, ' '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0(plink2, ' '))
+  }
+  if(!is.null(bfile)){
+    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER '))
+  }
   if(!is.null(geno)){
     plink_opt <- paste0(plink_opt, paste0('--geno ',geno,' '))
   }
@@ -44,7 +96,12 @@ plink_qc_snplist<-function(bfile, plink = 'plink', keep = NULL, chr = 1:22, thre
   temp_file <- tempfile()
   snplist <- NULL
   for(chr_i in chr){
-    system(paste0(plink, ' --bfile ', bfile, chr_i, ' --threads ', threads, ' ', plink_opt, ' --write-snplist --out ', temp_file,' --memory ', memory))
+    plink_opt <- gsub('CHROMOSOME_NUMBER', chr_i, plink_opt)
+    cmd <- paste0(plink_opt,'--threads ', threads,' --write-snplist --out ', temp_file,' --memory ', memory)
+    exit_status <- system(cmd, intern=FALSE)
+    if (exit_status == 2) {
+      stop()
+    }
     snplist<-c(snplist, fread(paste0(temp_file, '.snplist'), header=F)$V1)
   }
 
@@ -52,15 +109,58 @@ plink_qc_snplist<-function(bfile, plink = 'plink', keep = NULL, chr = 1:22, thre
 }
 
 # Merge plink files
-plink_merge<-function(bfile, plink = 'plink', chr = 1:22, extract = NULL, keep = NULL, flip = NULL, memory = 4000, out){
+plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, keep = NULL, flip = NULL, memory = 4000, out){
+  if(is.null(bfile) & is.null(pfile)){
+    stop("bfile or pfile must be specified.")
+  }
+  if(!is.null(bfile) & !is.null(pfile)){
+    stop("Both bfile and pfile cannot be specified.")
+  }
+  if(is.null(plink) & is.null(plink2)){
+    stop("plink or plink2 must be specified.")
+  }
+  if(!is.null(plink) & !is.null(plink2)){
+    stop("Both plink and plink2 cannot be specified.")
+  }
+  if(!is.null(pfile) & is.null(plink2)){
+    stop("plink2 must be specified when using pfile.")
+  }
+
   tmp_dir<-tempdir()
 
   # Create merge list
-  ref_merge_list<-paste0(bfile, chr)
+  if(!is.null(bfile)){
+    ref_merge_list<-paste0(bfile, chr)
+  } else {
+    ref_merge_list<-paste0(pfile, chr)
+  }
   write.table(ref_merge_list, paste0(tmp_dir,'/ref_mergelist.txt'), row.names=F, col.names=F, quote=F)
 
   # Prepare command
   plink_opt<-NULL
+  if(!is.null(plink)){
+    plink_opt<-paste0(plink_opt, paste0(plink, ' '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0(plink2, ' '))
+  }
+  if(!is.null(bfile)){
+    plink_opt<-paste0(plink_opt, paste0('--make-bed '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--make-pgen '))
+  }
+  if(length(chr) > 1){
+    if(!is.null(bfile)){
+      plink_opt<-paste0(plink_opt, paste0('--merge-list ', tmp_dir,'/ref_mergelist.txt '))
+    } else {
+      plink_opt<-paste0(plink_opt, paste0('--pmerge-list ', tmp_dir,'/ref_mergelist.txt '))
+    }
+  } else {
+    if(!is.null(bfile)){
+      plink_opt<-paste0(plink_opt, paste0('--bfile ', bfile, chr, ' '))
+    } else {
+      plink_opt<-paste0(plink_opt, paste0('--pfile ', pfile, chr, ' '))
+    }
+  }
   if(!is.null(extract)){
     write.table(extract, paste0(tmp_dir,'/extract.snplist'), col.names = F, row.names = F, quote=F)
     plink_opt<-paste0(plink_opt, paste0('--extract ',tmp_dir,'/extract.snplist '))
@@ -75,25 +175,40 @@ plink_merge<-function(bfile, plink = 'plink', chr = 1:22, extract = NULL, keep =
     plink_opt<-paste0(plink_opt, paste0('--keep ', keep, ' '))
   }
 
-  if(length(chr) > 1){
-    # Merge
-    cmd<-paste0(plink,' --merge-list ', tmp_dir,'/ref_mergelist.txt ', plink_opt,'--threads 1 --make-bed --out ', out,' --memory ', memory)
-  } else {
-    # Skip merge
-    cmd<-paste0(plink,' --bfile ', bfile, chr, ' ', plink_opt,'--threads 1 --make-bed --out ', out,' --memory ', memory)
+  cmd<-paste0(plink_opt,'--threads 1 --out ', out,' --memory ', memory)
+  exit_status <- system(cmd, intern=FALSE)
+  if (exit_status == 2) {
+    stop()
   }
-  system(cmd)
 }
 
 # Perform PCA using plink files
-plink_pca<-function(bfile, chr = 1:22, plink = 'plink', plink2 = 'plink2', extract = NULL, keep = NULL, flip = NULL, memory = 4000, n_pc = 6){
+plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, keep = NULL, flip = NULL, memory = 4000, n_pc = 6){
+  if(is.null(bfile) & is.null(pfile)){
+    stop("bfile or pfile must be specified.")
+  }
+  if(!is.null(bfile) & !is.null(pfile)){
+    stop("Both bfile and pfile cannot be specified.")
+  }
+
   tmp_dir<-tempdir()
 
   # Merge subset reference
-  plink_merge(bfile = bfile, chr = chr, plink = plink, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'))
+  if(!is.null(bfile)){
+    plink_merge(bfile = bfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'))
+  } else {
+    plink_merge(pfile = pfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'))
+  }
+
+  plink_opt<-paste0(plink2, ' ')
+  if(!is.null(bfile)){
+    plink_opt<-paste0(plink_opt, paste0('--bfile ',tmp_dir,'/ref_merge '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--pfile ',tmp_dir,'/ref_merge '))
+  }
 
   # Calculate SNP weights
-  system(paste0(plink2,' --bfile ',tmp_dir,'/ref_merge --threads 1 --pca ',n_pc,' biallelic-var-wts  --out ',tmp_dir,'/ref_merge --memory ', memory))
+  system(paste0(plink_opt,' --threads 1 --pca ',n_pc,' biallelic-var-wts  --out ',tmp_dir,'/ref_merge --memory ', memory))
 
   # Format the SNP-weights
   snp_weights<-fread(paste0(tmp_dir,'/ref_merge.eigenvec.var'))
@@ -104,7 +219,23 @@ plink_pca<-function(bfile, chr = 1:22, plink = 'plink', plink2 = 'plink2', extra
 }
 
 # Performing LD pruning
-plink_prune<-function(bfile, keep = NULL, plink = 'plink', chr = 1:22, extract = NULL, memory = 4000){
+plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, memory = 4000){
+  if(is.null(bfile) & is.null(pfile)){
+    stop("bfile or pfile must be specified.")
+  }
+  if(!is.null(bfile) & !is.null(pfile)){
+    stop("Both bfile and pfile cannot be specified.")
+  }
+  if(is.null(plink) & is.null(plink2)){
+    stop("plink or plink2 must be specified.")
+  }
+  if(!is.null(plink) & !is.null(plink2)){
+    stop("Both plink and plink2 cannot be specified.")
+  }
+  if(!is.null(pfile) & is.null(plink2)){
+    stop("plink2 must be specified when using pfile.")
+  }
+
   # Create a temporary file path to store pruning output
   tmp_file<-tempfile()
 
@@ -113,6 +244,16 @@ plink_prune<-function(bfile, keep = NULL, plink = 'plink', chr = 1:22, extract =
 
   # Prepare plink options
   plink_opt<-NULL
+  if(!is.null(plink)){
+    plink_opt<-paste0(plink_opt, paste0(plink, ' '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0(plink2, ' '))
+  }
+  if(!is.null(bfile)){
+    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER '))
+  }
   if(!is.null(extract)){
     extract <- obj_or_file(extract)
     plink_opt<-paste0(plink_opt, '--extract ', extract,' ')
@@ -125,27 +266,53 @@ plink_prune<-function(bfile, keep = NULL, plink = 'plink', chr = 1:22, extract =
   # Perfom pruning and read in SNP-list
   ld_indep<-NULL
   for(chr_i in chr){
-    cmd <- paste0(plink,' --bfile ',bfile,chr_i,' --threads 1 ',plink_opt,'--indep-pairwise 1000 5 0.2 --out ',tmp_file,'.chr',chr_i,' --memory ',memory)
+    plink_opt <- gsub('CHROMOSOME_NUMBER', chr_i, plink_opt)
+    cmd <- paste0(plink_opt, '--threads 1 --indep-pairwise 1000 5 0.2 --out ',tmp_file,'.chr',chr_i,' --memory ',memory)
     exit_status <- system(cmd, intern=FALSE)
-    if(file.exists(paste0(tmp_file,'.chr',chr_i,'.prune.in'))){
-      ld_indep<-c(ld_indep, fread(paste0(tmp_file,'.chr',chr_i,'.prune.in'), header=F)$V1)
-    }
     if (exit_status == 2) {
       stop()
     }
+    if(file.exists(paste0(tmp_file,'.chr',chr_i,'.prune.in'))){
+      ld_indep<-c(ld_indep, fread(paste0(tmp_file,'.chr',chr_i,'.prune.in'), header=F)$V1)
+    }
   }
-
   return(ld_indep)
 }
 
 # Peforming LD-based clumping
-plink_clump<-function(bfile, plink = 'plink', chr = 1:22, sumstats, keep = NULL, memory = 4000, log_file = NULL){
+plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, sumstats, keep = NULL, memory = 4000, log_file = NULL){
+  if(is.null(bfile) & is.null(pfile)){
+    stop("bfile or pfile must be specified.")
+  }
+  if(!is.null(bfile) & !is.null(pfile)){
+    stop("Both bfile and pfile cannot be specified.")
+  }
+  if(is.null(plink) & is.null(plink2)){
+    stop("plink or plink2 must be specified.")
+  }
+  if(!is.null(plink) & !is.null(plink2)){
+    stop("Both plink and plink2 cannot be specified.")
+  }
+  if(!is.null(pfile) & is.null(plink2)){
+    stop("plink2 must be specified when using pfile.")
+  }
+
   log_add(log_file = log_file, message = 'Performing LD-based clumping.')
   tmp_file <- tempfile()
 
   sumstats <- obj_or_file(sumstats, header=T)
 
-  opt_plink<-NULL
+  plink_opt<-NULL
+  if(!is.null(plink)){
+    plink_opt<-paste0(plink_opt, paste0(plink, ' '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0(plink2, ' '))
+  }
+  if(!is.null(bfile)){
+    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER '))
+  }
   if(!is.null(keep)){
     keep <- obj_or_file(keep)
     opt_plink<-paste0(opt_plink, '--keep ', keep, ' ')
@@ -169,7 +336,23 @@ plink_clump<-function(bfile, plink = 'plink', chr = 1:22, sumstats, keep = NULL,
 }
 
 # Generate kinship matrix and identify unrelated individuals (>2nd degree)
-plink_king<-function(bfile, extract = NULL, chr = 1:22, plink = 'plink', plink2 = 'plink2', out, keep=NA){
+plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink=NULL, plink2=NULL, out, keep=NA){
+  if(is.null(bfile) & is.null(pfile)){
+    stop("bfile or pfile must be specified.")
+  }
+  if(!is.null(bfile) & !is.null(pfile)){
+    stop("Both bfile and pfile cannot be specified.")
+  }
+  if(is.null(plink) & is.null(plink2)){
+    stop("plink or plink2 must be specified.")
+  }
+  if(!is.null(plink) & !is.null(plink2)){
+    stop("Both plink and plink2 cannot be specified.")
+  }
+  if(!is.null(pfile) & is.null(plink2)){
+    stop("plink2 must be specified when using pfile.")
+  }
+
   # Create object indicating tmpdir
   tmp_dir<-tempdir()
 
@@ -182,7 +365,19 @@ plink_king<-function(bfile, extract = NULL, chr = 1:22, plink = 'plink', plink2 
     extract_snplist<-intersect(bim$SNP, extract)
   }
 
-  # Merge per chromosome files extracting selected variants
+  plink_opt<-NULL
+  if(!is.null(plink)){
+    plink_opt<-paste0(plink_opt, paste0(plink, ' '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0(plink2, ' '))
+  }
+  if(!is.null(bfile)){
+    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER '))
+  }
+
+    # Merge per chromosome files extracting selected variants
   plink_merge(bfile = bfile, chr = chr, plink = plink, extract = extract_snplist, out = paste0(tmp_dir,'/merged'))
 
   # Run KING estimator
@@ -200,7 +395,14 @@ plink_king<-function(bfile, extract = NULL, chr = 1:22, plink = 'plink', plink2 
 }
 
 # Calculate scores in target file
-plink_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, plink2='plink2', threads=1){
+plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, plink2=NULL, threads=1){
+  if(is.null(bfile) & is.null(pfile)){
+    stop("bfile or pfile must be specified.")
+  }
+  if(!is.null(bfile) & !is.null(pfile)){
+    stop("Both bfile and pfile cannot be specified.")
+  }
+
   # Create object indicating tmpdir
   tmp_folder<-tempdir()
 
@@ -209,27 +411,32 @@ plink_score<-function(bfile, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL,
   n_scores<-ncol(score_small)-3
 
   # Assemble command and files for keep and extract
-  cmd=NULL
+  plink_opt<-paste0(plink2, ' ')
+  if(!is.null(bfile)){
+    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER '))
+  }
   if(!is.null(keep)){
-    cmd<-paste0(cmd, ' --keep ', keep)
+    plink_opt<-paste0(plink_opt, '--keep ', keep, ' ')
   }
   if(!is.null(extract)){
-    cmd<-paste0(cmd, ' --extract ', extract)
+    plink_opt<-paste0(plink_opt, '--extract ', extract, ' ')
   }
   if(!is.null(frq)){
-    cmd<-paste0(cmd, ' --read-freq ', frq,'CHROMOSOME_NUMBER.frq --score ', score,' header-read')
+    plink_opt<-paste0(plink_opt, '--read-freq ', frq,'CHROMOSOME_NUMBER.frq --score ', score,' header-read ')
   } else {
-    cmd<-paste0(cmd, ' --score ', score,' header-read no-mean-imputation')
+    plink_opt<-paste0(plink_opt, '--score ', score,' header-read no-mean-imputation ')
   }
   if(n_scores > 1){
-    cmd<-paste0(cmd, ' --score-col-nums 4-',3+n_scores)
+    plink_opt<-paste0(plink_opt, '--score-col-nums 4-',3+n_scores, ' ')
   } else {
-    cmd<-paste0(cmd, ' --score-col-nums 4')
+    plink_opt<-paste0(plink_opt, '--score-col-nums 4 ')
   }
   # Calculate score in the target sample
   for(i in chr){
-    cmd_i<-gsub('CHROMOSOME_NUMBER',i,cmd)
-    cmd_full<-paste0(plink2, ' --bfile ',bfile,i,cmd_i,' --chr ',i,' --out ',tmp_folder,'/profiles.chr',i,' --threads ',threads)
+    plink_opt<-gsub('CHROMOSOME_NUMBER',i,plink_opt)
+    cmd_full<-paste0(plink_opt,'--chr ',i,' --out ',tmp_folder,'/profiles.chr',i,' --threads ',threads)
     exit_status <- system(cmd_full, intern=FALSE)
     if (exit_status == 2) {
       stop()
