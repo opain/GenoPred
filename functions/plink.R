@@ -1,7 +1,7 @@
 #!/usr/bin/Rscript
 
 # Make a subset of plink1 binaries
-plink_subset<-function(plink=NULL, plink2=NULL, chr = 1:22, keep = NULL, extract = NULL, bfile=NULL, pfile=NULL, out, memory = 4000, threads = 1){
+plink_subset<-function(plink=NULL, plink2=NULL, chr = 1:22, keep = NULL, extract = NULL, bfile=NULL, pfile=NULL, out, memory = 4000, threads = 1, make_bed = F){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -26,9 +26,14 @@ plink_subset<-function(plink=NULL, plink2=NULL, chr = 1:22, keep = NULL, extract
     plink_opt<-paste0(plink_opt, paste0(plink2, ' '))
   }
   if(!is.null(bfile)){
-    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER --make-bed '))
+    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER '))
   } else {
-    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER --make-pgen '))
+    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER '))
+  }
+  if(make_bed){
+    plink_opt<-paste0(plink_opt, paste0('--make-bed '))
+  } else {
+    plink_opt<-paste0(plink_opt, paste0('--make-pgen '))
   }
   if(!is.null(keep)){
     keep <- obj_or_file(keep)
@@ -109,7 +114,7 @@ plink_qc_snplist<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, keep
 }
 
 # Merge plink files
-plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, keep = NULL, flip = NULL, memory = 4000, out){
+plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, keep = NULL, flip = NULL, make_bed =F, memory = 4000, out){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -143,7 +148,7 @@ plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
   } else {
     plink_opt<-paste0(plink_opt, paste0(plink2, ' '))
   }
-  if(!is.null(bfile)){
+  if(make_bed){
     plink_opt<-paste0(plink_opt, paste0('--make-bed '))
   } else {
     plink_opt<-paste0(plink_opt, paste0('--make-pgen '))

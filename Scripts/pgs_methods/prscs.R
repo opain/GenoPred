@@ -168,10 +168,15 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 # Calculate scale within each reference population
 pop_data <- fread(opt$pop_data)
+pop_data<-data.table(
+  FID=pop_data$`#IID`,
+  IID=pop_data$`#IID`,
+  POP=pop_data$POP
+)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
