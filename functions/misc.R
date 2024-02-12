@@ -69,3 +69,29 @@ test_finish<-function(log_file, test_start.time){
   cat('Test duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
   sink()
 }
+
+# Create log file with standard header including script name, command line options and git repo version and commit
+log_header <- function(log_file, opt, script, start.time) {
+  options(width = 1000)
+  sink(file = log_file, append = FALSE)
+
+  # Fetch git repository name and latest tag
+  repo_path <- system("git rev-parse --show-toplevel", intern = TRUE)
+  repo_name <- basename(repo_path)
+  git_tag <- system("git describe --tags", intern = TRUE)
+
+  sink(file = log_file, append = FALSE)
+  cat0(
+    '#################################################################\n',
+    '# ', script, '\n',
+    '# For questions contact Oliver Pain (oliver.pain@kcl.ac.uk)\n',
+    '#################################################################\n',
+    '# Repository: ', repo_name, '\n',
+    '# Version (tag): ', git_tag, '\n'
+  )
+  cat0('---------------\n')
+  print.data.frame(opt_to_df(opt), row.names = FALSE, quote = FALSE, right = FALSE)
+  cat0('---------------\n')
+  cat0('Analysis started at ', as.character(start.time), '\n')
+  sink()
+}
