@@ -10,8 +10,6 @@ make_option("--ref_keep", action="store", default=NULL, type='character',
     help="Keep file to subset individuals in reference for clumping [optional]"),
 make_option("--pop_data", action="store", default=NULL, type='character',
 		help="File containing the population code and location of the keep file [required]"),
-make_option("--plink", action="store", default='plink', type='character',
-    help="Path PLINKv1.9 software binary [required]"),
 make_option("--plink2", action="store", default='plink2', type='character',
     help="Path PLINKv2 software binary [required]"),
 make_option("--output", action="store", default=NULL, type='character',
@@ -114,7 +112,7 @@ if(!is.null(opt$keep)){
   log_add(log_file = log_file, message = 'Restricting sample to keep file for clumping.')
 }
 
-clumped <- plink_clump(bfile = opt$ref_plink_chr, chr = CHROMS, sumstats = gwas, keep = opt$ref_keep, log_file = log_file)
+clumped <- plink_clump(pfile = opt$ref_plink_chr, plink2 = opt$plink2, chr = CHROMS, sumstats = gwas, keep = opt$ref_keep, log_file = log_file)
 
 #####
 # Create score files
@@ -175,10 +173,15 @@ fwrite(range_list, paste0(opt$output, '.NSNP_per_pT'), sep='\t')
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 # Calculate scale within each reference population
 pop_data <- fread(opt$pop_data)
+pop_data<-data.table(
+  FID=pop_data$`#IID`,
+  IID=pop_data$`#IID`,
+  POP=pop_data$POP
+)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])

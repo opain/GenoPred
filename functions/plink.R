@@ -315,16 +315,24 @@ plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
   }
   if(!is.null(keep)){
     keep <- obj_or_file(keep)
-    opt_plink<-paste0(opt_plink, '--keep ', keep, ' ')
+    plink_opt<-paste0(plink_opt, '--keep ', keep, ' ')
   }
 
   clumped<-NULL
   for(chr_i in chr){
-    cmd<-paste0(plink,' --bfile ', bfile, chr_i,' ',opt_plink, '--clump ', sumstats,' --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',tmp_file,'.chr',chr_i,' --threads 1 --memory ', memory)
+    plink_opt <- gsub('CHROMOSOME_NUMBER', chr_i, plink_opt)
+    cmd<-paste0(plink_opt, '--clump ', sumstats,' --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',tmp_file,'.chr',chr_i,' --threads 1 --memory ', memory)
     exit_status <- system(cmd, intern=FALSE)
-    if (file.exists(paste0(tmp_file,'.chr',chr_i,'.clumped'))) {
-      clumped <- c(clumped, fread(paste0(tmp_file,'.chr',chr_i,'.clumped'))$SNP)
+    if(!is.null(plink)){
+      if (file.exists(paste0(tmp_file,'.chr',chr_i,'.clumped'))) {
+        clumped <- c(clumped, fread(paste0(tmp_file,'.chr',chr_i,'.clumped'))$SNP)
+      }
+    } else {
+      if (file.exists(paste0(tmp_file,'.chr',chr_i,'.clumps'))) {
+        clumped <- c(clumped, fread(paste0(tmp_file,'.chr',chr_i,'.clumps'))$ID)
+      }
     }
+
     if(exit_status == 2){
       stop()
     }
