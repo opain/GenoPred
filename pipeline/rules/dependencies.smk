@@ -102,45 +102,48 @@ def check_target_paths(df, chr):
 # Check for repo version updates
 ########
 
-# If there has been a major update (v1 to v2), we will rerun the entire pipeline
+# If there has been a change to the major or minor version numbers, we will rerun the entire pipeline
 
-# Define the path for storing the last known major version
-os.makedirs("resources", exist_ok = True)
-last_version_file = "resources/last_major_version.txt"
+# Define the path for storing the last known version
+os.makedirs("resources", exist_ok=True)
+last_version_file = "resources/last_version.txt"
 
-def get_current_major_version():
+def get_current_version():
     cmd = "git describe --tags"
     tag = subprocess.check_output(cmd, shell=True).decode().strip()
-    match = re.match(r"v?(\d+)", tag)
+    match = re.match(r"v?(\d+)\.(\d+)", tag)
     if match:
-        return int(match.group(1))
+        return int(match.group(1)), int(match.group(2))  # Major, Minor
     else:
-        raise ValueError("Git tag does not contain a valid major version.")
+        raise ValueError("Git tag does not contain a valid version format.")
 
-def read_last_major_version():
+def read_last_version():
     if os.path.exists(last_version_file):
         with open(last_version_file, "r") as file:
-            return int(file.read().strip())
-    return 0  # Default to 0 if file does not exist
+            major, minor = file.read().strip().split('.')
+            return int(major), int(minor)
+    return 0, 0  # Default to 0.0 if file does not exist
 
-def write_last_major_version(version):
+def write_last_version(major, minor):
     with open(last_version_file, "w") as file:
-        file.write(str(version))
+        file.write(f"{major}.{minor}")
 
 # Access overwrite flag from config
 overwrite = config.get("overwrite", "false").lower() == "true"
 
 # Main logic to check version and decide on execution
-current_version = get_current_major_version()
-last_version = read_last_major_version()
+current_major, current_minor = get_current_version()
+last_major, last_minor = read_last_version()
 
-if current_version != last_version:
+# Check for both major and minor version changes
+if current_major != last_major or current_minor != last_minor:
     if not overwrite:
-        print("Change to major version of GenoPred detected from v{} to v{}. Use --params overwrite=true to proceed.".format(last_version, current_version))
+        print(f"Change in version of GenoPred detected from v{last_major}.{last_minor} to v{current_major}.{current_minor}. Use --params overwrite=true to proceed.")
         sys.exit(1)
     else:
-        print("Proceeding with major version update due to --overwrite flag.")
-        write_last_major_version(current_version)  # Update the stored version
+        print("Proceeding with version update due to --overwrite flag.")
+        write_last_version(current_major, current_minor)  # Update the stored version
+
 
 ########
 # Download dependencies
