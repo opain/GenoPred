@@ -52,7 +52,7 @@ if config['refdir'] == 'NA':
   ref_input="resources/data/ref/ref.pop.txt"
 else:
   refdir=config['refdir']
-  ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in range(1, 23) for ext in ['bed', 'bim', 'fam', 'rds']] + \
+  ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in range(1, 23) for ext in ['pgen', 'pvar', 'psam', 'rds']] + \
                  [os.path.join(refdir, file_name) for file_name in ['ref.pop.txt', 'ref.keep.list']]
 
   for full_path in ref_input:
