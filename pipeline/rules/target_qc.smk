@@ -113,7 +113,7 @@ if 'target_list' in config:
       ref_input,
       rules.install_genoutils.output
     output:
-      f"{outdir}/{{name}}/geno/{{name}}.ref.chr{{chr}}.bed"
+      f"{outdir}/{{name}}/geno/{{name}}.ref.chr{{chr}}.pgen"
     benchmark:
       f"{outdir}/reference/benchmarks/format_target_i-{{name}}-{{chr}}.txt"
     log:
@@ -136,7 +136,7 @@ if 'target_list' in config:
 
 rule format_target_all_chr:
   input:
-    lambda w: expand(f"{outdir}/{{name}}/geno/{{name}}.ref.chr{{chr}}.bed", name=w.name, chr=get_chr_range(testing = config['testing']))
+    lambda w: expand(f"{outdir}/{{name}}/geno/{{name}}.ref.chr{{chr}}.pgen", name=w.name, chr=get_chr_range(testing = config['testing']))
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/format_target_all_chr.done")
 
@@ -219,4 +219,4 @@ rule outlier_detection_i:
 
 rule outlier_detection:
   input:
-    lambda w: expand(f"{outdir}/reference/target_checks/{name}/outlier_detection.done", name=target_list_df_samp['name'])
+    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/outlier_detection.done", name=target_list_df_samp['name'])

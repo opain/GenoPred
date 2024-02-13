@@ -115,39 +115,40 @@ write.table(ref_target$SNP.y, paste0(tmp_dir,'/extract_list_2.txt'), col.names =
 
 # First extract variants based on original ID
 if(opt$format == 'plink1'){
-  system(paste0(opt$plink2,' --bfile ',opt$target, ' --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2,' --bfile ',opt$target, ' --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 if(opt$format == 'plink2'){
-  system(paste0(opt$plink2,' --pfile ',opt$target, ' --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2,' --pfile ',opt$target, ' --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 if(opt$format == 'bgen'){
-  system(paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --hard-call-threshold 0.1 --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --hard-call-threshold 0.1 --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 if(opt$format == 'vcf'){
-  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', tmp_dir,'/extract_list_1.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 
 # Now edit bim file to update IDs to reference IDs
-targ_bim<-fread(paste0(tmp_dir,'/subset.bim'))
-names(targ_bim)<-c('CHR','SNP','POS','BP','A1','A2')
+targ_pvar<-fread(paste0(tmp_dir,'/subset.pvar'))
+names(targ_pvar)<-c('CHR','BP','SNP','A2','A1')
 
 # Update SNP with reference SNP value based on CHR:BP:IUPAC in the previously matched ref and target data
-targ_bim$IUPAC<-snp_iupac(targ_bim$A1, targ_bim$A2)
-targ_bim$ID<-paste0(targ_bim$CHR,':',targ_bim$BP,':',targ_bim$IUPAC)
-targ_bim$SNP<-targ_bim$ID # Give SNP column a unique value before updating to reference value
+targ_pvar$IUPAC<-snp_iupac(targ_pvar$A1, targ_pvar$A2)
+targ_pvar$ID<-paste0(targ_pvar$CHR,':',targ_pvar$BP,':',targ_pvar$IUPAC)
+targ_pvar$SNP<-targ_pvar$ID # Give SNP column a unique value before updating to reference value
 ref_target$ID<-paste0(ref_target$CHR,':',ref_target$BP,':',ref_target$IUPAC.x)
-targ_bim[ref_target, on=.(ID), SNP := i.SNP.y]
-targ_bim<-targ_bim[,c('CHR','SNP','POS','BP','A1','A2'),with=F]
+targ_pvar[ref_target, on=.(ID), SNP := i.SNP.y]
+targ_pvar<-targ_pvar[,c('CHR','BP','SNP','A2','A1'),with=F]
 
 # Label SNP with _dup if the RSID is duplicated, so these variants are removed.
-dup_snp<-duplicated(targ_bim$SNP)
+dup_snp<-duplicated(targ_pvar$SNP)
 log_add(log_file = log_file, message = paste0('Removing ', sum(dup_snp),' duplicate variants.'))
-targ_bim$SNP[dup_snp]<-paste0(targ_bim$SNP[dup_snp],'_dup')
+targ_pvar$SNP[dup_snp]<-paste0(targ_pvar$SNP[dup_snp],'_dup')
 
 log_add(log_file = log_file, message = paste0(sum(!dup_snp)," of ", nrow(ref)," reference variants are in the target."))
 
 # Write out new bim file
-fwrite(targ_bim, paste0(tmp_dir,'/subset.bim'), col.names=F, row.names=F, quote=F, na='NA', sep=' ')
+names(targ_pvar)<-c('#CHROM','POS','ID','REF','ALT')
+fwrite(targ_pvar, paste0(tmp_dir,'/subset.pvar'), col.names=T, row.names=F, quote=F, na='NA', sep=' ')
 
 # Extract variants based on new reference RSIDs
 # and flip variants if there are any to be flipped
@@ -156,7 +157,7 @@ if(sum(flip) > 0){
   plink_opt<-paste0(plink_opt, paste0('--flip ',tmp_dir,'/flip_list.txt '))
 }
 
-system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset ',plink_opt,'--extract ', tmp_dir,'/extract_list_2.txt --make-bed --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset ',plink_opt,'--extract ', tmp_dir,'/extract_list_2.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 
 ##################
 # Insert missing SNPs into the reference data
@@ -165,16 +166,22 @@ system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset ',plink_opt,'--extract ', t
 log_add(log_file = log_file, message = 'Inserting missing reference variants.')
 
 # Update IDs in reference to avoid conflict with the target
-ref_fam<-fread(paste0(opt$ref,'.fam'))
-ref_ID_update<-data.frame(ref_fam$V1, ref_fam$V2, paste0(ref_fam$V1,'_REF'),paste0(ref_fam$V2,'_REF'))
+ref_psam<-fread(paste0(opt$ref,'.psam'))
+names(ref_psam)<-gsub('\\#', '', names(ref_psam))
+ref_psam <- ref_psam[, names(ref_psam) %in% c('FID', 'IID'), with = F]
+if(ncol(ref_psam) == 1){
+  ref_ID_update<-data.frame(ref_psam$`IID`, paste0(ref_psam$`#IID`,'_REF'))
+} else {
+  ref_ID_update<-data.frame(ref_psam$`FID`, ref_psam$`IID`, paste0(ref_psam$`FID`,'_REF'), paste0(ref_psam$`IID`,'_REF'))
+}
 fwrite(ref_ID_update, paste0(tmp_dir,'/ref_ID_update.txt'), sep=' ', col.names=F)
-system(paste0(opt$plink,' --bfile ',opt$ref,' --make-bed --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --memory 7000'))
+system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --memory 5000'))
 
 # Merge target and reference plink files to insert missing SNPs
-system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --bmerge ',tmp_dir,'/REF --make-bed --out ',tmp_dir,'/subset'))
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --pmerge ',tmp_dir,'/REF --make-pgen --out ',tmp_dir,'/subset'))
 
 # Extract only target individuals
-system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --remove ',tmp_dir,'/REF.fam --make-bed --out ',opt$output))
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --remove ',tmp_dir,'/REF.psam --make-pgen --out ',opt$output))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

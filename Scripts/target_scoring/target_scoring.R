@@ -5,13 +5,13 @@ library("optparse")
 
 option_list = list(
 make_option("--target_plink_chr", action="store", default=NULL, type='character',
-		help="Path to per chromosome target PLINK files [required]"),
+		help="Path to per chromosome target PLINK2 files [required]"),
 make_option("--target_keep", action="store", default=NULL, type='character',
 		help="Path to keep file for target [optional]"),
 make_option("--ref_score", action="store", default=NULL, type='character',
 		help="Path to reference scoring files [required]"),
 make_option("--ref_freq_chr", action="store", default=NULL, type='character',
-		help="Path to per chromosome reference PLINK .frq files [required]"),
+		help="Path to per chromosome reference PLINK2 .afreq files [required]"),
 make_option("--plink2", action="store", default='plink2', type='character',
 		help="Path PLINK v2 software binary [optional]"),
 make_option("--output", action="store", default=NULL, type='character',

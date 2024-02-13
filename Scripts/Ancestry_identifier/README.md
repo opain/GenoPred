@@ -25,9 +25,7 @@ install.packages(c('data.table','caret','pROC','verification','ggplot2','cowplot
 | Flag     | Description                                                  | Default |
 | :------- | ------------------------------------------------------------ | :-----: |
 | --target_plink_chr | Path to per chromosome target PLINK files [required] | NA |
-| --target_plink | Path to genome-wide target PLINK files [required] | NA |
 | --ref_plink_chr | Path to per chromosome reference PLINK files [required] | NA |
-| --target_fam | Target sample fam file. [optional] | NA |
 | --maf | Minor allele frequency threshold [optional] | NA |
 | --geno | Variant missingness threshold [optional] | 0.02 |
 | --hwe | Hardy Weinberg p-value threshold. [optional] | NA |

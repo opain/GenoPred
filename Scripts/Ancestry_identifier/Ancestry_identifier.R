@@ -5,11 +5,11 @@ library("optparse")
 
 option_list = list(
 make_option("--target_plink_chr", action="store", default=NULL, type='character',
-    help="Path to per chromosome target PLINK files [required]"),
+    help="Path to per chromosome target PLINK2 files [required]"),
 make_option("--target_keep", action="store", default=NULL, type='character',
     help="Path to file listing individuals in the target sample to retain [optional]"),
 make_option("--ref_plink_chr", action="store", default=NULL, type='character',
-    help="Path to per chromosome reference PLINK files [required]"),
+    help="Path to per chromosome reference PLINK2 files [required]"),
 make_option("--ref_keep", action="store", default=NULL, type='character',
     help="Path to file listing individuals in the reference sample to retain [optional]"),
 make_option("--maf", action="store", default=0.05, type='numeric',
@@ -20,8 +20,6 @@ make_option("--hwe", action="store", default=1e-6, type='numeric',
     help="Hardy Weinberg p-value threshold. [optional]"),
 make_option("--n_pcs", action="store", default=6, type='numeric',
 		help="Number of PCs (min=4) [optional]"),
-make_option("--plink", action="store", default='plink', type='character',
-		help="Path PLINK software binary [optional]"),
 make_option("--plink2", action="store", default='plink2', type='character',
 		help="Path PLINK software binary [optional]"),
 make_option("--output", action="store", default=NULL, type='character',
@@ -78,19 +76,6 @@ tmp_dir<-tempdir()
 log_file <- paste0(opt$output,'.log')
 log_header(log_file = log_file, opt = opt, script = 'Ancestry_identifier.R', start.time = start.time)
 
-# Check required parameters are specified
-if(is.null(opt$pop_data)){
-	stop('pop_data must be specified.')
-}
-if(is.null(opt$target_plink_chr)){
-	stop('Either target_plink_chr must be specified.')
-}
-if(is.null(opt$ref_plink_chr)){
-	stop('ref_plink_chr must be specified.')
-}
-if(nrow(fread(paste0(opt$ref_plink_chr,'22.fam'))) < 100){
-  	stop('opt$ref_plink_chr must contain at least 100 individuals.')
-}
 
 # If testing, change CHROMS to chr value, and lower ancestry probability threshold
 if(!is.na(opt$test) && opt$test == 'NA'){
@@ -102,12 +87,16 @@ if(!is.na(opt$test)){
   log_add(log_file = log_file, message = 'Lowering prob_thresh parameter to 0.5 for testing.')
 }
 
+if(nrow(fread(paste0(opt$ref_plink_chr, CHROMS[1],'.psam'))) < 100){
+  stop('opt$ref_plink_chr must contain at least 100 individuals.')
+}
+
 ###########
 # Extract target_keep
 ###########
 
 if(!is.null(opt$target_keep)){
-  plink_subset(keep = opt$target_keep, chr = CHROMS, plink = opt$plink, bfile = opt$target_plink_chr, out = paste0(tmp_dir,'/target_subset.chr'))
+  plink_subset(keep = opt$target_keep, chr = CHROMS, plink2 = opt$plink2, pfile = opt$target_plink_chr, out = paste0(tmp_dir,'/target_subset.chr'))
   opt$target_plink_chr_subset<-paste0(tmp_dir,'/target_subset')
 } else {
   opt$target_plink_chr_subset<-opt$target_plink_chr
@@ -118,7 +107,7 @@ if(!is.null(opt$target_keep)){
 ###########
 
 if(!is.null(opt$ref_keep)){
-  plink_subset(keep = opt$ref_keep, chr = CHROMS, plink = opt$plink, bfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
+  plink_subset(keep = opt$ref_keep, chr = CHROMS, plink2 = opt$plink2, pfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
   opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset.chr')
 } else {
   opt$ref_plink_chr_subset<-opt$ref_plink_chr
@@ -129,12 +118,12 @@ if(!is.null(opt$ref_keep)){
 ###########
 
 # If target sample size is <100, only apply SNP missingness parameter
-fam<-fread(paste0(opt$target_plink_chr_subset, CHROMS[1], '.fam'))
+psam<-fread(paste0(opt$target_plink_chr_subset, CHROMS[1], '.psam'))
 
-if(nrow(fam) > 100){
-  target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
+if(nrow(psam) > 100){
+  target_qc_snplist<-plink_qc_snplist(pfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 } else {
-  target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno)
+  target_qc_snplist<-plink_qc_snplist(pfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, geno = opt$geno)
   log_add(log_file = log_file, message = 'Target sample size is <100 so only checking genotype missingness.')
 }
 
@@ -142,29 +131,29 @@ if(nrow(fam) > 100){
 # QC reference
 ###########
 
-ref_qc_snplist<-plink_qc_snplist(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink = opt$plink, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
+ref_qc_snplist<-plink_qc_snplist(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 
 ###########
 # Harmonise target and reference genetic data
 ###########
 
-# read in target bim file
-targ_bim<-read_bim(opt$target_plink_chr_subset, chr = CHROMS)
+# read in target pvar file
+targ_pvar<-read_pvar(opt$target_plink_chr_subset, chr = CHROMS)
 
-# read in reference bim file
-ref_bim<-read_bim(opt$ref_plink_chr_subset, chr = CHROMS)
+# read in reference pvar file
+ref_pvar<-read_pvar(opt$ref_plink_chr_subset, chr = CHROMS)
 
 # retain variants surviving QC
-targ_bim<-targ_bim[targ_bim$SNP %in% intersect(target_qc_snplist, ref_qc_snplist), ]
-ref_bim<-ref_bim[ref_bim$SNP %in% intersect(target_qc_snplist, ref_qc_snplist), ]
+targ_pvar<-targ_pvar[targ_pvar$SNP %in% intersect(target_qc_snplist, ref_qc_snplist), ]
+ref_pvar<-ref_pvar[ref_pvar$SNP %in% intersect(target_qc_snplist, ref_qc_snplist), ]
 
 # insert IUPAC codes
-targ_bim$IUPAC <- snp_iupac(targ_bim$A1, targ_bim$A2)
-ref_bim$IUPAC <- snp_iupac(ref_bim$A1, ref_bim$A2)
+targ_pvar$IUPAC <- snp_iupac(targ_pvar$A1, targ_pvar$A2)
+ref_pvar$IUPAC <- snp_iupac(ref_pvar$A1, ref_pvar$A2)
 
 # Identify SNPs present in both samples (allowing for strand flips)
 # Identify SNPs that need to be flipped
-target_ref<-merge(targ_bim, ref_bim, by='SNP')
+target_ref<-merge(targ_pvar, ref_pvar, by='SNP')
 flip <- detect_strand_flip(target_ref$IUPAC.x, target_ref$IUPAC.y)
 
 flip_snplist<-NULL
@@ -185,15 +174,15 @@ log_add(log_file = log_file, message = paste0(nrow(target_ref),' variants match 
 
 log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on reference data.')
 
-# Subset ref_bim to contain QC'd variants
-ref_bim<-ref_bim[ref_bim$SNP %in% target_ref$SNP,]
+# Subset ref_pvar to contain QC'd variants
+ref_pvar<-ref_pvar[ref_pvar$SNP %in% target_ref$SNP,]
 
 # Remove regions of high LD
-ref_bim <- remove_regions(bim = ref_bim, regions = long_ld_coord)
-log_add(log_file = log_file, message = paste0(nrow(ref_bim),' variants after removal of LD high regions.'))
+ref_pvar <- remove_regions(dat = ref_pvar, regions = long_ld_coord)
+log_add(log_file = log_file, message = paste0(nrow(ref_pvar),' variants after removal of LD high regions.'))
 
 # Perform LD pruning
-ld_indep <- plink_prune(bfile = opt$ref_plink_chr_subset, plink = opt$plink, extract = ref_bim$SNP)
+ld_indep <- plink_prune(pfile = opt$ref_plink_chr_subset, plink2 = opt$plink2, extract = ref_pvar$SNP, chr = CHROMS)
 log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))
 
 ###########
@@ -202,7 +191,7 @@ log_add(log_file = log_file, message = paste0(length(ld_indep),' independent var
 
 log_add(log_file = log_file, message = 'Performing PCA based on reference.')
 
-snp_weights<-plink_pca(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink = opt$plink, plink2 = opt$plink2, extract = ld_indep, flip = flip_snplist, n_pc = opt$n_pcs)
+snp_weights<-plink_pca(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, extract = ld_indep, flip = flip_snplist, n_pc = opt$n_pcs)
 fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
 
 ###
@@ -212,7 +201,7 @@ fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F,
 log_add(log_file = log_file, message = 'Computing reference PCs.')
 
 # Calculate PCs in the reference
-ref_pcs<-plink_score(bfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+ref_pcs<-plink_score(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 
 # Scale across all individuals
 ref_pcs_centre_scale <- score_mean_sd(scores = ref_pcs)
@@ -222,7 +211,9 @@ ref_pcs_centre_scale <- score_mean_sd(scores = ref_pcs)
 ###
 
 log_add(log_file = log_file, message = 'Deriving model predicting ref_pop groups.')
-pop_data<-fread(opt$pop_data)
+
+# Read in reference pop_data
+pop_data <- read_pop_data(opt$pop_data)
 
 # Scale the reference PCs
 ref_pcs_scaled<-score_scale(score = ref_pcs, ref_scale = ref_pcs_centre_scale)
@@ -238,7 +229,7 @@ saveRDS(model$finalModel, paste0(opt$output,'.model.rds'))
 #####
 
 log_add(log_file = log_file, message = 'Calculating PCs in the target sample.')
-targ_pcs<-plink_score(bfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+targ_pcs<-plink_score(pfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 targ_pcs_scaled<-score_scale(score = targ_pcs, ref_scale = ref_pcs_centre_scale)
 
 ###

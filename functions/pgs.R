@@ -75,6 +75,22 @@ read_bim<-function(dat, chr = 1:22){
   return(bim)
 }
 
+# Read in reference pop_data
+read_pop_data <- function(x){
+  pop_data<-fread(x)
+  names(pop_data)<-gsub('\\#', '', names(pop_data))
+  if (ncol(pop_data) == 2) {
+    pop_data <- data.table(FID = pop_data$IID,
+                           IID = pop_data$IID,
+                           POP = pop_data$POP)
+  } else {
+    pop_data <- data.table(FID = pop_data$FID,
+                           IID = pop_data$IID,
+                           POP = pop_data$POP)  
+  }
+  return(pop_data)
+}
+
 # Read in PLINK2 .pvar file
 read_pvar<-function(dat, chr = 1:22){
   pvar<-NULL

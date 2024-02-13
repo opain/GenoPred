@@ -234,9 +234,9 @@ log_add(log_file = log_file, message = paste0('Model ', gsub('Score_','',best_sc
 score <- fread(paste0(tmp_dir,'/mega_full.effects'), nThread = opt$n_cores)
 
 # Change IDs to RSIDs
-ref_bim <- read_bim(dat = opt$ref_plink_chr, chr = CHROMS)
-ref_bim$Predictor<-paste0(ref_bim$CHR,':',ref_bim$BP)
-score<-merge(score, ref_bim[,c('Predictor','SNP'), with=F], by='Predictor')
+ref_pvar <- read_pvar(dat = opt$ref_plink_chr, chr = CHROMS)
+ref_pvar$Predictor<-paste0(ref_pvar$CHR,':',ref_pvar$BP)
+score<-merge(score, ref_pvar[,c('Predictor','SNP'), with=F], by='Predictor')
 score<-score[, c('SNP', 'A1', 'A2', names(score)[grepl('Model', names(score))]), with=F]
 names(score)[grepl('Model', names(score))]<-paste0('SCORE_ldak_',names(score)[grepl('Model', names(score))])
 
@@ -263,12 +263,7 @@ log_add(log_file = log_file, message = 'Calculating polygenic scores in referenc
 ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
 
 # Calculate scale within each reference population
-pop_data <- fread(opt$pop_data)
-pop_data<-data.table(
-  FID=pop_data$`#IID`,
-  IID=pop_data$`#IID`,
-  POP=pop_data$POP
-)
+pop_data <- read_pop_data(opt$pop_data)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])

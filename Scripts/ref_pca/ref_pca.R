@@ -128,12 +128,7 @@ log_add(log_file = log_file, message = 'Computing reference PCs.')
 ref_pcs<-plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
 
 # Calculate scale within each reference population
-pop_data<-fread(opt$pop_data)
-pop_data<-data.table(
-  FID=pop_data$`#IID`,
-  IID=pop_data$`#IID`,
-  POP=pop_data$POP
-)
+pop_data <- read_pop_data(opt$pop_data)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pcs_scale_i <- score_mean_sd(scores = ref_pcs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
