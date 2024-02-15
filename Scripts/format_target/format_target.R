@@ -121,10 +121,10 @@ if(opt$format == 'plink2'){
   system(paste0(opt$plink2,' --pfile ',opt$target, ' --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 if(opt$format == 'bgen'){
-  system(paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --hard-call-threshold 0.1 --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 if(opt$format == 'vcf'){
-  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --vcf-min-gq 10 --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 
 # Now edit bim file to update IDs to reference IDs
