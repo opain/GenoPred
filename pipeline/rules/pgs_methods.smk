@@ -115,7 +115,15 @@ rule prep_pgs_ptclump:
 # DBSLMM
 ##
 
+# Set default values
+n_cores_dbslmm = config.get("ncores", 10)
+
+# Modify if the 'testing' condition is met
+if config["testing"] != 'NA':
+  n_cores_dbslmm = config.get("ncores", 5)
+
 rule prep_pgs_dbslmm_i:
+  threads: n_cores_dbslmm
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_plink.output,
@@ -152,6 +160,7 @@ rule prep_pgs_dbslmm_i:
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
       --output {outdir}/reference/pgs_score_files/dbslmm/{wildcards.gwas}/ref-{wildcards.gwas} \
+      --n_cores {threads} \
       --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 

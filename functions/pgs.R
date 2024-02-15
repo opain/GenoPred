@@ -212,7 +212,7 @@ allele_match<-function(sumstats, ref_bim, chr = 1:22){
 }
 
 # Run DBSLMM
-dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats, h2, nsnp, nindiv, log_file = NULL){
+dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats, h2, h2f = 1, nsnp, nindiv, log_file = NULL, ncores=1){
   # Create temp directory
   tmp_dir<-tempdir()
 
@@ -221,23 +221,31 @@ dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats
 
   # Run dbslmm for each chromosome
   for(chr_i in chr){
-    cmd <-paste0('Rscript ', dbslmm,'/DBSLMM.R --plink ', plink,' --block ', ld_blocks,'/fourier_ls-chr', chr_i, '.bed --dbslmm ', dbslmm, '/dbslmm --h2 ', ldsc_h2,' --ref ', bfile, chr_i, ' --summary ', sumstats, chr_i, '.assoc.txt --n ', nindiv,' --nsnp ', nsnp, ' --outPath ', tmp_dir, '/ --thread 1')
+    cmd <-paste0('Rscript ', dbslmm,'/DBSLMM.R --plink ', plink,' --type t --block ', ld_blocks,'/fourier_ls-chr', chr_i, '.bed --dbslmm ', dbslmm, '/dbslmm --model DBSLMM --h2 ', h2,' --h2f ', paste(h2f, collapse = ','),' --ref ', bfile, chr_i, ' --summary ', sumstats, chr_i, '.assoc.txt --n ', nindiv,' --nsnp ', nsnp, ' --outPath ', tmp_dir, '/ --thread ', ncores)
     exit_status <- system(cmd, intern = F)
   }
 
   # Read in DBSLMM output
-  dbslmm_output <- list.files(path=tmp_dir, pattern='.dbslmm.txt')
-  if(length(dbslmm_output) != 22){
-    log_add(log_file = log_file, message = 'At least one chromosome did not complete.')
-  }
+  for(h2f_i in h2f){
+    dbslmm_output_i <- list.files(path=tmp_dir, pattern=paste0('h2f', h2f_i, '.dbslmm.txt'))
+    if(length(dbslmm_output_i) != 22){
+      log_add(log_file = log_file, message = paste0('At least one chromosome did not complete with h2f of', h2f_i, '.'))
+    }
 
-  dbslmm_all<-NULL
-  for(i in dbslmm_output){
-    dbslmm_all<-rbind(dbslmm_all, fread(paste0(tmp_dir,'/',i)))
+    dbslmm_all_i<-NULL
+    for(file_i in dbslmm_output_i){
+      dbslmm_all_i<-rbind(dbslmm_all_i, fread(paste0(tmp_dir,'/',file_i)))
+    }
+    
+    if(h2f_i == h2f[1]){
+      dbslmm_all<-dbslmm_all_i[,c(1,2,4), with=T]
+      names(dbslmm_all)<-c('SNP', 'A1', paste0('SCORE_DBSLMM_',h2f_i))
+    } else {
+      dbslmm_all_i<-dbslmm_all_i[,c(1,4), with=T]
+      names(dbslmm_all_i)<-c('SNP', paste0('SCORE_DBSLMM_',h2f_i))
+      dbslmm_all <- merge(dbslmm_all, dbslmm_all_i, by = 'SNP')
+    }
   }
-
-  dbslmm_all<-dbslmm_all[,c(1,2,4), with=T]
-  names(dbslmm_all)<-c('SNP', 'A1', 'SCORE_DBSLMM')
 
   # Insert A2 information
   bim<-read_bim(bfile, chr = chr)
@@ -246,7 +254,7 @@ dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats
     stop('Insertion of A2 in dbslmm score file failed.')
   }
 
-  dbslmm_all <- dbslmm_all[, c('SNP','A1','A2','SCORE_DBSLMM')]
+  dbslmm_all <- dbslmm_all[, c('SNP','A1','A2',names(dbslmm_all)[grepl('SCORE_DBSLMM', names(dbslmm_all))]), with=F]
 
   return(dbslmm_all)
 }

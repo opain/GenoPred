@@ -36,6 +36,8 @@ make_option("--pop_prev", action="store", default=NULL, type='numeric',
     help="Population prevelance (if binary) [optional]"),
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
+make_option("--n_cores", action="store", default=1, type='numeric',
+    help="Number of cores for parallel computing [optional]"),
 make_option("--sample_prev", action="store", default=NULL, type='numeric',
     help="Sampling ratio in GWAS [optional]")
 )
@@ -78,6 +80,12 @@ if(is.null(opt$ldsc_ref)){
 }
 if(is.null(opt$hm3_snplist)){
   stop('--hm3_snplist must be specified.\n')
+}
+if(is.na(as.numeric(opt$sample_prev))){
+  opt$sample_prev<-NULL
+}
+if(is.na(as.numeric(opt$pop_prev))){
+  opt$pop_prev<-NULL
 }
 if(any(!is.null(c(opt$sample_prev, opt$pop_prev))) & any(is.null(c(opt$sample_prev, opt$pop_prev)))){
   stop('If either sample_prev or pop_prev are specified, both must be specified.')
@@ -158,8 +166,21 @@ if(!is.na(opt$test)){
 # Process sumstats using DBSLMM
 #####
 
-# This uses the default version of DBSLMM, It appears they now recommend tuning the h2 estimate.
-score <- dbslmm(dbslmm = opt$dbslmm, plink = opt$plink, ld_blocks = opt$ld_blocks, chr = CHROMS, bfile = opt$ref_plink_chr_subset, h2 = ldsc_h2, nsnp = nsnp, nindiv = round(gwas_N,0), sumstats = paste0(tmp_dir,'/summary_gemma_chr'), log_file = log_file)
+# We will use the tuning version of DBSLMM, where h2 is multiplied by a factor of 0.8, 1, and 1.2
+score <-
+  dbslmm(
+    dbslmm = opt$dbslmm,
+    plink = opt$plink,
+    ld_blocks = opt$ld_blocks,
+    chr = CHROMS,
+    bfile = opt$ref_plink_chr_subset,
+    h2 = ldsc_h2,
+    h2f = c(0.8, 1, 1.2),
+    nsnp = nsnp,
+    nindiv = round(gwas_N, 0),
+    sumstats = paste0(tmp_dir, '/summary_gemma_chr'),
+    log_file = log_file
+  )
 
 fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 

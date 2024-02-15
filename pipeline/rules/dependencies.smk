@@ -207,6 +207,7 @@ rule download_ldsc:
       git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74
     }} > {log} 2>&1
     """
+    
 # Download LDSC reference data
 rule download_ldsc_ref:
   output:
@@ -243,13 +244,15 @@ rule download_hm3_snplist:
       gunzip resources/data/hm3_snplist/w_hm3.snplist.gz
     }} > {log} 2>&1
     """
+    
 # Download DBSLMM
-# Specifying old commit as developer has deleted dbslmm binary (accidentally?)
 rule download_dbslmm:
   output:
     directory("resources/software/dbslmm/")
   benchmark:
     "resources/data/benchmarks/download_dbslmm.txt"
+  conda:
+    "../envs/analysis.yaml"
   log:
     "resources/data/logs/download_dbslmm.log"
   shell:
@@ -257,10 +260,12 @@ rule download_dbslmm:
     {{
       git clone https://github.com/biostat0903/DBSLMM.git {output}; \
       cd {output}; \
-      git reset --hard aa6e7ad5b8a7d3b6905556a4007c4a1fa2925b7d; \
+      git reset --hard d158a144dd2f2dc883ad93d0ea71e8fc48e80bd3; \
+      wget --no-check-certificate -O software/dbslmm "https://drive.usercontent.google.com/download?id=1eAbEyhF8rO_faOFL3jqRo9LmfgJNRH6K&export=download&authuser=0"; \
       chmod a+x software/dbslmm
     }} > {log} 2>&1
     """
+    
 # Download LD block data
 rule download_ld_blocks:
   output:
