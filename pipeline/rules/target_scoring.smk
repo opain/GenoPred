@@ -18,8 +18,8 @@ def score_munge():
 
     return score_report_df['name'].tolist()
 
-# Define which pgs_methods are can only be applied to EUR GWAS
-pgs_methods_eur = ['ptclump','lassosum','megaprs','prscs']
+# Define which pgs_methods are can be applied to any GWAS population
+pgs_methods_noneur = ['ptclump','lassosum','megaprs','prscs','dbslmm']
 
 # Create a function listing all required PGS for a given target
 def list_target_scores(name):
@@ -28,7 +28,7 @@ def list_target_scores(name):
     
     target_scores = list()
     for method in pgs_methods:
-      for gwas in gwas_list_df_eur['name'] if method in pgs_methods_eur else gwas_list_df['name']:
+      for gwas in gwas_list_df['name'] if method in pgs_methods_noneur else gwas_list_df_eur['name']:
         for population in populations:
           target_scores.append(f"{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done")
 
