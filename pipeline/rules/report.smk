@@ -112,11 +112,11 @@ rule indiv_report_i:
     }} > {log} 2>&1
     """
 
-rule indiv_report_all_id:
+rule indiv_report_all:
   input:
     lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report-{{id}}-report.done", name=w.name, id=id_munge(name="{}".format(w.name)))
   output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/indiv_report_all_id.done")
+    touch(f"{outdir}/reference/target_checks/{{name}}/indiv_report.done")
 
 rule indiv_report:
   input: expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report_all_id.done", name= target_list_df_indiv_report['name'])

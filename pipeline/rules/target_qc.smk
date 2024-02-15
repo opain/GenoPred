@@ -58,15 +58,15 @@ if 'target_list' in config:
         --ref resources/data/impute2/1000GP_Phase3 \
         --n_core {resources.cpus} > {log} 2>&1"
 
-  rule impute_23andme_all_chr:
+  rule impute_23andme_all:
     input:
       lambda w: expand(f"{outdir}/{{name}}/geno/imputed/{{name}}.chr{{chr}}.bed", name=w.name, chr=get_chr_range(testing = config['testing']))
     output:
-      touch(f"{outdir}/reference/target_checks/{{name}}/impute_23andme_all_chr.done")
+      touch(f"{outdir}/reference/target_checks/{{name}}/impute_23andme.done")
 
   rule impute_23andme:
     input:
-      lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/impute_23andme_all_chr.done", name=target_list_df_23andMe['name'])
+      lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/impute_23andme.done", name=target_list_df_23andMe['name'])
 
 ##
 # Convert to PLINK and harmonise with reference
@@ -76,7 +76,7 @@ def format_target_input(name):
     inputs = []
     filtered_df = target_list_df.loc[target_list_df['name'] == name, 'type']
     if filtered_df.iloc[0] == '23andMe':
-        inputs.append(f"{outdir}/reference/target_checks/{name}/impute_23andme_all_chr.done")
+        inputs.append(f"{outdir}/reference/target_checks/{name}/impute_23andme.done")
     return inputs
 
 def target_prefix(name):
@@ -134,15 +134,15 @@ if 'target_list' in config:
         --ref {refdir}/ref.chr{wildcards.chr} \
         --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr} > {log} 2>&1"
 
-rule format_target_all_chr:
+rule format_target_all:
   input:
     lambda w: expand(f"{outdir}/{{name}}/geno/{{name}}.ref.chr{{chr}}.pgen", name=w.name, chr=get_chr_range(testing = config['testing']))
   output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/format_target_all_chr.done")
+    touch(f"{outdir}/reference/target_checks/{{name}}/format_target.done")
 
 rule format_target:
   input:
-    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/format_target_all_chr.done", name=target_list_df['name'])
+    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/format_target.done", name=target_list_df['name'])
 
 ####
 # Ancestry inference
@@ -150,7 +150,7 @@ rule format_target:
 
 rule ancestry_inference_i:
   input:
-    f"{outdir}/reference/target_checks/{{name}}/format_target_all_chr.done"
+    f"{outdir}/reference/target_checks/{{name}}/format_target.done"
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/ancestry_inference.done")
   benchmark:

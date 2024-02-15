@@ -18,6 +18,26 @@ def score_munge():
 
     return score_report_df['name'].tolist()
 
+# Define which pgs_methods are can only be applied to EUR GWAS
+pgs_methods_eur = ['ptclump','lassosum','megaprs','prscs']
+
+# Create a function listing all required PGS for a given target
+def list_target_scores(name):
+    populations=ancestry_munge(x=name)
+    scores=score_munge()
+    
+    target_scores = list()
+    for method in pgs_methods:
+      for gwas in gwas_list_df_eur['name'] if method in pgs_methods_eur else gwas_list_df['name']:
+        for population in populations:
+          target_scores.append(f"{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done")
+
+    for score in scores:
+        for population in populations:
+          target_scores.append(f"{outdir}/reference/target_checks/{name}/target_pgs-external-{population}-{score}.done")
+          
+    return target_scores
+
 ####
 # Projected PCs
 ####
@@ -44,15 +64,15 @@ rule pc_projection_i:
       --plink2 plink2 \
       --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}-{wildcards.population} > {log} 2>&1"
 
-rule pc_projection_all_pop:
+rule pc_projection_all:
   input:
     lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/pc_projection-{{population}}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
   output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/pc_projection_all_pop.done")
+    touch(f"{outdir}/reference/target_checks/{{name}}/pc_projection.done")
 
 rule pc_projection:
   input:
-    expand(f"{outdir}/reference/target_checks/{{name}}/pc_projection_all_pop.done", name=target_list_df['name'])
+    expand(f"{outdir}/reference/target_checks/{{name}}/pc_projection.done", name=target_list_df['name'])
 
 ####
 # Polygenic scoring
@@ -90,28 +110,9 @@ rule target_pgs_i:
       --n_cores {threads} \
       --output {outdir}/{wildcards.name}/pgs/{wildcards.population}/{wildcards.method}/{wildcards.gwas}/{wildcards.name}-{wildcards.gwas}-{wildcards.population} > {log} 2>&1"
 
-rule target_pgs_all_gwas:
+rule target_pgs_all:
   input:
-    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{method}}-{{population}}-{{gwas}}.done", name=w.name, gwas = gwas_list_df['name'] if w.method in ['ptclump','lassosum','megaprs','prscs'] else gwas_list_df_eur['name'], population=w.population, method=w.method)
-  output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs_all_gwas-{{method}}-{{population}}.done")
-
-rule target_pgs_all_method:
-  input:
-    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs_all_gwas-{{method}}-{{population}}.done", name=w.name, population=ancestry_munge("{}".format(w.name)), method=pgs_methods)
-  output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs_all_gwas-{{population}}.done")
-
-rule target_pgs_all_score:
-  input:
-    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs-external-{{population}}-{{score}}.done", name=w.name, score=score_munge(), population=w.population)
-  output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs_all_score-{{population}}.done")
-
-rule target_pgs_all_pop:
-  input:
-    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs_all_gwas-{{population}}.done", name=w.name, population=ancestry_munge("{}".format(w.name))),
-    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs_all_score-{{population}}.done", name=w.name, population=ancestry_munge("{}".format(w.name)))
+    lambda w: list_target_scores(w.name)
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done")
 

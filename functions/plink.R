@@ -46,8 +46,8 @@ plink_subset<-function(plink=NULL, plink2=NULL, chr = 1:22, keep = NULL, extract
   
   # Run plink
   for(chr_i in chr){
-    plink_opt <- gsub('CHROMOSOME_NUMBER', chr_i, plink_opt)
     cmd <- paste0(plink_opt, '--threads ', threads,' --out ',out,chr_i,' --memory ',memory)
+    cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
     exit_status <- system(cmd, intern=FALSE)
     if (exit_status == 2) {
       stop()
@@ -101,8 +101,8 @@ plink_qc_snplist<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, keep
   temp_file <- tempfile()
   snplist <- NULL
   for(chr_i in chr){
-    plink_opt <- gsub('CHROMOSOME_NUMBER', chr_i, plink_opt)
     cmd <- paste0(plink_opt,'--threads ', threads,' --write-snplist --out ', temp_file,' --memory ', memory)
+    cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
     exit_status <- system(cmd, intern=FALSE)
     if (exit_status == 2) {
       stop()
@@ -271,8 +271,8 @@ plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NU
   # Perfom pruning and read in SNP-list
   ld_indep<-NULL
   for(chr_i in chr){
-    plink_opt <- gsub('CHROMOSOME_NUMBER', chr_i, plink_opt)
     cmd <- paste0(plink_opt, '--threads 1 --indep-pairwise 1000 5 0.2 --out ',tmp_file,'.chr',chr_i,' --memory ',memory)
+    cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
     exit_status <- system(cmd, intern=FALSE)
     if (exit_status == 2) {
       stop()
@@ -325,8 +325,8 @@ plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
   
   clumped<-NULL
   for(chr_i in chr){
-    plink_opt <- gsub('CHROMOSOME_NUMBER', chr_i, plink_opt)
     cmd<-paste0(plink_opt, '--clump ', sumstats,' --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',tmp_file,'.chr',chr_i,' --threads 1 --memory ', memory)
+    cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
     exit_status <- system(cmd, intern=FALSE)
     if(!is.null(plink)){
       if (file.exists(paste0(tmp_file,'.chr',chr_i,'.clumped'))) {
@@ -443,10 +443,10 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
     plink_opt<-paste0(plink_opt, '--score-col-nums 4 ')
   }
   # Calculate score in the target sample
-  for(i in chr){
-    plink_opt<-gsub('CHROMOSOME_NUMBER',i,plink_opt)
-    cmd_full<-paste0(plink_opt,'--chr ',i,' --out ',tmp_folder,'/profiles.chr',i,' --threads ',threads)
-    exit_status <- system(cmd_full, intern=FALSE)
+  for(chr_i in chr){
+    cmd<-paste0(plink_opt,'--chr ',chr_i,' --out ',tmp_folder,'/profiles.chr',chr_i,' --threads ',threads)
+    cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
+    exit_status <- system(cmd, intern=FALSE)
     if (exit_status == 2) {
       stop()
     }
@@ -455,9 +455,9 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
   # Add up the scores across chromosomes
   # Read in score files IDs columns from first non-missing chromosome
   # Insert FID if not present
-  for (i in chr) {
-    if (file.exists(paste0(tmp_folder, '/profiles.chr', i, '.sscore'))) {
-      tmp <- fread(paste0(tmp_folder, '/profiles.chr', i, '.sscore'))
+  for(chr_i in chr){
+    if (file.exists(paste0(tmp_folder, '/profiles.chr', chr_i, '.sscore'))) {
+      tmp <- fread(paste0(tmp_folder, '/profiles.chr', chr_i, '.sscore'))
       names(tmp)<-gsub('\\#', '', names(tmp))
       scores_ids <- tmp[, names(tmp) %in% c('FID', 'IID'), with = F]
       if (ncol(scores_ids) == 1) {
@@ -473,18 +473,18 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
   
   # Read in the scores for each chromosome, adjust for the number of SNPs considered and add up
   scores<-list()
-  for(i in chr){
-    if(file.exists(paste0(tmp_folder,'/profiles.chr',i,'.sscore'))){
-      sscore<-fread(paste0(tmp_folder,'/profiles.chr',i,'.sscore'))
-      scores[[i]]<-sscore[,grepl('_AVG$', names(sscore)),with=F]
+  for(chr_i in chr){
+    if(file.exists(paste0(tmp_folder,'/profiles.chr',chr_i,'.sscore'))){
+      sscore<-fread(paste0(tmp_folder,'/profiles.chr',chr_i,'.sscore'))
+      scores[[chr_i]]<-sscore[,grepl('_AVG$', names(sscore)),with=F]
       # This allows for difference plink formats across plink versions
       if(any(names(sscore) == 'NMISS_ALLELE_CT')){
-        scores[[i]]<-as.matrix(scores[[i]]*sscore$NMISS_ALLELE_CT[1]/2)
+        scores[[chr_i]]<-as.matrix(scores[[chr_i]]*sscore$NMISS_ALLELE_CT[1]/2)
       } else {
-        scores[[i]]<-as.matrix(scores[[i]]*sscore$ALLELE_CT[1]/2)
+        scores[[chr_i]]<-as.matrix(scores[[chr_i]]*sscore$ALLELE_CT[1]/2)
       }
     } else {
-      cat0('No scores for chromosome ',i,'. Check plink logs file for reason.\n')
+      cat0('No scores for chromosome ',chr_i,'. Check plink logs file for reason.\n')
     }
   }
   

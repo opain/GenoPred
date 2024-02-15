@@ -73,8 +73,6 @@ test_finish<-function(log_file, test_start.time){
 # Create log file with standard header including script name, command line options and git repo version and commit
 log_header <- function(log_file, opt, script, start.time) {
   options(width = 1000)
-  sink(file = log_file, append = FALSE)
-
   # Fetch git repository name and latest tag
   repo_path <- system("git rev-parse --show-toplevel", intern = TRUE)
   repo_name <- basename(repo_path)
