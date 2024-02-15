@@ -160,11 +160,11 @@ read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, r
 }
 
 # Run LDSC
-ldsc <- function(sumstats, ldsc, munge_sumstats, ldsc_ref, pop_prev = NULL, sample_prev = NULL, log_file = NULL){
+ldsc <- function(sumstats, ldsc, hm3_snplist, munge_sumstats, ld_scores, pop_prev = NULL, sample_prev = NULL, log_file = NULL){
   tmp_dir<-tempdir()
 
   # Munge the sumstats
-  system(paste0(munge_sumstats, ' --sumstats ', sumstats,' --merge-alleles ', ldsc_ref, '/w_hm3.snplist --out ', tmp_dir,'/munged'))
+  system(paste0(munge_sumstats, ' --sumstats ', sumstats,' --merge-alleles ', hm3_snplist, ' --out ', tmp_dir,'/munged'))
 
   # Define the file paths
   sumstats_path <- file.path(tmp_dir,'/munged.sumstats.gz')
@@ -172,10 +172,10 @@ ldsc <- function(sumstats, ldsc, munge_sumstats, ldsc_ref, pop_prev = NULL, samp
 
   # Run the appropriate LDSC command based on the availability of prevalence data
   if(!is.null(pop_prev) && !is.null(sample_prev)) {
-    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld-chr ', ldsc_ref, '/ --w-ld-chr ', ldsc_ref, '/ --out ', output_path, ' --samp-prev ', sample_prev, ' --pop-prev ', pop_prev))
+    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld ', ld_scores, ' --w-ld ', ld_scores, ' --out ', output_path, ' --samp-prev ', sample_prev, ' --pop-prev ', pop_prev))
     scale_type <- "Liability"
   } else {
-    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld-chr ', ldsc_ref, '/ --w-ld-chr ', ldsc_ref, '/ --out ', output_path))
+    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld ', ld_scores, ' --w-ld ', ld_scores, ' --out ', output_path))
     scale_type <- "Observed"
   }
 

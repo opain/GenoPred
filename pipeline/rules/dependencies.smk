@@ -208,25 +208,24 @@ rule download_ldsc:
     }} > {log} 2>&1
     """
     
-# Download LDSC reference data
-rule download_ldsc_ref:
+# Download ld scores from PanUKB
+rule download_ldscores_panukb:
   output:
-    directory("resources/data/ldsc_ref/eur_w_ld_chr")
+    directory("resources/data/ldscores")
   benchmark:
-    "resources/data/benchmarks/download_ldsc_ref.txt"
+    "resources/data/benchmarks/download_ldscores_panukb.txt"
   log:
-    "resources/data/logs/download_ldsc_ref.log"
+    "resources/data/logs/download_ldscores_panukb.log"
   shell:
     """
     {{
-      rm -r -f resources/data/ldsc_ref; \
-      mkdir -p resources/data/ldsc_ref; \
-      wget --no-check-certificate -O resources/data/ldsc_ref/eur_w_ld_chr.tar.gz https://zenodo.org/record/8182036/files/eur_w_ld_chr.tar.gz?download=1; \
-      tar -xvf resources/data/ldsc_ref/eur_w_ld_chr.tar.gz -C resources/data/ldsc_ref/; \
-      rm resources/data/ldsc_ref/eur_w_ld_chr.tar.gz
+      mkdir -p resources/data/ldscores; \
+      wget --no-check-certificate -O resources/data/ld_scores.tar.gz https://zenodo.org/records/10666891/files/ld_scores.tar.gz?download=1; \
+      tar -xvf resources/data/ld_scores.tar.gz -C resources/data/; \
+      rm resources/data/ld_scores.tar.gz
     }} > {log} 2>&1
     """
-
+  
 # Download hapmap3 snplist
 rule download_hm3_snplist:
   output:
@@ -573,8 +572,8 @@ rule download_pgscatalog_utils:
 rule get_dependencies:
   input:
     rules.download_plink.output,
+    rules.download_ldscores_panukb.output,
     rules.download_ldsc.output,
-    rules.download_ldsc_ref.output,
     rules.download_hm3_snplist.output,
     rules.download_default_ref.output,
     rules.download_dbslmm.output,

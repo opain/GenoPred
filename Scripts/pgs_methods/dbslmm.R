@@ -9,7 +9,7 @@ make_option("--ref_plink_chr", action="store", default=NULL, type='character',
 make_option("--ref_keep", action="store", default=NULL, type='character',
 		help="Keep file to subset individuals in reference for clumping [optional]"),
 make_option("--pop_data", action="store", default=NULL, type='character',
-		help="File containing the population code and location of the keep file [required]"),
+    help="File containing the population code and location of the keep file [required]"),
 make_option("--plink", action="store", default='plink', type='character',
     help="Path PLINK v1.9 software binary [optional]"),
 make_option("--plink2", action="store", default='plink2', type='character',
@@ -28,8 +28,8 @@ make_option("--ldsc", action="store", default=NULL, type='character',
     help="Path to LD-score regression binary [required]"),
 make_option("--munge_sumstats", action="store", default=NULL, type='character',
     help="Path to munge_sumstats.py script [required]"),
-make_option("--ldsc_ref", action="store", default=NULL, type='character',
-    help="Path to LD-score regression reference data 'eur_w_ld_chr' [required]"),
+make_option("--ld_scores", action="store", default=NULL, type='character',
+    help="Path to genome-wide ld scores [required]"),
 make_option("--hm3_snplist", action="store", default=NULL, type='character',
     help="Path to LDSC HapMap3 snplist [required]"),
 make_option("--pop_prev", action="store", default=NULL, type='numeric',
@@ -75,8 +75,8 @@ if(is.null(opt$ldsc)){
 if(is.null(opt$munge_sumstats)){
   stop('--munge_sumstats must be specified.\n')
 }
-if(is.null(opt$ldsc_ref)){
-  stop('--ldsc_ref must be specified.\n')
+if(is.null(opt$ld_scores)){
+  stop('--ld_scores must be specified.\n')
 }
 if(is.null(opt$hm3_snplist)){
   stop('--hm3_snplist must be specified.\n')
@@ -114,7 +114,7 @@ if(!is.na(opt$test)){
 # Estimate the SNP-heritability using LD-Score Regression
 #####
 
-ldsc_h2 <- ldsc(sumstats = opt$sumstats, ldsc = opt$ldsc, munge_sumstats = opt$munge_sumstats, ldsc_ref = opt$ldsc_ref, pop_prev = opt$pop_prev, sample_prev = opt$sample_prev, log_file = log_file)
+ldsc_h2 <- ldsc(sumstats = opt$sumstats, ldsc = opt$ldsc, hm3_snplist = opt$hm3_snplist, munge_sumstats = opt$munge_sumstats, ld_scores = opt$ld_scores, pop_prev = opt$pop_prev, sample_prev = opt$sample_prev, log_file = log_file)
 
 #####
 # Create subset of ref files

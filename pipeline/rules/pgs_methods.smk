@@ -115,6 +115,13 @@ rule prep_pgs_ptclump:
 # DBSLMM
 ##
 
+# Create function to specify LD block data from EUR if the GWAS population is CSA, AMR or MID
+def set_ld_blocks_pop(population):
+  if population in ['CSA', 'AMR', 'MID']:
+    return 'EUR'
+  else:
+    return population
+        
 # Set default values
 n_cores_dbslmm = config.get("ncores", 10)
 
@@ -127,8 +134,8 @@ rule prep_pgs_dbslmm_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_plink.output,
+    rules.download_ldscores_panukb.output,
     rules.download_ldsc.output,
-    rules.download_ldsc_ref.output,
     rules.download_hm3_snplist.output,
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output
@@ -142,6 +149,7 @@ rule prep_pgs_dbslmm_i:
     f"{outdir}/reference/logs/prep_pgs_dbslmm_i-{{gwas}}.log"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    ld_block_pop= lambda w: set_ld_blocks_pop(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]),
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
     testing=config["testing"]
@@ -150,12 +158,12 @@ rule prep_pgs_dbslmm_i:
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --ld_blocks resources/data/ld_blocks/{params.population} \
+      --ld_blocks resources/data/ld_blocks/{params.ld_block_pop} \
       --plink resources/software/plink/plink \
       --dbslmm resources/software/dbslmm/software \
       --munge_sumstats resources/software/ldsc/munge_sumstats.py \
       --ldsc resources/software/ldsc/ldsc.py \
-      --ldsc_ref resources/data/ldsc_ref/eur_w_ld_chr \
+      --ld_scores resources/data/ldscores/UKBB.{params.population}.rsid \
       --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist \
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
