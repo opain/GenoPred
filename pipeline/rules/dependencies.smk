@@ -211,7 +211,7 @@ rule download_ldsc:
 # Download ld scores from PanUKB
 rule download_ldscores_panukb:
   output:
-    directory("resources/data/ldscores")
+    directory("resources/data/ld_scores")
   benchmark:
     "resources/data/benchmarks/download_ldscores_panukb.txt"
   log:
@@ -219,7 +219,7 @@ rule download_ldscores_panukb:
   shell:
     """
     {{
-      mkdir -p resources/data/ldscores; \
+      mkdir -p resources/data/ld_scores; \
       wget --no-check-certificate -O resources/data/ld_scores.tar.gz https://zenodo.org/records/10666891/files/ld_scores.tar.gz?download=1; \
       tar -xvf resources/data/ld_scores.tar.gz -C resources/data/; \
       rm resources/data/ld_scores.tar.gz
@@ -471,7 +471,7 @@ rule download_default_ref:
     {{
       rm -r resources/data/ref; \
       mkdir -p resources/data/ref; \
-      wget --no-check-certificate -O resources/data/ref/genopred_1kg_hgdp.tar.gz https://zenodo.org/records/10640523/files/genopred_1kg_hgdp.tar.gz?download=1; \
+      wget --no-check-certificate -O resources/data/ref/genopred_1kg_hgdp.tar.gz https://zenodo.org/records/10666983/files/genopred_1kg_hgdp.tar.gz?download=1; \
       tar -xzvf resources/data/ref/genopred_1kg_hgdp.tar.gz -C resources/data/ref/; \
       mv resources/data/ref/ref/* resources/data/ref/; \
       rm -r resources/data/ref/ref; \

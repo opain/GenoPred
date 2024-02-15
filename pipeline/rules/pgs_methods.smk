@@ -163,7 +163,7 @@ rule prep_pgs_dbslmm_i:
       --dbslmm resources/software/dbslmm/software \
       --munge_sumstats resources/software/ldsc/munge_sumstats.py \
       --ldsc resources/software/ldsc/ldsc.py \
-      --ld_scores resources/data/ldscores/UKBB.{params.population}.rsid \
+      --ld_scores resources/data/ld_scores/UKBB.{params.population}.rsid \
       --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist \
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
