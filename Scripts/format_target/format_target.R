@@ -127,6 +127,16 @@ if(opt$format == 'vcf'){
   system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 }
 
+# Ensure both FID and IID are present in the .psam file
+targ_psam <- fread(paste0(tmp_dir,'/subset.psam'))
+names(targ_psam)<-gsub('\\#', '', names(targ_psam))
+if(sum(names(targ_psam) %in% c('FID', 'IID')) == 1){
+  targ_psam$FID <- targ_psam$IID
+  targ_psam <- targ_psam[, c('FID','IID', names(targ_psam)[!(names(targ_psam) %in% c('FID','IID'))]), with=F]
+  names(targ_psam)[1]<-paste0('#FID')
+  fwrite(targ_psam, paste0(tmp_dir,'/subset.psam'), col.names=T, row.names=F, quote=F, na='NA', sep=' ')
+}
+
 # Now edit bim file to update IDs to reference IDs
 targ_pvar<-fread(paste0(tmp_dir,'/subset.pvar'))
 names(targ_pvar)<-c('CHR','BP','SNP','A2','A1')
@@ -175,13 +185,13 @@ if(ncol(ref_psam) == 1){
   ref_ID_update<-data.frame(ref_psam$`FID`, ref_psam$`IID`, paste0(ref_psam$`FID`,'_REF'), paste0(ref_psam$`IID`,'_REF'))
 }
 fwrite(ref_ID_update, paste0(tmp_dir,'/ref_ID_update.txt'), sep=' ', col.names=F)
-system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --memory 5000'))
+system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --memory 5000 --threads 1'))
 
 # Merge target and reference plink files to insert missing SNPs
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --pmerge ',tmp_dir,'/REF --make-pgen --out ',tmp_dir,'/subset'))
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --pmerge ',tmp_dir,'/REF --make-pgen --memory 5000 --threads 1 --out ',tmp_dir,'/subset'))
 
 # Extract only target individuals
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --remove ',tmp_dir,'/REF.psam --make-pgen --out ',opt$output))
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --remove ',tmp_dir,'/REF.psam --make-pgen --memory 5000 --threads 1 --out ',opt$output))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
