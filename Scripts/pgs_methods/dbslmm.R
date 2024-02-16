@@ -177,6 +177,7 @@ score <-
     h2 = ldsc_h2,
     h2f = c(0.8, 1, 1.2),
     nsnp = nsnp,
+    ncores = opt$n_cores,
     nindiv = round(gwas_N, 0),
     sumstats = paste0(tmp_dir, '/summary_gemma_chr'),
     log_file = log_file
@@ -201,7 +202,7 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads=opt$n_cores)
 
 # Calculate scale within each reference population
 pop_data <- read_pop_data(opt$pop_data)

@@ -220,7 +220,7 @@ log_add(log_file = log_file, message = paste0('SNP-heritability estimate is ',pa
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
 
 # Calculate scale within each reference population
 pop_data <- read_pop_data(opt$pop_data)
