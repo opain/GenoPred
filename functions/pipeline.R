@@ -255,11 +255,12 @@ find_pseudo <- function(config, gwas, pgs_method){
   if(pgs_method == 'sbayesr'){
     return('SBayesR')
   }
-  if(pgs_method == 'dbslmm'){
-    return('DBSLMM')
-  }
+
 
   # Retrieve pseudoval param
+  if(pgs_method == 'dbslmm'){
+    return('DBSLMM_1')
+  }
   if(pgs_method == 'ldpred2'){
     return('beta_auto')
   }
