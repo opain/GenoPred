@@ -167,7 +167,7 @@ rule ancestry_inference_i:
     testing=config["testing"]
   shell:
     "rm -r -f {outdir}/{wildcards.name}/ancestry; \
-     rm {outdir}/reference/target_checks/{wildcards.name}/ancestry_reporter.done; \
+     rm -f {outdir}/reference/target_checks/{wildcards.name}/ancestry_reporter.done; \
      Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --ref_plink_chr {refdir}/ref.chr \
