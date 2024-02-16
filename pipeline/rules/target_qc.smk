@@ -26,12 +26,16 @@ check_target_paths(df = target_list_df, chr = str(get_chr_range(config['testing'
 ##
 # Largely based on Impute.Me by Lasse Folkersen
 
+# Set default values
+n_cores_impute = config.get("ncores", 10)
+mem_impute = 8000*n_cores_impute
+
 if 'target_list' in config:
   rule impute_23andme_i:
     resources:
-      mem_mb=80000,
-      cpus=config.get("ncores", 10),
+      mem_mb=mem_impute,
       time_min=800
+    threads: n_cores_impute
     input:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
       rules.download_impute2_data.output
@@ -56,7 +60,7 @@ if 'target_list' in config:
         --output {outdir}/{params.name}/geno/imputed/{params.name}.chr{wildcards.chr} \
         --chr {wildcards.chr} \
         --ref resources/data/impute2/1000GP_Phase3 \
-        --n_core {resources.cpus} > {log} 2>&1"
+        --n_core {threads} > {log} 2>&1"
 
   rule impute_23andme_all:
     input:
@@ -163,6 +167,7 @@ rule ancestry_inference_i:
     testing=config["testing"]
   shell:
     "rm -r -f {outdir}/{wildcards.name}/ancestry; \
+     rm {outdir}/reference/target_checks/{wildcards.name}/ancestry_reporter.done; \
      Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --ref_plink_chr {refdir}/ref.chr \

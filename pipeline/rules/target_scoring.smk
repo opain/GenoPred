@@ -1,13 +1,13 @@
 # Create a function summarising which populations are present in target
 def ancestry_munge(x):
-    checkpoint_output = checkpoints.ancestry_reporter.get(name=x).output[0]
+    checkpoints.ancestry_reporter.get(name=x).output[0]
     checkpoint_output = outdir + "/" + x + "/ancestry/ancestry_report.txt"
     ancestry_report_df = pd.read_table(checkpoint_output, sep=' ')
     return ancestry_report_df['population'].tolist()
 
 # Create a function summarising which score files matched sufficiently with reference
 def score_munge():
-    checkpoint_output = checkpoints.score_reporter.get().output[0]
+    checkpoints.score_reporter.get().output[0]
     checkpoint_output = outdir + "/reference/pgs_score_files/external/score_report.txt"
 
     if os.path.exists(checkpoint_output):
@@ -84,8 +84,6 @@ rule target_pgs_i:
     time_min=800
   threads: lambda w: 1 if w.method in ['dbslmm', 'sbayesr'] else 5
   input:
-    f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
-    f"{outdir}/reference/target_checks/score_reporter.done",
     f"{outdir}/reference/target_checks/prep_pgs_{{method}}_i-{{gwas}}.done"
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{method}}-{{population}}-{{gwas}}.done")

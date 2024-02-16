@@ -72,8 +72,8 @@ def id_munge(name):
 
   checkpoint_output = checkpoints.ancestry_reporter.get(name=name).output[0]
   checkpoint_output = checkpoints.score_reporter.get(name=name).output[0]
-  checkpoint_output = f"{outdir}/{name}/geno/{name}.ref.chr{val}.fam"
-  fam_df = pd.read_table(checkpoint_output, delim_whitespace=True, usecols=[0,1], names=['FID', 'IID'], header=None)
+  checkpoint_output = f"{outdir}/{name}/geno/{name}.ref.chr{val}.psam"
+  fam_df = pd.read_table(checkpoint_output, delim_whitespace=True, usecols=[0,1], names=['FID', 'IID'], header=0)
   fam_df['id'] = fam_df.FID.apply(str) + '.' + fam_df.IID.apply(str)
 
   return fam_df['id'].tolist()
@@ -119,7 +119,7 @@ rule indiv_report_all:
     touch(f"{outdir}/reference/target_checks/{{name}}/indiv_report.done")
 
 rule indiv_report:
-  input: expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report_all_id.done", name= target_list_df_indiv_report['name'])
+  input: expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report.done", name= target_list_df_indiv_report['name'])
 
 #####
 # Create a rule that checks all defaults outputs given certain outputs are present
