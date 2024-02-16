@@ -28,7 +28,7 @@ check_target_paths(df = target_list_df, chr = str(get_chr_range(config['testing'
 
 # Set default values
 n_cores_impute = config.get("ncores", 10)
-mem_impute = 8000*n_cores_impute
+mem_impute = 10000*n_cores_impute
 
 if 'target_list' in config:
   rule impute_23andme_i:
