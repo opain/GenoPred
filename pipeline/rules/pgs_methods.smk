@@ -201,7 +201,7 @@ rule prep_pgs_prscs_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
-    lambda w: "resources/data/prscs_ref/ldblk_1kg_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
+    lambda w: "resources/data/prscs_ref/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
   output:
     touch(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done")
   conda:
@@ -226,7 +226,7 @@ rule prep_pgs_prscs_i:
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
     --PRScs_path resources/software/prscs/PRScs.py \
-    --PRScs_ref_path resources/data/prscs_ref/ldblk_1kg_{params.population} \
+    --PRScs_ref_path resources/data/prscs_ref/ldblk_{prscs_ldref}_{params.population} \
     --n_cores {threads} \
     --phi_param {params.phi} \
     --test {params.testing} > {log} 2>&1

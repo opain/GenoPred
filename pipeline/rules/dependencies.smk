@@ -45,6 +45,12 @@ if missing_config_params:
 # Set outdir parameter
 outdir=config['outdir']
 
+# Set PRS-CS ld reference path
+if config['prscs_ldref'] == 'ukb':
+    prscs_ldref='ukbb'
+elif config['prscs_ldref'] == '1kg':
+    prscs_ldref='1kg'
+
 # Set refdir parameter
 # If refdir is NA, set refdir to resources/data/ref
 if config['refdir'] == 'NA':
@@ -281,8 +287,9 @@ rule download_ld_blocks:
     }} > {log} 2>&1
     """
 
-# Download PRScs reference
-prscs_ref_dropbox = {
+# Download UKB-based PRScs reference
+# Note. Using Yengo Height GWAS with OpenSNP target, using the UKB reference performed significantly worse than the 1KG reference.
+prscs_ref_ukb_dropbox = {
     'eur': 'https://www.dropbox.com/s/t9opx2ty6ucrpib/ldblk_ukbb_eur.tar.gz?dl=0',
     'eas': 'https://www.dropbox.com/s/fz0y3tb9kayw8oq/ldblk_ukbb_eas.tar.gz?dl=0',
     'afr': 'https://www.dropbox.com/s/dtccsidwlb6pbtv/ldblk_ukbb_afr.tar.gz?dl=0',
@@ -298,7 +305,7 @@ rule download_prscs_ref_ukb:
   log:
     "resources/data/logs/download_prscs_ref_ukb-{population}.log"
   params:
-    url=lambda w: prscs_ref_dropbox.get(w.population)
+    url=lambda w: prscs_ref_ukb_dropbox.get(w.population)
   shell:
     """
     {{
@@ -307,6 +314,35 @@ rule download_prscs_ref_ukb:
       wget --no-check-certificate -O resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
       tar -zxvf resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz -C resources/data/prscs_ref/; \
       rm resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz
+    }} > {log} 2>&1
+    """
+
+# Download 1KG-based PRScs reference
+prscs_ref_1kg_dropbox = {
+    'eur': 'https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0',
+    'eas': 'https://www.dropbox.com/s/7ek4lwwf2b7f749/ldblk_1kg_eas.tar.gz?dl=0',
+    'afr': 'https://www.dropbox.com/s/mq94h1q9uuhun1h/ldblk_1kg_afr.tar.gz?dl=0',
+    'amr': 'https://www.dropbox.com/s/uv5ydr4uv528lca/ldblk_1kg_amr.tar.gz?dl=0',
+    'sas': 'https://www.dropbox.com/s/hsm0qwgyixswdcv/ldblk_1kg_sas.tar.gz?dl=0',
+}
+
+rule download_prscs_ref_1kg:
+  output:
+    "resources/data/prscs_ref/ldblk_1kg_{population}/ldblk_1kg_chr1.hdf5"
+  benchmark:
+    "resources/data/benchmarks/download_prscs_ref_1kg-{population}.txt"
+  log:
+    "resources/data/logs/download_prscs_ref_1kg-{population}.log"
+  params:
+    url=lambda w: prscs_ref_1kg_dropbox.get(w.population)
+  shell:
+    """
+    {{
+      mkdir -p resources/data/prscs_ref; \
+      rm -r -f resources/data/prscs_ref/ldblk_1kg_{wildcards.population}; \
+      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz {params.url}; \
+      tar -zxvf resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz -C resources/data/prscs_ref/; \
+      rm resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
 
