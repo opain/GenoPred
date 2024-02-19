@@ -98,6 +98,7 @@ rule prep_pgs_ptclump_i:
     f"{outdir}/reference/logs/prep_pgs_ptclump_i-{{gwas}}.log"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    pts= ",".join(map(str, config["ptclump_pts"])),
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/ptclump.R \
@@ -106,6 +107,7 @@ rule prep_pgs_ptclump_i:
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --output {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
+      --pTs {params.pts} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ptclump:
@@ -152,6 +154,7 @@ rule prep_pgs_dbslmm_i:
     ld_block_pop= lambda w: set_ld_blocks_pop(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]),
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
+    h2f= ",".join(map(str, config["dbslmm_h2f"])),
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/dbslmm.R \
@@ -170,6 +173,7 @@ rule prep_pgs_dbslmm_i:
       --output {outdir}/reference/pgs_score_files/dbslmm/{wildcards.gwas}/ref-{wildcards.gwas} \
       --n_cores {threads} \
       --pop_data {refdir}/ref.pop.txt \
+      --h2f {params.h2f} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_dbslmm:
@@ -197,7 +201,7 @@ rule prep_pgs_prscs_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
-    lambda w: "resources/data/prscs_ref/ldblk_ukbb_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_ukbb_chr1.hdf5"
+    lambda w: "resources/data/prscs_ref/ldblk_1kg_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
   output:
     touch(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done")
   conda:
@@ -208,6 +212,7 @@ rule prep_pgs_prscs_i:
     f"{outdir}/reference/logs/prep_pgs_prscs_i-{{gwas}}.log"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower(),
+    phi= ",".join(map(str, config["prscs_phi"])),
     testing=config["testing"]
   shell:
     """
@@ -221,9 +226,9 @@ rule prep_pgs_prscs_i:
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
     --PRScs_path resources/software/prscs/PRScs.py \
-    --PRScs_ref_path resources/data/prscs_ref/ldblk_ukbb_{params.population} \
+    --PRScs_ref_path resources/data/prscs_ref/ldblk_1kg_{params.population} \
     --n_cores {threads} \
-    --phi_param 1e-6,1e-4,1e-2,1,auto \
+    --phi_param {params.phi} \
     --test {params.testing} > {log} 2>&1
     """
 
@@ -345,6 +350,8 @@ rule prep_pgs_ldpred2_i:
   conda:
     "../envs/analysis.yaml"
   params:
+    model=",".join(map(str, config["ldpred2_model"])),
+    binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
     testing=config["testing"]
   shell:
     "export OPENBLAS_NUM_THREADS=1; \
@@ -356,6 +363,8 @@ rule prep_pgs_ldpred2_i:
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
+      --model {params.model} \
+      --binary {params.binary} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:

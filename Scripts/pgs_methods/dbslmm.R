@@ -38,6 +38,8 @@ make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
 make_option("--n_cores", action="store", default=1, type='numeric',
     help="Number of cores for parallel computing [optional]"),
+make_option("--h2f", action="store", default='0.8,1,1.2', type='character',
+    help="Folds of SNP-based heritability [optional]"),
 make_option("--sample_prev", action="store", default=NULL, type='numeric',
     help="Sampling ratio in GWAS [optional]")
 )
@@ -110,6 +112,9 @@ if(!is.na(opt$test)){
   CHROMS <- as.numeric(gsub('chr','',opt$test))
 }
 
+# Format the h2f parameter
+opt$h2f <- as.numeric(unlist(strsplit(opt$h2f, ',')))
+
 #####
 # Estimate the SNP-heritability using LD-Score Regression
 #####
@@ -175,7 +180,7 @@ score <-
     chr = CHROMS,
     bfile = opt$ref_plink_chr_subset,
     h2 = ldsc_h2,
-    h2f = c(0.8, 1, 1.2),
+    h2f = opt$h2f,
     nsnp = nsnp,
     ncores = opt$n_cores,
     nindiv = round(gwas_N, 0),
