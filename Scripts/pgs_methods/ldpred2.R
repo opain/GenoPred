@@ -77,7 +77,7 @@ if(!is.na(opt$test)){
 }
 
 # Format the model parameter
-opt$model <- as.numeric(unlist(strsplit(opt$model, ',')))
+opt$model <- unlist(strsplit(opt$model, ','))
 
 #####
 # Read in sumstats
@@ -232,15 +232,15 @@ if('auto' %in% opt$model){
 
 betas <- data.table(SNP=sumstats$rsid, A1=sumstats$a1, A2=sumstats$a0)
 
-if('inf' %in% model){
+if('inf' %in% opt$model){
   betas <- data.table(betas, beta_inf)
 }
 
-if('grid' %in% model){
+if('grid' %in% opt$model){
   betas <- data.table(betas, beta_grid_nosp, beta_grid_sp)
 }
 
-if('auto' %in% model){
+if('auto' %in% opt$model){
   betas <- data.table(betas, beta_auto = beta_auto)
 }
 
