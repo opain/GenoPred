@@ -1,5 +1,9 @@
 #!/usr/bin/Rscript
 
+if (!require("data.table", quietly = TRUE)) {
+  library(data.table)
+}
+
 # Read in PGS
 read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL){
 
@@ -73,6 +77,14 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   for (name_i in target_list$name) {
     # Read in keep_list to determine populations available
     keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
+    
+    if(!is.null(pop)){
+      if(any(!(pop %in% keep_list_i$POP))){
+        stop(paste0('Requested pop are not present in ',name_i,' sample.'))
+      }
+      keep_list_i <- keep_list_i[keep_list_i$POP %in% pop,]
+    }
+    
     pgs[[name_i]] <- list()
     for (pop_i in keep_list_i$POP) {
       pgs[[name_i]][[pop_i]] <- list()
