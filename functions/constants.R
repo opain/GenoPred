@@ -30,9 +30,9 @@ long_ld_coord<-do.call(rbind, list(
 ))
 
 # Make a data.frame giving labels to the 1KG reference populations
-pop_1kg <- data.frame(
-  pop = c('AFR','AMR','EAS','EUR','SAS'),
-  label = c('African','Admixed American','East Asian','European','South Asian')
+ref_pop <- data.frame(
+  pop = c('AFR','AMR','EAS','EUR','CSA','MID'),
+  label = c('African','American','East Asian','European','Central and South Asian','Middle Eastern')
 )
 
 # Make a data.frame giving labels to the 1KG reference populations

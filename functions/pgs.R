@@ -75,16 +75,43 @@ read_bim<-function(dat, chr = 1:22){
   return(bim)
 }
 
+# Read in reference pop_data
+read_pop_data <- function(x){
+  pop_data<-fread(x)
+  names(pop_data)<-gsub('\\#', '', names(pop_data))
+  if (ncol(pop_data) == 2) {
+    pop_data <- data.table(FID = pop_data$IID,
+                           IID = pop_data$IID,
+                           POP = pop_data$POP)
+  } else {
+    pop_data <- data.table(FID = pop_data$FID,
+                           IID = pop_data$IID,
+                           POP = pop_data$POP)  
+  }
+  return(pop_data)
+}
+
+# Read in PLINK2 .pvar file
+read_pvar<-function(dat, chr = 1:22){
+  pvar<-NULL
+  for(i in chr){
+    pvar<-rbind(pvar, fread(paste0(dat, i,'.pvar')))
+  }
+  names(pvar)<-c('CHR','BP','SNP','A2','A1')
+
+  return(pvar)
+}
+
 # Remove variants within genomic regions (REF: PMC2443852)
-remove_regions<-function(bim, regions){
+remove_regions<-function(dat, regions){
   exclude<-NULL
   for(i in 1:nrow(regions)){
-    exclude<-c(exclude, bim$SNP[(   bim$CHR == regions$CHR[i]  &
-                                    bim$BP >= regions$P0[i] &
-                                    bim$BP <= regions$P1[i])])
+    exclude<-c(exclude, dat$SNP[(   dat$CHR == regions$CHR[i]  &
+                                    dat$BP >= regions$P0[i] &
+                                    dat$BP <= regions$P1[i])])
   }
 
-  return(bim[!(bim$SNP %in% exclude),])
+  return(dat[!(dat$SNP %in% exclude),])
 }
 
 # Read in GWAS summary statistics
@@ -133,11 +160,11 @@ read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, r
 }
 
 # Run LDSC
-ldsc <- function(sumstats, ldsc, munge_sumstats, ldsc_ref, pop_prev = NULL, sample_prev = NULL, log_file = NULL){
+ldsc <- function(sumstats, ldsc, hm3_snplist, munge_sumstats, ld_scores, pop_prev = NULL, sample_prev = NULL, log_file = NULL){
   tmp_dir<-tempdir()
 
   # Munge the sumstats
-  system(paste0(munge_sumstats, ' --sumstats ', sumstats,' --merge-alleles ', ldsc_ref, '/w_hm3.snplist --out ', tmp_dir,'/munged'))
+  system(paste0(munge_sumstats, ' --sumstats ', sumstats,' --merge-alleles ', hm3_snplist, ' --out ', tmp_dir,'/munged'))
 
   # Define the file paths
   sumstats_path <- file.path(tmp_dir,'/munged.sumstats.gz')
@@ -145,10 +172,10 @@ ldsc <- function(sumstats, ldsc, munge_sumstats, ldsc_ref, pop_prev = NULL, samp
 
   # Run the appropriate LDSC command based on the availability of prevalence data
   if(!is.null(pop_prev) && !is.null(sample_prev)) {
-    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld-chr ', ldsc_ref, '/ --w-ld-chr ', ldsc_ref, '/ --out ', output_path, ' --samp-prev ', sample_prev, ' --pop-prev ', pop_prev))
+    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld ', ld_scores, ' --w-ld ', ld_scores, ' --out ', output_path, ' --samp-prev ', sample_prev, ' --pop-prev ', pop_prev))
     scale_type <- "Liability"
   } else {
-    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld-chr ', ldsc_ref, '/ --w-ld-chr ', ldsc_ref, '/ --out ', output_path))
+    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld ', ld_scores, ' --w-ld ', ld_scores, ' --out ', output_path))
     scale_type <- "Observed"
   }
 
@@ -185,7 +212,7 @@ allele_match<-function(sumstats, ref_bim, chr = 1:22){
 }
 
 # Run DBSLMM
-dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats, h2, nsnp, nindiv, log_file = NULL){
+dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats, h2, h2f = 1, nsnp, nindiv, log_file = NULL, ncores=1){
   # Create temp directory
   tmp_dir<-tempdir()
 
@@ -194,23 +221,31 @@ dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats
 
   # Run dbslmm for each chromosome
   for(chr_i in chr){
-    cmd <-paste0('Rscript ', dbslmm,'/DBSLMM.R --plink ', plink,' --block ', ld_blocks,'/fourier_ls-chr', chr_i, '.bed --dbslmm ', dbslmm, '/dbslmm --h2 ', ldsc_h2,' --ref ', bfile, chr_i, ' --summary ', sumstats, chr_i, '.assoc.txt --n ', nindiv,' --nsnp ', nsnp, ' --outPath ', tmp_dir, '/ --thread 1')
+    cmd <-paste0('Rscript ', dbslmm,'/DBSLMM.R --plink ', plink,' --type t --block ', ld_blocks,'/fourier_ls-chr', chr_i, '.bed --dbslmm ', dbslmm, '/dbslmm --model DBSLMM --h2 ', h2,' --h2f ', paste(h2f, collapse = ','),' --ref ', bfile, chr_i, ' --summary ', sumstats, chr_i, '.assoc.txt --n ', nindiv,' --nsnp ', nsnp, ' --outPath ', tmp_dir, '/ --thread ', ncores)
     exit_status <- system(cmd, intern = F)
   }
 
   # Read in DBSLMM output
-  dbslmm_output <- list.files(path=tmp_dir, pattern='.dbslmm.txt')
-  if(length(dbslmm_output) != 22){
-    log_add(log_file = log_file, message = 'At least one chromosome did not complete.')
-  }
+  for(h2f_i in h2f){
+    dbslmm_output_i <- list.files(path=tmp_dir, pattern=paste0('h2f', h2f_i, '.dbslmm.txt'))
+    if(length(dbslmm_output_i) != 22){
+      log_add(log_file = log_file, message = paste0('At least one chromosome did not complete with h2f of', h2f_i, '.'))
+    }
 
-  dbslmm_all<-NULL
-  for(i in dbslmm_output){
-    dbslmm_all<-rbind(dbslmm_all, fread(paste0(tmp_dir,'/',i)))
+    dbslmm_all_i<-NULL
+    for(file_i in dbslmm_output_i){
+      dbslmm_all_i<-rbind(dbslmm_all_i, fread(paste0(tmp_dir,'/',file_i)))
+    }
+    
+    if(h2f_i == h2f[1]){
+      dbslmm_all<-dbslmm_all_i[,c(1,2,4), with=T]
+      names(dbslmm_all)<-c('SNP', 'A1', paste0('SCORE_DBSLMM_',h2f_i))
+    } else {
+      dbslmm_all_i<-dbslmm_all_i[,c(1,4), with=T]
+      names(dbslmm_all_i)<-c('SNP', paste0('SCORE_DBSLMM_',h2f_i))
+      dbslmm_all <- merge(dbslmm_all, dbslmm_all_i, by = 'SNP')
+    }
   }
-
-  dbslmm_all<-dbslmm_all[,c(1,2,4), with=T]
-  names(dbslmm_all)<-c('SNP', 'A1', 'SCORE_DBSLMM')
 
   # Insert A2 information
   bim<-read_bim(bfile, chr = chr)
@@ -219,7 +254,7 @@ dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats
     stop('Insertion of A2 in dbslmm score file failed.')
   }
 
-  dbslmm_all <- dbslmm_all[, c('SNP','A1','A2','SCORE_DBSLMM')]
+  dbslmm_all <- dbslmm_all[, c('SNP','A1','A2',names(dbslmm_all)[grepl('SCORE_DBSLMM', names(dbslmm_all))]), with=F]
 
   return(dbslmm_all)
 }

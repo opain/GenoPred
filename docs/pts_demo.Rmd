@@ -1,0 +1,152 @@
+---
+title: "Calculating Polytranscriptomic Scores"
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+This document describes the process of calculating polytranscriptomic scores (PTS).
+
+PTS are scores derived using differential gene expression summary statistics, a gene expression correlation matrix, and individual-level gene expression data in a target sample. All these data can come from either observed gene expression or genetically-imputed gene expression Genetically-imputed gene expression data refers to expression data that has been imputed using genetic variation, typically genetic variation surrounding and within each gene. Imputed differential gene expression studies are referred to as transcriptome-wide association studies (TWAS).
+
+I will describe the two most common scenarios:
+
+1. Imputed PTS: Derived using TWAS summary statistics and imputed individual-level gene expression data in the target sample
+2. Observed PTS: Derived using TWAS summary statistics and observed individual-level gene expression data in the target sample
+
+The same procedure for calculating both imputed and observed PTS is the same, it is just the origin of the target gene expression data.
+
+To demonstrate the process, I will use some example TWAS results, available [here](https://github.com/opain/Inferred-functional-risk-scoring/blob/master/ukbiobank-2017-1160-prePRS-fusion.tsv.GW).
+
+***
+
+# Preparation of target gene expression data
+
+***
+
+## Imputed
+
+Imputing gene expression data requires target sample genotype data, and gene expression SNP-weights (model predicting gene expression using genetic variation). SNP-weights are available for a range contexts, and can be downloaded from various sources, such as the [FUSION website](http://gusevlab.org/projects/fusion/). Then you can use tools such as PLINK to calculate the gene expression level in the target sample, using the linear scoring function (`--score`). Check out [FeaturePred](https://github.com/opain/Predicting-TWAS-features) as well, which automates this process, using standard input formats.
+
+***
+
+## Observed
+
+Observed gene expression data typically comes from array or RNA-seq based assays. Quality control of the data typically involves normalisation and covariate adjustment.
+
+***
+
+# Adjusting TWAS summary statistics
+
+TWAS summary statistics must be adjusted to improve their utility for polytranscriptomic scoring, mainly accounting for non-independent TWAS effects, and some kind of penalisation of effect sizes to account for overfitting. This is analagous to the adjustment of GWAS effect sizes prior to the calculation of polygenic scores (PGS), and similar approaches can be used. 
+
+As with PGS, PTS should be calculated in a reference-standardised manner to enhance generalisability of the PTS to other samples. Therefore, a reference genetic dataset, such as the 1000 Genomes sample (1KG), should be used to model the relationship between TWAS feature (genes). To do this, we first impute gene expression into the reference dataset, which can be done using [FeaturePred](https://github.com/opain/Predicting-TWAS-features).
+
+***
+
+## pT+clump
+
+p-value thresholding and clumping is a simple approach. First lead associations within each locus are identified, and correlated associations are removed (this is referred to as clumping), and then a range of p-value thresholds are used to select the genes that are included in the PTS (which is a kind of penalisation).
+
+The [IFRisk software](https://github.com/opain/Inferred-functional-risk-scoring) can be used to perform the pT+clump procedure with TWAS summary statistics and gene expression data. This should be applied using the reference imputed expression data, as you want to model the correlation beteen the SNP-weights used to generate the TWAS effect sizes.
+
+```{bash}
+# Impute gene expression into reference
+sbatch -p shared -n 6 --mem 50G Rscript FeaturePred.V2.0.R \
+	--PLINK_prefix_chr FUSION/LDREF/1000G.EUR. \
+	--weights test_data/CMC.BRAIN.RNASEQ/CMC.BRAIN.RNASEQ.pos \
+	--weights_dir test_data/CMC.BRAIN.RNASEQ \
+	--ref_ld_chr FUSION/LDREF/1000G.EUR. \
+	--plink plink \
+	--ref_maf FUSION/LDREF/1000G.EUR. \
+	--pigz pigz \
+	--chr 1 \
+	--output demo \
+	--n_cores 6 \
+	--memory 50000
+
+# Perform pT+clump
+Rscript IFRisk.V1.0.R \
+	--twas_results ukbiobank-2017-1160-prePRS-fusion.tsv.GW \
+	--target_gene_exp demo/FeaturePredictions_all_panels.txt.gz \
+	--output demo
+
+```
+
+***
+
+## Other approaches
+
+Other PGS-like approaches have not yet been explored for PTS, but some approaches could be easily extended, such as lassosum2 or ldpred2, replacing the SNP-correlation matrix with an imputed gene expression correlation matrix, and the GWAS summary statistics, with the TWAS summary statistics.
+
+***
+
+# Target scoring
+
+With target gene expression data (imputed or observed), and the adjusted TWAS summary statistics, the PTS can now be calculated in the target sample, simply as the TWAS effect size weighted sum of gene expression levels for each individual. Since TWAS scores will be used as the weights, the expression level of each gene must be standardised (mean = 0 and sd = 1). FeaturePred automatically reference  
+
+Here is some code for doing this.
+
+```{r, eval=T}
+library(data.table)
+set.seed(1)
+
+# Simulate target expression data
+n_gene <- 5
+n_indiv <- 5
+
+exp <- matrix(rnorm(n_gene*n_indiv), nrow = n_indiv, ncol = n_gene)
+exp <- data.table(exp)
+names(exp)<-paste0('gene_', 1:n_gene)
+
+exp
+
+# Simulate adjusted TWAS summary statistics
+twas_effect <- rnorm(n_gene)
+pt <- c(0.1, 0.5, 1) # p-value thresholds
+score <- data.table(
+  ID = paste0('gene_', n_gene:1)
+)
+for(i in pt){
+  score$tmp <- twas_effect
+  score$tmp[abs(twas_effect) < qnorm(1-(i/2))] <- 0
+  names(score)[names(score) == 'tmp'] <- paste0('pt_',i)
+}
+
+score
+
+# Scale target expression data
+exp<-data.table(scale(exp))
+
+# Find intersecting genes
+exp <- exp[, names(exp) %in% score$ID, with=F]
+score <- score[score$ID %in% names(exp),]
+
+# Match order of genes
+score <- score[match(names(exp), score$ID), ]
+
+# Weight and sum target expression by each score
+pts <- data.table()
+for(i in pt){
+  weighted_exp <- cbind(pts, t(t(exp) * score[[paste0('pt_',i)]]))
+  pts$tmp <- rowSums(weighted_exp)
+  names(pts)[names(pts) == 'tmp'] <- paste0('pt_',i)
+}
+
+pts
+
+```
+
+

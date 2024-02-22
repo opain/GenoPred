@@ -1,7 +1,7 @@
 # Create PC score files specific to each population
 rule ref_pca_i:
   input:
-    rules.download_default_ref.output,
+    ref_input,
     rules.install_genoutils.output
   output:
     "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
@@ -9,16 +9,17 @@ rule ref_pca_i:
     "../envs/analysis.yaml",
   params:
     testing=config["testing"],
-    outdir=config["outdir"]
+    outdir=config["outdir"],
+    refdir=config["refdir"]
   benchmark:
     "resources/data/benchmarks/ref_pca_i-{population}.txt"
   log:
     "resources/data/logs/ref_pca_i-{population}.log"
   shell:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{wildcards.population}.keep \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{wildcards.population}.keep \
+      --pop_data {refdir}/ref.pop.txt \
       --output resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
       --test {params.testing} > {log} 2>&1"
 
@@ -46,19 +47,20 @@ gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
 if 'gwas_list' in config:
   rule sumstat_prep_i:
     input:
-      rules.download_default_ref.output,
+      ref_input,
       rules.install_genoutils.output,
       lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
     output:
-      "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz"
+      f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz"
     benchmark:
-      "{outdir}/reference/benchmarks/sumstat_prep_i-{gwas}.txt"
+      f"{outdir}/reference/benchmarks/sumstat_prep_i-{{gwas}}.txt"
     log:
-      "{outdir}/reference/logs/sumstat_prep_i-{gwas}.log"
+      f"{outdir}/reference/logs/sumstat_prep_i-{{gwas}}.log"
     conda:
       "../envs/analysis.yaml"
     params:
       outdir=config["outdir"],
+      refdir=config["refdir"],
       config_file = config["config_file"],
       testing = config['testing'],
       population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
@@ -70,14 +72,14 @@ if 'gwas_list' in config:
       Rscript $sumstat_cleaner_script \
         --sumstats {params.path} \
         --n {params.n} \
-        --ref_chr resources/data/ref/ref.chr \
+        --ref_chr {refdir}/ref.chr \
         --population {params.population} \
         --output {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned \
         --test {params.testing} > {log} 2>&1
       """
 
 rule sumstat_prep:
-  input: expand("{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=gwas_list_df['name'])
 
 ##
 # pT+clump (sparse, nested)
@@ -85,76 +87,97 @@ rule sumstat_prep:
 
 rule prep_pgs_ptclump_i:
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz"
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz"
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_ptclump_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_ptclump_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_ptclump_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_ptclump_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_ptclump_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_ptclump_i-{{gwas}}.log"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    pts= ",".join(map(str, config["ptclump_pts"])),
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/ptclump.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --output {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
+      --pTs {params.pts} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ptclump:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_ptclump_i-{gwas}.done", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_ptclump_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # DBSLMM
 ##
 
+# Create function to specify LD block data from EUR if the GWAS population is CSA, AMR or MID
+def set_ld_blocks_pop(population):
+  if population in ['CSA', 'AMR', 'MID']:
+    return 'EUR'
+  else:
+    return population
+        
+# Set default values
+n_cores_dbslmm = config.get("ncores", 10)
+
+# Modify if the 'testing' condition is met
+if config["testing"] != 'NA':
+  n_cores_dbslmm = config.get("ncores", 5)
+
 rule prep_pgs_dbslmm_i:
+  threads: n_cores_dbslmm
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_plink.output,
+    rules.download_ldscores_panukb.output,
     rules.download_ldsc.output,
-    rules.download_ldsc_ref.output,
     rules.download_hm3_snplist.output,
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_dbslmm_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_dbslmm_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_dbslmm_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_dbslmm_i-{{gwas}}.log"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    ld_block_pop= lambda w: set_ld_blocks_pop(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]),
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
+    h2f= ",".join(map(str, config["dbslmm_h2f"])),
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/dbslmm.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --ld_blocks resources/data/ld_blocks/{params.population} \
+      --ld_blocks resources/data/ld_blocks/{params.ld_block_pop} \
       --plink resources/software/plink/plink \
       --dbslmm resources/software/dbslmm/software \
       --munge_sumstats resources/software/ldsc/munge_sumstats.py \
       --ldsc resources/software/ldsc/ldsc.py \
-      --ldsc_ref resources/data/ldsc_ref/eur_w_ld_chr \
+      --ld_scores resources/data/ld_scores/UKBB.{params.population}.rsid \
       --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist \
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
       --output {outdir}/reference/pgs_score_files/dbslmm/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --n_cores {threads} \
+      --pop_data {refdir}/ref.pop.txt \
+      --h2f {params.h2f} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_dbslmm:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
 
 ##
 # PRScs
@@ -176,18 +199,20 @@ rule prep_pgs_prscs_i:
     time_min=800
   threads: n_cores_prscs
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
-    rules.download_prscs_ref_1kg_eur.output
+    lambda w: "resources/data/prscs_ref/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_prscs_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_prscs_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_prscs_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_prscs_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_prscs_i-{{gwas}}.log"
   params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower(),
+    phi= ",".join(map(str, config["prscs_phi"])),
     testing=config["testing"]
   shell:
     """
@@ -196,19 +221,19 @@ rule prep_pgs_prscs_i:
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/prscs.R \
-    --ref_plink_chr resources/data/ref/ref.chr \
+    --ref_plink_chr {refdir}/ref.chr \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
-    --pop_data resources/data/ref/ref.pop.txt \
+    --pop_data {refdir}/ref.pop.txt \
     --PRScs_path resources/software/prscs/PRScs.py \
-    --PRScs_ref_path resources/data/prscs_ref/ldblk_1kg_eur \
+    --PRScs_ref_path resources/data/prscs_ref/ldblk_{prscs_ldref}_{params.population} \
     --n_cores {threads} \
-    --phi_param 1e-6,1e-4,1e-2,1,auto \
+    --phi_param {params.phi} \
     --test {params.testing} > {log} 2>&1
     """
 
 rule prep_pgs_prscs:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_prscs_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # SBayesR
@@ -226,33 +251,33 @@ rule prep_pgs_sbayesr_i:
     mem_mb=mem_sbayesr
   threads: n_cores_sbayesr
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_gctb_ref.output,
     rules.download_gctb_software.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_sbayesr_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_sbayesr_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_sbayesr_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_sbayesr_i-{{gwas}}.log"
   params:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/sbayesr.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
+      --ref_plink_chr {refdir}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb resources/software/gctb/gctb_2.03beta_Linux/gctb \
       --ld_matrix_chr resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
       --robust T \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_sbayesr:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
 
 ##
 # lassosum
@@ -270,14 +295,14 @@ rule prep_pgs_lassosum_i:
     mem_mb=mem_lassosum
   threads: n_cores_lassosum
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.install_lassosum.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_lassosum_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_lassosum_i-{{gwas}}.done")
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_lassosum_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_lassosum_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_lassosum_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_lassosum_i-{{gwas}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -285,17 +310,17 @@ rule prep_pgs_lassosum_i:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/lassosum.R \
-     --ref_plink_chr resources/data/ref/ref.chr \
-     --ref_keep resources/data/ref/keep_files/{params.population}.keep \
+     --ref_plink_chr {refdir}/ref.chr \
+     --ref_keep {refdir}/keep_files/{params.population}.keep \
      --gwas_pop {params.population} \
      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
       --n_cores {threads} \
-     --pop_data resources/data/ref/ref.pop.txt \
+     --pop_data {refdir}/ref.pop.txt \
      --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_lassosum:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_lassosum_i-{gwas}.done", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_lassosum_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # LDpred2
@@ -314,32 +339,36 @@ rule prep_pgs_ldpred2_i:
     time_min=800
   threads: n_cores_ldpred2
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldpred2_ref.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{{gwas}}.done")
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_ldpred2_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_ldpred2_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_ldpred2_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_ldpred2_i-{{gwas}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
+    model=",".join(map(str, config["ldpred2_model"])),
+    binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
     testing=config["testing"]
   shell:
     "export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/ldpred2.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/EUR.keep \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/EUR.keep \
       --ldpred2_ref_dir resources/data/ldpred2_ref \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
+      --model {params.model} \
+      --binary {params.binary} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{gwas}.done", gwas=gwas_list_df_eur['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
 
 ##
 # LDAK MegaPRS
@@ -358,17 +387,17 @@ rule prep_pgs_megaprs_i:
     time_min=800
   threads: n_cores_megaprs
   input:
-    "{outdir}/reference/gwas_sumstat/{gwas}/{gwas}-cleaned.gz",
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldak_highld.output,
     rules.download_ldak.output,
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_megaprs_i-{gwas}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_megaprs_i-{{gwas}}.done")
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_megaprs_i-{gwas}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_megaprs_i-{{gwas}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_megaprs_i-{gwas}.log"
+    f"{outdir}/reference/logs/prep_pgs_megaprs_i-{{gwas}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
@@ -376,8 +405,8 @@ rule prep_pgs_megaprs_i:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
-      --ref_keep resources/data/ref/keep_files/{params.population}.keep \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak resources/software/ldak/ldak5.1.linux \
       --ldak_map resources/data/ldak_map/genetic_map_b37 \
@@ -385,11 +414,11 @@ rule prep_pgs_megaprs_i:
       --ldak_highld resources/data/ldak_highld/highld.txt \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_megaprs:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_megaprs_i-{gwas}.done", gwas=gwas_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_megaprs_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # Process externally created score files
@@ -417,16 +446,16 @@ rule download_pgs_external:
   input:
     rules.download_pgscatalog_utils.output
   output:
-    touch("{outdir}/reference/pgs_score_files/raw_external/{score}/{score}_hmPOS_GRCh37.txt.gz")
+    touch(f"{outdir}/reference/pgs_score_files/raw_external/{{score}}/{{score}}_hmPOS_GRCh37.txt.gz")
   params:
     config_file = config["config_file"],
     outdir=config["outdir"],
     path= lambda w: score_list_df.loc[score_list_df['name'] == "{}".format(w.score), 'path'].iloc[0],
     testing = config['testing']
   benchmark:
-    "{outdir}/reference/benchmarks/download_pgs_external-{score}.txt"
+    f"{outdir}/reference/benchmarks/download_pgs_external-{{score}}.txt"
   log:
-    "{outdir}/reference/logs/download_pgs_external-{score}.log"
+    f"{outdir}/reference/logs/download_pgs_external-{{score}}.log"
   conda:
     "../envs/pgscatalog_utils.yaml"
   shell:
@@ -444,42 +473,43 @@ def score_path(w):
 rule prep_pgs_external_i:
   input:
     lambda w: score_path(w),
-    rules.download_default_ref.output,
+    ref_input,
     rules.install_genoutils.output
   output:
-    touch("{outdir}/reference/target_checks/prep_pgs_external_i-{score}.done")
+    touch(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done")
   params:
     config_file = config["config_file"],
     outdir=config["outdir"],
+    refdir=config["refdir"],
     score= lambda w: score_path(w),
     testing=config["testing"]
   benchmark:
-    "{outdir}/reference/benchmarks/prep_pgs_external_i-{score}.txt"
+    f"{outdir}/reference/benchmarks/prep_pgs_external_i-{{score}}.txt"
   log:
-    "{outdir}/reference/logs/prep_pgs_external_i-{score}.log"
+    f"{outdir}/reference/logs/prep_pgs_external_i-{{score}}.log"
   conda:
     "../envs/analysis.yaml"
   shell:
     "Rscript ../Scripts/external_score_processor/external_score_processor.R \
-      --ref_plink_chr resources/data/ref/ref.chr \
+      --ref_plink_chr {refdir}/ref.chr \
       --score {params.score} \
       --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
-      --pop_data resources/data/ref/ref.pop.txt \
+      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_external:
-  input: expand("{outdir}/reference/target_checks/prep_pgs_external_i-{score}.done", score=score_list_df['name'], outdir=outdir)
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done", score=score_list_df['name'])
 
 # Create a file listing score files and whether they had sufficient overlap with reference
 checkpoint score_reporter:
   input:
-    expand("{outdir}/reference/target_checks/prep_pgs_external_i-{score}.done", score=score_list_df['name'], outdir=outdir)
+    expand(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done", score=score_list_df['name'])
   output:
-    touch("{outdir}/reference/target_checks/score_reporter.done")
+    touch(f"{outdir}/reference/target_checks/score_reporter.done")
   benchmark:
-    "{outdir}/reference/benchmarks/score_reporter.txt"
+    f"{outdir}/reference/benchmarks/score_reporter.txt"
   log:
-    "{outdir}/reference/logs/score_reporter.log"
+    f"{outdir}/reference/logs/score_reporter.log"
   conda:
     "../envs/analysis.yaml"
   params:

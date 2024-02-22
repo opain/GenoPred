@@ -6,6 +6,7 @@
 
 # <ref_dir>
 # ├── ref.chr<1-22>.<bed/bim/fam>
+# ├── ref.chr<1-22>.rds
 # ├── ref.pop.txt # FID, IID and POP (with header)
 # ├── ref.keep.list # POP and PATH (without header)
 # ├── keep_files
@@ -113,7 +114,7 @@ for(chr in chrs){
     # Liftover BP to GRCh36
     ref[['GRCh36']]<-snp_modifyBuild_offline(ref[['GRCh37']], liftOver='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover', chain='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg18.over.chain.gz', from = "hg19", to = "hg18")
 
-    # Combine the three builds 
+    # Combine the three builds
     tmp<-ref[['GRCh37']]
     names(tmp)<-c('CHR','SNP','BP_GRCh37','A1','A2')
     tmp$BP_GRCh38<-ref[['GRCh38']]$pos
@@ -131,14 +132,14 @@ for(chr in chrs){
     for(pop in unique(pop_dat$POP)){
         # Read in reference frequency data
         freq<-fread(paste0(output_dir,'/freq_files/',pop,'/ref.',pop,'.chr',chr,'.frq'))
-        
+
         # The freq files have come from the reference files, so we can assume they are on the same strand
         freq_match<-merge(tmp, freq[,c('SNP','A1','A2','MAF'), with=F], by=c('SNP','A1','A2'))
         freq_swap<-merge(tmp, freq[,c('SNP','A1','A2','MAF'), with=F], by.x=c('SNP','A1','A2'), by.y=c('SNP','A2','A1'))
         freq_swap$MAF<-1-freq_swap$MAF
         tmp_freq<-rbind(freq_match, freq_swap)
         tmp_freq<-tmp_freq[match(tmp$SNP, tmp_freq$SNP),]
-        
+
         tmp[[paste0('REF.FRQ.',pop)]]<-tmp_freq$MAF
     }
 

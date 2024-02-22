@@ -111,6 +111,13 @@ if(!is.na(opt$test)){
 # Process sumstats using PRSsc
 #####
 
+# Create a temporary reference bim files for PRS-CS to match to
+pvar <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
+pvar$POS<-0
+for(i in CHROMS){
+  write.table(pvar[pvar$CHR == i, c('CHR','SNP','POS','BP','A1','A2'), with=F], paste0(tmp_dir,'/ref.chr',i,'.bim'), col.names=F, row.names=F, quote=F)
+}
+
 # Make a data.frame listing chromosome and phi combinations
 jobs<-NULL
 for(i in rev(CHROMS)){
@@ -120,9 +127,9 @@ for(i in rev(CHROMS)){
 # Run using PRScs auto, and specifying a range of global shrinkage parameters
 log <- foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
   if(jobs$phi[i] == 'auto'){
-    system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', opt$ref_plink_chr, jobs$CHR[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed))
+    system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', tmp_dir,'/ref.chr', jobs$CHR[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed))
   } else {
-    system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', opt$ref_plink_chr, jobs$CHR[i], ' --phi=', jobs$phi[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed))
+    system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', tmp_dir,'/ref.chr', jobs$CHR[i], ' --phi=', jobs$phi[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed))
   }
 }
 
@@ -168,10 +175,10 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
 
 # Calculate scale within each reference population
-pop_data <- fread(opt$pop_data)
+pop_data <- read_pop_data(opt$pop_data)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])

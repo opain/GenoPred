@@ -9,6 +9,18 @@ import hashlib
 import sys
 import tempfile
 import os
+import subprocess
+import re
+import glob
+
+######
+# Check genopred conda env is activated
+######
+
+conda_env_name = os.getenv('CONDA_DEFAULT_ENV')
+if not conda_env_name == 'genopred':
+  print("Error: The genopred conda environment must be active when running the pipeline.\nFor more information: https://opain.github.io/GenoPred/pipeline_readme.html#Step_2:_Create_conda_environment_for_pipeline")
+  sys.exit(1)
 
 ######
 # Check config file
@@ -32,6 +44,26 @@ if missing_config_params:
 
 # Set outdir parameter
 outdir=config['outdir']
+
+# Set PRS-CS ld reference path
+if config['prscs_ldref'] == 'ukb':
+    prscs_ldref='ukbb'
+elif config['prscs_ldref'] == '1kg':
+    prscs_ldref='1kg'
+
+# Set refdir parameter
+# If refdir is NA, set refdir to resources/data/ref
+if config['refdir'] == 'NA':
+  refdir='resources/data/ref'
+  ref_input="resources/data/ref/ref.pop.txt"
+else:
+  refdir=config['refdir']
+  ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in range(1, 23) for ext in ['pgen', 'pvar', 'psam', 'rds']] + \
+                 [os.path.join(refdir, file_name) for file_name in ['ref.pop.txt', 'ref.keep.list']]
+
+  for full_path in ref_input:
+      if not os.path.exists(full_path):
+          raise FileNotFoundError(f"File not found: {full_path}. Check reference data format.")
 
 ########
 # Create required functions
@@ -71,6 +103,53 @@ def check_target_paths(df, chr):
         raise FileNotFoundError(f"File not found: {file_path}")
     else :
       return []
+
+########
+# Check for repo version updates
+########
+
+# If there has been a change to the major or minor version numbers, we will rerun the entire pipeline
+
+# Define the path for storing the last known version
+os.makedirs("resources", exist_ok=True)
+last_version_file = "resources/last_version.txt"
+
+def get_current_version():
+    cmd = "git describe --tags"
+    tag = subprocess.check_output(cmd, shell=True).decode().strip()
+    match = re.match(r"v?(\d+)\.(\d+)", tag)
+    if match:
+        return int(match.group(1)), int(match.group(2))  # Major, Minor
+    else:
+        raise ValueError("Git tag does not contain a valid version format.")
+
+def read_last_version():
+    if os.path.exists(last_version_file):
+        with open(last_version_file, "r") as file:
+            major, minor = file.read().strip().split('.')
+            return int(major), int(minor)
+    return 0, 0  # Default to 0.0 if file does not exist
+
+def write_last_version(major, minor):
+    with open(last_version_file, "w") as file:
+        file.write(f"{major}.{minor}")
+
+# Access overwrite flag from config
+overwrite = config.get("overwrite", "false").lower() == "true"
+
+# Main logic to check version and decide on execution
+current_major, current_minor = get_current_version()
+last_major, last_minor = read_last_version()
+
+# Check for both major and minor version changes
+if current_major != last_major or current_minor != last_minor:
+    if not overwrite:
+        print(f"Change in version of GenoPred detected from v{last_major}.{last_minor} to v{current_major}.{current_minor}. Use --params overwrite=true to proceed.")
+        sys.exit(1)
+    else:
+        print("Proceeding with version update due to --overwrite flag.")
+        write_last_version(current_major, current_minor)  # Update the stored version
+
 
 ########
 # Download dependencies
@@ -134,25 +213,25 @@ rule download_ldsc:
       git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74
     }} > {log} 2>&1
     """
-# Download LDSC reference data
-rule download_ldsc_ref:
+    
+# Download ld scores from PanUKB
+rule download_ldscores_panukb:
   output:
-    directory("resources/data/ldsc_ref/eur_w_ld_chr")
+    directory("resources/data/ld_scores")
   benchmark:
-    "resources/data/benchmarks/download_ldsc_ref.txt"
+    "resources/data/benchmarks/download_ldscores_panukb.txt"
   log:
-    "resources/data/logs/download_ldsc_ref.log"
+    "resources/data/logs/download_ldscores_panukb.log"
   shell:
     """
     {{
-      rm -r -f resources/data/ldsc_ref; \
-      mkdir -p resources/data/ldsc_ref; \
-      wget --no-check-certificate -O resources/data/ldsc_ref/eur_w_ld_chr.tar.gz https://zenodo.org/record/8182036/files/eur_w_ld_chr.tar.gz?download=1; \
-      tar -xvf resources/data/ldsc_ref/eur_w_ld_chr.tar.gz -C resources/data/ldsc_ref/; \
-      rm resources/data/ldsc_ref/eur_w_ld_chr.tar.gz
+      mkdir -p resources/data/ld_scores; \
+      wget --no-check-certificate -O resources/data/ld_scores.tar.gz https://zenodo.org/records/10666891/files/ld_scores.tar.gz?download=1; \
+      tar -xvf resources/data/ld_scores.tar.gz -C resources/data/; \
+      rm resources/data/ld_scores.tar.gz
     }} > {log} 2>&1
     """
-
+  
 # Download hapmap3 snplist
 rule download_hm3_snplist:
   output:
@@ -170,13 +249,15 @@ rule download_hm3_snplist:
       gunzip resources/data/hm3_snplist/w_hm3.snplist.gz
     }} > {log} 2>&1
     """
+    
 # Download DBSLMM
-# Specifying old commit as developer has deleted dbslmm binary (accidentally?)
 rule download_dbslmm:
   output:
     directory("resources/software/dbslmm/")
   benchmark:
     "resources/data/benchmarks/download_dbslmm.txt"
+  conda:
+    "../envs/analysis.yaml"
   log:
     "resources/data/logs/download_dbslmm.log"
   shell:
@@ -184,10 +265,12 @@ rule download_dbslmm:
     {{
       git clone https://github.com/biostat0903/DBSLMM.git {output}; \
       cd {output}; \
-      git reset --hard aa6e7ad5b8a7d3b6905556a4007c4a1fa2925b7d; \
+      git reset --hard d158a144dd2f2dc883ad93d0ea71e8fc48e80bd3; \
+      wget --no-check-certificate -O software/dbslmm "https://drive.usercontent.google.com/download?id=1eAbEyhF8rO_faOFL3jqRo9LmfgJNRH6K&export=download&authuser=0"; \
       chmod a+x software/dbslmm
     }} > {log} 2>&1
     """
+    
 # Download LD block data
 rule download_ld_blocks:
   output:
@@ -203,24 +286,66 @@ rule download_ld_blocks:
       mv resources/data/ld_blocks/ASN resources/data/ld_blocks/EAS
     }} > {log} 2>&1
     """
-# Download PRScs reference
-rule download_prscs_ref_1kg_eur:
+
+# Download UKB-based PRScs reference
+# Note. Using Yengo Height GWAS with OpenSNP target, using the UKB reference performed significantly worse than the 1KG reference.
+prscs_ref_ukb_dropbox = {
+    'eur': 'https://www.dropbox.com/s/t9opx2ty6ucrpib/ldblk_ukbb_eur.tar.gz?dl=0',
+    'eas': 'https://www.dropbox.com/s/fz0y3tb9kayw8oq/ldblk_ukbb_eas.tar.gz?dl=0',
+    'afr': 'https://www.dropbox.com/s/dtccsidwlb6pbtv/ldblk_ukbb_afr.tar.gz?dl=0',
+    'amr': 'https://www.dropbox.com/s/y7ruj364buprkl6/ldblk_ukbb_amr.tar.gz?dl=0',
+    'sas': 'https://www.dropbox.com/s/nto6gdajq8qfhh0/ldblk_ukbb_sas.tar.gz?dl=0',
+}
+
+rule download_prscs_ref_ukb:
   output:
-    "resources/data/prscs_ref/ldblk_1kg_eur/ldblk_1kg_chr1.hdf5"
+    "resources/data/prscs_ref/ldblk_ukbb_{population}/ldblk_ukbb_chr1.hdf5"
   benchmark:
-    "resources/data/benchmarks/download_prscs_ref_1kg_eur.txt"
+    "resources/data/benchmarks/download_prscs_ref_ukb-{population}.txt"
   log:
-    "resources/data/logs/download_prscs_ref_1kg_eur.log"
+    "resources/data/logs/download_prscs_ref_ukb-{population}.log"
+  params:
+    url=lambda w: prscs_ref_ukb_dropbox.get(w.population)
   shell:
     """
     {{
-      rm -r -f resources/data/prscs_ref; \
       mkdir -p resources/data/prscs_ref; \
-      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_eur.tar.gz https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0; \
-      tar -zxvf resources/data/prscs_ref/ldblk_1kg_eur.tar.gz -C resources/data/prscs_ref/; \
-      rm resources/data/prscs_ref/ldblk_1kg_eur.tar.gz
+      rm -r -f resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}; \
+      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
+      tar -zxvf resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz -C resources/data/prscs_ref/; \
+      rm resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
+
+# Download 1KG-based PRScs reference
+prscs_ref_1kg_dropbox = {
+    'eur': 'https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0',
+    'eas': 'https://www.dropbox.com/s/7ek4lwwf2b7f749/ldblk_1kg_eas.tar.gz?dl=0',
+    'afr': 'https://www.dropbox.com/s/mq94h1q9uuhun1h/ldblk_1kg_afr.tar.gz?dl=0',
+    'amr': 'https://www.dropbox.com/s/uv5ydr4uv528lca/ldblk_1kg_amr.tar.gz?dl=0',
+    'sas': 'https://www.dropbox.com/s/hsm0qwgyixswdcv/ldblk_1kg_sas.tar.gz?dl=0',
+}
+
+rule download_prscs_ref_1kg:
+  output:
+    "resources/data/prscs_ref/ldblk_1kg_{population}/ldblk_1kg_chr1.hdf5"
+  benchmark:
+    "resources/data/benchmarks/download_prscs_ref_1kg-{population}.txt"
+  log:
+    "resources/data/logs/download_prscs_ref_1kg-{population}.log"
+  params:
+    url=lambda w: prscs_ref_1kg_dropbox.get(w.population)
+  shell:
+    """
+    {{
+      mkdir -p resources/data/prscs_ref; \
+      rm -r -f resources/data/prscs_ref/ldblk_1kg_{wildcards.population}; \
+      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz {params.url}; \
+      tar -zxvf resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz -C resources/data/prscs_ref/; \
+      rm resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz
+    }} > {log} 2>&1
+    """
+
 # Download PRScs software
 rule download_prscs_software:
   output:
@@ -368,7 +493,8 @@ rule download_ldak_highld:
       wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt
     }} > {log} 2>&1
     """
-# Download preprocessed reference data (1KG HapMap3)
+
+# Download preprocessed reference data (1KG+HGDP HapMap3)
 rule download_default_ref:
   output:
     "resources/data/ref/ref.pop.txt"
@@ -381,13 +507,14 @@ rule download_default_ref:
     {{
       rm -r resources/data/ref; \
       mkdir -p resources/data/ref; \
-      wget --no-check-certificate -O resources/data/ref/genopredpipe_1kg.tar.gz https://zenodo.org/records/10371754/files/genopredpipe_1kg.tar.gz?download=1; \
-      tar -xzvf resources/data/ref/genopredpipe_1kg.tar.gz -C resources/data/ref/; \
+      wget --no-check-certificate -O resources/data/ref/genopred_1kg_hgdp.tar.gz https://zenodo.org/records/10666983/files/genopred_1kg_hgdp.tar.gz?download=1; \
+      tar -xzvf resources/data/ref/genopred_1kg_hgdp.tar.gz -C resources/data/ref/; \
       mv resources/data/ref/ref/* resources/data/ref/; \
       rm -r resources/data/ref/ref; \
-      rm resources/data/ref/genopredpipe_1kg.tar.gz
+      rm resources/data/ref/genopred_1kg_hgdp.tar.gz
     }} > {log} 2>&1
     """
+
 # install ggchicklet
 rule install_ggchicklet:
   input:
@@ -442,6 +569,14 @@ rule install_genoutils:
       Rscript -e 'devtools::install_github(\"opain/GenoUtils@edf5bec1be0e396d953eb8974488dc4e3d57c134\")'
     }} > {log} 2>&1
     """
+
+# Install R packages (handy function for when conda env updates erroneously)
+rule install_r_packages:
+  input:
+    rules.install_ggchicklet.output,
+    rules.install_lassosum.output,
+    rules.install_genoutils.output
+
 # Download pgscatalog_utils
 rule download_pgscatalog_utils:
   output:
@@ -473,15 +608,16 @@ rule download_pgscatalog_utils:
 rule get_dependencies:
   input:
     rules.download_plink.output,
+    rules.download_ldscores_panukb.output,
     rules.download_ldsc.output,
-    rules.download_ldsc_ref.output,
     rules.download_hm3_snplist.output,
     rules.download_default_ref.output,
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output,
     rules.install_ggchicklet.output,
     rules.install_lassosum.output,
-    rules.install_genoutils.output
+    rules.install_genoutils.output,
+    rules.download_pgscatalog_utils.output
   output:
     touch("resources/software/get_dependencies.done")
 

@@ -22,6 +22,10 @@ option_list = list(
       help="Specify number of SNPs to include [optional]"),
   make_option("--binary", action="store", default=F, type='logical',
       help="Specify T if GWAS phenotyp is binary [optional]"),
+  make_option("--model", action="store", default='grid,auto,inf', type='character',
+      help="Specify models to be used by ldpred2 [optional]"),
+  make_option("--seed", action="store", default=1, type='numeric',
+      help="Set seed to ensure reproducibility  [optional]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
       help="GWAS summary statistics [required]")
 )
@@ -71,6 +75,9 @@ if(!is.na(opt$test) && opt$test == 'NA'){
 if(!is.na(opt$test)){
   CHROMS <- as.numeric(gsub('chr','',opt$test))
 }
+
+# Format the model parameter
+opt$model <- unlist(strsplit(opt$model, ','))
 
 #####
 # Read in sumstats
@@ -164,55 +171,78 @@ for (chr in CHROMS) {
 
 log_add(log_file = log_file, message = 'Running LDpred models.')
 
+# Set seed to ensure reproducibility
+set.seed(opt$seed)
+
 #####
 # LDpred2-inf
 #####
 
-beta_inf <- snp_ldpred2_inf(corr, sumstats, ldsc[["h2"]])
+if('inf' %in% opt$model){
+  beta_inf <- snp_ldpred2_inf(corr, sumstats, ldsc[["h2"]])
 
-log_add(log_file = log_file, message = paste0('Infintesimal model complete at ',as.character(Sys.time())))
+  log_add(log_file = log_file, message = paste0('Infintesimal model complete at ',as.character(Sys.time())))
+}
 
 #####
 # LDpred2-grid
 #####
 
-# Create hyperparameter grid
-h2_seq <- round(ldsc[["h2"]] * c(0.7, 1, 1.4), 4)
-p_seq <- signif(seq_log(1e-5, 1, length.out = 21), 2)
-params <- expand.grid(p = p_seq, h2 = h2_seq, sparse = c(FALSE, TRUE))
+if('grid' %in% opt$model){
+  
+  # Create hyperparameter grid
+  h2_seq <- round(ldsc[["h2"]] * c(0.7, 1, 1.4), 4)
+  p_seq <- signif(seq_log(1e-5, 1, length.out = 21), 2)
+  params <- expand.grid(p = p_seq, h2 = h2_seq, sparse = c(FALSE, TRUE))
+  
+  beta_grid <- snp_ldpred2_grid(corr, sumstats, params, ncores = opt$n_cores)
+  
+  beta_grid_nosp<-data.table(beta_grid[, params$sparse == F])
+  names(beta_grid_nosp)<-gsub('-','.',paste0(params$p[params$sparse == F],'_',params$h2[params$sparse == F],'_nosparse'))
+  
+  beta_grid_sp<-data.table(beta_grid[,params$sparse == T])
+  names(beta_grid_sp)<-gsub('-','.',paste0(params$p[params$sparse == T],'_',params$h2[params$sparse == T],'_sparse'))
+  
+  log_add(log_file = log_file, message = paste0('Grid model complete at ',as.character(Sys.time())))
 
-beta_grid <- snp_ldpred2_grid(corr, sumstats, params, ncores = opt$n_cores)
-
-beta_grid_nosp<-data.table(beta_grid[, params$sparse == F])
-names(beta_grid_nosp)<-gsub('-','.',paste0(params$p[params$sparse == F],'_',params$h2[params$sparse == F],'_nosparse'))
-
-beta_grid_sp<-data.table(beta_grid[,params$sparse == T])
-names(beta_grid_sp)<-gsub('-','.',paste0(params$p[params$sparse == T],'_',params$h2[params$sparse == T],'_sparse'))
-
-log_add(log_file = log_file, message = paste0('Grid model complete at ',as.character(Sys.time())))
+}
 
 ####
 # LDpred2-auto
 ####
 
-multi_auto <- snp_ldpred2_auto(corr, sumstats, h2_init = ldsc[["h2"]],
-                               vec_p_init = seq_log(1e-4, 0.9, 30),
-                               ncores = opt$n_cores)
-
-# Filter bad chains: `range` should be between 0 and 2
-range <- sapply(multi_auto, function(auto) diff(range(auto$corr_est)))
-keep <- which(range > (0.95 * quantile(range, 0.95, na.rm = TRUE)))
-
-# Get the final effects using chains that pass this filter
-beta_auto <- rowMeans(sapply(multi_auto[keep], function(auto) auto$beta_est))
-
-log_add(log_file = log_file, message = paste0('Auto model complete at ',as.character(Sys.time())))
+if('auto' %in% opt$model){
+  multi_auto <- snp_ldpred2_auto(corr, sumstats, h2_init = ldsc[["h2"]],
+                                 vec_p_init = seq_log(1e-4, 0.9, 30),
+                                 ncores = opt$n_cores)
+  
+  # Filter bad chains: `range` should be between 0 and 2
+  range <- sapply(multi_auto, function(auto) diff(range(auto$corr_est)))
+  keep <- which(range > (0.95 * quantile(range, 0.95, na.rm = TRUE)))
+  
+  # Get the final effects using chains that pass this filter
+  beta_auto <- rowMeans(sapply(multi_auto[keep], function(auto) auto$beta_est))
+  
+  log_add(log_file = log_file, message = paste0('Auto model complete at ',as.character(Sys.time())))
+}
 
 ####
 # Create score file
 ####
 
-betas <- data.table(SNP=sumstats$rsid, A1=sumstats$a1, A2=sumstats$a0, beta_inf, beta_grid_nosp, beta_grid_sp, beta_auto = beta_auto)
+betas <- data.table(SNP=sumstats$rsid, A1=sumstats$a1, A2=sumstats$a0)
+
+if('inf' %in% opt$model){
+  betas <- data.table(betas, beta_inf)
+}
+
+if('grid' %in% opt$model){
+  betas <- data.table(betas, beta_grid_nosp, beta_grid_sp)
+}
+
+if('auto' %in% opt$model){
+  betas <- data.table(betas, beta_auto = beta_auto)
+}
 
 rem<-NULL
 for(i in 4:length(names(betas))){
@@ -248,10 +278,10 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- plink_score(bfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
+ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
 
 # Calculate scale within each reference population
-pop_data <- fread(opt$pop_data)
+pop_data <- read_pop_data(opt$pop_data)
 
 for(pop_i in unique(pop_data$POP)){
   ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
