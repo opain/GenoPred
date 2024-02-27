@@ -32,6 +32,8 @@ make_option("--ld_scores", action="store", default=NULL, type='character',
     help="Path to genome-wide ld scores [required]"),
 make_option("--hm3_snplist", action="store", default=NULL, type='character',
     help="Path to LDSC HapMap3 snplist [required]"),
+make_option("--hm3_no_mhc", action="store", default=F, type='character',
+    help="Logical indicating whether MHC region should be removed for LDSC analysis [required]"),
 make_option("--pop_prev", action="store", default=NULL, type='numeric',
     help="Population prevelance (if binary) [optional]"),
 make_option("--test", action="store", default=NA, type='character',
@@ -119,7 +121,38 @@ opt$h2f <- as.numeric(unlist(strsplit(opt$h2f, ',')))
 # Estimate the SNP-heritability using LD-Score Regression
 #####
 
+if(opt$hm3_no_mhc){
+  # Remove MHC region from hapmap3 SNP-list
+  hm3<-fread(opt$hm3_snplist)
+
+  # Read ref pvar
+  pvar<-read_pvar(opt$ref_plink_chr, chr=6)
+
+  # Identify SNPs in MHA/HLA region
+  # Assumes BP column is GRCh37
+  mhc <- pvar[(pvar$CHR == 6 & pvar$BP > 28e6 & pvar$BP < 34e6),]
+
+  # Remove MHC SNPs from hm3 snplist
+  hm3_no_mhc<-hm3[!(hm3$SNP %in% mhc$SNP),]
+
+  write.table(hm3_no_mhc, paste0(tmp_dir,'/hm3_no_mhc.snplist'), col.names=T, row.names=F, quote=F)
+  opt$hm3_snplist<-paste0(tmp_dir,'/hm3_no_mhc.snplist')
+
+  log_add(log_file = log_file, message = 'MHC region removed for LDSC analysis.')
+
+}
+
+# Read in and write out out sumstats to avoid munge error
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','BP','N','A1','A2','FREQ','BETA','SE','P'))
+fwrite(gwas, paste0(tmp_dir,'/sumstats.gz'), row.names=F, quote=F, sep=' ', na='NA')
+opt$sumstats<-paste0(tmp_dir,'/sumstats.gz')
+
 ldsc_h2 <- ldsc(sumstats = opt$sumstats, ldsc = opt$ldsc, hm3_snplist = opt$hm3_snplist, munge_sumstats = opt$munge_sumstats, ld_scores = opt$ld_scores, pop_prev = opt$pop_prev, sample_prev = opt$sample_prev, log_file = log_file)
+
+if(any(ldsc_h2*opt$h2f > 1)){
+  ldsc_h2 <- ldsc_h2*(1/max(opt$h2f*ldsc_h2))
+  log_add(log_file = log_file, message = paste0('SNP-h2 was set to ',ldsc_h2,' to avoid SNP-h2*h2f > 1.'))
+}
 
 #####
 # Create subset of ref files
@@ -139,9 +172,6 @@ if(!is.null(opt$ref_keep)){
 #####
 
 log_add(log_file = log_file, message = 'Reading in GWAS and harmonising with reference.')
-
-# Read in, check and format GWAS summary statistics
-gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','BP','N','A1','A2','FREQ','BETA','SE','P'))
 
 # Store number of snps and average sample size
 nsnp<-nrow(gwas)
