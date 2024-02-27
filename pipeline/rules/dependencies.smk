@@ -213,7 +213,7 @@ rule download_ldsc:
       git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74
     }} > {log} 2>&1
     """
-    
+
 # Download ld scores from PanUKB
 rule download_ldscores_panukb:
   output:
@@ -231,7 +231,7 @@ rule download_ldscores_panukb:
       rm resources/data/ld_scores.tar.gz
     }} > {log} 2>&1
     """
-  
+
 # Download hapmap3 snplist
 rule download_hm3_snplist:
   output:
@@ -249,7 +249,7 @@ rule download_hm3_snplist:
       gunzip resources/data/hm3_snplist/w_hm3.snplist.gz
     }} > {log} 2>&1
     """
-    
+
 # Download DBSLMM
 rule download_dbslmm:
   output:
@@ -270,7 +270,7 @@ rule download_dbslmm:
       chmod a+x software/dbslmm
     }} > {log} 2>&1
     """
-    
+
 # Download LD block data
 rule download_ld_blocks:
   output:
@@ -566,7 +566,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@edf5bec1be0e396d953eb8974488dc4e3d57c134\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@a9ecd9eceee1fd6e04daa0c0230e8f23103b5bbb\")'
     }} > {log} 2>&1
     """
 
