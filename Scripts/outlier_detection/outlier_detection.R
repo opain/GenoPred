@@ -18,6 +18,10 @@ option_list = list(
               help="Path PLINK2 software binary [required]"),
   make_option("--keep_list", action="store", default=NULL, type='character',
               help="File containing list of keep files and corresponding population code [optional]"),
+  make_option("--unrel", action="store", default=NA, type='character',
+              help="File containing list of unrelated individuals [optional]"),
+  make_option("--n_cores", action="store", default=1, type='numeric',
+              help="Number of cores for parallel computing [optional]"),
   make_option("--test", action="store", default=NA, type='character',
               help="Specify test mode [optional]"),
   make_option("--output", action="store", default=NULL, type='character',
@@ -55,6 +59,10 @@ tmp_dir<-tempdir()
 log_file <- paste0(opt$output,'.log')
 log_header(log_file = log_file, opt = opt, script = 'outlier_detection.R', start.time = start.time)
 
+if(!is.na(opt$unrel) && opt$unrel == 'NA'){
+  opt$unrel<-NA
+}
+
 # If testing, change CHROMS to chr value
 if(!is.na(opt$test) && opt$test == 'NA'){
   opt$test<-NA
@@ -67,16 +75,31 @@ if(!is.na(opt$test)){
 # Estimate relatedness
 ######
 
-log_add(log_file = log_file, message = 'Estimating relatedness.')
+if(is.na(opt$unrel)){
+  log_add(log_file = log_file, message = 'Estimating relatedness.')
+  
+  # Identify high quality variants
+  target_qc_snplist<-plink_qc_snplist(pfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
 
-# Identify high quality variants
-target_qc_snplist<-plink_qc_snplist(pfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, geno = opt$geno, maf = opt$maf, hwe = opt$hwe)
+  # Generate kinship matrix and list of unrelated individuals
+  plink_king(pfile = opt$target_plink_chr, chr = CHROMS, extract = target_qc_snplist, plink2 = opt$plink2, out = opt$output, threads = opt$n_cores)
+  
+  # Read in list of unrelated individuals
+  unrel <- fread(paste0(opt$output, '.unrelated.keep'), header=F)
+  names(unrel)<-c('FID','IID')
+} else {
+  log_add(log_file = log_file, message = 'Using user-specified list of unrelated individuals.')
 
-# Generate kinship matrix and list of unrelated individuals
-plink_king(pfile = opt$target_plink_chr, chr = CHROMS, extract = target_qc_snplist, plink2 = opt$plink2, out = opt$output)
-
-# Read in list of unrelated individuals
-unrel <- fread(paste0(opt$output, '.unrelated.keep'), header=F)
+  # Read in list of unrelated individuals
+  unrel <- fread(opt$unrel)
+  if(ncol(unrel) == 1){
+    if(names(unrel)[1] == 'V1'){
+      unrel$V2<-unrel$V1
+    }
+  }
+  unrel<-unrel[, 1:2, with=F]
+  names(unrel)[1:2]<-c('FID','IID')
+}
 
 log_add(log_file = log_file, message = paste0('There are ', nrow(unrel), ' unrelated individuals present.'))
 
@@ -136,26 +159,26 @@ for(pop in keep_list$POP){
   ###########
   
   # Create QC'd SNP-list
-  target_qc_snplist <- plink_qc_snplist(pfile = opt$target_plink_chr, plink2 = opt$plink2, chr = CHROMS, keep = keep_file, maf = opt$maf, geno = opt$geno, hwe = opt$hwe)
+  target_qc_snplist <- plink_qc_snplist(pfile = opt$target_plink_chr, plink2 = opt$plink2, chr = CHROMS, keep = keep_file, maf = opt$maf, geno = opt$geno, hwe = opt$hwe, threads = opt$n_cores)
   
   # Remove high LD regions
   target_qc_snplist <- target_qc_snplist[target_qc_snplist %in% targ_pvar$SNP]
   
   # Perform LD pruning
-  ld_indep <- plink_prune(pfile = opt$target_plink_chr, chr = CHROMS, keep = keep_file, plink2 = opt$plink2, extract = target_qc_snplist)
+  ld_indep <- plink_prune(pfile = opt$target_plink_chr, chr = CHROMS, keep = keep_file, plink2 = opt$plink2, extract = target_qc_snplist, threads = opt$n_cores)
   
   # To improve efficiency, derive PCs using random subset of 1000 individuals.
   # These individuals should be unrelated
-  keep_file_subset <- merge(keep_file, unrel, by=c('V1','V2'))
+  keep_file_subset <- merge(keep_file, unrel, by=c('FID','IID'))
   keep_file_subset <- keep_file_subset[sample(1000, replace = T),]
   keep_file_subset <- keep_file_subset[!duplicated(keep_file_subset),]
   
   # Run PCA
-  snp_weights <- plink_pca(pfile = opt$target_plink_chr, keep = keep_file_subset, chr = CHROMS, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs)
+  snp_weights <- plink_pca(pfile = opt$target_plink_chr, keep = keep_file_subset, chr = CHROMS, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs, threads = opt$n_cores)
   fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
   
   # Project into the full population
-  target_pcs <- plink_score(pfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
+  target_pcs <- plink_score(pfile = opt$target_plink_chr, keep = keep_file, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'), threads = opt$n_cores)
   
   # Create plot PC scores of target sample
   pairs_plot <- ggpairs(target_pcs[,-1:-2])
@@ -172,7 +195,7 @@ for(pop in keep_list$POP){
   
   png(paste0(opt$output, '.', pop, '.NbClust.png'), units = 'px', res = 300, width = 3000, height = 2000)
   # Define number of centroids, again using a random subset of 1000 unrelated individuals
-  target_pcs_subset <- merge(target_pcs, keep_file_subset, by.x = c('FID','IID'), by.y = c('V1','V2'))
+  target_pcs_subset <- merge(target_pcs, keep_file_subset, by.x = c('FID','IID'), by.y = c('FID','IID'))
   n_clust_sol <- NbClust(data = target_pcs_subset[,-1:-2], distance = "euclidean", min.nc = 2, max.nc = 10, method = 'kmeans', index='all')
   dev.off()
   
