@@ -168,6 +168,7 @@ rule prep_pgs_dbslmm_i:
       --ldsc resources/software/ldsc/ldsc.py \
       --ld_scores resources/data/ld_scores/UKBB.{params.population}.rsid \
       --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist \
+      --hm3_no_mhc T \
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
       --output {outdir}/reference/pgs_score_files/dbslmm/{wildcards.gwas}/ref-{wildcards.gwas} \
