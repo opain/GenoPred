@@ -353,6 +353,7 @@ rule prep_pgs_ldpred2_i:
   params:
     model=",".join(map(str, config["ldpred2_model"])),
     inference=",".join(map(str, config["ldpred2_inference"])),
+    sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
     testing=config["testing"]
   shell:
@@ -368,6 +369,7 @@ rule prep_pgs_ldpred2_i:
       --model {params.model} \
       --binary {params.binary} \
       --inference {params.inference} \
+      --sample_prev {params.sampling} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:

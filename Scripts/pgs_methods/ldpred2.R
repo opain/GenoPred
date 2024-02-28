@@ -18,6 +18,8 @@ option_list = list(
       help="Path for output files [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
       help="Number of cores for parallel computing [optional]"),
+  make_option("--sample_prev", action="store", default=NULL, type='numeric',
+      help="Sampling ratio in GWAS [optional]"),
   make_option("--test", action="store", default=NA, type='character',
       help="Specify number of SNPs to include [optional]"),
   make_option("--binary", action="store", default=F, type='logical',
@@ -86,6 +88,15 @@ if(!is.logical(opt$inference)){
   opt$inference <- ifelse(opt$inference == 'T', T, F)
 }
 
+# Format the binary parameter
+if(!is.logical(opt$binary)){
+  opt$binary <- ifelse(opt$binary == 'T', T, F)
+}
+
+if(opt$binary & is.null(opt$sample_prev)){
+  stop('--sample_prev must be specified when --binary T.\n')
+}
+
 #####
 # Read in sumstats
 #####
@@ -98,10 +109,13 @@ sumstats <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_
 # Update header for bigsnpr
 names(sumstats)<-c('chr','rsid','pos','a1','a0','beta','beta_se','n_eff','p')
 
-# Insert Neff
-ncas<-sumstats$n_eff*0.372
-ncon<-sumstats$n_eff*(1-0.372)
-sumstats$n_eff<-4 / (1/ncas + 1/ncon)
+# In binary, update N to be effective N based on opt$sample_prev
+if(opt$binary){
+  ncas<-sumstats$n_eff*opt$sample_prev
+  ncon<-sumstats$n_eff*(1-opt$sample_prev)
+  sumstats$n_eff<-4 / (1/ncas + 1/ncon)
+  log_add(log_file = log_file, message = paste0('Median effective N = ', median(sumstats$n_eff)))
+}
 
 # Record start time for test
 if(!is.na(opt$test)){
