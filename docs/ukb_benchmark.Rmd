@@ -93,7 +93,7 @@ write.table(target_list, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr
 
 ## gwas_list
 
-Use the same GWAS as used in the INTERVENE paper ([link](https://doi.org/10.1101/2023.11.20.23298215)), except exclude AD as overlaps with UKB, and use Yengo Height with UKB excluded.
+Use the same GWAS as used in the INTERVENE paper ([link](https://doi.org/10.1101/2023.11.20.23298215)), except exclude AD as overlaps with UKB, and use Yengo Height with UKB excluded. After closer inspection, the RA GWAS (Ho et al) is actually majority EAS ancestry. For this initial evaluation, lets prioritise EUR GWAS, so for RA I will use a more recent GWAS by Ishigaki et al (GCST90132223). Also the sample size specified for breast cancer GWAS seems to be wrong, the sumstats on GWAS catalogue are the meta-analysis (122,977 cases and 105,974 controls).
 
 <h3>Download sumstats from the GWAS catalogue</h3>
 
@@ -110,7 +110,7 @@ gwasc_table <- data.frame(
     'GCST004988',
     'GCST006085',
     'GCST008059',
-    'GCST90013534',
+    'GCST90132223',
     'GCST004131',
     'GCST007140',
     'GCST90013445',
@@ -125,7 +125,7 @@ gwasc_table <- data.frame(
     'https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST004001-GCST005000/GCST004988/harmonised/29059683-GCST004988-EFO_0000305.h.tsv.gz',
     'https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST006001-GCST007000/GCST006085/harmonised/29892016-GCST006085-EFO_0001663.h.tsv.gz',
     'https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST008001-GCST009000/GCST008059/20171017_MW_eGFR_overall_EA_nstud42.dbgap.txt.gz',
-    'https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90013001-GCST90014000/GCST90013534/harmonised/33310728-GCST90013534-EFO_0000685.h.tsv.gz',
+    'https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90132001-GCST90133000/GCST90132223/GCST90132223_buildGRCh37.tsv.gz',
     'https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST004001-GCST005000/GCST004131/harmonised/28067908-GCST004131-EFO_0003767.h.tsv.gz',
     'https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST007001-GCST008000/GCST007140/GERA-sqrtHDL.tsv.gz',
     'https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90013001-GCST90014000/GCST90013445/GCST90013445_buildGRCh38.tsv',
@@ -336,6 +336,17 @@ gwas_dat<-merge(gwas_dat, gwas_labels, by='id', all.x=T)
 gwas_dat$label[gwas_dat$id == 'GCST90018959_exclukb'] <- 'Height'
 gwas_dat$binary[gwas_dat$id == 'GCST90018959_exclukb'] <- 'no'
 
+# Fill in information for RA
+gwas_dat$label[gwas_dat$id == 'GCST90132223'] <- 'Rheumatoid arthritis'
+gwas_dat$binary[gwas_dat$id == 'GCST90132223'] <- 'yes'
+gwas_dat$n_cases[gwas_dat$id == 'GCST90132223'] <- 22350
+gwas_dat$n_controls[gwas_dat$id == 'GCST90132223'] <- 74823
+gwas_dat$prev[gwas_dat$id == 'GCST90132223'] <- 0.01
+
+# Insert correct ncase and ncontrol data for breast cancer
+gwas_dat$n_cases[gwas_dat$id == 'GCST004988'] <- 122977
+gwas_dat$n_controls[gwas_dat$id == 'GCST004988'] <- 105974
+
 # Format as gwas_list
 gwas_list <- data.frame(
   name = gwas_dat$id,
@@ -346,8 +357,8 @@ gwas_list <- data.frame(
     gwas_dat$ending
   ),
   population = 'EUR',
-  n = gwas_dat$n_cases,
-  sampling = gwas_dat$n_cases/gwas_dat$n_controls,
+  n = gwas_dat$n_cases+gwas_dat$n_controls,
+  sampling = gwas_dat$n_cases/(gwas_dat$n_controls+gwas_dat$n_cases),
   prevalence = gwas_dat$prev,
   mean = NA,
   sd = NA,
@@ -378,7 +389,7 @@ conf <- c(
   'config_file: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml',
   'gwas_list: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt',
   'target_list: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/basic/target_list.txt',
-  "pgs_methods: ['ptclump']"
+  "pgs_methods: ['ptclump','dbslmm','prscs','sbayesr','lassosum','ldpred2','megaprs']"
 )
 
 write.table(conf, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', col.names = F, row.names = F, quote = F)
@@ -391,7 +402,10 @@ write.table(conf, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k18063
 ```{bash}
 snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml output_all -n 
 
-snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml outlier_detection -n 
+snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml prep_pgs -n 
+
+# Run outlier detection using dev version to allow relatedness estimation to be skipped
+snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml outlier_detection -n -p
 
 ```
 
@@ -662,7 +676,7 @@ project_dir <- "/datasets/ukbiobank/ukb82087"
 f <- bio_field(project_dir)
 f %>%
     select(field, name) %>%
-    filter(str_detect(field, "^50-|^21001-|^30700-|^30750-|^30880-")) %>%
+    filter(str_detect(field, "^50-|^21001-|^30700-|^30750-|^30880-|^30760-")) %>%
     bio_field_add("/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/continuous_field_subset.txt")
 
 bio_phen(
@@ -683,9 +697,11 @@ df_long$variable<-gsub('-.*','', df_long$variable)
 df_long<-df_long[!duplicated(df_long[,c('eid','variable')]),]
 
 var_pheno<-data.frame(
-  var=c('50','21001','30700','30750','30880'),
-  pheno=c('height','bmi','creatinine','hba1c','urate')
+  var=c('50','21001','30700','30750','30880','30760'),
+  pheno=c('height','bmi','egfr','hba1c','urate','hdl')
 )
+
+library(data.table)
 
 for(i in 1:nrow(var_pheno)){
   tmp <- df_long[df_long$variable == var_pheno$var[i],]
@@ -719,8 +735,10 @@ Relatedness has already been estimated in UK Biobank. Using greedy related, iden
 ```{r}
 
 library(ukbkings)
+library(data.table)
 
 psam<-fread('/scratch/prj/ukbiobank/ukb82087/imputed/ukb82087_imp_chr1_MAF1_INFO4_v1.psam')
+psam$rn<-1:nrow(psam)
 
 project_dir <- "/datasets/ukbiobank/ukb82087"
 greedy_related <- "/scratch/prj/ukbiobank/KCL_Data/Software/tools/GreedyRelated-master-v1.2.1/GreedyRelated"
@@ -736,6 +754,7 @@ psam_unrel_all <- psam[!(
 ), ]
 
 write.table(psam_unrel_all$IID, '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/unrelated.txt', row.names=F, col.names=F, quote=F)
+write.table(psam_unrel_all$rn, '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/unrelated.row_number.txt', row.names=F, col.names=F, quote=F)
 
 n_table<-data.frame(
   pheno=NA,
@@ -747,7 +766,7 @@ n_table<-data.frame(
 
 # Create a list of unrelated individuals after removing individuals with missing data for each phenotype
 bin_phenos <- c('bc', 'ckd', 'gout', 'ibd', 'pc', 'ra', 'stroke', 't1d', 't2d')
-con_phenos <- c('height','bmi','creatinine','hba1c','urate')
+con_phenos <- c('height','bmi','egfr','hba1c','urate','hdl')
 
 for(i in c(bin_phenos, con_phenos)){
   tmp<-fread(paste0(
@@ -771,7 +790,7 @@ for(i in c(bin_phenos, con_phenos)){
     tmp_unrel,
     paste0(
       '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/',
-      var_pheno$pheno[i],
+      i,
       '.unrel.txt'
     ),
     row.names = F,
@@ -810,103 +829,14 @@ write.csv(n_table, '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/pheno_n.csv
 ```
 
 ***
-
-## Run model_builder
-
-***
-
-# Conclusion
-
-***
-
-## Check time and memory requirements
-
-<details><summary>Show code</summary>
-
-```{r}
-library(data.table)
-library(ggplot2)
-library(cowplot)
-
-# Read in configuration specific benchmark files
-bm_files_i <-
-  paste0(
-    '/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test4/reference/benchmarks/',
-    list.files('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test4/reference/benchmarks/')
-  )
-
-# Read in benchmark files
-bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
-  tmp <- fread(file)
-  tmp$file <- basename(file)
-  return(tmp)
-}))
-
-# Create rule column
-bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
-
-#####
-# PGS methods
-#####
-# Look at the memory required for each PGS method using the EUR GWAS
-bm_dat_yengo_eur <-
-  bm_dat_all[grepl('prep_pgs', bm_dat_all$file) &
-               grepl('yengo_eur.txt', bm_dat_all$file), ]
-
-bm_dat_yengo_eur$method <- gsub('_i', '', gsub('prep_pgs_','',bm_dat_yengo_eur$rule))
-bm_dat_yengo_eur<-merge(bm_dat_yengo_eur, pgs_method_labels, by='method')
-
-pgs_method_time <-
-  ggplot(bm_dat_yengo_eur, aes(x = label, y = s, fill = label)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  labs(x = "PGS Method", y = "Time (seconds)") +
-  theme_half_open() +
-  background_grid() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
-
-pgs_method_mem <-
-  ggplot(bm_dat_yengo_eur, aes(x = label, y = max_rss, fill = label)) +
-  geom_bar(stat = "identity", position="dodge") +
-  labs(x = "PGS Method", y = "Max Memory (Mb)") +
-  theme_half_open() +
-  background_grid() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
-
-png('Images/OpenSNP/time_cpu_bench_pgs_methods.png', res = 300, width = 1800, height = 1800, units = 'px')
-  plot_grid(pgs_method_time, pgs_method_mem, nrow=2)
-dev.off()
-
-write.csv(bm_dat_yengo_eur, 'Images/OpenSNP/time_cpu_bench_pgs_methods.csv', row.names=F, quote=F)
-
-```
-</details>
-
-<details><summary>Show PGS methods benchmark</summary>
-
-<div class="centered-container">
-<div class="rounded-image-container" style="width: 50%;">
-![Time and max. memory used by each PGS method](Images/OpenSNP/time_cpu_bench_pgs_methods.png)
-</div>
-</div>
-
-<div class="note-box">
-
-**Note:** pT+clump and DBSLMM are run using 1 core. All other methods are run using 10 cores.
-
-</div>
-
-</details>
-
-***
-
-## Evaluate PGS
+## Check correlation
 
 <details><summary>Show code</summary>
 
 ```{r}
 # Test correlation between PGS and observed height
 
-setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+setwd('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/GenoPred/pipeline/')
 library(data.table)
 library(ggplot2)
 library(cowplot)
@@ -914,790 +844,185 @@ library(cowplot)
 source('../functions/misc.R')
 source_all('../functions')
 
-# Read in pheno data
-pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt')
-
 # Define pgs_methods used
-pgs_methods <- c('external','ptclump', 'dbslmm', 'prscs', 'sbayesr', 'lassosum', 'ldpred2', 'megaprs')
-
-# Define pgs_methods applied to non-EUR GWAS
-pgs_methods_eur <- c('ptclump','lassosum','megaprs','prscs','dbslmm')
+pgs_methods <- c('ptclump')
 
 # Read in PGS
-pgs <- read_pgs(config = 'misc/opensnp/config.yaml', name = 'opensnp')$opensnp
+pgs <- read_pgs(config = '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', name = 'ukb')$ukb
 
-# Estimate correlation between pheno and pgs
-cor <- NULL
-for(pop_i in names(pgs)){
-  for(gwas_i in names(pgs[[pop_i]])){
+# Read in psam to get row number based IDs
+psam<-fread('/scratch/prj/ukbiobank/ukb82087/imputed/ukb82087_imp_chr1_MAF1_INFO4_v1.psam')
+psam$rn<-1:nrow(psam)
+
+# Read in gwas_list
+gwas_list<-read_param(config = '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', param = 'gwas_list')
+pheno_gwas<-data.frame(
+  pheno=c(bin_phenos, con_phenos)
+)
+
+# Create column containing the phenotypes corresponding to each GWAS
+gwas_list$pheno<-tolower(gwas_list$label)
+gwas_list$pheno[gwas_list$pheno == 'breast cancer']<-'bc'
+gwas_list$pheno[gwas_list$pheno == 'prostate cancer']<-'pc'
+gwas_list$pheno[gwas_list$pheno == 'egfr']<-'egfr,ckd'
+gwas_list$pheno[gwas_list$pheno == 'urate levels']<-'urate,gout'
+gwas_list$pheno[gwas_list$pheno == 'rheumatoid arthritis']<-'ra'
+
+bin_phenos <- c('bc', 'ckd', 'gout', 'ibd', 'pc', 'ra', 'stroke', 't1d', 't2d')
+con_phenos <- c('height','bmi','egfr','hba1c','urate','hdl')
+phenos<-c(bin_phenos, con_phenos)
+
+cor<-NULL
+for(i in phenos){
+  # Read in pheno data
+  pheno_i <- fread(paste0(
+      '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/',
+      i,
+      '.unrel.txt'
+    ))
+  
+  names(pheno_i)<-c('IID','PHENO')
+  # Update to row number based IDs
+  pheno_i<-merge(psam[,c('IID','rn'), with=F], pheno_i, by='IID')
+  pheno_i$IID<-pheno_i$rn
+  pheno_i$rn<-NULL
+  pheno_i$FID<-pheno_i$IID
+  pheno_i<-pheno_i[, c('FID','IID','PHENO'), with=F]
+  
+  # Estimate correlation between pheno and pgs from relevant gwas
+  for(pop_i in names(pgs)){
+    gwas_i <- gwas_list$name[grepl(i, gwas_list$pheno)]
     for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
       pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
-      pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
+      pheno_pgs<-merge(pheno_i, pgs_i, by = c('FID','IID'))
       
       for(model_i in names(pgs_i)[-1:-2]){
-        y <- scale(pheno_pgs$height)
         x <- scale(pheno_pgs[[model_i]])
         
         if(all(is.na(x))){
           next
         }
         
-        coef_i <- coef(summary(mod <- lm(y ~ x)))
         
-        tmp <- data.table(
-          pop = pop_i,
-          gwas = gwas_i,
-          pgs_method = pgs_method_i,
-          name = model_i,
-          r = coef_i[2,1],
-          se = coef_i[2,2],
-          p = coef_i[2,4],
-          n = nobs(mod))
-      cor <- rbind(cor, tmp)
+        if(i %in% bin_phenos){
+          y <- pheno_pgs$PHENO
+          coef_i <- coef(summary(mod <- glm(y ~ x, family='binomial')))
+          
+          tmp <- data.table(
+            pheno = i,
+            pop = pop_i,
+            gwas = gwas_i,
+            pgs_method = pgs_method_i,
+            name = model_i,
+            r = coef_i[2,1],
+            se = coef_i[2,2],
+            p = coef_i[2,4],
+            n = nobs(mod),
+            n_cas = sum(pheno_pgs$PHENO == 1),
+            n_con = sum(pheno_pgs$PHENO == 0))
+        } else {
+          y <- scale(pheno_pgs$PHENO)
+          coef_i <- coef(summary(mod <- lm(y ~ x)))
+          
+          tmp <- data.table(
+            pheno = i,
+            pop = pop_i,
+            gwas = gwas_i,
+            pgs_method = pgs_method_i,
+            name = model_i,
+            r = coef_i[2,1],
+            se = coef_i[2,2],
+            p = coef_i[2,4],
+            n = nobs(mod),
+            n_cas = NA,
+            n_con = NA)
+        }
+        
+        cor <- rbind(cor, tmp)
       
       }
     }
   }
 }
 
-# The European sample is the only one large enough for interpretable results
-# Subset EUR results
-cor_eur <- cor[cor$pop == 'EUR', ]
-
-# Restrict to best and and pseudoval only
-cor_eur_subset <- NULL
-for(pop_i in unique(cor_eur$pop)){
-  for(gwas_i in unique(cor_eur$gwas[cor_eur$pop == pop_i])){
-    for(pgs_method_i in unique(cor_eur$pgs_method[cor_eur$pop == pop_i & cor_eur$gwas == gwas_i])){
-      
-      # Subset relevant results
-      cor_eur_i <- cor_eur[
-        cor_eur$pop == pop_i &
-        cor_eur$gwas == gwas_i &
-        cor_eur$pgs_method == pgs_method_i,]
-  
-      # Top R
-      if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','lassosum','dbslmm')){
-        top_i <- cor_eur_i[which(cor_eur_i$r == max(cor_eur_i$r, na.rm = T))[1],]
-        top_i$model <- 'Top'
-        cor_eur_subset <- rbind(cor_eur_subset, top_i)
+# Subset results to best and pseudoval
+cor_subset<-NULL
+for(pheno_i in phenos){
+  for(pop_i in names(pgs)){
+    for(gwas_i in unique(cor$gwas[cor$pheno == pheno_i & cor$pop == pop_i])){
+      for(pgs_method_i in unique(cor$pgs_method[cor$pheno == pheno_i & cor$pop == pop_i & cor$gwas == gwas_i])){
+        
+        # Subset relevant results
+        cor_pop_i <- cor[
+          cor$pheno == pheno_i &
+          cor$pop == pop_i &
+          cor$gwas == gwas_i &
+          cor$pgs_method == pgs_method_i,]
+    
+        # Top R
+        if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','lassosum','dbslmm')){
+          top_i <- cor_pop_i[which(abs(cor_pop_i$r) == max(abs(cor_pop_i$r), na.rm = T))[1],]
+          top_i$model <- 'Top'
+          cor_subset <- rbind(cor_subset, top_i)
+        }
+    
+        # PseudoVal
+        if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','lassosum','dbslmm')){
+          cor_pop_i$name <- gsub(paste0(gwas_i, '_'), '', cor_pop_i$name)
+          pseudo_param <- find_pseudo(config = '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', gwas = gwas_i, pgs_method = pgs_method_i)
+          pseudo_i <- cor_pop_i[cor_pop_i$name == pseudo_param,]
+          pseudo_i$model <- 'Pseudo'
+          cor_subset <- rbind(cor_subset, pseudo_i)
+        }
       }
-  
-      # PseudoVal
-      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','lassosum','dbslmm')){
-        cor_eur_i$name <- gsub(paste0(gwas_i, '_'), '', cor_eur_i$name)
-        pseudo_param <- find_pseudo(config = 'misc/opensnp/config.yaml', gwas = gwas_i, pgs_method = pgs_method_i)
-        pseudo_i <- cor_eur_i[cor_eur_i$name == pseudo_param,]
-        pseudo_i$model <- 'Pseudo'
-        cor_eur_subset <- rbind(cor_eur_subset, pseudo_i)
-      }
-      
-      # External
-      external_tmp<-cor_eur_i[cor_eur_i$pgs_method == 'external',]
-      external_tmp$model <- 'External'
-      cor_eur_subset <- rbind(cor_eur_subset, external_tmp)
-      
     }
   }
 }
 
 # Plot the results
-cor_eur_subset$model <- factor(cor_eur_subset$model, levels = c('Top','Pseudo','External'))
-dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP')
+cor_subset$model <- factor(cor_subset$model, levels = c('Top','Pseudo'))
+dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB')
 
-# yengo_eur
-plot_obj_eur <- 
-  ggplot(cor_eur_subset[cor_eur_subset$gwas == 'yengo_eur',], aes(x = pgs_method, y = r, fill = model)) +
-  geom_bar(stat = "identity", position = position_dodge2(preserve = "single"), width = 0.7) +
+ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
     position = position_dodge(width = 0.7)
   ) +
+  geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
   labs(
-    y = "Correlation (SE)",
+    y = "BETA (SE)",
     x = 'PGS Method',
-    fill = 'Model',
-    title = paste0("Yengo - EUR vs OpenSNP - EUR\n(N = ", cor_eur_subset$n[1], ")")
+    fill = 'Model'
   ) +
   theme_half_open() +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, size=12))
+        plot.title = element_text(hjust = 0.5, size=12)) +
+  facet_grid(pheno ~ pop , scales="free_y") +
+  panel_border()
 
-png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-yengo_eur.png',
-    units = 'px',
-    width = 2000,
-    height = 1000,
-    res = 300)
-
-  plot_obj_eur
-
-dev.off()
-
-# yengo_eas
-plot_obj_eas <- 
-  ggplot(cor_eur_subset[cor_eur_subset$gwas == 'yengo_eas',], aes(x = pgs_method, y = r, fill = model)) +
-    geom_bar(stat = "identity", position = position_dodge2(preserve = "single"), width = 0.7) +
-    geom_errorbar(
-      aes(ymin = r - se, ymax = r + se),
-      width = .2,
-      position = position_dodge(width = 0.7)
-    ) +
-    labs(
-      y = "Correlation (SE)",
-      x = 'PGS Method',
-      fill = 'Model',
-      title = paste0("Yengo - EAS vs OpenSNP - EUR\n(N = ", cor_eur_subset$n[1], ")")
-    ) +
-    theme_half_open() +
-    background_grid() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5, size=12))
-
-png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-yengo_eas.png',
-    units = 'px',
-    width = 1200,
-    height = 1000,
-    res = 300)
-
-  plot_obj_eas
-
-dev.off()
-
-# Make a plot comparing the yengo_eur results to the score file from PGS-catalogue
-not_external <- unique(cor_eur_subset$pgs_method[cor_eur_subset$pgs_method != 'external'])
-cor_eur_subset$pgs_method <- factor(cor_eur_subset$pgs_method, levels=c(not_external,'external'))
-
-plot_obj_ext <- 
-  ggplot(cor_eur_subset[cor_eur_subset$gwas == 'yengo_eur' | cor_eur_subset$gwas == 'PGS002804',], aes(x = pgs_method, y = r, fill = model)) +
-  geom_bar(stat = "identity", position = position_dodge2(preserve = "single"), width = 0.7) +
+ggplot(cor_subset[cor_subset$pheno == 'bc' & cor_subset$pop %in% c('EUR','CSA'),], aes(x = pgs_method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
     position = position_dodge(width = 0.7)
   ) +
+  geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
   labs(
-    y = "Correlation (SE)",
+    y = "BETA (SE)",
     x = 'PGS Method',
-    fill = 'Model',
-    title = paste0("Yengo - EUR vs OpenSNP - EUR\n(N = ", cor_eur_subset$n[1], ")")
+    fill = 'Model'
   ) +
   theme_half_open() +
   background_grid() +
-  geom_vline(xintercept = 7.5, linetype = 'dashed') +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, size=12))
-
-png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-yengo_eur-external.png',
-    units = 'px',
-    width = 2000,
-    height = 1000,
-    res = 300)
-  
-  plot_obj_ext
-
-dev.off()
-
-
-# Save the results
-dir.create('/scratch/prj/oliverpainfel/Data/OpenSNP/assoc')
-write.csv(
-  cor,
-  '/scratch/prj/oliverpainfel/Data/OpenSNP/assoc/genopred-yengo-assoc.csv',
-  row.names = F
-)
+        plot.title = element_text(hjust = 0.5, size=12)) +
+  facet_grid(pheno ~ pop) +
+  panel_border() +
+  coord_flip()
 
 ```
 
 </details>
-
-***
-
-<details><summary>Show results in OpenSNP</summary>
-
-<div class="centered-container">
-<div class="rounded-image-container" style="width: 60%;">
-![Yengo - EUR PGS correlation with height in EUR OpenSNP ](Images/OpenSNP/genopred-yengo_eur.png)
-</div>
-</div>
-
-***
-
-<div class="centered-container">
-<div class="rounded-image-container" style="width: 60%;">
-![Yengo - EAS PGS correlation with height in EUR OpenSNP ](Images/OpenSNP/genopred-yengo_eas.png)
-</div>
-</div>
-
-</details>
-
-<details><summary>Show results in OpenSNP including score from PGS catalogue</summary>
-
-<div class="centered-container">
-<div class="rounded-image-container" style="width: 60%;">
-![Yengo - EUR PGS correlation with height in EUR OpenSNP - Includes externally derived PGS ](Images/OpenSNP/genopred-yengo_eur-external.png)
-</div>
-</div>
-
-<br/>
-
-Note. 'external' is based on a larger GWAS (incl. 23andMe)
-
-</details>
-
-***
-
-# GenoPred V1 comparison
-
-We will run OpenSNP through GenoPred v1, to check whether updates have altered the output.
-
-<details><summary>Show code</summary>
-
-```{bash}
-# Go to another version of the repo on CREATE
-cd /users/k1806347/oliverpainfel/test/GenoPred
-
-# Checkout to the v1 version of the repo
-git checkout v1
-
-```
-
-</details>
-
-***
-
-### Prepare input
-
-<details><summary>Show code</summary>
-
-```{r}
-library(data.table)
-setwd('/users/k1806347/oliverpainfel/test/GenoPred/GenoPredPipe')
-
-# target_list
-target_list <- fread('target_list_example.txt')
-target_list <- data.frame(
-  name = 'opensnp',
-  path='/users/k1806347/oliverpainfel/Data/OpenSNP/processed/geno/opensnp_train',
-  type = 'samp_imp_vcf',
-  output = '/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred_v1/test1',
-  indiv_report = F)
-
-dir.create('misc/opensnp', recursive = T)
-write.table(target_list, 'misc/opensnp/target_list.txt', col.names=T, row.names=F, quote=F, sep=' ')
-
-# gwas_list
-yengo_eur <- fread('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.txt')
-yengo_eur <- yengo_eur[, c('variant_id','effect_allele','other_allele','beta','standard_error','effect_allele_frequency','p_value','n'), with=F]
-names(yengo_eur) <- c('SNP','A1','A2','BETA','SE','FREQ','P','N')
-fwrite(yengo_eur, '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.format.txt', sep = ' ', quote = F, na = 'NA')
-
-yengo_eas <- fread('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eas.txt')
-yengo_eas <- yengo_eas[, c('variant_id','effect_allele','other_allele','beta','standard_error','effect_allele_frequency','p_value','n'), with=F]
-names(yengo_eas) <- c('SNP','A1','A2','BETA','SE','FREQ','P','N')
-fwrite(yengo_eas, '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eas.format.txt', sep = ' ', quote = F, na = 'NA')
-
-gwas_list <- fread('gwas_list_example.txt')
-gwas_list<-rbind(gwas_list, data.table(
-    name='yengoeur',
-    path='/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.format.txt',
-    population='EUR',
-    sampling=NA,
-    prevalence=NA,
-    mean=NA,
-    sd=NA,
-    label="\"Yengo 2022 Height EUR\""))
-
-gwas_list<-rbind(gwas_list, data.table(
-    name='yengoeas',
-    path='/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eas.format.txt',
-    population='EAS',
-    sampling=NA,
-    prevalence=NA,
-    mean=NA,
-    sd=NA,
-    label="\"Yengo 2022 Height EAS\""))
-
-gwas_list<-gwas_list[gwas_list$name %in% c('yengoeur','yengoeas'),]
-
-write.table(gwas_list, 'misc/opensnp/gwas_list.txt', col.names=T, row.names=F, quote=F, sep=' ')
-
-# score_list
-score_list <- fread('score_list_example.txt')
-score_list <- score_list[-1,]
-write.table(score_list, 'misc/opensnp/score_list.txt', col.names=T, row.names=F, quote=F, sep=' ')
-
-# config
-config <- c(
-  "gwas_list: misc/opensnp/gwas_list.txt",
-  "target_list: misc/opensnp/target_list.txt",
-  "score_list: misc/opensnp/score_list.txt"   
-)
-write.table(config, 'misc/opensnp/config.yaml', col.names=F, row.names=F, quote=F, sep=' ')
-
-```
-
-</details>
-
-***
-
-### Run GenoPred v1
-
-<details><summary>Show code</summary>
-
-```{bash}
-# Calculate score using all methods
-snakemake -n --profile slurm --configfile=misc/opensnp/config.yaml --use-conda run_target_prs_all
-
-```
-
-</details>
-
-***
-
-## Evaluate PGS
-
-<details><summary>Show code</summary>
-
-```{r}
-# Test correlation between PGS and phenotype
-
-setwd('/scratch//prj/oliverpainfel/test/GenoPred/pipeline/')
-library(data.table)
-library(Hmisc)
-
-# Read in pheno data
-pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt')
-pheno$FID<-0
-
-# Read in ancestry data
-keep_list <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test1/opensnp/ancestry/keep_list.txt')
-
-# Read in pgs
-gwas_list <- fread('misc/opensnp/gwas_list.txt')
-pgs_methods <- c('pt_clump','dbslmm','prscs','sbayesr','lassosum','ldpred2','megaprs')
-pgs_methods_eur <- c('pt_clump','lassosum','megaprs')
-
-pgs <- list()
-for(pop_i in keep_list$POP){
-  pgs[[pop_i]] <- list()
-  for(gwas_i in gwas_list$name){
-    pgs[[pop_i]][[gwas_i]] <- list()
-    for(pgs_method_i in pgs_methods){
-      if(gwas_list$population[gwas_list$name == gwas_i] == 'EUR' | (gwas_list$population[gwas_list$name == gwas_i] != 'EUR' & (pgs_method_i %in% pgs_methods_eur))){
-        pgs[[pop_i]][[gwas_i]][[pgs_method_i]] <- fread(paste0('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred_v1/test1/opensnp/prs/',pop_i,'/',pgs_method_i,'/',gwas_i,'/opensnp.',gwas_i,'.',pop_i,'.profiles'))
-      }
-    }
-  }
-}
-
-# Estimate correlation between pheno and pgs
-cor <- NULL
-for(pop_i in names(pgs)){
-  for(gwas_i in names(pgs[[pop_i]])){
-    for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
-      pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
-      pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
-      
-      for(model_i in names(pgs_i)[-1:-2]){
-        y <- scale(pheno_pgs$height)
-        x <- scale(pheno_pgs[[model_i]])
-        
-        if(all(is.na(x))){
-          next
-        }
-        
-        coef_i <- coef(summary(mod <- lm(y ~ x)))
-        
-        tmp <- data.table(
-          pop = pop_i,
-          gwas = gwas_i,
-          pgs_method = pgs_method_i,
-          name = model_i,
-          r = coef_i[2,1],
-          se = coef_i[2,2],
-          p = coef_i[2,4],
-          n = nobs(mod))
-      cor <- rbind(cor, tmp)
-      
-      }
-    }
-  }
-}
-
-# Save the results
-dir.create('/scratch/prj/oliverpainfel/Data/OpenSNP/assoc')
-write.csv(
-  cor,
-  '/scratch/prj/oliverpainfel/Data/OpenSNP/assoc/genopred-v1-yengo-assoc.csv',
-  row.names = F
-)
-
-# Restrict to best only
-cor_subset <- NULL
-for(pop_i in unique(cor$pop)){
-  for(gwas_i in unique(cor$gwas[cor$pop == pop_i])){
-    for(pgs_method_i in unique(cor$pgs_method[cor$pop == pop_i & cor$gwas == gwas_i])){
-      
-      # Subset relevant results
-      cor_i <- cor[
-        cor$pop == pop_i &
-        cor$gwas == gwas_i &
-        cor$pgs_method == pgs_method_i,]
-  
-      # Top R
-      top_i <- cor_i[which(cor_i$r == max(cor_i$r, na.rm = T))[1],]
-      cor_subset <- rbind(cor_subset, top_i)
-    }
-  }
-}
-
-# Read in the associations for the best PGS when using the new version of GenoPred
-cor_new <- fread('/scratch/prj/oliverpainfel/Data/OpenSNP/assoc/genopred-yengo-assoc.csv')
-
-cor_new_subset <- NULL
-for(pop_i in unique(cor_new$pop)){
-  for(gwas_i in unique(cor_new$gwas[cor_new$pop == pop_i])){
-    for(pgs_method_i in unique(cor_new$pgs_method[cor_new$pop == pop_i & cor_new$gwas == gwas_i])){
-      
-      # Subset relevant results
-      cor_new_i <- cor_new[
-        cor_new$pop == pop_i &
-        cor_new$gwas == gwas_i &
-        cor_new$pgs_method == pgs_method_i,]
-  
-      # Top R
-      top_i <- cor_new_i[which(cor_new_i$r == max(cor_new_i$r, na.rm = T))[1],]
-      cor_new_subset <- rbind(cor_new_subset, top_i)
-    }
-  }
-}
-
-# Compare the results
-cor_subset$Version <- 'GenoPred V1'
-cor_subset$pgs_method<-gsub('_', '', cor_subset$pgs_method)
-cor_new_subset$Version <- 'GenoPred V2'
-cor_new_subset$gwas<-gsub('_', '', cor_new_subset$gwas)
-
-cor_both <- rbind(cor_subset, cor_new_subset)
-
-cor_both$pop <- paste0(cor_both$pop, "\n N = ", cor_both$n)
-
-##
-# Plot the results
-##
-
-# yengo_eur
-tmp <- cor_both[cor_both$gwas == 'yengoeur',]
-y_lim <- c(min(tmp$r - tmp$se), max(tmp$r + tmp$se))
-                  
-v1_plot <-
-  ggplot(cor_both[cor_both$gwas == 'yengoeur' & cor_both$Version == 'GenoPred V1', ], 
-         aes(x = pgs_method, y = r)) +
-  geom_hline(yintercept = 0) +
-    geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = '#F8766D') +
-    geom_errorbar(
-      aes(ymin = r - se, ymax = r + se),
-      width = .2,
-      position = position_dodge(width = 0.7)
-    ) +
-    labs(
-      y = "Correlation (SE)",
-      x = 'PGS Method',
-      title = 'Yengo - EUR vs OpenSNP'
-    ) +
-    ylim(y_lim) +
-    theme_half_open() +
-    background_grid() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5, size=12)) +
-    facet_grid(pop ~ Version) +
-    panel_border()
-
-v2_plot <-
-  ggplot(cor_both[cor_both$gwas == 'yengoeur' & cor_both$Version == 'GenoPred V2', ], 
-         aes(x = pgs_method, y = r)) +
-  geom_hline(yintercept = 0) +
-    geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = '#00BFC4') +
-    geom_errorbar(
-      aes(ymin = r - se, ymax = r + se),
-      width = .2,
-      position = position_dodge(width = 0.7)
-    ) +
-    labs(
-      y = "Correlation (SE)",
-      x = 'PGS Method',
-      title = 'Yengo - EUR vs OpenSNP'
-    ) +
-    ylim(y_lim) +
-    theme_half_open() +
-    background_grid() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5, size=12)) +
-    facet_grid(pop ~ Version) +
-    panel_border()
-
-png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-v1-comp-yengo_eur.png',
-    units = 'px',
-    width = 3000,
-    height = 3000,
-    res = 300)
-
-  plot_grid(v1_plot, v2_plot, labels = NULL)
-  
-dev.off()
-
-###
-# Compare again using same ancestry classification threshold
-###
-
-# Read in ancestry predictions
-model_pred <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred_v1/test1/opensnp/ancestry/ancestry_all/opensnp.Ancestry.model_pred')
-
-pgs_strict <- list()
-for(pop_i in keep_list$POP){
-  pop_i_keep <- model_pred[model_pred[[pop_i]] > 0.95, ]
-  pgs_strict[[pop_i]] <- list()
-  for(gwas_i in gwas_list$name){
-    pgs_strict[[pop_i]][[gwas_i]] <- list()
-    for(pgs_method_i in pgs_methods){
-      if(gwas_list$population[gwas_list$name == gwas_i] == 'EUR' | (gwas_list$population[gwas_list$name == gwas_i] != 'EUR' & (pgs_method_i %in% pgs_methods_eur))){
-        pgs_strict[[pop_i]][[gwas_i]][[pgs_method_i]] <- merge(pgs[[pop_i]][[gwas_i]][[pgs_method_i]], pop_i_keep[, c('FID','IID'), with = F], by = c('FID','IID'))
-      }
-    }
-  }
-}
-
-# Estimate correlation between pheno and pgs
-cor <- NULL
-for(pop_i in names(pgs_strict)){
-  for(gwas_i in names(pgs_strict[[pop_i]])){
-    for(pgs_strict_method_i in names(pgs_strict[[pop_i]][[gwas_i]])){
-      pgs_strict_i <- pgs_strict[[pop_i]][[gwas_i]][[pgs_strict_method_i]]
-      pheno_pgs_strict<-merge(pheno, pgs_strict_i, by = c('FID','IID'))
-      
-      for(model_i in names(pgs_strict_i)[-1:-2]){
-        y <- scale(pheno_pgs_strict$height)
-        x <- scale(pheno_pgs_strict[[model_i]])
-        
-        if(all(is.na(x))){
-          next
-        }
-        
-        coef_i <- coef(summary(mod <- lm(y ~ x)))
-        
-        tmp <- data.table(
-          pop = pop_i,
-          gwas = gwas_i,
-          pgs_method = pgs_strict_method_i,
-          name = model_i,
-          r = coef_i[2,1],
-          se = coef_i[2,2],
-          p = coef_i[2,4],
-          n = nobs(mod))
-      cor <- rbind(cor, tmp)
-      
-      }
-    }
-  }
-}
-
-# Save the results
-dir.create('/scratch/prj/oliverpainfel/Data/OpenSNP/assoc')
-write.csv(
-  cor,
-  '/scratch/prj/oliverpainfel/Data/OpenSNP/assoc/genopred-v1-strict-yengo-assoc.csv',
-  row.names = F
-)
-
-# Restrict to best only
-cor_subset <- NULL
-for(pop_i in unique(cor$pop)){
-  for(gwas_i in unique(cor$gwas[cor$pop == pop_i])){
-    for(pgs_method_i in unique(cor$pgs_method[cor$pop == pop_i & cor$gwas == gwas_i])){
-      
-      # Subset relevant results
-      cor_i <- cor[
-        cor$pop == pop_i &
-        cor$gwas == gwas_i &
-        cor$pgs_method == pgs_method_i,]
-  
-      # Top R
-      top_i <- cor_i[which(cor_i$r == max(cor_i$r, na.rm = T))[1],]
-      cor_subset <- rbind(cor_subset, top_i)
-    }
-  }
-}
-
-# Compare the results
-cor_subset$Version <- 'GenoPred V1'
-cor_subset$pgs_method<-gsub('_', '', cor_subset$pgs_method)
-cor_new_subset$Version <- 'GenoPred V2'
-cor_new_subset$gwas<-gsub('_', '', cor_new_subset$gwas)
-
-cor_both <- rbind(cor_subset, cor_new_subset)
-
-cor_both$pop <- paste0(cor_both$pop, "\n N = ", cor_both$n)
-
-##
-# Plot the results
-##
-
-# yengo_eur
-tmp <- cor_both[cor_both$gwas == 'yengoeur',]
-y_lim <- c(min(tmp$r - tmp$se), max(tmp$r + tmp$se))
-                  
-v1_plot <-
-  ggplot(cor_both[cor_both$gwas == 'yengoeur' & cor_both$Version == 'GenoPred V1', ], 
-         aes(x = pgs_method, y = r)) +
-  geom_hline(yintercept = 0) +
-    geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = '#F8766D') +
-    geom_errorbar(
-      aes(ymin = r - se, ymax = r + se),
-      width = .2,
-      position = position_dodge(width = 0.7)
-    ) +
-    labs(
-      y = "Correlation (SE)",
-      x = 'PGS Method',
-      title = 'Yengo - EUR vs OpenSNP'
-    ) +
-    ylim(y_lim) +
-    theme_half_open() +
-    background_grid() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5, size=12)) +
-    facet_grid(pop ~ Version) +
-    panel_border()
-
-v2_plot <-
-  ggplot(cor_both[cor_both$gwas == 'yengoeur' & cor_both$Version == 'GenoPred V2', ], 
-         aes(x = pgs_method, y = r)) +
-  geom_hline(yintercept = 0) +
-    geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = '#00BFC4') +
-    geom_errorbar(
-      aes(ymin = r - se, ymax = r + se),
-      width = .2,
-      position = position_dodge(width = 0.7)
-    ) +
-    labs(
-      y = "Correlation (SE)",
-      x = 'PGS Method',
-      title = 'Yengo - EUR vs OpenSNP'
-    ) +
-    ylim(y_lim) +
-    theme_half_open() +
-    background_grid() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5, size=12)) +
-    facet_grid(pop ~ Version) +
-    panel_border()
-
-png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-v1-comp_strict-yengo_eur.png',
-    units = 'px',
-    width = 3000,
-    height = 3000,
-    res = 300)
-
-  plot_grid(v1_plot, v2_plot, labels = NULL)
-  
-dev.off()
-
-######
-# Plot the same plot only using the EUR target population in OpenSNP
-######
-
-tmp <- cor_both[cor_both$gwas == 'yengoeur' & cor_both$pop == 'EUR\n N = 653', ]
-y_lim <- c(min(tmp$r - tmp$se), max(tmp$r + tmp$se))
-
-v1_plot <-
-  ggplot(tmp[tmp$Version == 'GenoPred V1', ], 
-         aes(x = pgs_method, y = r)) +
-    geom_hline(yintercept = 0) +
-    geom_errorbar(
-      aes(ymin = r - se, ymax = r + se),
-      width = .2,
-      position = position_dodge(width = 0.7)
-    ) +
-    geom_point(stat = "identity", position = position_dodge(), size = 5, colour = '#F8766D') +
-    labs(
-      y = "Correlation (SE)",
-      x = 'PGS Method',
-      title = 'Yengo - EUR vs OpenSNP'
-    ) +
-    ylim(y_lim) +
-    theme_half_open() +
-    background_grid() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5, size=12)) +
-    facet_grid(pop ~ Version) +
-    panel_border()
-
-v2_plot <-
-  ggplot(tmp[tmp$Version == 'GenoPred V2', ], 
-         aes(x = pgs_method, y = r)) +
-    geom_hline(yintercept = 0) +
-    geom_errorbar(
-      aes(ymin = r - se, ymax = r + se),
-      width = .2,
-      position = position_dodge(width = 0.7)
-    ) +
-    geom_point(stat = "identity", position = position_dodge(), size = 5, colour = '#00BFC4') +
-    labs(
-      y = "Correlation (SE)",
-      x = 'PGS Method',
-      title = 'Yengo - EUR vs OpenSNP'
-    ) +
-    ylim(y_lim) +
-    theme_half_open() +
-    background_grid() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5, size=12)) +
-    facet_grid(pop ~ Version) +
-    panel_border()
-
-png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-v1-comp_strict_eur-yengo_eur.png',
-    units = 'px',
-    width = 3000,
-    height = 1500,
-    res = 300)
-
-  plot_grid(v1_plot, v2_plot, labels = NULL)
-  
-dev.off()
-
-```
-
-</details>
-
-***
-
-<details><summary>Show comparison results</summary>
-
-<div class="centered-container">
-<div class="rounded-image-container">
-![Out-of-the-box comparison](Images/OpenSNP/genopred-v1-comp-yengo_eur.png)
-</div>
-</div>
-
-<div class="centered-container">
-<div class="rounded-image-container">
-![Using same ancestry classification threshold](Images/OpenSNP/genopred-v1-comp_strict-yengo_eur.png)
-</div>
-</div>
-
-<div class="centered-container">
-<div class="rounded-image-container" style="width: 60%;">
-![Showing results in European OpenSNP data only](Images/OpenSNP/genopred-v1-comp_strict_eur-yengo_eur.png)
-</div>
-</div>
-
-</details>
-
-***
-
-# Conclusion
-
-These results are as expected. PGS associations with height in OpenSNP are highly concordant across version of GenoPred. Small differences occur due to a more stringent ancestry classification threshold in GenoPred v2, typically increasing the correlation between the PGS and observed height. The externally derived score for height downloaded from the PGS Catalogue outperforms score created by GenoPred - This occurs because GenoPred used the publicly available GWAS summary statistics, exlcuding the 23andMe dataset, whereas the PGS weights downloaded from the PGS catalogue were derived using private GWAS sumstats, including 23andMe.
 
