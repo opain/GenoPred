@@ -141,15 +141,19 @@ overwrite = config.get("overwrite", "false").lower() == "true"
 current_major, current_minor = get_current_version()
 last_major, last_minor = read_last_version()
 
-# Check for both major and minor version changes
-if current_major != last_major or current_minor != last_minor:
-    if not overwrite:
-        print(f"Change in version of GenoPred detected from v{last_major}.{last_minor} to v{current_major}.{current_minor}. Use --params overwrite=true to proceed.")
-        sys.exit(1)
-    else:
-        print("Proceeding with version update due to --overwrite flag.")
-        write_last_version(current_major, current_minor)  # Update the stored version
-
+# Check if the last version is 0.0, proceed without requiring overwrite
+if last_major == 0 and last_minor == 0:
+    print(f"Initial version setup detected. Updating to v{current_major}.{current_minor}.")
+    write_last_version(current_major, current_minor)
+else:
+    # Check for both major and minor version changes
+    if current_major != last_major or current_minor != last_minor:
+        if not overwrite:
+            print(f"Change in version of GenoPred detected from v{last_major}.{last_minor} to v{current_major}.{current_minor}. Use --config overwrite=true to proceed.")
+            sys.exit(1)
+        else:
+            print("Proceeding with version update due to overwrite=true config.")
+            write_last_version(current_major, current_minor)  # Update the stored version
 
 ########
 # Download dependencies
@@ -566,7 +570,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@a9ecd9eceee1fd6e04daa0c0230e8f23103b5bbb\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@e4d42fc6544592b862843afb395b3ca88d1d164e\")'
     }} > {log} 2>&1
     """
 
