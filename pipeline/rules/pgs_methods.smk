@@ -123,7 +123,7 @@ def set_ld_blocks_pop(population):
     return 'EUR'
   else:
     return population
-        
+
 # Set default values
 n_cores_dbslmm = config.get("ncores", 10)
 
@@ -168,6 +168,7 @@ rule prep_pgs_dbslmm_i:
       --ldsc resources/software/ldsc/ldsc.py \
       --ld_scores resources/data/ld_scores/UKBB.{params.population}.rsid \
       --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist \
+      --hm3_no_mhc T \
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
       --output {outdir}/reference/pgs_score_files/dbslmm/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -351,6 +352,8 @@ rule prep_pgs_ldpred2_i:
     "../envs/analysis.yaml"
   params:
     model=",".join(map(str, config["ldpred2_model"])),
+    inference=",".join(map(str, config["ldpred2_inference"])),
+    sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
     testing=config["testing"]
   shell:
@@ -365,6 +368,8 @@ rule prep_pgs_ldpred2_i:
       --pop_data {refdir}/ref.pop.txt \
       --model {params.model} \
       --binary {params.binary} \
+      --inference {params.inference} \
+      --sample_prev {params.sampling} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:

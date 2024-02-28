@@ -141,15 +141,19 @@ overwrite = config.get("overwrite", "false").lower() == "true"
 current_major, current_minor = get_current_version()
 last_major, last_minor = read_last_version()
 
-# Check for both major and minor version changes
-if current_major != last_major or current_minor != last_minor:
-    if not overwrite:
-        print(f"Change in version of GenoPred detected from v{last_major}.{last_minor} to v{current_major}.{current_minor}. Use --params overwrite=true to proceed.")
-        sys.exit(1)
-    else:
-        print("Proceeding with version update due to --overwrite flag.")
-        write_last_version(current_major, current_minor)  # Update the stored version
-
+# Check if the last version is 0.0, proceed without requiring overwrite
+if last_major == 0 and last_minor == 0:
+    print(f"Initial version setup detected. Updating to v{current_major}.{current_minor}.")
+    write_last_version(current_major, current_minor)
+else:
+    # Check for both major and minor version changes
+    if current_major != last_major or current_minor != last_minor:
+        if not overwrite:
+            print(f"Change in version of GenoPred detected from v{last_major}.{last_minor} to v{current_major}.{current_minor}. Use --config overwrite=true to proceed.")
+            sys.exit(1)
+        else:
+            print("Proceeding with version update due to overwrite=true config.")
+            write_last_version(current_major, current_minor)  # Update the stored version
 
 ########
 # Download dependencies
@@ -213,7 +217,7 @@ rule download_ldsc:
       git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74
     }} > {log} 2>&1
     """
-    
+
 # Download ld scores from PanUKB
 rule download_ldscores_panukb:
   output:
@@ -231,7 +235,7 @@ rule download_ldscores_panukb:
       rm resources/data/ld_scores.tar.gz
     }} > {log} 2>&1
     """
-  
+
 # Download hapmap3 snplist
 rule download_hm3_snplist:
   output:
@@ -249,7 +253,7 @@ rule download_hm3_snplist:
       gunzip resources/data/hm3_snplist/w_hm3.snplist.gz
     }} > {log} 2>&1
     """
-    
+
 # Download DBSLMM
 rule download_dbslmm:
   output:
@@ -270,7 +274,7 @@ rule download_dbslmm:
       chmod a+x software/dbslmm
     }} > {log} 2>&1
     """
-    
+
 # Download LD block data
 rule download_ld_blocks:
   output:
@@ -566,7 +570,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@edf5bec1be0e396d953eb8974488dc4e3d57c134\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@4beb75620f3291b633598acd06febb22298418c8\")'
     }} > {log} 2>&1
     """
 

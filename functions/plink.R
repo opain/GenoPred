@@ -114,7 +114,7 @@ plink_qc_snplist<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, keep
 }
 
 # Merge plink files
-plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, keep = NULL, flip = NULL, make_bed =F, memory = 4000, out){
+plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, keep = NULL, flip = NULL, make_bed =F, memory = 4000, out, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -180,7 +180,7 @@ plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
     plink_opt<-paste0(plink_opt, paste0('--keep ', keep, ' '))
   }
   
-  cmd<-paste0(plink_opt,'--threads 1 --out ', out,' --memory ', memory)
+  cmd<-paste0(plink_opt,'--threads ', threads,' --out ', out,' --memory ', memory)
   exit_status <- system(cmd, intern=FALSE)
   if (exit_status == 2) {
     stop()
@@ -188,7 +188,7 @@ plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
 }
 
 # Perform PCA using plink files
-plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, keep = NULL, flip = NULL, memory = 4000, n_pc = 6){
+plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, keep = NULL, flip = NULL, memory = 4000, n_pc = 6, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -198,11 +198,18 @@ plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, 
   
   tmp_dir<-tempdir()
   
+  # Subset data prior to merging
+  if(!is.null(bfile)){
+    plink_subset(bfile = bfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, memory = memory, out = paste0(tmp_dir,'/ref_subset_chr'), threads=threads)
+  } else {
+    plink_subset(pfile = pfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, memory = memory, out = paste0(tmp_dir,'/ref_subset_chr'), threads=threads)
+  }
+  
   # Merge subset reference
   if(!is.null(bfile)){
-    plink_merge(bfile = bfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'))
+    plink_merge(bfile = paste0(tmp_dir,'/ref_subset_chr'), chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'), threads=threads)
   } else {
-    plink_merge(pfile = pfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'))
+    plink_merge(pfile = paste0(tmp_dir,'/ref_subset_chr'), chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'), threads=threads)
   }
   
   plink_opt<-paste0(plink2, ' ')
@@ -213,7 +220,7 @@ plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, 
   }
   
   # Calculate SNP weights
-  system(paste0(plink_opt,' --threads 1 --pca ',n_pc,' biallelic-var-wts  --out ',tmp_dir,'/ref_merge --memory ', memory))
+  system(paste0(plink_opt,' --threads ', threads,' --pca ',n_pc,' biallelic-var-wts  --out ',tmp_dir,'/ref_merge --memory ', memory))
   
   # Format the SNP-weights
   snp_weights<-fread(paste0(tmp_dir,'/ref_merge.eigenvec.var'))
@@ -224,7 +231,7 @@ plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, 
 }
 
 # Performing LD pruning
-plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, memory = 4000){
+plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, memory = 4000, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -271,7 +278,7 @@ plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NU
   # Perfom pruning and read in SNP-list
   ld_indep<-NULL
   for(chr_i in chr){
-    cmd <- paste0(plink_opt, '--threads 1 --indep-pairwise 1000 5 0.2 --out ',tmp_file,'.chr',chr_i,' --memory ',memory)
+    cmd <- paste0(plink_opt, '--threads ', threads,' --indep-pairwise 1000 5 0.2 --out ',tmp_file,'.chr',chr_i,' --memory ',memory)
     cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
     exit_status <- system(cmd, intern=FALSE)
     if (exit_status == 2) {
@@ -285,7 +292,7 @@ plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NU
 }
 
 # Peforming LD-based clumping
-plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, sumstats, keep = NULL, memory = 4000, log_file = NULL){
+plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, sumstats, keep = NULL, memory = 4000, log_file = NULL, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -325,7 +332,7 @@ plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
   
   clumped<-NULL
   for(chr_i in chr){
-    cmd<-paste0(plink_opt, '--clump ', sumstats,' --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',tmp_file,'.chr',chr_i,' --threads 1 --memory ', memory)
+    cmd<-paste0(plink_opt, '--clump ', sumstats,' --clump-p1 1 --clump-p2 1 --clump-r2 0.1 --clump-kb 250 --out ',tmp_file,'.chr',chr_i,' --threads ', threads,' --memory ', memory)
     cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
     exit_status <- system(cmd, intern=FALSE)
     if(!is.null(plink)){
@@ -349,7 +356,7 @@ plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
 }
 
 # Generate kinship matrix and identify unrelated individuals (>2nd degree)
-plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2='plink2', out, keep=NA){
+plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2='plink2', out, keep=NA, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -376,23 +383,23 @@ plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2=
   
   # Merge per chromosome files extracting selected variants
   if(!is.null(bfile)){
-    plink_merge(bfile = bfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'))
+    plink_merge(bfile = bfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads)
   } else {
-    plink_merge(pfile = pfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'))
+    plink_merge(pfile = pfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads)
   }
   
   # Run KING estimator
   if(!is.null(bfile)){
-    system(paste0(plink2, ' --bfile ', tmp_dir, '/merged --threads 1 --make-king triangle bin --out ', tmp_dir, '/merged'))
+    system(paste0(plink2, ' --bfile ', tmp_dir, '/merged --threads ', threads,' --make-king triangle bin --out ', tmp_dir, '/merged'))
   } else {
-    system(paste0(plink2, ' --pfile ', tmp_dir, '/merged --threads 1 --make-king triangle bin --out ', tmp_dir, '/merged'))
+    system(paste0(plink2, ' --pfile ', tmp_dir, '/merged --threads ', threads,' --make-king triangle bin --out ', tmp_dir, '/merged'))
   }
   
   # Identify unrelated individuals (remove 2nd degree relatives)
   if(!is.null(bfile)){
-    system(paste0(plink2, ' --bfile ', tmp_dir, '/merged --threads 1 --king-cutoff ',tmp_dir, '/merged 0.0884 --out ', tmp_dir, '/merged'))
+    system(paste0(plink2, ' --bfile ', tmp_dir, '/merged --threads ', threads,' --king-cutoff ',tmp_dir, '/merged 0.0884 --out ', tmp_dir, '/merged'))
   } else {
-    system(paste0(plink2, ' --pfile ', tmp_dir, '/merged --threads 1 --king-cutoff ',tmp_dir, '/merged 0.0884 --out ', tmp_dir, '/merged'))
+    system(paste0(plink2, ' --pfile ', tmp_dir, '/merged --threads ', threads,' --king-cutoff ',tmp_dir, '/merged 0.0884 --out ', tmp_dir, '/merged'))
   }
   
   # Move the kinship matrix
@@ -427,9 +434,11 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
     plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER '))
   }
   if(!is.null(keep)){
+    keep <- obj_or_file(keep)
     plink_opt<-paste0(plink_opt, '--keep ', keep, ' ')
   }
   if(!is.null(extract)){
+    extract <- obj_or_file(extract)
     plink_opt<-paste0(plink_opt, '--extract ', extract, ' ')
   }
   if(!is.null(frq)){
