@@ -123,7 +123,7 @@ def set_ld_blocks_pop(population):
     return 'EUR'
   else:
     return population
-        
+
 # Set default values
 n_cores_dbslmm = config.get("ncores", 10)
 
@@ -352,6 +352,7 @@ rule prep_pgs_ldpred2_i:
     "../envs/analysis.yaml"
   params:
     model=",".join(map(str, config["ldpred2_model"])),
+    inference=",".join(map(str, config["ldpred2_inference"])),
     binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
     testing=config["testing"]
   shell:
@@ -366,6 +367,7 @@ rule prep_pgs_ldpred2_i:
       --pop_data {refdir}/ref.pop.txt \
       --model {params.model} \
       --binary {params.binary} \
+      --inference {params.inference} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:
