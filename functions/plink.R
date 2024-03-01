@@ -484,7 +484,7 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
   for(chr_i in chr){
     if(file.exists(paste0(tmp_folder,'/profiles.chr',chr_i,'.sscore'))){
       sscore<-fread(paste0(tmp_folder,'/profiles.chr',chr_i,'.sscore'))
-      scores[[chr_i]]<-as.matrix(sscore[,grepl('^SCORE', names(sscore)),with=F])
+      scores[[chr_i]]<-as.matrix(sscore[,paste0(names(score_small)[-1:-3], '_SUM'),with=F])
     } else {
       cat0('No scores for chromosome ',chr_i,'. Check plink logs file for reason.\n')
     }
