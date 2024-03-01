@@ -189,7 +189,7 @@ system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_di
 # plink2's pmerge only handles concatenation for the time being
 # In the meantime, convert the ref and target into plink1 binaries, merge, and then convert back to plink2 binaries
 system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --make-bed --memory 5000 --threads 1 --out ',tmp_dir,'/subset'))
-system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-bed --out ',tmp_dir,'/REF --memory 5000 --threads 1'))
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/REF --make-bed --out ',tmp_dir,'/REF --memory 5000 --threads 1'))
 system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --bmerge ',tmp_dir,'/REF --make-bed --allow-no-sex --out ',tmp_dir,'/ref_targ'))
 
 # Extract only target individuals
