@@ -40,7 +40,8 @@ if 'target_list' in config:
     threads: n_cores_impute
     input:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-      rules.download_impute2_data.output
+      rules.download_impute2_data.output,
+      "resources/last_version.txt"
     output:
       f"{outdir}/{{name}}/geno/imputed/{{name}}.chr{{chr}}.bed"
     benchmark:
@@ -117,7 +118,8 @@ if 'target_list' in config:
       lambda w: format_target_input(name = w.name),
       lambda w: target_path(name = w.name, chr = w.chr),
       ref_input,
-      rules.install_genoutils.output
+      rules.install_genoutils.output,
+      "resources/last_version.txt"
     output:
       f"{outdir}/{{name}}/geno/{{name}}.ref.chr{{chr}}.pgen"
     benchmark:

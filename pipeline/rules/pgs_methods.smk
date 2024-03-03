@@ -2,7 +2,8 @@
 rule ref_pca_i:
   input:
     ref_input,
-    rules.install_genoutils.output
+    rules.install_genoutils.output,
+    "resources/last_version.txt"
   output:
     "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
   conda:
@@ -49,7 +50,8 @@ if 'gwas_list' in config:
     input:
       ref_input,
       rules.install_genoutils.output,
-      lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
+      lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
+      "resources/last_version.txt"
     output:
       f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz"
     benchmark:
@@ -449,7 +451,8 @@ check_list_paths(score_list_df)
 # Download PGS score files for PGSC if path is NA
 rule download_pgs_external:
   input:
-    rules.download_pgscatalog_utils.output
+    rules.download_pgscatalog_utils.output,
+    "resources/last_version.txt"
   output:
     touch(f"{outdir}/reference/pgs_score_files/raw_external/{{score}}/{{score}}_hmPOS_GRCh37.txt.gz")
   params:
