@@ -151,10 +151,8 @@ targ_pvar<-targ_pvar[,c('CHR','BP','SNP','A2','A1'),with=F]
 
 # Label SNP with _dup if the RSID is duplicated, so these variants are removed.
 dup_snp<-duplicated(targ_pvar$SNP)
-log_add(log_file = log_file, message = paste0('Removing ', sum(dup_snp),' duplicate variants.'))
+log_add(log_file = log_file, message = paste0('Removing ', sum(dup_snp),' duplicate variants - May have IUPAC NA.'))
 targ_pvar$SNP[dup_snp]<-paste0(targ_pvar$SNP[dup_snp],'_dup')
-
-log_add(log_file = log_file, message = paste0(sum(!dup_snp)," of ", nrow(ref)," reference variants are in the target."))
 
 # Write out new bim file
 names(targ_pvar)<-c('#CHROM','POS','ID','REF','ALT')
@@ -180,7 +178,7 @@ ref_psam<-fread(paste0(opt$ref,'.psam'))
 names(ref_psam)<-gsub('\\#', '', names(ref_psam))
 ref_psam <- ref_psam[, names(ref_psam) %in% c('FID', 'IID'), with = F]
 if(ncol(ref_psam) == 1){
-  ref_ID_update<-data.frame(ref_psam$`IID`, paste0(ref_psam$`#IID`,'_REF'))
+  ref_ID_update<-data.frame(ref_psam$`IID`, paste0(ref_psam$`IID`,'_REF'))
 } else {
   ref_ID_update<-data.frame(ref_psam$`FID`, ref_psam$`IID`, paste0(ref_psam$`FID`,'_REF'), paste0(ref_psam$`IID`,'_REF'))
 }
@@ -188,10 +186,14 @@ fwrite(ref_ID_update, paste0(tmp_dir,'/ref_ID_update.txt'), sep=' ', col.names=F
 system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --memory 5000 --threads 1'))
 
 # Merge target and reference plink files to insert missing SNPs
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --pmerge ',tmp_dir,'/REF --make-pgen --memory 5000 --threads 1 --out ',tmp_dir,'/subset'))
+# plink2's pmerge only handles concatenation for the time being
+# In the meantime, convert the ref and target into plink1 binaries, merge, and then convert back to plink2 binaries
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --make-bed --memory 5000 --threads 1 --out ',tmp_dir,'/subset'))
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/REF --make-bed --out ',tmp_dir,'/REF --memory 5000 --threads 1'))
+system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --bmerge ',tmp_dir,'/REF --make-bed --allow-no-sex --out ',tmp_dir,'/ref_targ'))
 
 # Extract only target individuals
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --remove ',tmp_dir,'/REF.psam --make-pgen --memory 5000 --threads 1 --out ',opt$output))
+system(paste0(opt$plink2,' --bfile ',tmp_dir,'/ref_targ --remove ',tmp_dir,'/REF.psam --make-pgen --memory 5000 --threads 1 --out ',opt$output))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
