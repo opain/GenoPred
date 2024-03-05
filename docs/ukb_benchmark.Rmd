@@ -95,6 +95,8 @@ write.table(target_list, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr
 
 Use the same GWAS as used in the INTERVENE paper ([link](https://doi.org/10.1101/2023.11.20.23298215)), except exclude AD as overlaps with UKB, and use Yengo Height with UKB excluded. After closer inspection, the RA GWAS (Ho et al) is actually majority EAS ancestry. For this initial evaluation, lets prioritise EUR GWAS, so for RA I will use a more recent GWAS by Ishigaki et al (GCST90132223). Also the sample size specified for breast cancer GWAS seems to be wrong, the sumstats on GWAS catalogue are the meta-analysis (122,977 cases and 105,974 controls).
 
+<details><summary>Show code</summary>
+
 <h3>Download sumstats from the GWAS catalogue</h3>
 
 ```{bash}
@@ -382,6 +384,8 @@ write.table(gwas_list, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k
 
 ## configfile
 
+<details><summary>Show code</summary>
+
 ```{r}
 # Create config file
 conf <- c(
@@ -395,18 +399,14 @@ conf <- c(
 write.table(conf, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', col.names = F, row.names = F, quote = F)
 ```
 
+</details>
+
 ***
 
 # Run pipeline
 
 ```{bash}
 snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml output_all -n 
-
-snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml prep_pgs -n 
-
-# Run outlier detection using dev version to allow relatedness estimation to be skipped
-snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml outlier_detection -n -p
-
 ```
 
 ***
@@ -420,11 +420,14 @@ library(data.table)
 library(ggplot2)
 library(cowplot)
 
+# read in gwas_list
+gwas_list<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt')
+
 # Read in configuration specific benchmark files
 bm_files_i <-
   paste0(
-    '/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test4/reference/benchmarks/',
-    list.files('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test4/reference/benchmarks/')
+    '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/output/reference/benchmarks/',
+    list.files('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/output/reference/benchmarks/')
   )
 
 # Read in benchmark files
@@ -437,55 +440,152 @@ bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
 # Create rule column
 bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
 
-#####
-# PGS methods
-#####
-# Look at the memory required for each PGS method using the EUR GWAS
-bm_dat_yengo_eur <-
-  bm_dat_all[grepl('prep_pgs', bm_dat_all$file) &
-               grepl('yengo_eur.txt', bm_dat_all$file), ]
+# Summarise memory and time
+bm_dat_summary <- NULL
 
-bm_dat_yengo_eur$method <- gsub('_i', '', gsub('prep_pgs_','',bm_dat_yengo_eur$rule))
-bm_dat_yengo_eur<-merge(bm_dat_yengo_eur, pgs_method_labels, by='method')
+#######
+# Rules that are only run once
+#######
+
+tmp <- bm_dat_all[bm_dat_all$rule %in% c('ancestry_inference_i',
+                                         'outlier_detection_i',
+                                         'sample_report_i')]
+
+tmp <- data.frame(
+  rule = tmp$rule,
+  pgs_method = NA,
+  pop = NA,
+  mean_time = tmp$s,
+  max_time = tmp$s,
+  mean_mem = tmp$max_rss,
+  max_mem = tmp$max_rss
+)
+
+bm_dat_summary <-
+  rbind(bm_dat_summary, tmp)
+
+#######
+# Sum the format_target time
+#######
+
+tmp <- bm_dat_all[bm_dat_all$rule %in% c('format_target_i')]
+
+tmp <- data.frame(
+  rule = tmp$rule[1],
+  pgs_method = NA,
+  pop = NA,
+  mean_time = mean(tmp$s),
+  max_time = max(tmp$s),
+  mean_mem = mean(tmp$max_rss),
+  max_mem = max(tmp$max_rss)
+)
+
+bm_dat_summary <-
+  rbind(bm_dat_summary, tmp)
+
+
+#######
+# Average across GWAS
+#######
+for (rule_i in c(
+  'prep_pgs_ptclump_i',
+  'prep_pgs_dbslmm_i',
+  'prep_pgs_prscs_i',
+  'prep_pgs_megaprs_i',
+  'prep_pgs_lassosum_i',
+  'prep_pgs_ldpred2_i',
+  'prep_pgs_sbayesr_i',
+  'sumstat_prep_i'
+)) {
+    bm_dat_all_tmp <-
+    bm_dat_all[bm_dat_all$rule == rule_i, ]
+    
+    bm_dat_all_tmp$gwas <- gsub('.*-','', gsub('.txt','', bm_dat_all_tmp$file))
+    bm_dat_all_tmp<-bm_dat_all_tmp[bm_dat_all_tmp$gwas %in% gwas_list$name,]
+    
+    tmp <- data.table(
+      rule = rule_i,
+      pgs_method = NA,
+      pop = NA,
+      mean_time = mean(bm_dat_all_tmp$s),
+      max_time = max(bm_dat_all_tmp$s),
+      mean_mem = mean(bm_dat_all_tmp$max_rss),
+      max_mem = max(bm_dat_all_tmp$max_rss)
+    )
+    
+    bm_dat_summary<-rbind(bm_dat_summary, tmp)
+}
+  
+####
+# Average target_pgs_i across PGS method and GWAS
+####
+
+rule_i<-'target_pgs_i' 
+bm_dat_all_tmp <- bm_dat_all[bm_dat_all$rule == rule_i, ]
+
+rule_split<-strsplit(bm_dat_all_tmp$file, '-')
+bm_dat_all_tmp$pgs_method <- lapply(rule_split, function(x) x[3])
+bm_dat_all_tmp$pop <- lapply(rule_split, function(x) x[4])
+
+for(pgs_method_i in unique(bm_dat_all_tmp$pgs_method)){
+  for(pop_i in unique(bm_dat_all_tmp$pop)){
+    bm_dat_all_tmp_2<-bm_dat_all_tmp[bm_dat_all_tmp$pgs_method == pgs_method_i & bm_dat_all_tmp$pop == pop_i,]
+    
+    tmp <- data.table(
+      rule = rule_i,
+      pgs_method = pgs_method_i,
+      pop = pop_i,
+      mean_time = mean(bm_dat_all_tmp_2$s),
+      max_time = max(bm_dat_all_tmp_2$s),
+      mean_mem = mean(bm_dat_all_tmp_2$max_rss),
+      max_mem = max(bm_dat_all_tmp_2$max_rss)
+    )
+
+    bm_dat_summary<-rbind(bm_dat_summary, tmp)
+
+  }
+}
+
+write.csv(bm_dat_summary, '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/bm_res.csv')
+
+#################
+# Plot
+#################
+
+bm_dat_summary_i <- bm_dat_summary[bm_dat_summary$rule %in% c(
+    'prep_pgs_ptclump_i',
+    'prep_pgs_dbslmm_i',
+    'prep_pgs_prscs_i',
+    'prep_pgs_megaprs_i',
+    'prep_pgs_lassosum_i',
+    'prep_pgs_ldpred2_i',
+    'prep_pgs_sbayesr_i'
+  ),]
+
+bm_dat_summary_i$method <- gsub('_i', '', gsub('prep_pgs_','',bm_dat_summary_i$rule))
+bm_dat_summary_i<-merge(bm_dat_summary_i, pgs_method_labels, by='method')
 
 pgs_method_time <-
-  ggplot(bm_dat_yengo_eur, aes(x = label, y = s, fill = label)) +
+  ggplot(bm_dat_summary_i, aes(x = label, y = mean_time)) +
   geom_bar(stat = "identity", position = "dodge") +
-  labs(x = "PGS Method", y = "Time (seconds)") +
+  labs(x = "PGS Method", y = "Time (seconds)", fill='Cores') +
   theme_half_open() +
   background_grid() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 pgs_method_mem <-
-  ggplot(bm_dat_yengo_eur, aes(x = label, y = max_rss, fill = label)) +
+  ggplot(bm_dat_summary_i, aes(x = label, y = max_mem)) +
   geom_bar(stat = "identity", position="dodge") +
-  labs(x = "PGS Method", y = "Max Memory (Mb)") +
+  labs(x = "PGS Method", y = "Max Memory (Mb)", fill='Cores') +
   theme_half_open() +
   background_grid() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-png('Images/OpenSNP/time_cpu_bench_pgs_methods.png', res = 300, width = 1800, height = 1800, units = 'px')
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/bm_pgs_methods.png', res = 300, width = 1800, height = 1800, units = 'px')
   plot_grid(pgs_method_time, pgs_method_mem, nrow=2)
 dev.off()
 
-write.csv(bm_dat_yengo_eur, 'Images/OpenSNP/time_cpu_bench_pgs_methods.csv', row.names=F, quote=F)
-
 ```
-</details>
-
-<details><summary>Show PGS methods benchmark</summary>
-
-<div class="centered-container">
-<div class="rounded-image-container" style="width: 50%;">
-![Time and max. memory used by each PGS method](Images/OpenSNP/time_cpu_bench_pgs_methods.png)
-</div>
-</div>
-
-<div class="note-box">
-
-**Note:** pT+clump and DBSLMM are run using 1 core. All other methods are run using 10 cores.
-
-</div>
 
 </details>
 
@@ -502,6 +602,8 @@ We will use application 82087 for this analysis, and use [ukbkings](https://kenh
 ***
 
 ### Binary outcomes
+
+<details><summary>Show code</summary>
 
 ```{r}
 library(ukbkings)
@@ -662,9 +764,13 @@ for(i in names(endpoints)){
 
 ```
 
+</details>
+
 ***
 
 ### Continuous outcomes
+
+<details><summary>Show code</summary>
 
 ```{r}
 library(ukbkings)
@@ -726,11 +832,15 @@ for(i in 1:nrow(var_pheno)){
 
 ```
 
+</details>
+
 ***
 
 ### Remove related individuals
 
 Relatedness has already been estimated in UK Biobank. Using greedy related, identify a list of unrelated individuals for population outlier detection, and for each phenotype. A function for this is available in ukbkings.
+
+<details><summary>Show code</summary>
 
 ```{r}
 
@@ -828,7 +938,10 @@ write.csv(n_table, '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/pheno_n.csv
 
 ```
 
+</details>
+
 ***
+
 ## Check correlation
 
 <details><summary>Show code</summary>
@@ -845,7 +958,7 @@ source('../functions/misc.R')
 source_all('../functions')
 
 # Define pgs_methods used
-pgs_methods <- c('ptclump')
+pgs_methods <- read_param(config = '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', param = 'pgs_methods', return_obj = F)
 
 # Read in PGS
 pgs <- read_pgs(config = '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', name = 'ukb')$ukb
@@ -856,9 +969,6 @@ psam$rn<-1:nrow(psam)
 
 # Read in gwas_list
 gwas_list<-read_param(config = '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', param = 'gwas_list')
-pheno_gwas<-data.frame(
-  pheno=c(bin_phenos, con_phenos)
-)
 
 # Create column containing the phenotypes corresponding to each GWAS
 gwas_list$pheno<-tolower(gwas_list$label)
@@ -945,6 +1055,9 @@ for(i in phenos){
   }
 }
 
+saveRDS(cor, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/assoc/cor.RDS')
+cor<-readRDS('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/assoc/cor.RDS')
+
 # Subset results to best and pseudoval
 cor_subset<-NULL
 for(pheno_i in phenos){
@@ -958,6 +1071,9 @@ for(pheno_i in phenos){
           cor$pop == pop_i &
           cor$gwas == gwas_i &
           cor$pgs_method == pgs_method_i,]
+        
+        # Remove results with large SE
+        cor_pop_i<-cor_pop_i[which(cor_pop_i$se < 10),]
     
         # Top R
         if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','lassosum','dbslmm')){
@@ -983,6 +1099,7 @@ for(pheno_i in phenos){
 cor_subset$model <- factor(cor_subset$model, levels = c('Top','Pseudo'))
 dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB')
 
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all.png', res=300, width=4000, height=6000, units = 'px')
 ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
@@ -1001,8 +1118,10 @@ ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
         plot.title = element_text(hjust = 0.5, size=12)) +
   facet_grid(pheno ~ pop , scales="free_y") +
   panel_border()
+dev.off()
 
-ggplot(cor_subset[cor_subset$pheno == 'bc' & cor_subset$pop %in% c('EUR','CSA'),], aes(x = pgs_method, y = r, fill = model)) +
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_eur.png', res=300, width=4500, height=3000, units = 'px')
+ggplot(cor_subset[cor_subset$pop == 'EUR'], aes(x = pgs_method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1018,11 +1137,40 @@ ggplot(cor_subset[cor_subset$pheno == 'bc' & cor_subset$pop %in% c('EUR','CSA'),
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12)) +
-  facet_grid(pheno ~ pop) +
-  panel_border() +
-  coord_flip()
+  facet_wrap(pheno ~ . , scales="free", nrow = 3) +
+  panel_border()
+dev.off()
 
 ```
 
 </details>
+
+<details><summary>Show associations for all populations</summary>
+
+<div class="centered-container">
+<div class="rounded-image-container">
+![UK Biobank - All populations](Images/UKB/cor_all.png)
+</div>
+</div>
+
+</details>
+
+<details><summary>Show associations for European population</summary>
+
+<div class="centered-container">
+<div class="rounded-image-container">
+![UK Biobank - All populations](Images/UKB/cor_eur.png)
+</div>
+</div>
+
+</details>
+
+</br>
+
+***
+
+# Conclusion
+
+This preliminary analysis indicates the pipeline is working properly. For proper comparison methods and evaluation of score, a cross validation framework should be used.
+
 
