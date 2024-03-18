@@ -94,9 +94,7 @@ ref_target<-ref_target[!is.na(ref_target$IUPAC.x),]
 
 # Identify variants that need to be flipped
 flip <- detect_strand_flip(ref_target$IUPAC.x, ref_target$IUPAC.y)
-if(any(flip)){
-  write.table(ref_target$SNP.y[flip], paste0(tmp_dir,'/flip_list.txt'), col.names = F, row.names = F, quote=F)
-}
+flip_id <- ref_target$SNP.y[flip]
 
 # Remove variants where IUPAC codes do not match (allowing for strand flips)
 matched <- which((ref_target$IUPAC.x == ref_target$IUPAC.y) | flip)
@@ -149,6 +147,13 @@ ref_target$ID<-paste0(ref_target$CHR,':',ref_target$BP,':',ref_target$IUPAC.x)
 targ_pvar[ref_target, on=.(ID), SNP := i.SNP.y]
 targ_pvar<-targ_pvar[,c('CHR','BP','SNP','A2','A1'),with=F]
 
+# Flip variants to match the reference
+if(sum(flip) > 0){
+  targ_pvar$A1[targ_pvar$SNP %in% flip_id]<-snp_allele_comp(targ_pvar$A1[targ_pvar$SNP %in% flip_id])
+  targ_pvar$A2[targ_pvar$SNP %in% flip_id]<-snp_allele_comp(targ_pvar$A2[targ_pvar$SNP %in% flip_id])
+  log_add(log_file = log_file, message = paste0('Flipped ', sum(flip), ' variants in target.'))
+}
+
 # Label SNP with _dup if the RSID is duplicated, so these variants are removed.
 dup_snp<-duplicated(targ_pvar$SNP)
 log_add(log_file = log_file, message = paste0('Removing ', sum(dup_snp),' duplicate variants - May have IUPAC NA.'))
@@ -159,13 +164,7 @@ names(targ_pvar)<-c('#CHROM','POS','ID','REF','ALT')
 fwrite(targ_pvar, paste0(tmp_dir,'/subset.pvar'), col.names=T, row.names=F, quote=F, na='NA', sep=' ')
 
 # Extract variants based on new reference RSIDs
-# and flip variants if there are any to be flipped
-plink_opt<-NULL
-if(sum(flip) > 0){
-  plink_opt<-paste0(plink_opt, paste0('--flip ',tmp_dir,'/flip_list.txt '))
-}
-
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset ',plink_opt,'--extract ', tmp_dir,'/extract_list_2.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --extract ', tmp_dir,'/extract_list_2.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
 
 ##################
 # Insert missing SNPs into the reference data
