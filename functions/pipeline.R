@@ -165,7 +165,7 @@ read_ancestry <- function(config, name){
   config_file <- readLines(config)
 
   # Identify outdir
-  outdir <- read_param(config = params$config, param = 'outdir', return_obj = F)
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 
   # Read keep_list
   keep_list <- fread(paste0(outdir,'/',name,'/ancestry/keep_list.txt'))
