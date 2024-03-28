@@ -168,7 +168,8 @@ rule ancestry_inference_i:
   conda:
     "../envs/analysis.yaml"
   params:
-    testing=config["testing"]
+    testing=config["testing"],
+    ancestry_prob_thresh=config["ancestry_prob_thresh"]
   shell:
     "rm -r -f {outdir}/{wildcards.name}/ancestry; \
      rm -f {outdir}/reference/target_checks/{wildcards.name}/ancestry_reporter.done; \
@@ -177,6 +178,7 @@ rule ancestry_inference_i:
       --ref_plink_chr {refdir}/ref.chr \
       --output {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry \
       --pop_data {refdir}/ref.pop.txt \
+      --prob_thresh {params.ancestry_prob_thresh} \
       --test {params.testing} > {log} 2>&1"
 
 rule ancestry_inference:

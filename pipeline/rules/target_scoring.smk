@@ -25,7 +25,7 @@ pgs_methods_noneur = ['ptclump','lassosum','megaprs','prscs','dbslmm']
 def list_target_scores(name):
     populations=ancestry_munge(x=name)
     scores=score_munge()
-    
+
     target_scores = list()
     for method in pgs_methods:
       for gwas in gwas_list_df['name'] if method in pgs_methods_noneur else gwas_list_df_eur['name']:
@@ -35,7 +35,7 @@ def list_target_scores(name):
     for score in scores:
         for population in populations:
           target_scores.append(f"{outdir}/reference/target_checks/{name}/target_pgs-external-{population}-{score}.done")
-          
+
     return target_scores
 
 ####
@@ -84,6 +84,7 @@ rule target_pgs_i:
     time_min=800
   threads: lambda w: 1 if w.method in ['dbslmm', 'sbayesr'] else 5
   input:
+    f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
     f"{outdir}/reference/target_checks/prep_pgs_{{method}}_i-{{gwas}}.done"
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{method}}-{{population}}-{{gwas}}.done")

@@ -2,10 +2,10 @@ output_all_input = list()
 label_list = pd.Series(dtype=object)
 
 if 'target_list' in config and config["target_list"] != 'NA':
-  output_all_input.append(rules.target_pgs.input)
+  output_all_input.append(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done")
 
 if 'gwas_list' in config and config["gwas_list"] != 'NA':
-  output_all_input.append(rules.prep_pgs.input)
+  output_all_input.append(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done")
   output_all_input.append(rules.sumstat_prep.input)
   label_list = pd.concat([label_list, gwas_list_df['label']])
 
@@ -127,6 +127,5 @@ rule indiv_report:
 
 rule output_all:
   input:
-    output_all_input,
     rules.sample_report.input,
     rules.indiv_report.input

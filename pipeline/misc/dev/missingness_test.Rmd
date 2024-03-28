@@ -1,0 +1,173 @@
+---
+title: "Missingness test"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Generate a version of the reference with missing data to explore the consequence of missingness on ancestry inference and polygenic scoring. Create datasets with certain SNPs missing for all individuals, and then a dataset with differential missingness across individuals.
+
+***
+
+# Prepare data
+
+```{r}
+setwd("/scratch/prj/oliverpainfel/Software/MyGit/GenoPred/pipeline")
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+ref<-read_pvar('resources/data/ref/ref.chr')
+set.seed(1)
+miss<-c(0.97,0.94,0.91)
+for(i in 1:length(miss)){
+  dir.create(paste0('/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/miss_', miss[i]), recursive = T)
+  ref_miss<-ref[sample(nrow(ref), round(nrow(ref)*miss[i])),]
+  write.table(ref_miss$SNP, paste0('/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/miss_', miss[i],'/extract.snplist'), col.names=F, row.names=F, quote=F)
+  
+  for(chr in 1:22){
+    system(paste0('plink2 --pfile resources/data/ref/ref.chr', chr, ' --make-pgen --extract /users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/miss_', miss[i],'/extract.snplist --out /users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/miss_', miss[i],'/ref.chr', chr))
+  }
+}
+```
+
+```{r}
+setwd("/scratch/prj/oliverpainfel/Software/MyGit/GenoPred/pipeline")
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+ref_bim<-read_pvar('resources/data/ref/ref.chr')
+ref_fam<-fread('resources/data/ref/ref.chr22.psam')
+tmp_dir<-tempdir()
+set.seed(1)
+parts <- split(1:nrow(ref_fam), cut(seq_along(1:nrow(ref_fam)), breaks=100, labels=FALSE))
+n_snp<-sample(nrow(ref_bim))
+bim_parts <- split(n_snp, cut(seq_along(n_snp), breaks=100, labels=FALSE))
+dir.create('/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/diff_miss')
+
+for(i in 1:length(parts)){
+  bim_parts_tmp<-bim_parts
+  bim_parts_tmp[[i]]<-sample(bim_parts_tmp[[i]], round(length(bim_parts_tmp[[i]])*0))
+  
+  write.table(ref_fam[parts[[i]], c('#IID'), with=F], paste0(tmp_dir,'/ref.part',i,'.keep'), col.names=F, row.names=F, quote=F)
+  write.table(ref_bim[do.call(c, bim_parts_tmp),]$SNP, paste0(tmp_dir,'/ref.part',i,'.snplist'), col.names=F, row.names=F, quote=F)
+
+  for(chr in 1:22){
+    system(paste0('plink2 --pfile resources/data/ref/ref.chr', chr, ' --make-bed --keep ',tmp_dir,'/ref.part',i,'.keep --extract ',tmp_dir,'/ref.part',i,'.snplist --out ', tmp_dir,'/ref.part',i,'chr', chr))
+  }
+}
+
+for(chr in 1:22){
+  write.table(paste0(tmp_dir,'/ref.part',1:length(parts),'chr', chr), paste0(tmp_dir,'/ref.merge.chr',chr,'.txt'), col.names=F, row.names=F, quote=F)
+  system(paste0('plink --merge-list ',tmp_dir,'/ref.merge.chr',chr,'.txt --make-bed --out ', tmp_dir,'/ref.chr', chr))
+  system(paste0('plink2 --bfile ',tmp_dir,'/ref.chr', chr,' --make-pgen --out /users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/diff_miss/ref.chr', chr))
+}
+```
+
+***
+
+# Run pipeline
+
+```{r}
+miss<-c(0.97,0.94,0.91)
+
+dir.create('/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred')
+config<-c(
+  'outdir: /users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/output',
+  'config_file: /users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/config.yaml',
+  'gwas_list: example_input/gwas_list.txt',
+  'target_list: /users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/target_list.txt',
+  "pgs_methods: ['dbslmm']",
+  'testing: NA'
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/config.yaml', col.names=F, row.names=F, quote=F)
+
+target_list<-data.frame(
+  name=c(paste0('miss_', miss),'diff_miss','comp'),
+  path=c(paste0('/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/miss_', miss, '/ref'),'/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/diff_miss/ref','resources/data/ref/ref'),
+  type='plink2',
+  indiv_report=F
+)
+
+write.table(target_list, '/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/target_list.txt', col.names=T, row.names=F, quote=F)
+```
+
+```{bash}
+#v2.2.0-4-g97cd593
+conda activate genopred
+snakemake --use-conda -n --configfile=/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/config.yaml output_all
+```
+
+***
+
+# Compare outputs
+
+```{r}
+setwd("/scratch/prj/oliverpainfel/Software/MyGit/GenoPred/pipeline")
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+######
+# Compare PGS
+######
+pgs<-read_pgs(config='/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/config.yaml', pop = 'EUR', gwas = 'BODY04')
+
+comp<-merge(pgs$comp$EUR$BODY04$dbslmm, pgs$miss_0.91$EUR$BODY04$dbslmm, by = 'IID')
+cor(comp[, grepl('DBSLMM_0.8', names(comp)), with=F])
+# Correlation is about 0.98
+
+mean(comp$BODY04_DBSLMM_0.8.x)
+sd(comp$BODY04_DBSLMM_0.8.x)
+mean(comp$BODY04_DBSLMM_0.8.y)
+sd(comp$BODY04_DBSLMM_0.8.y)
+
+mean(comp$BODY04_DBSLMM_1.2.x)
+sd(comp$BODY04_DBSLMM_1.2.x)
+mean(comp$BODY04_DBSLMM_1.2.y)
+sd(comp$BODY04_DBSLMM_1.2.y)
+# The sd is lower in the dataset with more missingness, as expected.
+
+max(comp$BODY04_DBSLMM_1.2.x - comp$BODY04_DBSLMM_1.2.y)
+
+comp<-merge(pgs$comp$EUR$BODY04$dbslmm, pgs$diff_miss$EUR$BODY04$dbslmm, by = 'IID')
+cor(comp[, grepl('DBSLMM_0.8', names(comp)), with=F])
+# Correlation is about 0.999
+
+mean(comp$BODY04_DBSLMM_0.8.x)
+sd(comp$BODY04_DBSLMM_0.8.x)
+mean(comp$BODY04_DBSLMM_0.8.y)
+sd(comp$BODY04_DBSLMM_0.8.y)
+
+mean(comp$BODY04_DBSLMM_1.2.x)
+sd(comp$BODY04_DBSLMM_1.2.x)
+mean(comp$BODY04_DBSLMM_1.2.y)
+sd(comp$BODY04_DBSLMM_1.2.y)
+# Very similar
+
+max(comp$BODY04_DBSLMM_1.2.x - comp$BODY04_DBSLMM_1.2.y)
+
+########
+# Compare ancestry
+########
+
+comp<-read_ancestry(config='/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/config.yaml', name = 'comp')
+miss_91<-read_ancestry(config='/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/config.yaml', name = 'miss_0.91')
+diff_miss<-read_ancestry(config='/users/k1806347/oliverpainfel/Data/1KG/GenoPred/missingness_test/genopred/config.yaml', name = 'diff_miss')
+
+both<-merge(comp$model_pred, miss_91$model_pred, by = 'IID')
+cor(both[, !grepl('FID|IID', names(both)), with=F])
+
+both<-merge(comp$model_pred, diff_miss$model_pred, by = 'IID')
+cor(both[, !grepl('FID|IID', names(both)), with=F])
+
+# Ancestry predictions are highly similar 0.9999
+```
+
+The ancestry inference and polygenic scoring are not massively influenced by missing data, however, the PGS of an individual can vary substantially. An alternative approach that might improve comparability of scores across samples, is to mean impute an individuals score (not using sample allele frequency).  
+
