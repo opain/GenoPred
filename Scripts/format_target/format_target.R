@@ -113,16 +113,16 @@ write.table(ref_target$SNP.y, paste0(tmp_dir,'/extract_list_2.txt'), col.names =
 
 # First extract variants based on original ID
 if(opt$format == 'plink1'){
-  system(paste0(opt$plink2,' --bfile ',opt$target, ' --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2," --bfile ",opt$target, " --extract ", tmp_dir,"/extract_list_1.txt --make-pgen 'pvar-cols=' --memory 5000 --threads 1 --out ", tmp_dir,"/subset"))
 }
 if(opt$format == 'plink2'){
-  system(paste0(opt$plink2,' --pfile ',opt$target, ' --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2," --pfile ",opt$target, " --extract ", tmp_dir,"/extract_list_1.txt --make-pgen 'pvar-cols=' --memory 5000 --threads 1 --out ", tmp_dir,"/subset"))
 }
 if(opt$format == 'bgen'){
-  system(paste0(opt$plink2,' --bgen ',opt$target,'.bgen ref-last --sample ',gsub('.chr.*','',opt$target),'.sample --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2," --bgen ",opt$target,".bgen ref-last --sample ",gsub(".chr.*","",opt$target),".sample --extract ", tmp_dir,"/extract_list_1.txt --make-pgen 'pvar-cols=' --memory 5000 --threads 1 --out ", tmp_dir,"/subset"))
 }
 if(opt$format == 'vcf'){
-  system(paste0(opt$plink2,' --vcf ',opt$target,'.vcf.gz --extract ', tmp_dir,'/extract_list_1.txt --make-pgen --memory 5000 --threads 1 --out ', tmp_dir,'/subset'))
+  system(paste0(opt$plink2," --vcf ",opt$target,".vcf.gz --extract ", tmp_dir,"/extract_list_1.txt --make-pgen 'pvar-cols=' --memory 5000 --threads 1 --out ", tmp_dir,"/subset"))
 }
 
 # Ensure both FID and IID are present in the .psam file
