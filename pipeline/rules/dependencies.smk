@@ -321,6 +321,10 @@ rule download_prscs_ref_ukb:
     }} > {log} 2>&1
     """
 
+rule download_prscs_ref_ukb_all:
+  input:
+    lambda w: expand(f"resources/data/prscs_ref/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
+
 # Download 1KG-based PRScs reference
 prscs_ref_1kg_dropbox = {
     'eur': 'https://www.dropbox.com/s/mt6var0z96vb6fv/ldblk_1kg_eur.tar.gz?dl=0',
@@ -349,6 +353,10 @@ rule download_prscs_ref_1kg:
       rm resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
+
+rule download_prscs_ref_1kg_all:
+  input:
+    lambda w: expand(f"resources/data/prscs_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
 
 # Download PRScs software
 rule download_prscs_software:
@@ -604,11 +612,12 @@ rule download_pgscatalog_utils:
       download_scorefiles -h > download_pgscatalog_utils.done
     }} > {log} 2>&1
     """
+    
 ############
 # Check all dependencies are available
 ############
 
-# Rule to install and download all dependencies
+# Rule to install and download commonly required software and data dependencies
 rule get_dependencies:
   input:
     rules.download_plink.output,
@@ -625,3 +634,36 @@ rule get_dependencies:
   output:
     touch("resources/software/get_dependencies.done")
 
+# Rule to download all software dependencies
+rule get_all_software:
+  input:
+    rules.download_plink.output,
+    rules.download_ldsc.output,
+    rules.download_dbslmm.output,
+    rules.install_ggchicklet.output,
+    rules.install_lassosum.output,
+    rules.install_genoutils.output,
+    rules.download_pgscatalog_utils.output,
+    rules.download_prscs_software.output,
+    rules.download_gctb_software.output,
+    rules.download_ldak.output
+  output:
+    touch("resources/software/get_all_software.done")
+
+# Rule to download all data dependencies
+rule get_all_data:
+  input:
+    rules.download_impute2_data.output,
+    rules.download_ldscores_panukb.output,
+    rules.download_hm3_snplist.output,
+    rules.download_ld_blocks.output,
+    rules.download_prscs_ref_ukb_all.input,
+    rules.download_prscs_ref_1kg_all.input,
+    rules.download_gctb_ref.output,
+    rules.download_ldpred2_ref.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output,
+    rules.download_ldak_highld.output,
+    rules.download_default_ref.output
+  output:
+    touch("resources/software/get_all_data.done")

@@ -53,7 +53,7 @@ read_geno <- function(target, format) {
   }
 
   if (format == 'vcf') {
-    target_snp <- fread(cmd = paste0("zcat ", target, ".vcf.gz | cut -f 1-5"))
+    target_snp <- fread(cmd = paste0("zcat ", target, ".vcf.gz | cut -f 1-5"), skip='#CHROM')
     names(target_snp) <- c('CHR', 'BP', 'SNP', 'A1', 'A2')
     target_snp$CHR <- as.numeric(gsub('chr', '', target_snp$CHR))
   }
