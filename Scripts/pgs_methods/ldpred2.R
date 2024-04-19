@@ -174,10 +174,7 @@ ldsc <- with(sumstats, snp_ldsc(ld, nrow(map), chi2 = (beta / beta_se)^2, sample
 
 log_add(log_file = log_file, message = paste0('Estimated SNP-based heritability = ', ldsc[["h2"]]))
 
-if(!is.na(opt$test) & ldsc[["h2"]] < 0.05){
-  ldsc[["h2"]] <- 0.05
-}
-if(!is.na(opt$test) & ldsc[["h2"]] < 0.05){
+if(ldsc[["h2"]] < 0.05){
   ldsc[["h2"]] <- 0.05
 }
 

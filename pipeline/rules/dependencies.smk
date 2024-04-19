@@ -26,21 +26,25 @@ if not conda_env_name == 'genopred':
 # Check config file
 ######
 
-# Check for the presence of at least one of gwas_list, target_list, or score_list
-lists_to_check = ['gwas_list', 'target_list', 'score_list']
-if not any(lst in config for lst in lists_to_check):
-  print("Error: At least one of 'gwas_list', 'score_list', or 'target_list' must be specified in the config file.")
-  sys.exit(1)
+def check_config_parameters(config):
+    required_params = [
+        'outdir', 'refdir', 'config_file', 'gwas_list', 'target_list',
+        'score_list', 'pgs_methods', 'ptclump_pts', 'dbslmm_h2f', 'prscs_phi',
+        'prscs_ldref', 'ldpred2_model', 'ldpred2_inference', 'ancestry_prob_thresh',
+        'testing'
+    ]
+    
+    missing_params = []
+    for param in required_params:
+        if config.get(param) is None:
+            missing_params.append(param)
 
-# Check for missing required configuration parameters
-required_config_params = ['outdir', 'pgs_methods', 'config_file']
-missing_config_params = [param for param in required_config_params if param not in config]
-if missing_config_params:
-  # Print an informative message
-  print(f"Missing required configuration parameters: {', '.join(missing_config_params)}. Please specify these in the configuration file.")
+    if missing_params:
+        print("Error: Missing parameters in user-specified and default config files:", missing_params)
+        sys.exit(1)
 
-  # Exit Snakemake gracefully
-  sys.exit(1)
+# Check the sample config
+check_config_parameters(config)
 
 # Set outdir parameter
 outdir=config['outdir']
