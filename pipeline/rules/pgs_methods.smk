@@ -3,9 +3,9 @@ rule ref_pca_i:
   input:
     ref_input,
     rules.install_genoutils.output,
-    "resources/last_version.txt"
+    f"{resdir}/last_version.txt"
   output:
-    "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
+    f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
   conda:
     "../envs/analysis.yaml",
   params:
@@ -13,21 +13,21 @@ rule ref_pca_i:
     outdir=config["outdir"],
     refdir=config["refdir"]
   benchmark:
-    "resources/data/benchmarks/ref_pca_i-{population}.txt"
+    f"{resdir}/data/benchmarks/ref_pca_i-{{population}}.txt"
   log:
-    "resources/data/logs/ref_pca_i-{population}.log"
+    f"{resdir}/data/logs/ref_pca_i-{{population}}.log"
   shell:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{wildcards.population}.keep \
       --pop_data {refdir}/ref.pop.txt \
-      --output resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
+      --output {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
       --test {params.testing} > {log} 2>&1"
 
 populations=["AFR","AMR","EAS","EUR","SAS"]
 
 rule ref_pca:
-  input: expand("resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale", population=populations)
+  input: expand(f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale", population=populations)
 
 ##
 # QC and format GWAS summary statistics
@@ -51,7 +51,7 @@ if 'gwas_list' in config:
       ref_input,
       rules.install_genoutils.output,
       lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
-      "resources/last_version.txt"
+      f"{resdir}/last_version.txt"
     output:
       f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz"
     benchmark:
@@ -163,13 +163,13 @@ rule prep_pgs_dbslmm_i:
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --ld_blocks resources/data/ld_blocks/{params.ld_block_pop} \
-      --plink resources/software/plink/plink \
-      --dbslmm resources/software/dbslmm/software \
-      --munge_sumstats resources/software/ldsc/munge_sumstats.py \
-      --ldsc resources/software/ldsc/ldsc.py \
-      --ld_scores resources/data/ld_scores/UKBB.{params.population}.rsid \
-      --hm3_snplist resources/data/hm3_snplist/w_hm3.snplist \
+      --ld_blocks {resdir}/data/ld_blocks/{params.ld_block_pop} \
+      --plink {resdir}/software/plink/plink \
+      --dbslmm {resdir}/software/dbslmm/software \
+      --munge_sumstats {resdir}/software/ldsc/munge_sumstats.py \
+      --ldsc {resdir}/software/ldsc/ldsc.py \
+      --ld_scores {resdir}/data/ld_scores/UKBB.{params.population}.rsid \
+      --hm3_snplist {resdir}/data/hm3_snplist/w_hm3.snplist \
       --hm3_no_mhc T \
       --sample_prev {params.sampling} \
       --pop_prev {params.prevalence} \
@@ -204,7 +204,7 @@ rule prep_pgs_prscs_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
-    lambda w: "resources/data/prscs_ref/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
+    lambda w: f"{resdir}/data/prscs_ref/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
   output:
     touch(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done")
   conda:
@@ -228,8 +228,8 @@ rule prep_pgs_prscs_i:
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
-    --PRScs_path resources/software/prscs/PRScs.py \
-    --PRScs_ref_path resources/data/prscs_ref/ldblk_{prscs_ldref}_{params.population} \
+    --PRScs_path {resdir}/software/prscs/PRScs.py \
+    --PRScs_ref_path {resdir}/data/prscs_ref/ldblk_{prscs_ldref}_{params.population} \
     --n_cores {threads} \
     --phi_param {params.phi} \
     --test {params.testing} > {log} 2>&1
@@ -271,8 +271,8 @@ rule prep_pgs_sbayesr_i:
     "Rscript ../Scripts/pgs_methods/sbayesr.R \
       --ref_plink_chr {refdir}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --gctb resources/software/gctb/gctb_2.03beta_Linux/gctb \
-      --ld_matrix_chr resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
+      --gctb {resdir}/software/gctb/gctb_2.03beta_Linux/gctb \
+      --ld_matrix_chr {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
       --robust T \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -363,7 +363,7 @@ rule prep_pgs_ldpred2_i:
     Rscript ../Scripts/pgs_methods/ldpred2.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/EUR.keep \
-      --ldpred2_ref_dir resources/data/ldpred2_ref \
+      --ldpred2_ref_dir {resdir}/data/ldpred2_ref \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -415,10 +415,10 @@ rule prep_pgs_megaprs_i:
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --ldak resources/software/ldak/ldak5.1.linux \
-      --ldak_map resources/data/ldak_map/genetic_map_b37 \
-      --ldak_tag resources/data/ldak_bld \
-      --ldak_highld resources/data/ldak_highld/highld.txt \
+      --ldak {resdir}/software/ldak/ldak5.1.linux \
+      --ldak_map {resdir}/data/ldak_map/genetic_map_b37 \
+      --ldak_tag {resdir}/data/ldak_bld \
+      --ldak_highld {resdir}/data/ldak_highld/highld.txt \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
@@ -452,7 +452,7 @@ check_list_paths(score_list_df)
 rule download_pgs_external:
   input:
     rules.download_pgscatalog_utils.output,
-    "resources/last_version.txt"
+    f"{resdir}/last_version.txt"
   output:
     touch(f"{outdir}/reference/pgs_score_files/raw_external/{{score}}/{{score}}_hmPOS_GRCh37.txt.gz")
   params:
