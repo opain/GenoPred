@@ -66,7 +66,7 @@ else:
 # If refdir is NA, set refdir to '${resdir}/data/ref'
 if config['refdir'] == 'NA':
   refdir=f"{resdir}/data/ref"
-  ref_input="resources/data/ref/ref.pop.txt"
+  ref_input="{refdir}/ref.pop.txt"
 else:
   refdir=config['refdir']
   ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in range(1, 23) for ext in ['pgen', 'pvar', 'psam', 'rds']] + \
@@ -649,7 +649,7 @@ rule get_dependencies:
 # Rules for preparing offline resources
 ############
 
-rule get_all:
+rule get_all_resources:
   input:
     rules.download_plink.output,
     rules.download_ldsc.output,
@@ -657,7 +657,6 @@ rule get_all:
     rules.download_prscs_software.output,
     rules.download_gctb_software.output,
     rules.download_ldak.output,
-    rules.download_impute2_data.output,
     rules.download_ldscores_panukb.output,
     rules.download_hm3_snplist.output,
     rules.download_ld_blocks.output,
@@ -670,5 +669,45 @@ rule get_all:
     rules.download_ldak_highld.output,
     rules.download_default_ref.output
   output:
-    touch(f"{resdir}/software/get_all.done")
+    touch(f"{resdir}/software/get_all_resources.done")
+
+rule get_key_resources:
+  input:
+    rules.download_plink.output,
+    rules.download_ldsc.output,
+    rules.download_dbslmm.output,
+    rules.download_ldak.output,
+    rules.download_ldscores_panukb.output,
+    rules.download_hm3_snplist.output,
+    rules.download_ld_blocks.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output,
+    rules.download_ldak_highld.output,
+    rules.download_default_ref.output
+  output:
+    touch(f"{resdir}/software/get_key_resources.done")
+
+rule get_prscs_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_prscs_software.output,
+    rules.download_prscs_ref_ukb_all.input,
+    rules.download_prscs_ref_1kg_all.input
+  output:
+    touch(f"{resdir}/software/get_prscs_resources.done")
+
+rule get_ldpred2_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_ldpred2_ref.output
+  output:
+    touch(f"{resdir}/software/get_ldpred2_resources.done")
+
+rule get_sbayesr_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_gctb_software.output,
+    rules.download_gctb_ref.output
+  output:
+    touch(f"{resdir}/software/get_sbayesr_resources.done")
     
