@@ -543,13 +543,13 @@ rule install_ggchicklet:
   input:
     "envs/analysis.yaml"
   output:
-    touch(f"{resdir}/software/install_ggchicklet.done")
+    touch("resources/software/install_ggchicklet.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    f"{resdir}/data/benchmarks/install_ggchicklet.txt"
+    "resources/data/benchmarks/install_ggchicklet.txt"
   log:
-    f"{resdir}/data/logs/install_ggchicklet.log"
+    "resources/data/logs/install_ggchicklet.log"
   shell:
     """
     {{
@@ -561,13 +561,13 @@ rule install_lassosum:
   input:
     "envs/analysis.yaml"
   output:
-    touch(f"{resdir}/software/install_lassosum.done")
+    touch("resources/software/install_lassosum.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    f"{resdir}/data/benchmarks/install_lassosum.txt"
+    "resources/data/benchmarks/install_lassosum.txt"
   log:
-    f"{resdir}/data/logs/install_lassosum.log"
+    "resources/data/logs/install_lassosum.log"
   shell:
     """
     {{
@@ -579,13 +579,13 @@ rule install_genoutils:
   input:
     "envs/analysis.yaml"
   output:
-    touch(f"{resdir}/software/install_genoutils.done")
+    touch("resources/software/install_genoutils.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    f"{resdir}/data/benchmarks/install_genoutils.txt"
+    "resources/data/benchmarks/install_genoutils.txt"
   log:
-    f"{resdir}/data/logs/install_genoutils.log"
+    "resources/data/logs/install_genoutils.log"
   shell:
     """
     {{
