@@ -66,7 +66,7 @@ else:
 # If refdir is NA, set refdir to '${resdir}/data/ref'
 if config['refdir'] == 'NA':
   refdir=f"{resdir}/data/ref"
-  ref_input="{refdir}/ref.pop.txt"
+  ref_input=f"{refdir}/ref.pop.txt"
 else:
   refdir=config['refdir']
   ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in range(1, 23) for ext in ['pgen', 'pvar', 'psam', 'rds']] + \
