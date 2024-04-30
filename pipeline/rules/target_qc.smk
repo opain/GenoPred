@@ -41,7 +41,7 @@ if 'target_list' in config:
     input:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
       rules.download_impute2_data.output,
-      "resources/last_version.txt"
+      f"{resdir}/last_version.txt"
     output:
       f"{outdir}/{{name}}/geno/imputed/{{name}}.chr{{chr}}.bed"
     benchmark:
@@ -62,7 +62,7 @@ if 'target_list' in config:
         --geno {params.path} \
         --output {outdir}/{params.name}/geno/imputed/{params.name}.chr{wildcards.chr} \
         --chr {wildcards.chr} \
-        --ref resources/data/impute2/1000GP_Phase3 \
+        --ref {resdir}/data/impute2/1000GP_Phase3 \
         --n_core {threads} > {log} 2>&1"
 
   rule impute_23andme_all:
@@ -119,7 +119,7 @@ if 'target_list' in config:
       lambda w: target_path(name = w.name, chr = w.chr),
       ref_input,
       rules.install_genoutils.output,
-      "resources/last_version.txt"
+      f"{resdir}/last_version.txt"
     output:
       f"{outdir}/{{name}}/geno/{{name}}.ref.chr{{chr}}.pgen"
     benchmark:

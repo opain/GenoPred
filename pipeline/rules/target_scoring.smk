@@ -45,7 +45,7 @@ def list_target_scores(name):
 rule pc_projection_i:
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
-    "resources/data/ref/pc_score_files/{population}/ref-{population}-pcs.EUR.scale"
+    f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/pc_projection-{{population}}.done")
   benchmark:
@@ -59,8 +59,8 @@ rule pc_projection_i:
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --target_keep {outdir}/{wildcards.name}/ancestry/keep_files/model_based/{wildcards.population}.keep \
       --ref_freq_chr {refdir}/freq_files/{wildcards.population}/ref.{wildcards.population}.chr \
-      --ref_score resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.eigenvec.var.gz \
-      --ref_scale resources/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.{wildcards.population}.scale \
+      --ref_score {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.eigenvec.var.gz \
+      --ref_scale {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.{wildcards.population}.scale \
       --plink2 plink2 \
       --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}-{wildcards.population} > {log} 2>&1"
 

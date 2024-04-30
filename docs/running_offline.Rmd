@@ -1,0 +1,159 @@
+---
+title: GenoPred Pipeline - Running Offline
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+library(knitr)
+library(data.table)
+```
+
+***
+
+This document describes how to run the GenoPred pipeline offline (an environment without access to the internet).
+
+First, the dependencies of the pipeline will need to prepared within an environment that **does** have access to the internet. These include the software container and additional pipeline resources. Then these resources can be transferred to the offline environment, and the pipeline can be run.
+
+Below, I provide an example of this process.
+
+***
+
+# Download software container
+
+The GenoPred image has already been built using the Dockerfile [here](https://github.com/opain/GenoPred/blob/master/pipeline/misc/docker/Dockerfile). This image can be pulled using either docker or singularity.
+
+```{bash}
+# Go to directory where you want to save the container image
+cd /users/k1806347/oliverpainfel/Software/singularity
+
+# Docker
+docker pull opaino/genopred_pipeline:v0.1
+
+# Singularity
+singularity pull docker://opaino/genopred_pipeline:v0.1
+```
+
+</details>
+
+***
+
+# Downloading pipeline resources
+
+The resources required by the pipeline depends on the analyses requested by the user. I have provided rules to download required resources for two scenarios:
+
+- `get_key_resources`: Allows for **most** PGS methods (`dbslmm`, `lassosum`, `megaprs`, `ptclump`)
+- `get_all_resources`: Allows for **all** PGS methods (additionally incl. `ldpred2`, `prscs`, `sbayesr`)
+
+Alternatively, the user can download only the data required for `ldpred2`, `prscs`, `sbayesr`:
+
+- `get_ldpred2_resources`: Allows for **ldpred2**
+- `get_prscs_resources`: Allows for **prscs**
+- `get_sbayesr_resources`: Allows for **sbayesr**
+
+**Note.** `23andMe` format target data will only be allowed for if the `download_impute2_data` rule is run, as reference data for imputation is required.
+
+***
+
+In this example, I will run the pipeline using the example configuration with the test data (running `ptclump`, `dbslmm`, and `lassosum`), so I will use the `get_key_resources` rule to download the required resources
+
+```{bash}
+# Create a configuration file specifying directory to save the required resources
+echo "resdir: genopred_resources" > config_offline.yaml
+
+# Run GenoPred pipeline using the get_key_resources rule
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate genopred
+snakemake \
+  --profile slurm \
+  --configfile=/users/k1806347/oliverpainfel/test/offline_example/config.yaml \
+  get_key_resources
+```
+
+***
+
+# Download test data
+
+For demonstration purposes, we will use the test data for the GenoPred pipeline. This is the same data as is used for the [main pipeline tutorial page](https://opain.github.io/GenoPred/pipeline_readme.html#Run_using_test_data).
+
+```{bash}
+cd /users/k1806347/oliverpainfel/test/offline_example
+
+# Download from Zenodo
+wget -O test_data.tar.gz https://zenodo.org/records/10640650/files/test_data.tar.gz?download=1
+
+# Decompress
+tar -xf test_data.tar.gz
+
+# Once decompressed, delete compressed version to save space
+rm test_data.tar.gz
+```
+
+***
+
+# Run pipeline offline
+
+I will now start an interactive session in the downloaded container. I will mount a folder within the container so I can read and write files outside of the container. See [docker](https://docs.docker.com/) and [singularity](https://sylabs.io/docs/) websites for general documentation on their use. 
+
+```{bash}
+######
+# Start interactive session within the container
+######
+
+# Singularity 
+singularity shell \
+  --contain \
+  --home /users/k1806347/oliverpainfel:/users/k1806347/oliverpainfel \
+  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.1.sif
+
+# Docker
+docker run \
+  -it \
+  -v /users/k1806347/oliverpainfel:/users/k1806347/oliverpainfel \
+  genopred_pipeline:v0.1
+```
+
+***
+
+Once the container has been started, we can use the pipeline as normal. A previously downloaded version of the GenoPred repo will be in the folder `/tools/GenoPred`, and the `genopred` conda environment will already be available. 
+
+In this example, before running the pipeline, I first get the configuration set up to the use the test data, the example configuration files, and run in an offline environment. First I create a symbolic link to the previously downloaded test_data, to align with the example_configuration files. Then, I update the example configuration to run in an offline environment:
+
+- Update the `resdir` parameter configfile to use the previously downloaded resources
+- Update the `score_list` to only include locally stored score files
+
+```{bash}
+# Activate GenoPred environment
+conda activate genopred
+
+# Create symbolic for test_data inside the pipeline folder to work with the example configuration files
+cd /tools/GenoPred/pipeline
+ln -s /users/k1806347/oliverpainfel/test/offline_example/test_data ./test_data
+
+# Update configuration files to run offline
+# 1. Remove score files requiring direct access to PGS catalogue
+awk -F' ' '$2 != "NA" {print}' example_input/score_list.txt > example_input/score_list_2.txt && mv example_input/score_list_2.txt example_input/score_list.txt
+# 2. Update resdir to previously downloaded resources
+echo "resdir: /users/k1806347/oliverpainfel/test/offline_example/genopred_resources" >> example_input/config.yaml
+
+# Do a dry run to check the scheduled steps are expected (there should not be any steps saying 'download', and it should not be necessary to build the conda environment)
+snakemake -n --use-conda --configfile=example_input/config.yaml output_all
+
+# Run pipeline using test data and example configuration
+snakemake -j1 --use-conda --configfile=example_input/config.yaml output_all
+```
+
+***
+
+# Any questions?
+
+Please post questions as an issue on the GenoPred GitHub repo [here](https://github.com/opain/GenoPred/issues).
+

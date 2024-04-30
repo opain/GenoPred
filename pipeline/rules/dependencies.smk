@@ -28,12 +28,12 @@ if not conda_env_name == 'genopred':
 
 def check_config_parameters(config):
     required_params = [
-        'outdir', 'refdir', 'config_file', 'gwas_list', 'target_list',
+        'outdir', 'resdir', 'refdir', 'config_file', 'gwas_list', 'target_list',
         'score_list', 'pgs_methods', 'ptclump_pts', 'dbslmm_h2f', 'prscs_phi',
         'prscs_ldref', 'ldpred2_model', 'ldpred2_inference', 'ancestry_prob_thresh',
         'testing'
     ]
-    
+
     missing_params = []
     for param in required_params:
         if config.get(param) is None:
@@ -55,11 +55,18 @@ if config['prscs_ldref'] == 'ukb':
 elif config['prscs_ldref'] == '1kg':
     prscs_ldref='1kg'
 
+# Set resdir parameter
+# If resdir is NA, set resdir to 'resources'
+if config['resdir'] == 'NA':
+  resdir='resources'
+else:
+  resdir=config['resdir']
+
 # Set refdir parameter
-# If refdir is NA, set refdir to resources/data/ref
+# If refdir is NA, set refdir to '${resdir}/data/ref'
 if config['refdir'] == 'NA':
-  refdir='resources/data/ref'
-  ref_input="resources/data/ref/ref.pop.txt"
+  refdir=f"{resdir}/data/ref"
+  ref_input=f"{refdir}/ref.pop.txt"
 else:
   refdir=config['refdir']
   ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in range(1, 23) for ext in ['pgen', 'pvar', 'psam', 'rds']] + \
@@ -115,8 +122,8 @@ def check_target_paths(df, chr):
 # If there has been a change to the major or minor version numbers, we will rerun the entire pipeline
 
 # Define the path for storing the last known version
-os.makedirs("resources", exist_ok=True)
-last_version_file = "resources/last_version.txt"
+os.makedirs(resdir, exist_ok=True)
+last_version_file = f"{resdir}/last_version.txt"
 
 def get_current_version():
     cmd = "git describe --tags"
@@ -166,58 +173,58 @@ else:
 # Download impute2_data
 rule download_impute2_data:
   output:
-    directory("resources/data/impute2/1000GP_Phase3")
+    directory(f"{resdir}/data/impute2/1000GP_Phase3")
   benchmark:
-    "resources/data/benchmarks/download_impute2_data.txt"
+    f"{resdir}/data/benchmarks/download_impute2_data.txt"
   log:
-    "resources/data/logs/download_impute2_data.log"
+    f"{resdir}/data/logs/download_impute2_data.log"
   shell:
     """
     {{
-      rm -r -f resources/data/impute2; \
-      mkdir -p resources/data/impute2/; \
-      wget --no-check-certificate -O resources/data/impute2/1000GP_Phase3.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz; \
-      tar -zxvf resources/data/impute2/1000GP_Phase3.tgz -C resources/data/impute2/; \
-      rm resources/data/impute2/1000GP_Phase3.tgz; \
-      wget --no-check-certificate -O resources/data/impute2/1000GP_Phase3_chrX.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz; \
-      tar -zxvf resources/data/impute2/1000GP_Phase3_chrX.tgz -C resources/data/impute2/1000GP_Phase3/; \
-      rm resources/data/impute2/1000GP_Phase3_chrX.tgz
+      rm -r -f {resdir}/data/impute2; \
+      mkdir -p {resdir}/data/impute2/; \
+      wget --no-check-certificate -O {resdir}/data/impute2/1000GP_Phase3.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz; \
+      tar -zxvf {resdir}/data/impute2/1000GP_Phase3.tgz -C {resdir}/data/impute2/; \
+      rm {resdir}/data/impute2/1000GP_Phase3.tgz; \
+      wget --no-check-certificate -O {resdir}/data/impute2/1000GP_Phase3_chrX.tgz https://mathgen.stats.ox.ac.uk/impute/1000GP_Phase3_chrX.tgz; \
+      tar -zxvf {resdir}/data/impute2/1000GP_Phase3_chrX.tgz -C {resdir}/data/impute2/1000GP_Phase3/; \
+      rm {resdir}/data/impute2/1000GP_Phase3_chrX.tgz
     }} > {log} 2>&1
     """
 
 # Download PLINK. DBSLMM requires the binary to be specified, which is challenging with conda environments. I have tried to avoid this again but no joy. The conda environment may not exist when the snakemake is executed which will cause problems if trying to access the conda environment manually.
 rule download_plink:
   output:
-    "resources/software/plink/plink"
+    f"{resdir}/software/plink/plink"
   benchmark:
-    "resources/data/benchmarks/download_plink.txt"
+    f"{resdir}/data/benchmarks/download_plink.txt"
   log:
-    "resources/data/logs/download_plink.log"
+    f"{resdir}/data/logs/download_plink.log"
   shell:
     """
     {{
-      rm -r -f resources/software/plink; \
-      mkdir -p resources/software/plink; \
-      wget --no-check-certificate -O resources/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
-      unzip resources/software/plink/plink_linux_x86_64_20210606.zip -d resources/software/plink; \
-      rm resources/software/plink/plink_linux_x86_64_20210606.zip
+      rm -r -f {resdir}/software/plink; \
+      mkdir -p {resdir}/software/plink; \
+      wget --no-check-certificate -O {resdir}/software/plink/plink_linux_x86_64_20210606.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20210606.zip; \
+      unzip {resdir}/software/plink/plink_linux_x86_64_20210606.zip -d {resdir}/software/plink; \
+      rm {resdir}/software/plink/plink_linux_x86_64_20210606.zip
     }} > {log} 2>&1
     """
 
 # Download LDSC
 rule download_ldsc:
   output:
-    "resources/software/ldsc/ldsc.py"
+    f"{resdir}/software/ldsc/ldsc.py"
   benchmark:
-    "resources/data/benchmarks/download_ldsc.txt"
+    f"{resdir}/data/benchmarks/download_ldsc.txt"
   log:
-    "resources/data/logs/download_ldsc.log"
+    f"{resdir}/data/logs/download_ldsc.log"
   shell:
     """
     {{
-      rm -r -f resources/software/ldsc; \
-      git clone https://github.com/bulik/ldsc.git resources/software/ldsc/; \
-      cd resources/software/ldsc/; \
+      rm -r -f {resdir}/software/ldsc; \
+      git clone https://github.com/bulik/ldsc.git {resdir}/software/ldsc/; \
+      cd {resdir}/software/ldsc/; \
       git reset --hard aa33296abac9569a6422ee6ba7eb4b902422cc74
     }} > {log} 2>&1
     """
@@ -225,49 +232,49 @@ rule download_ldsc:
 # Download ld scores from PanUKB
 rule download_ldscores_panukb:
   output:
-    directory("resources/data/ld_scores")
+    directory(f"{resdir}/data/ld_scores")
   benchmark:
-    "resources/data/benchmarks/download_ldscores_panukb.txt"
+    f"{resdir}/data/benchmarks/download_ldscores_panukb.txt"
   log:
-    "resources/data/logs/download_ldscores_panukb.log"
+    f"{resdir}/data/logs/download_ldscores_panukb.log"
   shell:
     """
     {{
-      mkdir -p resources/data/ld_scores; \
-      wget --no-check-certificate -O resources/data/ld_scores.tar.gz https://zenodo.org/records/10666891/files/ld_scores.tar.gz?download=1; \
-      tar -xvf resources/data/ld_scores.tar.gz -C resources/data/; \
-      rm resources/data/ld_scores.tar.gz
+      mkdir -p {resdir}/data/ld_scores; \
+      wget --no-check-certificate -O {resdir}/data/ld_scores.tar.gz https://zenodo.org/records/10666891/files/ld_scores.tar.gz?download=1; \
+      tar -xvf {resdir}/data/ld_scores.tar.gz -C {resdir}/data/; \
+      rm {resdir}/data/ld_scores.tar.gz
     }} > {log} 2>&1
     """
 
 # Download hapmap3 snplist
 rule download_hm3_snplist:
   output:
-    "resources/data/hm3_snplist/w_hm3.snplist"
+    f"{resdir}/data/hm3_snplist/w_hm3.snplist"
   benchmark:
-    "resources/data/benchmarks/download_hm3_snplist.txt"
+    f"{resdir}/data/benchmarks/download_hm3_snplist.txt"
   log:
-    "resources/data/logs/download_hm3_snplist.log"
+    f"{resdir}/data/logs/download_hm3_snplist.log"
   shell:
     """
     {{
-      rm -r -f resources/data/hm3_snplist; \
-      mkdir -p resources/data/hm3_snplist; \
-      wget --no-check-certificate -O resources/data/hm3_snplist/w_hm3.snplist.gz https://zenodo.org/record/7773502/files/w_hm3.snplist.gz?download=1; \
-      gunzip resources/data/hm3_snplist/w_hm3.snplist.gz
+      rm -r -f {resdir}/data/hm3_snplist; \
+      mkdir -p {resdir}/data/hm3_snplist; \
+      wget --no-check-certificate -O {resdir}/data/hm3_snplist/w_hm3.snplist.gz https://zenodo.org/record/7773502/files/w_hm3.snplist.gz?download=1; \
+      gunzip {resdir}/data/hm3_snplist/w_hm3.snplist.gz
     }} > {log} 2>&1
     """
 
 # Download DBSLMM
 rule download_dbslmm:
   output:
-    directory("resources/software/dbslmm/")
+    directory(f"{resdir}/software/dbslmm/")
   benchmark:
-    "resources/data/benchmarks/download_dbslmm.txt"
+    f"{resdir}/data/benchmarks/download_dbslmm.txt"
   conda:
     "../envs/analysis.yaml"
   log:
-    "resources/data/logs/download_dbslmm.log"
+    f"{resdir}/data/logs/download_dbslmm.log"
   shell:
     """
     {{
@@ -282,16 +289,16 @@ rule download_dbslmm:
 # Download LD block data
 rule download_ld_blocks:
   output:
-    directory("resources/data/ld_blocks/")
+    directory(f"{resdir}/data/ld_blocks/")
   benchmark:
-    "resources/data/benchmarks/download_ld_blocks.txt"
+    f"{resdir}/data/benchmarks/download_ld_blocks.txt"
   log:
-    "resources/data/logs/download_ld_blocks.log"
+    f"{resdir}/data/logs/download_ld_blocks.log"
   shell:
     """
     {{
       git clone https://bitbucket.org/nygcresearch/ldetect-data.git {output}; \
-      mv resources/data/ld_blocks/ASN resources/data/ld_blocks/EAS
+      mv {resdir}/data/ld_blocks/ASN {resdir}/data/ld_blocks/EAS
     }} > {log} 2>&1
     """
 
@@ -307,27 +314,27 @@ prscs_ref_ukb_dropbox = {
 
 rule download_prscs_ref_ukb:
   output:
-    "resources/data/prscs_ref/ldblk_ukbb_{population}/ldblk_ukbb_chr1.hdf5"
+    f"{resdir}/data/prscs_ref/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5"
   benchmark:
-    "resources/data/benchmarks/download_prscs_ref_ukb-{population}.txt"
+    f"{resdir}/data/benchmarks/download_prscs_ref_ukb-{{population}}.txt"
   log:
-    "resources/data/logs/download_prscs_ref_ukb-{population}.log"
+    f"{resdir}/data/logs/download_prscs_ref_ukb-{{population}}.log"
   params:
     url=lambda w: prscs_ref_ukb_dropbox.get(w.population)
   shell:
     """
     {{
-      mkdir -p resources/data/prscs_ref; \
-      rm -r -f resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}; \
-      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
-      tar -zxvf resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz -C resources/data/prscs_ref/; \
-      rm resources/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz
+      mkdir -p {resdir}/data/prscs_ref; \
+      rm -r -f {resdir}/data/prscs_ref/ldblk_ukbb_{wildcards.population}; \
+      wget --no-check-certificate -O {resdir}/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
+      tar -zxvf {resdir}/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/; \
+      rm {resdir}/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
 
 rule download_prscs_ref_ukb_all:
   input:
-    lambda w: expand(f"resources/data/prscs_ref/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
+    lambda w: expand(f"{resdir}/data/prscs_ref/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
 
 # Download 1KG-based PRScs reference
 prscs_ref_1kg_dropbox = {
@@ -340,36 +347,36 @@ prscs_ref_1kg_dropbox = {
 
 rule download_prscs_ref_1kg:
   output:
-    "resources/data/prscs_ref/ldblk_1kg_{population}/ldblk_1kg_chr1.hdf5"
+    f"{resdir}/data/prscs_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5"
   benchmark:
-    "resources/data/benchmarks/download_prscs_ref_1kg-{population}.txt"
+    f"{resdir}/data/benchmarks/download_prscs_ref_1kg-{{population}}.txt"
   log:
-    "resources/data/logs/download_prscs_ref_1kg-{population}.log"
+    f"{resdir}/data/logs/download_prscs_ref_1kg-{{population}}.log"
   params:
     url=lambda w: prscs_ref_1kg_dropbox.get(w.population)
   shell:
     """
     {{
-      mkdir -p resources/data/prscs_ref; \
-      rm -r -f resources/data/prscs_ref/ldblk_1kg_{wildcards.population}; \
-      wget --no-check-certificate -O resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz {params.url}; \
-      tar -zxvf resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz -C resources/data/prscs_ref/; \
-      rm resources/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz
+      mkdir -p {resdir}/data/prscs_ref; \
+      rm -r -f {resdir}/data/prscs_ref/ldblk_1kg_{wildcards.population}; \
+      wget --no-check-certificate -O {resdir}/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz {params.url}; \
+      tar -zxvf {resdir}/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/; \
+      rm {resdir}/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
 
 rule download_prscs_ref_1kg_all:
   input:
-    lambda w: expand(f"resources/data/prscs_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
+    lambda w: expand(f"{resdir}/data/prscs_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
 
 # Download PRScs software
 rule download_prscs_software:
   output:
-    directory("resources/software/prscs/")
+    directory(f"{resdir}/software/prscs/")
   benchmark:
-    "resources/data/benchmarks/download_prscs_software.txt"
+    f"{resdir}/data/benchmarks/download_prscs_software.txt"
   log:
-    "resources/data/logs/download_prscs_software.log"
+    f"{resdir}/data/logs/download_prscs_software.log"
   shell:
     """
     {{
@@ -381,153 +388,153 @@ rule download_prscs_software:
 # Download gctb reference
 rule download_gctb_ref:
   output:
-    directory("resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse")
+    directory(f"{resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse")
   benchmark:
-    "resources/data/benchmarks/download_gctb_ref.txt"
+    f"{resdir}/data/benchmarks/download_gctb_ref.txt"
   log:
-    "resources/data/logs/download_gctb_ref.log"
+    f"{resdir}/data/logs/download_gctb_ref.log"
   shell:
     """
     {{
-      mkdir -p resources/data/gctb_ref; \
-      wget --no-check-certificate -O resources/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; \
-      unzip resources/data/gctb_ref/ukbEURu_hm3_sparse.zip -d resources/data/gctb_ref; \
+      mkdir -p {resdir}/data/gctb_ref; \
+      wget --no-check-certificate -O {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; \
+      unzip {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip -d {resdir}/data/gctb_ref; \
       for chr in $(seq 1 22);do \
-      mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; \
-      mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; \
-      mv resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log resources/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; \
+      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; \
+      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; \
+      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; \
       done; \
-      rm resources/data/gctb_ref/ukbEURu_hm3_sparse.zip
+      rm {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip
     }} > {log} 2>&1
     """
 # Download GCTB
 rule download_gctb_software:
   output:
-    "resources/software/gctb/gctb_2.03beta_Linux/gctb"
+    f"{resdir}/software/gctb/gctb_2.03beta_Linux/gctb"
   benchmark:
-    "resources/data/benchmarks/download_gctb_software.txt"
+    f"{resdir}/data/benchmarks/download_gctb_software.txt"
   log:
-    "resources/data/logs/download_gctb_software.log"
+    f"{resdir}/data/logs/download_gctb_software.log"
   shell:
     """
     {{
-      rm -r -f resources/software/gctb; \
-      mkdir -p resources/software/gctb; \
-      wget --no-check-certificate -O resources/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
-      unzip resources/software/gctb/gctb_2.03beta_Linux.zip -d resources/software/gctb; \
-      rm resources/software/gctb/gctb_2.03beta_Linux.zip
+      rm -r -f {resdir}/software/gctb; \
+      mkdir -p {resdir}/software/gctb; \
+      wget --no-check-certificate -O {resdir}/software/gctb/gctb_2.03beta_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.03beta_Linux.zip; \
+      unzip {resdir}/software/gctb/gctb_2.03beta_Linux.zip -d {resdir}/software/gctb; \
+      rm {resdir}/software/gctb/gctb_2.03beta_Linux.zip
     }} > {log} 2>&1
     """
 # Download LDpred2 reference
 rule download_ldpred2_ref:
   output:
-    directory("resources/data/ldpred2_ref")
+    directory(f"{resdir}/data/ldpred2_ref")
   benchmark:
-    "resources/data/benchmarks/download_ldpred2_ref.txt"
+    f"{resdir}/data/benchmarks/download_ldpred2_ref.txt"
   log:
-    "resources/data/logs/download_ldpred2_ref.log"
+    f"{resdir}/data/logs/download_ldpred2_ref.log"
   shell:
     """
     {{
-      mkdir -p resources/data/ldpred2_ref; \
-      wget --no-check-certificate -O resources/data/ldpred2_ref/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
-      unzip resources/data/ldpred2_ref/download.zip -d resources/data/ldpred2_ref/; \
-      rm resources/data/ldpred2_ref/download.zip; \
-      unzip resources/data/ldpred2_ref/ldref_with_blocks.zip -d resources/data/ldpred2_ref/; \
-      mv resources/data/ldpred2_ref/ldref/* resources/data/ldpred2_ref/; \
-      rm resources/data/ldpred2_ref/ldref_with_blocks.zip; \
-      rm -r resources/data/ldpred2_ref/ldref
+      mkdir -p {resdir}/data/ldpred2_ref; \
+      wget --no-check-certificate -O {resdir}/data/ldpred2_ref/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
+      unzip {resdir}/data/ldpred2_ref/download.zip -d {resdir}/data/ldpred2_ref/; \
+      rm {resdir}/data/ldpred2_ref/download.zip; \
+      unzip {resdir}/data/ldpred2_ref/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/; \
+      mv {resdir}/data/ldpred2_ref/ldref/* {resdir}/data/ldpred2_ref/; \
+      rm {resdir}/data/ldpred2_ref/ldref_with_blocks.zip; \
+      rm -r {resdir}/data/ldpred2_ref/ldref
     }} > {log} 2>&1
     """
 # Download LDAK
 rule download_ldak:
   output:
-    "resources/software/ldak/ldak5.1.linux"
+    f"{resdir}/software/ldak/ldak5.1.linux"
   benchmark:
-    "resources/data/benchmarks/download_ldak.txt"
+    f"{resdir}/data/benchmarks/download_ldak.txt"
   log:
-    "resources/data/logs/download_ldak.log"
+    f"{resdir}/data/logs/download_ldak.log"
   shell:
     """
     {{
-      rm -r resources/software/ldak; \
-      mkdir -p resources/software/ldak; \
-      wget --no-check-certificate -O resources/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; \
-      unzip resources/software/ldak/ldak5.1.linux_.zip -d resources/software/ldak/; \
-      rm resources/software/ldak/ldak5.1.linux_.zip
+      rm -r {resdir}/software/ldak; \
+      mkdir -p {resdir}/software/ldak; \
+      wget --no-check-certificate -O {resdir}/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; \
+      unzip {resdir}/software/ldak/ldak5.1.linux_.zip -d {resdir}/software/ldak/; \
+      rm {resdir}/software/ldak/ldak5.1.linux_.zip
     }} > {log} 2>&1
     """
 # Download LDAK map data
 rule download_ldak_map:
   output:
-    "resources/data/ldak_map/genetic_map_b37/genetic_map_chr22_combined_b37.txt"
+    f"{resdir}/data/ldak_map/genetic_map_b37/genetic_map_chr22_combined_b37.txt"
   benchmark:
-    "resources/data/benchmarks/download_ldak_map.txt"
+    f"{resdir}/data/benchmarks/download_ldak_map.txt"
   log:
-    "resources/data/logs/download_ldak_map.log"
+    f"{resdir}/data/logs/download_ldak_map.log"
   shell:
     """
     {{
-      rm -r resources/data/ldak_map; \
-      mkdir -p resources/data/ldak_map; \
-      wget --no-check-certificate -O resources/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; \
-      unzip resources/data/ldak_map/genetic_map_b37.zip -d resources/data/ldak_map/; \
-      rm resources/data/ldak_map/genetic_map_b37.zip
+      rm -r {resdir}/data/ldak_map; \
+      mkdir -p {resdir}/data/ldak_map; \
+      wget --no-check-certificate -O {resdir}/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; \
+      unzip {resdir}/data/ldak_map/genetic_map_b37.zip -d {resdir}/data/ldak_map/; \
+      rm {resdir}/data/ldak_map/genetic_map_b37.zip
     }} > {log} 2>&1
     """
 # Download LDAK bld snp annotations
 rule download_ldak_bld:
   output:
-    "resources/data/ldak_bld/README.txt"
+    f"{resdir}/data/ldak_bld/README.txt"
   benchmark:
-    "resources/data/benchmarks/download_ldak_bld.txt"
+    f"{resdir}/data/benchmarks/download_ldak_bld.txt"
   log:
-    "resources/data/logs/download_ldak_bld.log"
+    f"{resdir}/data/logs/download_ldak_bld.log"
   shell:
     """
     {{
-      rm -r resources/data/ldak_bld; \
-      mkdir -p resources/data/ldak_bld; \
-      wget --no-check-certificate -O resources/data/ldak_bld/bld.zip https://genetics.ghpc.au.dk/doug/bld.zip; \
-      unzip resources/data/ldak_bld/bld.zip -d resources/data/ldak_bld/; \
-      rm resources/data/ldak_bld/bld.zip
+      rm -r {resdir}/data/ldak_bld; \
+      mkdir -p {resdir}/data/ldak_bld; \
+      wget --no-check-certificate -O {resdir}/data/ldak_bld/bld.zip https://genetics.ghpc.au.dk/doug/bld.zip; \
+      unzip {resdir}/data/ldak_bld/bld.zip -d {resdir}/data/ldak_bld/; \
+      rm {resdir}/data/ldak_bld/bld.zip
     }} > {log} 2>&1
     """
 # Download LDAK high ld regions file
 rule download_ldak_highld:
   output:
-    "resources/data/ldak_highld/highld.txt"
+    f"{resdir}/data/ldak_highld/highld.txt"
   benchmark:
-    "resources/data/benchmarks/download_ldak_highld.txt"
+    f"{resdir}/data/benchmarks/download_ldak_highld.txt"
   log:
-    "resources/data/logs/download_ldak_highld.log"
+    f"{resdir}/data/logs/download_ldak_highld.log"
   shell:
     """
     {{
-      rm -r resources/data/ldak_highld; \
-      mkdir -p resources/data/ldak_highld; \
-      wget --no-check-certificate -O resources/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt
+      rm -r {resdir}/data/ldak_highld; \
+      mkdir -p {resdir}/data/ldak_highld; \
+      wget --no-check-certificate -O {resdir}/data/ldak_highld/highld.txt https://dougspeed.com/wp-content/uploads/highld.txt
     }} > {log} 2>&1
     """
 
 # Download preprocessed reference data (1KG+HGDP HapMap3)
 rule download_default_ref:
   output:
-    "resources/data/ref/ref.pop.txt"
+    f"{resdir}/data/ref/ref.pop.txt"
   benchmark:
-    "resources/data/benchmarks/download_default_ref.txt"
+    f"{resdir}/data/benchmarks/download_default_ref.txt"
   log:
-    "resources/data/logs/download_default_ref.log"
+    f"{resdir}/data/logs/download_default_ref.log"
   shell:
     """
     {{
-      rm -r resources/data/ref; \
-      mkdir -p resources/data/ref; \
-      wget --no-check-certificate -O resources/data/ref/genopred_1kg_hgdp.tar.gz https://zenodo.org/records/10666983/files/genopred_1kg_hgdp.tar.gz?download=1; \
-      tar -xzvf resources/data/ref/genopred_1kg_hgdp.tar.gz -C resources/data/ref/; \
-      mv resources/data/ref/ref/* resources/data/ref/; \
-      rm -r resources/data/ref/ref; \
-      rm resources/data/ref/genopred_1kg_hgdp.tar.gz
+      rm -r {resdir}/data/ref; \
+      mkdir -p {resdir}/data/ref; \
+      wget --no-check-certificate -O {resdir}/data/ref/genopred_1kg_hgdp.tar.gz https://zenodo.org/records/10666983/files/genopred_1kg_hgdp.tar.gz?download=1; \
+      tar -xzvf {resdir}/data/ref/genopred_1kg_hgdp.tar.gz -C {resdir}/data/ref/; \
+      mv {resdir}/data/ref/ref/* {resdir}/data/ref/; \
+      rm -r {resdir}/data/ref/ref; \
+      rm {resdir}/data/ref/genopred_1kg_hgdp.tar.gz
     }} > {log} 2>&1
     """
 
@@ -582,7 +589,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@4beb75620f3291b633598acd06febb22298418c8\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@50ac8a2078226c8c2349064f904031576fbfe606\")'
     }} > {log} 2>&1
     """
 
@@ -596,19 +603,19 @@ rule install_r_packages:
 # Download pgscatalog_utils
 rule download_pgscatalog_utils:
   output:
-    "resources/software/pgscatalog_utils/download_pgscatalog_utils.done"
+    f"{resdir}/software/pgscatalog_utils/download_pgscatalog_utils.done"
   conda:
     "../envs/pgscatalog_utils.yaml"
   benchmark:
-    "resources/data/benchmarks/download_pgscatalog_utils.txt"
+    f"{resdir}/data/benchmarks/download_pgscatalog_utils.txt"
   log:
-    "resources/data/logs/download_pgscatalog_utils.log"
+    f"{resdir}/data/logs/download_pgscatalog_utils.log"
   shell:
     """
     {{
-      rm -r -f resources/software/pgscatalog_utils; \
-      git clone https://github.com/PGScatalog/pgscatalog_utils.git resources/software/pgscatalog_utils; \
-      cd resources/software/pgscatalog_utils; \
+      rm -r -f {resdir}/software/pgscatalog_utils; \
+      git clone https://github.com/PGScatalog/pgscatalog_utils.git {resdir}/software/pgscatalog_utils; \
+      cd {resdir}/software/pgscatalog_utils; \
       git reset --hard 6da7eb0e157ba4e73f941233ee8d8ae4fb5e3926; \
       poetry install; \
       poetry build; \
@@ -616,7 +623,7 @@ rule download_pgscatalog_utils:
       download_scorefiles -h > download_pgscatalog_utils.done
     }} > {log} 2>&1
     """
-    
+
 ############
 # Check all dependencies are available
 ############
@@ -636,28 +643,20 @@ rule get_dependencies:
     rules.install_genoutils.output,
     rules.download_pgscatalog_utils.output
   output:
-    touch("resources/software/get_dependencies.done")
+    touch(f"{resdir}/software/get_dependencies.done")
 
-# Rule to download all software dependencies
-rule get_all_software:
+############
+# Rules for preparing offline resources
+############
+
+rule get_all_resources:
   input:
     rules.download_plink.output,
     rules.download_ldsc.output,
     rules.download_dbslmm.output,
-    rules.install_ggchicklet.output,
-    rules.install_lassosum.output,
-    rules.install_genoutils.output,
-    rules.download_pgscatalog_utils.output,
     rules.download_prscs_software.output,
     rules.download_gctb_software.output,
-    rules.download_ldak.output
-  output:
-    touch("resources/software/get_all_software.done")
-
-# Rule to download all data dependencies
-rule get_all_data:
-  input:
-    rules.download_impute2_data.output,
+    rules.download_ldak.output,
     rules.download_ldscores_panukb.output,
     rules.download_hm3_snplist.output,
     rules.download_ld_blocks.output,
@@ -670,4 +669,44 @@ rule get_all_data:
     rules.download_ldak_highld.output,
     rules.download_default_ref.output
   output:
-    touch("resources/software/get_all_data.done")
+    touch(f"{resdir}/software/get_all_resources.done")
+
+rule get_key_resources:
+  input:
+    rules.download_plink.output,
+    rules.download_ldsc.output,
+    rules.download_dbslmm.output,
+    rules.download_ldak.output,
+    rules.download_ldscores_panukb.output,
+    rules.download_hm3_snplist.output,
+    rules.download_ld_blocks.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output,
+    rules.download_ldak_highld.output,
+    rules.download_default_ref.output
+  output:
+    touch(f"{resdir}/software/get_key_resources.done")
+
+rule get_prscs_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_prscs_software.output,
+    rules.download_prscs_ref_ukb_all.input,
+    rules.download_prscs_ref_1kg_all.input
+  output:
+    touch(f"{resdir}/software/get_prscs_resources.done")
+
+rule get_ldpred2_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_ldpred2_ref.output
+  output:
+    touch(f"{resdir}/software/get_ldpred2_resources.done")
+
+rule get_sbayesr_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_gctb_software.output,
+    rules.download_gctb_ref.output
+  output:
+    touch(f"{resdir}/software/get_sbayesr_resources.done")

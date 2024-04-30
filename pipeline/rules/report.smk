@@ -14,7 +14,7 @@ if 'score_list' in config and config["score_list"] != 'NA':
   label_list = pd.concat([label_list, score_list_df['label']])
 
 # Identify temp directory
-tmpdir = 'resources/tmp'
+tmpdir = f"{resdir}/tmp"
 
 # Make a list of all values in sampling prevalence mean sd columns in gwas_list
 gwas_dist = [gwas_list_df['sampling'], gwas_list_df['prevalence'], gwas_list_df['mean'], gwas_list_df['sd']]
