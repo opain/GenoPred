@@ -33,7 +33,7 @@ def check_config_parameters(config):
         'prscs_ldref', 'ldpred2_model', 'ldpred2_inference', 'ancestry_prob_thresh',
         'testing'
     ]
-    
+
     missing_params = []
     for param in required_params:
         if config.get(param) is None:
@@ -589,7 +589,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@4beb75620f3291b633598acd06febb22298418c8\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@50ac8a2078226c8c2349064f904031576fbfe606\")'
     }} > {log} 2>&1
     """
 
@@ -623,7 +623,7 @@ rule download_pgscatalog_utils:
       download_scorefiles -h > download_pgscatalog_utils.done
     }} > {log} 2>&1
     """
-    
+
 ############
 # Check all dependencies are available
 ############
@@ -710,4 +710,3 @@ rule get_sbayesr_resources:
     rules.download_gctb_ref.output
   output:
     touch(f"{resdir}/software/get_sbayesr_resources.done")
-    
