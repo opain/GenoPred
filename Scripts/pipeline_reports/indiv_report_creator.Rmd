@@ -100,11 +100,12 @@ if(imp_incl){
   cat0("Individual: ", paste(unlist(strsplit(params$name, "_|-|\\.")), collapse = ' '), "\n\n")
 } else {
   target_psam <- fread(paste0(outdir, '/', params$name, '/geno/', params$name, '.ref.chr', CHROMS[1], '.psam'))
-  id_tmp <- target_psam[paste0(target_psam$V1,'.',target_psam$V2) == params$id,] 
+  names(target_psam)[1]<-'FID'
+  id_tmp <- target_psam[paste0(target_psam$FID,'.',target_psam$IID) == params$id,] 
   
   cat0("Sample: ", params$name, "\n\n")
-  cat0("Family ID: ", id_tmp$V1, "\n\n")
-  cat0("Individual ID: ", id_tmp$V2, "\n\n")
+  cat0("Family ID: ", id_tmp$FID, "\n\n")
+  cat0("Individual ID: ", id_tmp$IID, "\n\n")
 }
 cat0("</font>\n\n")
 
@@ -244,12 +245,13 @@ cat0("\n\n")
 
 cat0("<details><summary>Show principal component plots</summary>\n\n")
 
-cat0(paste0("![Principal Component Scores Compared to Reference Populations](", normalizePath(outdir, mustWork = FALSE), '/', params$name, '/ancestry/', params$name, ".Ancestry.pc_plot.png)\n\n"))
+cat0(paste0("![](", normalizePath(outdir, mustWork = FALSE), '/', params$name, '/ancestry/', params$name, ".Ancestry.pc_plot.png)"))
 
-cat0("Note. Black circle indicates the target individual. \n\n")
+cat0("**Target Principal Component Scores Compared to Reference Populations.**\n\n")
+cat0("**Note.** Black circle indicate target sample individuals.\n\n")
+cat0("</details> \n\n")
 
-cat0("</details>\n\n")
-cat0("***\n\n")
+cat0("*** \n\n")
 
 ```
 
@@ -268,6 +270,10 @@ if(!pgs_incl){
 
 cat0("- ", ifelse(is.null(gwas_list), 0, nrow(gwas_list)), " GWAS summary statistics were provided for polygenic scoring.\n")
 cat0("- ", length(pgs_methods_list), " PGS methods were applied, including (", paste0(pgs_method_labels$label[pgs_method_labels$method %in% pgs_methods_list], collapse = ', '), ").\n")
+
+if(any(gwas_list$population != 'EUR') & any(c('ldpred2','sbayesr') %in% pgs_methods_list)){
+  cat0("    - **Note.** `ldpred2` and `sbayesr` are currently only implemented for GWAS of EUR populations.\n\n")
+}
 
 if(is.null(score_list)){
   cat0("- No external score files were provided in score_list.\n\n")
@@ -294,11 +300,12 @@ for(gwas in gwas_list$name) {
     sumstat_qc <- rbind(sumstat_qc, data.frame(
       name = gwas,
       label = gwas_list$label[gwas_list$name == gwas],
+      population = gwas_list$population[gwas_list$name == gwas],
       orig_n = orig_n,
       final_n = final_n))
 }
 
-names(sumstat_qc) <- c('Name', 'Label', 'NSNP Original', 'NSNP Final')
+names(sumstat_qc) <- c('Name', 'Label', 'Population', 'NSNP Original', 'NSNP Final')
 
 datatable(sumstat_qc, 
           rownames = FALSE,
@@ -354,6 +361,8 @@ datatable(score_qc,
           ),
           width = '100%',
           selection = 'none')
+
+cat0("**Note.** The `Pass` column indicates whether a sufficient number of variants within the score file were present in the reference data.\n\n")
 
 cat0("***\n\n")
 
@@ -681,8 +690,10 @@ for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
     add_header_above(c(" " = 1, "PGS Descriptives" = 2, "Distribution in General\nPopulation"=3, "Distribution in People\nLike You" = 4)) %>%
     kable_styling(bootstrap_options = c("striped", "hover", "responsive")))
   
-  cat('\n\n')
-  
+  cat('**Note.** PGS R-squared/AUC is estimated via pseudovalidation, and may be inaccurate. To specify alternative parameters, check out our [interactive tool](https://opain.github.io/GenoPred/PRS_to_Abs_tool.html) for converting polygenic scores to the absolute scale.\n\n')
+
+  cat('***\n\n')
+
   for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
     cat0('#### GWAS: ',gwas_list$label[gwas_list$name == gwas_i],' {.tabset .tabset-fade}\n')
     
@@ -700,13 +711,14 @@ for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
     if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
       
       cat0('- Assuming the PGS explains ', round(100*pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],1),'% of the variance in ', gwas_list$label[gwas_list$name == gwas_i],',\n and the mean and SD of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$mean[gwas_list$name == gwas_i],' and ',gwas_list$sd[gwas_list$name == gwas_i],' respectively,\n on average people with your PGS have a ', gwas_list$label[gwas_list$name == gwas_i],' of ', round(abs_res_i$mean,2), " (95% CI = ",round(lowCI,2),' - ',round(highCI,2),").\n\n")
+      cat0('- **Note.** These predictions are estimated using a range of assumptions and should be interpreted with caution. This report is merely a demonstration of how polygenic scores can be interpreted.\n\n')
 
     } else {
         
       cat0('- Assuming the PGS has an AUC of ', round(pseudoval$pseudoval_auc[pseudoval$gwas == gwas_i],3),', and the prevelance of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$prevalence[gwas_list$name == gwas_i],',\n on average ',round(100*abs_res_i$abs_prob,1),'% of people with your PGS have ', gwas_list$label[gwas_list$name == gwas_i],'.\n\n')
-      
+      cat0('- **Note.** These predictions are estimated using a range of assumptions and should be interpreted with caution. This report is merely a demonstration of how polygenic scores can be interpreted.\n\n')
+
     }
-  
   }
 }
 
