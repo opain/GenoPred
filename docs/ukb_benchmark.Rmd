@@ -376,6 +376,8 @@ gwas_list$label<-paste0("\"", gwas_list$label, "\"")
 
 write.table(gwas_list, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt', col.names=T, row.names=F, quote=F)
 
+# Write csv containing gwas data for paper
+write.csv(gwas_dat, '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/gwas_data.csv', row.names = F)
 ```
 
 </details>
@@ -401,12 +403,25 @@ write.table(conf, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k18063
 
 </details>
 
+```{r, echo=F}
+# Write config files as csv files for paper
+config<-readLines('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml')
+gwas_list<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt')
+target_list<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/basic/target_list.txt')
+
+dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/config/')
+write.csv(config, '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/config/config.csv', row.names = F)
+write.csv(gwas_list, '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/config/gwas_list.csv', row.names = F)
+write.csv(target_list, '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/config/target_list.csv', row.names = F)
+```
+
 ***
 
 # Run pipeline
 
 ```{bash}
 snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml output_all -n 
+snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml output_all -n 
 ```
 
 ***
@@ -430,6 +445,13 @@ bm_files_i <-
     list.files('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/output/reference/benchmarks/')
   )
 
+# Restrict gwas-specific benchmarks to gwas in list
+# Remove outlier detection
+bm_files_i<-bm_files_i[
+  grepl(paste(gwas_list$name, collapse='|'), bm_files_i) |
+  !grepl('prep_pgs|target_pgs|sumstat_prep|outlier_detection', bm_files_i)]
+
+
 # Read in benchmark files
 bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
   tmp <- fread(file)
@@ -440,8 +462,109 @@ bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
 # Create rule column
 bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
 
-# Summarise memory and time
-bm_dat_summary <- NULL
+# Calculate total wall time
+sum(bm_dat_all$s)/60/60 # 215.3136 hours
+sum(bm_dat_all$s)/60/60/50 # 4.306272 when allowing 50 jobs simultaneously
+
+#########
+# Quantify time taken by each part of pipeline
+#########
+
+# Calculate wall time taken by rule
+bm_dat_rule_time <- NULL
+for (i in unique(bm_dat_all$rule)) {
+  bm_dat_rule_time <- rbind(
+    bm_dat_rule_time,
+    data.frame(
+      rule = i,
+      time = sum(bm_dat_all$s[bm_dat_all$rule == i])))
+}
+
+# Tidy results
+bm_dat_rule_time <-
+  bm_dat_rule_time[!(bm_dat_rule_time$rule %in% c('ancestry_reporter', 'score_reporter.txt')), ]
+
+bm_dat_rule_time$step<-gsub('_i$','', bm_dat_rule_time$rule)
+bm_dat_rule_time$step<-gsub('prep_pgs_','', bm_dat_rule_time$step)
+
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'format_target_i']<-'Target QC'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'sumstat_prep_i']<-'GWAS QC'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'sample_report_i']<-'Report Creation'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'outlier_detection_i']<-'Outlier Detection'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'ancestry_inference_i']<-'Ancestry Inference'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'target_pgs_i']<-'Target Scoring'
+
+bm_dat_rule_time<-merge(bm_dat_rule_time, pgs_method_labels, by.x='step', by.y='method', all.x=T)
+bm_dat_rule_time$step[!is.na(bm_dat_rule_time$label)] <- bm_dat_rule_time$label[!is.na(bm_dat_rule_time$label)]
+bm_dat_rule_time$label<-NULL
+bm_dat_rule_time<-bm_dat_rule_time[order(bm_dat_rule_time$time),]
+
+#######
+# Create a pie chart
+#######
+
+# Collapse prep_pgs into single component
+pgs_data<-bm_dat_rule_time[grepl('prep_pgs', bm_dat_rule_time$rule),]
+notpgs_data<-bm_dat_rule_time[!grepl('prep_pgs', bm_dat_rule_time$rule),]
+
+# Create data for the graph.
+data <- data.frame(
+  category = notpgs_data$step,
+  values = notpgs_data$time
+)
+
+data<-rbind(data, data.frame(
+  category = 'PGS Methods',
+  values = sum(pgs_data$time)
+))
+
+# Create the pie chart
+fig <- plot_ly(data, labels = ~category, values = ~values, type = 'pie',
+               textposition = 'outside',
+               textinfo = 'label+percent',
+               rotation = 270,  # This rotates the pie chart to move labels to the side
+               marker = list(line = list(color = '#000000', width = 0.8))) %>%
+  layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         showlegend = FALSE,
+         margin = list(l = 20, r = 20, b = 100, t = 50, autoexpand = TRUE))  # Adjust margins here
+
+# Save fig as a screenshot
+
+#######
+# Create a pie chart for PGS methods only
+#######
+
+# Create data for the graph.
+data <- data.frame(
+  category = bm_dat_rule_time$step[grepl('prep_pgs', bm_dat_rule_time$rule)],
+  values = bm_dat_rule_time$time[grepl('prep_pgs', bm_dat_rule_time$rule)]
+)
+
+# Quantify time on average per GWAS
+data$time_gwas<-data$values/13
+data$time_gwas_clean<-NA
+data$time_gwas_clean[data$time_gwas < 60] <-
+  paste0(round(data$time_gwas[data$time_gwas < 60], 1), ' sec')
+data$time_gwas_clean[data$time_gwas > 60] <-
+  paste0(round(data$time_gwas[data$time_gwas > 60] / 60, 1), ' min')
+data$time_gwas_clean[data$time_gwas > 3600] <-
+  paste0(round(data$time_gwas[data$time_gwas > 3600] / 60 / 60, 1), ' hr')
+
+data$custom_label<-paste0(data$category, "\n(", data$time_gwas_clean,")")
+
+# Create the pie chart
+fig <- plot_ly(data, labels = ~category, values = ~values, type = 'pie',
+               text = ~custom_label,      # Use custom labels
+               textposition = 'outside',
+               textinfo = 'text',
+               marker = list(line = list(color = '#000000', width = 0.8))) %>%
+  layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         showlegend = FALSE,
+         margin = list(autoexpand = TRUE))
+
+# Save fig as a screenshot
 
 #######
 # Rules that are only run once
@@ -1099,7 +1222,14 @@ for(pheno_i in phenos){
 cor_subset$model <- factor(cor_subset$model, levels = c('Top','Pseudo'))
 dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB')
 
-png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all.png', res=300, width=4000, height=6000, units = 'px')
+# Create labels indicating gwas used to predict phenotype
+cor_subset$label<-paste0(cor_subset$pheno,' → ',cor_subset$pheno)
+cor_subset$label[cor_subset$pheno == 'egfr']<-'egfr → egfr'
+cor_subset$label[cor_subset$pheno == 'ckd']<-'egfr → ckd'
+cor_subset$label[cor_subset$pheno == 'urate']<-'urate → urate'
+cor_subset$label[cor_subset$pheno == 'gout']<-'urate → gout'
+
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all.png', res=300, width=4000, height=8000, units = 'px')
 ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
@@ -1116,7 +1246,7 @@ ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12)) +
-  facet_grid(pheno ~ pop , scales="free_y") +
+  facet_grid(label ~ pop , scales="free_y") +
   panel_border()
 dev.off()
 
@@ -1137,7 +1267,7 @@ ggplot(cor_subset[cor_subset$pop == 'EUR'], aes(x = pgs_method, y = r, fill = mo
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12)) +
-  facet_wrap(pheno ~ . , scales="free", nrow = 3) +
+  facet_wrap(label ~ . , scales="free", nrow = 3) +
   panel_border()
 dev.off()
 
