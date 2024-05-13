@@ -240,7 +240,11 @@ score<-merge(score, ref_pvar[,c('Predictor','SNP'), with=F], by='Predictor')
 score<-score[, c('SNP', 'A1', 'A2', names(score)[grepl('Model', names(score))]), with=F]
 names(score)[grepl('Model', names(score))]<-paste0('SCORE_ldak_',names(score)[grepl('Model', names(score))])
 
-fwrite(score, paste0(opt$output, '.score'), col.names=T, sep=' ', quote=F)
+# Flip effects to match reference alleles
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+score_new <- map_score(ref = ref, score = score_file)
+
+fwrite(score_new, paste0(opt$output, '.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))

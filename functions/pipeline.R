@@ -77,14 +77,14 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   for (name_i in target_list$name) {
     # Read in keep_list to determine populations available
     keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
-    
+
     if(!is.null(pop)){
       if(any(!(pop %in% keep_list_i$POP))){
         stop(paste0('Requested pop are not present in ',name_i,' sample.'))
       }
       keep_list_i <- keep_list_i[keep_list_i$POP %in% pop,]
     }
-    
+
     pgs[[name_i]] <- list()
     for (pop_i in keep_list_i$POP) {
       pgs[[name_i]][[pop_i]] <- list()
@@ -141,6 +141,17 @@ read_param <- function(config, param, return_obj = T){
   # Identify value for param
   file <- gsub(paste0(param,': '), '', config_file[grepl(paste0('^',param,':'), config_file)])
   file[file == 'NA']<-NA
+
+  # If resdir, and NA, set to 'resources'
+  if(param == 'resdir' & is.na(file)){
+    file <- 'resources'
+  }
+
+  # If refdir, and NA, set to '<resdir>/data/ref'
+  if(param == 'refdir' & is.na(file)){
+    resdir <- read_param(config = config, param = 'resdir', return_obj = F)
+    file <- paste0(resdir, '/data/ref')
+  }
 
   if(return_obj){
     if(!is.na(file)){

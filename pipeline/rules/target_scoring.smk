@@ -21,22 +21,38 @@ def score_munge():
 # Define which pgs_methods are can be applied to any GWAS population
 pgs_methods_noneur = ['ptclump','lassosum','megaprs','prscs','dbslmm']
 
-# Create a function listing all required PGS for a given target
-def list_target_scores(name):
-    populations=ancestry_munge(x=name)
-    scores=score_munge()
+# Create a function listing all required PGS for a given target/s
+def list_target_scores(names, population=None):
+    # Initialize the list to store all target scores
+    all_target_scores = []
 
-    target_scores = list()
-    for method in pgs_methods:
-      for gwas in gwas_list_df['name'] if method in pgs_methods_noneur else gwas_list_df_eur['name']:
-        for population in populations:
-          target_scores.append(f"{outdir}/reference/target_checks/{name}/target_pgs-{method}-{population}-{gwas}.done")
+    # Process each name in the provided list of names
+    for name in names:
+        # Determine the populations to process
+        if population:
+            populations = [population]
+        else:
+            populations = ancestry_munge(x=name)  # Assuming this function returns a list of populations
 
-    for score in scores:
-        for population in populations:
-          target_scores.append(f"{outdir}/reference/target_checks/{name}/target_pgs-external-{population}-{score}.done")
+        scores = score_munge()  # Fetch score data
 
-    return target_scores
+        target_scores = []
+        # Loop through methods and their corresponding GWAS names
+        for method in pgs_methods:
+            gwas_names = gwas_list_df['name'] if method in pgs_methods_noneur else gwas_list_df_eur['name']
+            for population in populations:
+                for gwas in gwas_names:
+                    target_scores.append(f"{outdir}/{{name}}/pgs/{{population}}/{method}/{gwas}/{{name}}-{gwas}-{{population}}.profiles")
+
+        # Add external scores for each population
+        for score in scores:
+            for population in populations:
+                target_scores.append(f"{outdir}/{{name}}/pgs/{{population}}/external/{score}/{{name}}-{score}-{{population}}.profiles")
+
+        # Append the scores for this name to the main list
+        all_target_scores.extend(target_scores)
+
+    return all_target_scores
 
 ####
 # Projected PCs
@@ -78,43 +94,47 @@ rule pc_projection:
 # Polygenic scoring
 ####
 
+if config["testing"] != 'NA':
+  n_cores_target_scoring = config.get("ncores", 1)
+else:
+  n_cores_target_scoring = config.get("ncores", 10)
+
 rule target_pgs_i:
   resources:
     mem_mb=8000,
     time_min=800
-  threads: lambda w: 1 if w.method in ['dbslmm', 'sbayesr'] else 5
+  threads: n_cores_target_scoring
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
-    f"{outdir}/reference/target_checks/prep_pgs_{{method}}_i-{{gwas}}.done"
+    rules.prep_pgs.input
   output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{method}}-{{population}}-{{gwas}}.done")
+    touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{population}}.done")
   benchmark:
-    f"{outdir}/reference/benchmarks/target_pgs_i-{{name}}-{{method}}-{{population}}-{{gwas}}.txt"
+    f"{outdir}/reference/benchmarks/target_pgs_i-{{name}}-{{population}}.txt"
   log:
-    f"{outdir}/reference/logs/target_pgs_i-{{name}}-{{method}}-{{population}}-{{gwas}}.log"
+    f"{outdir}/reference/logs/target_pgs_i-{{name}}-{{population}}.log"
   conda:
     "../envs/analysis.yaml"
   params:
-    testing=config["testing"]
+    testing=config["testing"],
+    config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/target_scoring/target_scoring.R \
-      --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
-      --target_keep {outdir}/{wildcards.name}/ancestry/keep_files/model_based/{wildcards.population}.keep \
-      --ref_score {outdir}/reference/pgs_score_files/{wildcards.method}/{wildcards.gwas}/ref-{wildcards.gwas}.score.gz \
-      --ref_scale {outdir}/reference/pgs_score_files/{wildcards.method}/{wildcards.gwas}/ref-{wildcards.gwas}-{wildcards.population}.scale \
-      --ref_freq_chr {refdir}/freq_files/{wildcards.population}/ref.{wildcards.population}.chr \
+    "rm -r -f {outdir}/{wildcards.name}/pgs/{wildcards.population} && \
+     Rscript ../Scripts/target_scoring/target_scoring_pipeline.R \
+      --config {params.config_file} \
+      --name {wildcards.name} \
+      --population {wildcards.population} \
       --plink2 plink2 \
-      --pheno_name {wildcards.gwas} \
       --test {params.testing} \
-      --n_cores {threads} \
-      --output {outdir}/{wildcards.name}/pgs/{wildcards.population}/{wildcards.method}/{wildcards.gwas}/{wildcards.name}-{wildcards.gwas}-{wildcards.population} > {log} 2>&1"
+      --n_cores {threads} > {log} 2>&1"
 
 rule target_pgs_all:
   input:
-    lambda w: list_target_scores(w.name)
+    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{population}}.done", name=w.name, population = ancestry_munge(w.name))
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done")
 
 rule target_pgs:
   input:
     expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done", name=target_list_df['name'])
+

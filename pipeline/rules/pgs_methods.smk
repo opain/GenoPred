@@ -91,7 +91,7 @@ rule prep_pgs_ptclump_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz"
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_ptclump_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
     "../envs/analysis.yaml"
   benchmark:
@@ -113,7 +113,7 @@ rule prep_pgs_ptclump_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ptclump:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_ptclump_i-{{gwas}}.done", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # DBSLMM
@@ -144,7 +144,7 @@ rule prep_pgs_dbslmm_i:
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
     "../envs/analysis.yaml"
   benchmark:
@@ -180,7 +180,7 @@ rule prep_pgs_dbslmm_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_dbslmm:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_dbslmm_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # PRScs
@@ -206,7 +206,7 @@ rule prep_pgs_prscs_i:
     rules.download_prscs_software.output,
     lambda w: f"{resdir}/data/prscs_ref/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
     "../envs/analysis.yaml"
   benchmark:
@@ -236,7 +236,7 @@ rule prep_pgs_prscs_i:
     """
 
 rule prep_pgs_prscs:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_prscs_i-{{gwas}}.done", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # SBayesR
@@ -258,7 +258,7 @@ rule prep_pgs_sbayesr_i:
     rules.download_gctb_ref.output,
     rules.download_gctb_software.output
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
     "../envs/analysis.yaml"
   benchmark:
@@ -280,7 +280,7 @@ rule prep_pgs_sbayesr_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_sbayesr:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df_eur['name'])
 
 ##
 # lassosum
@@ -301,7 +301,7 @@ rule prep_pgs_lassosum_i:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.install_lassosum.output
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_lassosum_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
     f"{outdir}/reference/benchmarks/prep_pgs_lassosum_i-{{gwas}}.txt"
   log:
@@ -323,7 +323,7 @@ rule prep_pgs_lassosum_i:
      --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_lassosum:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_lassosum_i-{{gwas}}.done", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # LDpred2
@@ -345,7 +345,7 @@ rule prep_pgs_ldpred2_i:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldpred2_ref.output
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
     f"{outdir}/reference/benchmarks/prep_pgs_ldpred2_i-{{gwas}}.txt"
   log:
@@ -375,7 +375,7 @@ rule prep_pgs_ldpred2_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_ldpred2_i-{{gwas}}.done", gwas=gwas_list_df_eur['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df_eur['name'])
 
 ##
 # LDAK MegaPRS
@@ -400,7 +400,7 @@ rule prep_pgs_megaprs_i:
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_megaprs_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
     f"{outdir}/reference/benchmarks/prep_pgs_megaprs_i-{{gwas}}.txt"
   log:
@@ -425,7 +425,7 @@ rule prep_pgs_megaprs_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_megaprs:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_megaprs_i-{{gwas}}.done", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # Process externally created score files
@@ -506,14 +506,14 @@ rule prep_pgs_external_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_external:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done", score=score_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/external/{{score}}/ref-{{score}}.log", score=score_list_df['name'])
 
 # Create a file listing score files and whether they had sufficient overlap with reference
 checkpoint score_reporter:
   input:
     expand(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done", score=score_list_df['name'])
   output:
-    touch(f"{outdir}/reference/target_checks/score_reporter.done")
+    f"{outdir}/reference/pgs_score_files/external/score_report.txt"
   benchmark:
     f"{outdir}/reference/benchmarks/score_reporter.txt"
   log:
@@ -546,7 +546,7 @@ if 'ldpred2' in pgs_methods_all:
 if 'megaprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_megaprs.input)
 if 'external' in pgs_methods_all:
-  pgs_methods_input.append(rules.prep_pgs_external.input)
+  pgs_methods_input.append(rules.score_reporter.output)
 
 rule prep_pgs:
   input:
