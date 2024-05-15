@@ -92,7 +92,7 @@ log_add(log_file = log_file, message = 'Identifying LD independent SNPs based on
 # read in reference bim file
 ref_pvar<-read_pvar(opt$ref_plink_chr_subset, chr = CHROMS)
 
-# Subset ref_bim to contain QC'd variants
+# Subset ref_pvar to contain QC'd variants
 ref_pvar<-ref_pvar[ref_pvar$SNP %in% ref_qc_snplist,]
 
 # Remove regions of high LD
@@ -100,7 +100,7 @@ ref_pvar <- remove_regions(dat = ref_pvar, regions = long_ld_coord)
 log_add(log_file = log_file, message = paste0(nrow(ref_pvar),' variants after removal of LD high regions.'))
 
 # Perform LD pruning
-ld_indep <- plink_prune(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, extract = ref_bim$SNP)
+ld_indep <- plink_prune(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, extract = ref_pvar$SNP)
 log_add(log_file = log_file, message = paste0(length(ld_indep),' independent variants retained.'))
 
 ###########
