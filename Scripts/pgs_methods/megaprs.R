@@ -242,7 +242,7 @@ names(score)[grepl('Model', names(score))]<-paste0('SCORE_ldak_',names(score)[gr
 
 # Flip effects to match reference alleles
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
-score_new <- map_score(ref = ref, score = score_file)
+score_new <- map_score(ref = ref, score = score)
 
 fwrite(score_new, paste0(opt$output, '.score'), col.names=T, sep=' ', quote=F)
 
