@@ -612,7 +612,10 @@ write.table(config, &#39;/users/k1806347/oliverpainfel/test/genopred_benchmark/i
 </div>
 <div id="run-pipeline" class="section level1">
 <h1>Run pipeline</h1>
-<pre class="bash"><code># N cores = 1
+<pre class="bash"><code>git describe --tags 
+#v2.2.5-4-ge70ffe7
+
+# N cores = 1
 snakemake --profile slurm -n --config ncores=1 --configfile=/users/k1806347/oliverpainfel/test/genopred_benchmark/input_data/config_ncores1.yaml --use-conda output_all pc_projection outlier_detection
 
 # N cores = 5
@@ -741,6 +744,42 @@ for (rule_i in c(
 }
 
 ####
+# Split by ncores and n
+####
+
+# Sum across populations for each type
+
+for (rule_i in c(
+  &#39;target_pgs_i&#39;
+)) {
+  bm_dat_all_tmp &lt;-
+    bm_dat_all[bm_dat_all$rule == rule_i, ]
+
+    for (n_i in unique(bm_dat_all_tmp$n)) {
+      for (ncores_i in unique(bm_dat_all_tmp$ncores)){
+        bm_dat_all_tmp_2 &lt;-
+          bm_dat_all_tmp[bm_dat_all_tmp$ncores == ncores_i &amp; bm_dat_all_tmp$n == n_i, ]
+        for (type_i in unique(bm_dat_all_tmp$type)) {
+          bm_dat_all_tmp_2$s[bm_dat_all_tmp_2$type == type_i]&lt;-sum(bm_dat_all_tmp_2$s[bm_dat_all_tmp_2$type == type_i])
+        }
+        
+        tmp &lt;- data.table(
+          ncores = ncores_i,
+          rule = rule_i,
+          type = &#39;any&#39;,
+          n = n_i,
+          pgs_method = &#39;all&#39;,
+          mean_time = mean(bm_dat_all_tmp_2$s),
+          max_time = max(bm_dat_all_tmp_2$s),
+          mean_mem = mean(bm_dat_all_tmp_2$max_rss),
+          max_mem = max(bm_dat_all_tmp_2$max_rss)
+        )
+        bm_dat_summary &lt;- rbind(bm_dat_summary, tmp)
+      }
+    }
+  }
+
+####
 # no split
 ####
 
@@ -825,36 +864,6 @@ for (rule_i in c(&#39;ancestry_inference_i&#39;,&#39;ancestry_reporter&#39;,&#39
   }
 }
 
-####
-# split by method, n
-####
-
-for (rule_i in c(&#39;target_pgs_i&#39;)) {
-  bm_dat_all_tmp &lt;-
-    bm_dat_all[bm_dat_all$rule == rule_i, ]
-  for (n_i in unique(bm_dat_all_tmp$n)) {
-    for (method_i in unique(bm_dat_all_tmp$pgs_method)) {
-      bm_dat_all_tmp2 &lt;-
-        bm_dat_all_tmp[
-          bm_dat_all_tmp$n == n_i &amp;
-          bm_dat_all_tmp$pgs_method == method_i, ]
-      
-      tmp &lt;- data.table(
-        ncores = &#39;any&#39;,
-        rule = rule_i,
-        type = &#39;any&#39;,
-        n = n_i,
-        pgs_method = method_i,
-        mean_time = mean(bm_dat_all_tmp2$s),
-        max_time = max(bm_dat_all_tmp2$s),
-        mean_mem = mean(bm_dat_all_tmp2$max_rss),
-        max_mem = max(bm_dat_all_tmp2$max_rss)
-      )
-      bm_dat_summary &lt;- rbind(bm_dat_summary, tmp)
-    }
-  }
-}
-
 #################
 # Plot
 #################
@@ -893,6 +902,34 @@ pgs_method_mem &lt;-
 
 png(&#39;Images/Benchmark/pgs_methods.png&#39;, res = 300, width = 1800, height = 1800, units = &#39;px&#39;)
   plot_grid(pgs_method_time, pgs_method_mem, nrow=2)
+dev.off()
+
+####
+# split by ncores and n
+####
+
+bm_dat_summary_i &lt;- bm_dat_summary[bm_dat_summary$rule %in% c(
+    &#39;target_pgs_i&#39;
+  ),]
+
+target_pgs_time &lt;-
+  ggplot(bm_dat_summary_i, aes(x = n, y = mean_time, fill = ncores)) +
+  geom_bar(stat = &quot;identity&quot;, position = &quot;dodge&quot;) +
+  labs(x = &quot;N&quot;, y = &quot;Time (seconds)&quot;, fill=&#39;Cores&#39;) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+target_pgs_mem &lt;-
+  ggplot(bm_dat_summary_i, aes(x = n, y = max_mem, fill = ncores)) +
+  geom_bar(stat = &quot;identity&quot;, position=&quot;dodge&quot;) +
+  labs(x = &quot;N&quot;, y = &quot;Max Memory (Mb)&quot;, fill=&#39;Cores&#39;) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+png(&#39;Images/Benchmark/target_pgs.png&#39;, res = 300, width = 1800, height = 1800, units = &#39;px&#39;)
+  plot_grid(target_pgs_time, target_pgs_mem, nrow=2)
 dev.off()
 
 ####
@@ -983,36 +1020,7 @@ n_split_mem &lt;-
 
 png(&#39;Images/Benchmark/n_split.png&#39;, res = 300, width = 1800, height = 2200, units = &#39;px&#39;)
   plot_grid(n_split_time, n_split_mem, nrow=2)
-dev.off()
-
-####
-# split by method, n
-####
-
-bm_dat_summary_i &lt;-
-  bm_dat_summary[bm_dat_summary$rule %in% c(
-    &#39;target_pgs_i&#39;
-  ), ]
-
-n_method_split_time &lt;- 
-  ggplot(bm_dat_summary_i, aes(x = pgs_method , y = mean_time, fill = n)) +
-  geom_bar(stat = &quot;identity&quot;, position=&quot;dodge&quot;) +
-  labs(x = &quot;PGS Method&quot;, y = &quot;Time (seconds)&quot;, fill = &#39;N&#39;) +
-  theme_half_open() +
-  background_grid() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-n_method_split_mem &lt;- 
-  ggplot(bm_dat_summary_i, aes(x = pgs_method , y = max_mem, fill = n)) +
-  geom_bar(stat = &quot;identity&quot;, position=&quot;dodge&quot;) +
-  labs(x = &quot;PGS Method&quot;, y = &quot;Max Memory (Mb)&quot;, fill = &#39;N&#39;) +
-  theme_half_open() +
-  background_grid() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-png(&#39;Images/Benchmark/n_method_split.png&#39;, res = 300, width = 1800, height = 1800, units = &#39;px&#39;)
-  plot_grid(n_method_split_time, n_method_split_mem, nrow=2)
-dev.off()  </code></pre>
+dev.off()</code></pre>
 </details>
 <hr />
 </div>
@@ -1033,9 +1041,27 @@ Show PGS Methods
 </div>
 </div>
 <div class="note-box">
-<p><strong>Note:</strong> SBayesR would capitalise on multiple cores
-when running on multiple chromosomes. pT+clump and DBSLMM are not
+<p><strong>Note:</strong> SBayesR and DBSLMM would capitalise on
+multiple cores when running on multiple chromosomes. pT+clump is not
 implemented in parallel, since they are already fast.</p>
+</div>
+</details>
+<details>
+<summary>
+Show target scoring
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 50%;">
+<div class="figure">
+<img src="Images/Benchmark/target_pgs.png" alt="" />
+<p class="caption">Rules affected by N cores and target sample size</p>
+</div>
+</div>
+</div>
+<div class="note-box">
+<p><strong>Note:</strong> target_pgs_i resources vary according to the
+number of pgs_methods and scores requested. In this benchmark, 4586
+scores were computed for each individual.</p>
 </div>
 </details>
 <details>
@@ -1062,23 +1088,6 @@ Show rules affected by N
 <p class="caption">Rules affected by target sample size</p>
 </div>
 </div>
-</div>
-</details>
-<details>
-<summary>
-Show rules affected by N and PGS method (target_scoring_i)
-</summary>
-<div class="centered-container">
-<div class="rounded-image-container" style="width: 50%;">
-<div class="figure">
-<img src="Images/Benchmark/n_method_split.png" alt="" />
-<p class="caption">Rules affected by target sample size</p>
-</div>
-</div>
-</div>
-<div class="note-box">
-<p><strong>Note:</strong> Performance varies by PGS method due to the
-number of scores each method produces.</p>
 </div>
 </details>
 <details>
@@ -1134,8 +1143,8 @@ Show PGS methods benchmark
 </div>
 </div>
 <div class="note-box">
-<p><strong>Note:</strong> pT+clump and DBSLMM are run using 1 core. All
-other methods are run using 10 cores.</p>
+<p><strong>Note:</strong> pT+clump is run using 1 core. All other
+methods are run using 10 cores.</p>
 </div>
 </details>
 </div>
