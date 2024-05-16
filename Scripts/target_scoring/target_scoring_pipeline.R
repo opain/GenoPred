@@ -27,6 +27,9 @@ library(GenoUtils)
 library(data.table)
 source('../functions/misc.R')
 source_all('../functions')
+library(foreach)
+library(doMC)
+registerDoMC(opt$n_cores)
 
 # Check required inputs
 if(is.null(opt$config)){
@@ -67,17 +70,39 @@ score_files<-list_score_files(opt$config)
 #####
 # Combine score files
 #####
-# They are already sorted, have the same number of variants and have same A1
-# Just append without duplicating the SNP, A1, and A2 columns, and insert method and gwas id in column names
+
+log_add(log_file = log_file, message = paste0('Processing ', nrow(score_files),' score files.'))
+
+# Extract SNP A1 and A2 information
+system(paste0('zcat ', outdir, '/reference/pgs_score_files/', score_files$method[1],'/', score_files$name[1],'/ref-',score_files$name[1],".score.gz | cut -d' ' -f1-3 - > ", tmp_dir,'/map.txt'))
+
+# Extract process score files for each name (gwas/score) in parallel
+foreach(i = 1:nrow(score_files), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  system(paste0('zcat ', outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],".score.gz | cut -d' ' --complement -f1-3 - | sed '1 s/SCORE/",paste0(score_files$method[i],'.',score_files$name[i]),"/g' > ", tmp_dir,'/tmp_score.',paste0(score_files$method[i],'.',score_files$name[i]),'.txt'))
+}
+
+# Paste files together in batches
+# Set number of batches according to the number of score files to combine
+num_batches <- max(c(1, min(c(opt$n_cores, floor(nrow(score_files) / 2)))))
+tmp_score_files <- list.files(path=tmp_dir, pattern='tmp_score.', full.names=T)
+set.seed(1)
+batches <- split(sample(tmp_score_files), rep(1:num_batches, length.out = length(tmp_score_files)))
+log_add(log_file = log_file, message = paste0('Aggregating score files in ', num_batches,' batches.'))
+foreach(i = 1:length(batches), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  system(paste0("paste -d ' ' ", paste(batches[[i]], collapse = " "),' > ',tmp_dir,'/tmp_batch_',i))
+  system(paste0('rm ', paste(batches[[i]], collapse = " ")))
+}
+
+# Paste batches together
+log_add(log_file = log_file, message = paste0('Aggregating batched score files.'))
+tmp_batch_files <- list.files(path=tmp_dir, pattern='tmp_batch_', full.names=T)
+system(paste0("paste -d ' ' ", tmp_dir,'/map.txt ', paste(tmp_batch_files, collapse = " "), ' > ', tmp_dir, '/all_score.txt'))
+system(paste0('rm ', paste(tmp_batch_files, collapse = " ")))
+
+# Read in scale file and update Param
+log_add(log_file = log_file, message = paste0('Reading in scale files.'))
 scale_files<-list()
 for(i in 1:nrow(score_files)){
-  if(i == 1){
-    system(paste0('zcat ', outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],".score.gz | sed '1 s/SCORE/",paste0(score_files$method[i],'.',score_files$name[i]),"/g' > ", tmp_dir,'/all_score.txt'))
-  } else {
-    system(paste0('zcat ', outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],".score.gz | cut -d' ' --complement -f1-3 - | sed '1 s/SCORE/",paste0(score_files$method[i],'.',score_files$name[i]),"/g' > ", tmp_dir,'/tmp_score.txt'))
-    system(paste0("paste -d ' ' ", tmp_dir, '/all_score.txt ', tmp_dir, '/tmp_score.txt > ',tmp_dir, '/temp.txt && mv ', tmp_dir, '/temp.txt ', tmp_dir, '/all_score.txt'))
-  }
-  # Read in scale file and update Param
   scale_files[[paste0(score_files$method[i],'-',score_files$name[i])]]<-fread(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-', opt$population,'.scale'))
   scale_files[[paste0(score_files$method[i],'-',score_files$name[i])]]$Param<-gsub('SCORE', paste0(score_files$method[i],'.',score_files$name[i]), scale_files[[paste0(score_files$method[i],'-',score_files$name[i])]]$Param)
 }
