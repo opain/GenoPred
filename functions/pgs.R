@@ -3,20 +3,25 @@
 # Identify score files (name and method combinations)
 list_score_files <- function(config){
 
+  combos<-NULL
+
   # Read in gwas_list
   gwas_list <- read_param(config = config, param = 'gwas_list')
 
-  # Identify PGS methods to be included
-  pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+  if(!is.null(gwas_list)){
+    # Identify PGS methods to be included
+    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
 
-  combos <- expand.grid(name = gwas_list$name[gwas_list$pop == 'EUR'], method = pgs_methods_list)
+    combos <- rbind(combos,
+                    expand.grid(name = gwas_list$name[gwas_list$pop == 'EUR'], method = pgs_methods_list))
 
-  # List PGS methods applied to non-EUR populations
-  pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs','dbslmm')
-  pgs_methods_noneur <- pgs_methods_noneur[pgs_methods_noneur %in% pgs_methods_list]
+    # List PGS methods applied to non-EUR populations
+    pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs','dbslmm')
+    pgs_methods_noneur <- pgs_methods_noneur[pgs_methods_noneur %in% pgs_methods_list]
 
-  combos <- rbind(combos,
-                  expand.grid(name = gwas_list$name[gwas_list$pop != 'EUR'], method = pgs_methods_noneur))
+    combos <- rbind(combos,
+                    expand.grid(name = gwas_list$name[gwas_list$pop != 'EUR'], method = pgs_methods_noneur))
+  }
 
   # Read in score_list
   score_list <- read_param(config = config, param = 'score_list')
@@ -30,12 +35,12 @@ list_score_files <- function(config){
 
     # Remove scores that did not pass ref harmonisation
     score_list <- score_list[score_list$pass == T,]
-  }
 
-  combos <- rbind(combos,
-                  data.frame(
-                    name = score_list$name,
-                    method = 'external'))
+    combos <- rbind(combos,
+                    data.frame(
+                      name = score_list$name,
+                      method = 'external'))
+  }
 
   return(combos)
 }
