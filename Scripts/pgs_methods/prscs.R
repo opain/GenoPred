@@ -102,6 +102,9 @@ gwas_N <- round(mean(gwas$N), 0)
 
 fwrite(gwas, paste0(tmp_dir, '/GWAS_sumstats_temp.txt'), sep=' ')
 
+rm(gwas)
+gc()
+
 # Record start time for test
 if(!is.na(opt$test)){
   test_start.time <- test_start(log_file = log_file)
@@ -117,6 +120,9 @@ pvar$POS<-0
 for(i in CHROMS){
   write.table(pvar[pvar$CHR == i, c('CHR','SNP','POS','BP','A1','A2'), with=F], paste0(tmp_dir,'/ref.chr',i,'.bim'), col.names=F, row.names=F, quote=F)
 }
+
+rm(pvar)
+gc()
 
 # Make a data.frame listing chromosome and phi combinations
 jobs<-NULL

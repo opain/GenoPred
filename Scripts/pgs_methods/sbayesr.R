@@ -120,6 +120,9 @@ if(!is.null(opt$P_max)){
 # Write out cojo format sumstats
 fwrite(gwas, paste0(tmp_dir,'/GWAS_sumstats_COJO.txt'), sep=' ', na = "NA", quote=F)
 
+rm(gwas)
+gc()
+
 # Record start time for test
 if(!is.na(opt$test)){
   test_start.time <- test_start(log_file = log_file)
