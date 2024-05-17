@@ -61,16 +61,11 @@ rule pc_projection:
 # Polygenic scoring
 ####
 
-if config["testing"] != 'NA':
-  n_cores_target_scoring = config.get("ncores", 1)
-else:
-  n_cores_target_scoring = config.get("ncores", 10)
-
 rule target_pgs_i:
   resources:
-    mem_mb=8000,
+    mem_mb=config['mem_target_pgs'],
     time_min=800
-  threads: n_cores_target_scoring
+  threads: config['cores_target_pgs']
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
     rules.prep_pgs.input

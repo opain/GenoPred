@@ -126,15 +126,8 @@ def set_ld_blocks_pop(population):
   else:
     return population
 
-# Set default values
-n_cores_dbslmm = config.get("ncores", 10)
-
-# Modify if the 'testing' condition is met
-if config["testing"] != 'NA':
-  n_cores_dbslmm = config.get("ncores", 5)
-
 rule prep_pgs_dbslmm_i:
-  threads: n_cores_dbslmm
+  threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_plink.output,
@@ -187,20 +180,11 @@ rule prep_pgs_dbslmm:
 ##
 # Note. Threads are set to 1, and phi and chr are run in parallel. Increasing number of threads shows no improvement in speed.
 
-# Set default values
-n_cores_prscs = config.get("ncores", 10)
-
-# Modify if the 'testing' condition is met
-if config["testing"] != 'NA':
-    n_cores_prscs = config.get("ncores", 5)
-
-mem_prscs = 2000*n_cores_prscs
-
 rule prep_pgs_prscs_i:
   resources:
-    mem_mb=mem_prscs,
+    mem_mb=2000*config['cores_prep_pgs'],
     time_min=800
-  threads: n_cores_prscs
+  threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
@@ -242,17 +226,10 @@ rule prep_pgs_prscs:
 # SBayesR
 ##
 
-if config["testing"] != 'NA':
-  n_cores_sbayesr = config.get("ncores", 1)
-else:
-  n_cores_sbayesr = config.get("ncores", 10)
-
-mem_sbayesr=4000*n_cores_sbayesr
-
 rule prep_pgs_sbayesr_i:
   resources:
-    mem_mb=mem_sbayesr
-  threads: n_cores_sbayesr
+    mem_mb=4000*config['cores_prep_pgs']
+  threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_gctb_ref.output,
@@ -286,17 +263,10 @@ rule prep_pgs_sbayesr:
 # lassosum
 ##
 
-if config["testing"] != 'NA':
-  n_cores_lassosum = config.get("ncores", 1)
-else:
-  n_cores_lassosum = config.get("ncores", 10)
-
-mem_lassosum=10000
-
 rule prep_pgs_lassosum_i:
   resources:
-    mem_mb=mem_lassosum
-  threads: n_cores_lassosum
+    mem_mb=10000
+  threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.install_lassosum.output
@@ -329,18 +299,11 @@ rule prep_pgs_lassosum:
 # LDpred2
 ##
 
-if config["testing"] != 'NA':
-  n_cores_ldpred2 = config.get("ncores", 5)
-else:
-  n_cores_ldpred2 = config.get("ncores", 10)
-
-mem_ldpred2=30000
-
 rule prep_pgs_ldpred2_i:
   resources:
-    mem_mb=mem_ldpred2,
+    mem_mb=30000,
     time_min=800
-  threads: n_cores_ldpred2
+  threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldpred2_ref.output
@@ -381,18 +344,11 @@ rule prep_pgs_ldpred2:
 # LDAK MegaPRS
 ##
 
-if config["testing"] != 'NA':
-  n_cores_megaprs = config.get("ncores", 5)
-else:
-  n_cores_megaprs = config.get("ncores", 10)
-
-mem_megaprs=20000
-
 rule prep_pgs_megaprs_i:
   resources:
-    mem_mb=mem_megaprs,
+    mem_mb=20000,
     time_min=800
-  threads: n_cores_megaprs
+  threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldak_highld.output,
