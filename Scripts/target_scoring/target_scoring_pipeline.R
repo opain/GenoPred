@@ -8,6 +8,8 @@ make_option("--config", action="store", default=NULL, type='character',
     help="Pipeline configuration file [required]"),
 make_option("--name", action="store", default=NULL, type='character',
     help="Name of target sample [required]"),
+make_option("--score", action="store", default=NULL, type='character',
+    help="Score to be used [required]"),
 make_option("--population", action="store", default=NULL, type='character',
     help="Population in target sample to extract [required]"),
 make_option("--plink2", action="store", default='plink2', type='character',
@@ -67,6 +69,14 @@ if(!is.na(opt$test)){
 # Identify score files to be combined
 score_files<-list_score_files(opt$config)
 
+# Subset score files
+if(!is.null(opt$score)){
+  if(all(score_files$name != opt$score)){
+    stop('Requested score files not present in gwas_list or score_list')
+  }
+  score_files <- score_files[score_files$name == opt$score,]
+}
+
 #####
 # Combine score files
 #####
@@ -84,7 +94,7 @@ foreach(i = 1:nrow(score_files), .combine = c, .options.multicore = list(presche
 # Paste files together in batches
 # Set number of batches according to the number of score files to combine
 num_batches <- max(c(1, min(c(opt$n_cores, floor(nrow(score_files) / 2)))))
-tmp_score_files <- list.files(path=tmp_dir, pattern='tmp_score.', full.names=T)
+tmp_score_files <- paste0(tmp_dir,'/tmp_score.',score_files$method,'.',score_files$name,'.txt')
 set.seed(1)
 batches <- split(sample(tmp_score_files), rep(1:num_batches, length.out = length(tmp_score_files)))
 log_add(log_file = log_file, message = paste0('Aggregating score files in ', num_batches,' batches.'))
@@ -95,7 +105,7 @@ foreach(i = 1:length(batches), .combine = c, .options.multicore = list(preschedu
 
 # Paste batches together
 log_add(log_file = log_file, message = paste0('Aggregating batched score files.'))
-tmp_batch_files <- list.files(path=tmp_dir, pattern='tmp_batch_', full.names=T)
+tmp_batch_files <- paste0(tmp_dir,'/tmp_batch_',1:length(batches))
 system(paste0("paste -d ' ' ", tmp_dir,'/map.txt ', paste(tmp_batch_files, collapse = " "), ' > ', tmp_dir, '/all_score.txt'))
 system(paste0('rm ', paste(tmp_batch_files, collapse = " ")))
 
@@ -140,17 +150,17 @@ scores <-
 ###
 
 log_add(log_file = log_file, message = 'Scaling target polygenic scores to the reference.')
-scores_scaled<-score_scale(score=scores, ref_scale=all_scale)
+scores<-score_scale(score=scores, ref_scale=all_scale)
 
 ###
 # Write out the target sample scores
 ###
 
 for(i in 1:nrow(score_files)){
-  scores_scaled_i <- scores_scaled[, c('FID','IID', names(scores_scaled)[grepl(paste0(score_files$method[i],'.',score_files$name[i]), names(scores_scaled))]), with=F]
-  names(scores_scaled_i) <- gsub(paste0('^', score_files$method[i],'\\.'),'', names(scores_scaled_i))
+  scores_i <- scores[, c('FID','IID', names(scores)[grepl(paste0(score_files$method[i],'.',score_files$name[i]), names(scores))]), with=F]
+  names(scores_i) <- gsub(paste0('^', score_files$method[i],'\\.'),'', names(scores_i))
   dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T)
-  fwrite(scores_scaled_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.profiles'), sep=' ', na='NA', quote=F)
+  fwrite(scores_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.profiles'), sep=' ', na='NA', quote=F)
 }
 
 log_add(log_file = log_file, message = paste0('Saved polygenic scores.'))

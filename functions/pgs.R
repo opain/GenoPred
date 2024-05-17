@@ -72,13 +72,12 @@ score_mean_sd<-function(scores, keep=NULL){
 
 # Scale the target scores based on the reference mean and sd
 score_scale<-function(score, ref_scale){
-    score_scaled<-score
     for(i in ref_scale$Param){
-        score_scaled[[i]]<-score[[i]]-ref_scale$Mean[ref_scale$Param == i]
-        score_scaled[[i]]<-score_scaled[[i]]/ref_scale$SD[ref_scale$Param == i]
-        score_scaled[[i]]<-round(score_scaled[[i]],3)
+        score[[i]]<-score[[i]]-ref_scale$Mean[ref_scale$Param == i]
+        score[[i]]<-score[[i]]/ref_scale$SD[ref_scale$Param == i]
+        score[[i]]<-round(score[[i]],3)
     }
-    return(score_scaled)
+    return(score)
 }
 
 # Read in SNP data from either plink1 binary, bgen or vcf
