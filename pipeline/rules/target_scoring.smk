@@ -37,6 +37,8 @@ rule pc_projection_i:
     f"{outdir}/reference/logs/pc_projection_i-{{name}}-{{population}}.log"
   conda:
     "../envs/analysis.yaml"
+  params:
+    testing=config["testing"]
   shell:
     "Rscript ../Scripts/target_scoring/target_scoring.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
@@ -45,6 +47,7 @@ rule pc_projection_i:
       --ref_score {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.eigenvec.var.gz \
       --ref_scale {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.{wildcards.population}.scale \
       --plink2 plink2 \
+      --test {params.testing} \
       --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}-{wildcards.population} > {log} 2>&1"
 
 rule pc_projection_all:
