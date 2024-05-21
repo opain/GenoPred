@@ -395,7 +395,9 @@ conf <- c(
   'config_file: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml',
   'gwas_list: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt',
   'target_list: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/basic/target_list.txt',
-  "pgs_methods: ['ptclump','dbslmm','prscs','sbayesr','lassosum','ldpred2','megaprs']"
+  "pgs_methods: ['ptclump','dbslmm','prscs','sbayesr','lassosum','ldpred2','megaprs']",
+  "cores_prep_pgs: 10",
+  "cores_target_pgs: 50"
 )
 
 write.table(conf, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml', col.names = F, row.names = F, quote = F)
@@ -420,8 +422,11 @@ write.csv(target_list, '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/do
 # Run pipeline
 
 ```{bash}
+cd /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/GenoPred/pipeline
+git describe --tags
+# v2.2.5-20-gb0bf674
+
 snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml output_all -n 
-snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml output_all -n 
 ```
 
 ***
@@ -434,6 +439,8 @@ snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ol
 library(data.table)
 library(ggplot2)
 library(cowplot)
+library(dplyr)
+library(plotly)
 
 # read in gwas_list
 gwas_list<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt')
@@ -449,7 +456,7 @@ bm_files_i <-
 # Remove outlier detection
 bm_files_i<-bm_files_i[
   grepl(paste(gwas_list$name, collapse='|'), bm_files_i) |
-  !grepl('prep_pgs|target_pgs|sumstat_prep|outlier_detection', bm_files_i)]
+  !grepl('prep_pgs|sumstat_prep|outlier_detection', bm_files_i)]
 
 
 # Read in benchmark files
@@ -463,8 +470,7 @@ bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
 bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
 
 # Calculate total wall time
-sum(bm_dat_all$s)/60/60 # 215.3136 hours
-sum(bm_dat_all$s)/60/60/50 # 4.306272 when allowing 50 jobs simultaneously
+sum(bm_dat_all$s)/60/60 # 93.57131 hours
 
 #########
 # Quantify time taken by each part of pipeline
@@ -522,7 +528,7 @@ data<-rbind(data, data.frame(
 fig <- plot_ly(data, labels = ~category, values = ~values, type = 'pie',
                textposition = 'outside',
                textinfo = 'label+percent',
-               rotation = 270,  # This rotates the pie chart to move labels to the side
+               rotation = 140,  # This rotates the pie chart to move labels to the side
                marker = list(line = list(color = '#000000', width = 0.8))) %>%
   layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
@@ -569,6 +575,7 @@ fig <- plot_ly(data, labels = ~category, values = ~values, type = 'pie',
 #######
 # Rules that are only run once
 #######
+bm_dat_summary<-NULL
 
 tmp <- bm_dat_all[bm_dat_all$rule %in% c('ancestry_inference_i',
                                          'outlier_detection_i',
@@ -647,27 +654,26 @@ rule_i<-'target_pgs_i'
 bm_dat_all_tmp <- bm_dat_all[bm_dat_all$rule == rule_i, ]
 
 rule_split<-strsplit(bm_dat_all_tmp$file, '-')
-bm_dat_all_tmp$pgs_method <- lapply(rule_split, function(x) x[3])
-bm_dat_all_tmp$pop <- lapply(rule_split, function(x) x[4])
+bm_dat_all_tmp$pop <- lapply(rule_split, function(x) x[3])
+bm_dat_all_tmp$pop<-gsub('.txt','', bm_dat_all_tmp$pop)
 
-for(pgs_method_i in unique(bm_dat_all_tmp$pgs_method)){
-  for(pop_i in unique(bm_dat_all_tmp$pop)){
-    bm_dat_all_tmp_2<-bm_dat_all_tmp[bm_dat_all_tmp$pgs_method == pgs_method_i & bm_dat_all_tmp$pop == pop_i,]
-    
-    tmp <- data.table(
-      rule = rule_i,
-      pgs_method = pgs_method_i,
-      pop = pop_i,
-      mean_time = mean(bm_dat_all_tmp_2$s),
-      max_time = max(bm_dat_all_tmp_2$s),
-      mean_mem = mean(bm_dat_all_tmp_2$max_rss),
-      max_mem = max(bm_dat_all_tmp_2$max_rss)
-    )
+for(pop_i in unique(bm_dat_all_tmp$pop)){
+  bm_dat_all_tmp_2<-bm_dat_all_tmp[bm_dat_all_tmp$pop == pop_i,]
+  
+  tmp <- data.table(
+    rule = rule_i,
+    pgs_method = 'all',
+    pop = pop_i,
+    mean_time = mean(bm_dat_all_tmp_2$s),
+    max_time = max(bm_dat_all_tmp_2$s),
+    mean_mem = mean(bm_dat_all_tmp_2$max_rss),
+    max_mem = max(bm_dat_all_tmp_2$max_rss)
+  )
 
-    bm_dat_summary<-rbind(bm_dat_summary, tmp)
+  bm_dat_summary<-rbind(bm_dat_summary, tmp)
 
-  }
 }
+
 
 write.csv(bm_dat_summary, '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/bm_res.csv')
 
@@ -900,12 +906,12 @@ library(ukbkings)
 library(dplyr)
 library(stringr)
 
-# Extract ICD code and sex from UKB
+# Extract continuous outcomes and age at recruitment from UKB
 project_dir <- "/datasets/ukbiobank/ukb82087"
 f <- bio_field(project_dir)
 f %>%
     select(field, name) %>%
-    filter(str_detect(field, "^50-|^21001-|^30700-|^30750-|^30880-|^30760-")) %>%
+    filter(str_detect(field, "^21022-|^50-|^21001-|^30700-|^30750-|^30880-|^30760-")) %>%
     bio_field_add("/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/continuous_field_subset.txt")
 
 bio_phen(
@@ -927,7 +933,7 @@ df_long<-df_long[!duplicated(df_long[,c('eid','variable')]),]
 
 var_pheno<-data.frame(
   var=c('50','21001','30700','30750','30880','30760'),
-  pheno=c('height','bmi','egfr','hba1c','urate','hdl')
+  pheno=c('height','bmi','creatinine','hba1c','urate','hdl')
 )
 
 library(data.table)
@@ -952,6 +958,32 @@ for(i in 1:nrow(var_pheno)){
     sep = '\t'
   )
 }
+
+# For creatinine, convert to eGFR using same formula as: https://www.medrxiv.org/content/10.1101/2023.11.20.23298215v1.full.pdf
+# Read in sex information
+sex <- readRDS("/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/icd_field_subset.rds")
+sex<-sex[, c('eid','31-0.0')]
+age<-df[, c('eid','21022-0.0')]
+tmp <- df_long[df_long$variable == '30700',]
+tmp<- merge(tmp, sex, by='eid')
+tmp<- merge(tmp, age, by='eid')
+tmp_female <- tmp[tmp$`31-0.0` == 0,]
+tmp_male <- tmp[tmp$`31-0.0` == 1,]
+tmp_female$egfr <- 30849 * tmp_female$outcome^-1.154 * tmp_female$`21022-0.0`^-0.203 * 0.742
+tmp_male$egfr <- 30849 * tmp_male$outcome^-1.154 * tmp_male$`21022-0.0`^-0.203
+tmp<-rbind(tmp_female, tmp_male)
+tmp<-tmp[,c('eid','egfr')]
+names(tmp)<-c('eid','outcome')
+fwrite(
+  tmp,
+  paste0(
+    '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/egfr.txt'
+  ),
+  row.names = F,
+  quote = F,
+  na = 'NA',
+  sep = '\t'
+)
 
 ```
 
@@ -1065,7 +1097,51 @@ write.csv(n_table, '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/pheno_n.csv
 
 ***
 
-## Check correlation
+### Estimate correlation between phenotypes
+
+<details><summary>Show code</summary>
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(reshape2)
+
+bin_phenos <- c('bc', 'ckd', 'gout', 'ibd', 'pc', 'ra', 'stroke', 't1d', 't2d')
+con_phenos <- c('height','bmi','egfr','hba1c','urate','hdl')
+phenos<-c(bin_phenos, con_phenos)
+
+pheno_list <- NULL
+for(i in phenos){
+  pheno_list[[i]] <- fread(paste0(
+      '/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/',
+      i,
+      '.unrel.txt'
+    ))
+  names(pheno_list[[i]])[2]<-i
+}
+
+pheno_all<-Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = "eid", all = TRUE),
+        pheno_list)
+
+pheno_cor <- cor(pheno_all[,-1], use='p')
+pheno_cor_melt<-reshape2::melt(pheno_cor)
+
+ggplot(data = pheno_cor_melt, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+   name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+  coord_fixed()
+```
+
+</details>
+
+***
+
+## Check correlation between PGS and outcomes
 
 <details><summary>Show code</summary>
 
@@ -1229,8 +1305,13 @@ cor_subset$label[cor_subset$pheno == 'ckd']<-'egfr → ckd'
 cor_subset$label[cor_subset$pheno == 'urate']<-'urate → urate'
 cor_subset$label[cor_subset$pheno == 'gout']<-'urate → gout'
 
+# Insert nice labels for PGS methods
+tmp<-pgs_method_labels
+names(tmp)<-c('method','Method')
+cor_subset<-merge(cor_subset, tmp, by.x='pgs_method', by.y='method')
+
 png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all.png', res=300, width=4000, height=8000, units = 'px')
-ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
+ggplot(cor_subset, aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1245,13 +1326,14 @@ ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   theme_half_open() +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, size=12)) +
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position='bottom') +
   facet_grid(label ~ pop , scales="free_y") +
   panel_border()
 dev.off()
 
-png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_eur.png', res=300, width=4500, height=3000, units = 'px')
-ggplot(cor_subset[cor_subset$pop == 'EUR'], aes(x = pgs_method, y = r, fill = model)) +
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_eur.png', res=300, width=3000, height=4000, units = 'px')
+ggplot(cor_subset[cor_subset$pop == 'EUR'], aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1266,8 +1348,54 @@ ggplot(cor_subset[cor_subset$pop == 'EUR'], aes(x = pgs_method, y = r, fill = mo
   theme_half_open() +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, size=12)) +
-  facet_wrap(label ~ . , scales="free", nrow = 3) +
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position = c(0.80, 0.07)) +
+  facet_wrap(label ~ . , scales="free", ncol = 3) +
+  panel_border()
+dev.off()
+
+# Split plot for all populations into two parts
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_part1.png', res=300, width=3500, height=4000, units = 'px')
+ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[1:7],], aes(x = Method, y = r, fill = model)) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
+  labs(
+    y = "BETA (SE)",
+    x = 'PGS Method',
+    fill = 'Model'
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position='bottom') +
+  facet_grid(label ~ pop , scales="free_y") +
+  panel_border()
+dev.off()
+
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_part2.png', res=300, width=3500, height=4000, units = 'px')
+ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[-1:-7],], aes(x = Method, y = r, fill = model)) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
+  labs(
+    y = "BETA (SE)",
+    x = 'PGS Method',
+    fill = 'Model'
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position='bottom') +
+  facet_grid(label ~ pop , scales="free_y") +
   panel_border()
 dev.off()
 
