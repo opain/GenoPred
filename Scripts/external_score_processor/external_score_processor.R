@@ -245,7 +245,11 @@ if(nrow(targ_matched) < 0.75*n_snp_orig){
 	score <- score[, c('SNP','A1','A2','effect_weight'), with = F]
 	names(score)[names(score) == 'effect_weight']<-paste0('SCORE_external')
 
-	fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+	# Flip effects to match reference alleles
+	ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+	score_new <- map_score(ref = ref, score = score)
+
+	fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 	if(file.exists(paste0(opt$output,'.score.gz'))){
 		system(paste0('rm ',opt$output,'.score.gz'))

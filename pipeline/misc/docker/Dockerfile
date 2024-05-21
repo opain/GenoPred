@@ -3,7 +3,7 @@ FROM ubuntu:latest
 
 # Run commands in a single RUN layer to reduce the image size
 RUN apt-get update && \
-    apt-get install -y git curl wget zip gzip vim build-essential zlib1g-dev && \
+    apt-get install -y git curl wget zip gzip vim build-essential zlib1g-dev jq && \
 
     # Create a wrapper script for tar that includes --no-same-owner
     echo '#!/bin/sh' > /usr/local/bin/tar && \

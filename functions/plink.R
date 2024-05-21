@@ -458,43 +458,41 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
     if (exit_status == 2) {
       stop()
     }
-  }
 
-  # Add up the scores across chromosomes
-  # Read in score files IDs columns from first non-missing chromosome
-  # Insert FID if not present
-  for(chr_i in chr){
+    # Add up the scores across chromosomes as they are produced
     if (file.exists(paste0(tmp_folder, '/profiles.chr', chr_i, '.sscore'))) {
-      tmp <- fread(paste0(tmp_folder, '/profiles.chr', chr_i, '.sscore'))
-      names(tmp)<-gsub('\\#', '', names(tmp))
-      scores_ids <- tmp[, names(tmp) %in% c('FID', 'IID'), with = F]
-      if (ncol(scores_ids) == 1) {
-        scores_ids <- data.table(FID = scores_ids$IID,
-                                 IID = scores_ids$IID)
+      sscore <- fread(paste0(paste0(tmp_folder,'/profiles.chr', chr_i, '.sscore')))
+
+      # Delete file to save disk space
+      system(paste0('rm ', tmp_folder, '/profiles.chr', chr_i, '.sscore'))
+
+      if(chr_i == chr[1]){
+        names(sscore)<-gsub('\\#', '', names(sscore))
+        scores_ids <- sscore[, names(sscore) %in% c('FID', 'IID'), with = F]
+        if (ncol(scores_ids) == 1) {
+          scores_ids <- data.table(FID = scores_ids$IID,
+                                   IID = scores_ids$IID)
+        } else {
+          scores_ids <- data.table(FID = scores_ids$FID,
+                                   IID = scores_ids$IID)
+        }
+
+        # Subset and transform scores as required
+        current_scores <- as.matrix(sscore[, paste0(names(score_small)[-1:-3], '_SUM'), with = FALSE])
+
+        # If scores is not initialized, copy current_scores
+        scores <- current_scores
       } else {
-        scores_ids <- data.table(FID = scores_ids$FID,
-                                 IID = scores_ids$IID)
+        # Subset and transform scores as required
+        current_scores <- as.matrix(sscore[, paste0(names(score_small)[-1:-3], '_SUM'), with = FALSE])
+
+        # Sum the current scores with the running total
+        scores <- scores + current_scores
       }
-      break
-    }
-  }
-
-  # Read in the scores for each chromosome, adjust for the number of SNPs considered and add up
-  scores<-list()
-  for(chr_i in chr){
-    if(file.exists(paste0(tmp_folder,'/profiles.chr',chr_i,'.sscore'))){
-      sscore<-fread(paste0(tmp_folder,'/profiles.chr',chr_i,'.sscore'))
-      scores[[chr_i]]<-as.matrix(sscore[,paste0(names(score_small)[-1:-3], '_SUM'),with=F])
     } else {
-      cat0('No scores for chromosome ',chr_i,'. Check plink logs file for reason.\n')
+      cat('No scores for chromosome ', chr_i, '. Check plink logs file for reason.\n')
     }
   }
-
-  # Remove NULL elements from list (these are inserted by R when list objects are numbered)
-  scores[sapply(scores, is.null)] <- NULL
-
-  # sum scores across chromosomes
-  scores<-Reduce(`+`, scores)
 
   # Combine score with IDs
   scores<-data.table(scores_ids,

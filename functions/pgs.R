@@ -1,5 +1,62 @@
 #!/usr/bin/Rscript
 
+# Identify score files (name and method combinations)
+list_score_files <- function(config){
+
+  combos<-NULL
+
+  # Read in gwas_list
+  gwas_list <- read_param(config = config, param = 'gwas_list')
+
+  if(!is.null(gwas_list)){
+    # Identify PGS methods to be included
+    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+
+    combos <- rbind(combos,
+                    expand.grid(name = gwas_list$name[gwas_list$pop == 'EUR'], method = pgs_methods_list))
+
+    # List PGS methods applied to non-EUR populations
+    pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs','dbslmm')
+    pgs_methods_noneur <- pgs_methods_noneur[pgs_methods_noneur %in% pgs_methods_list]
+
+    combos <- rbind(combos,
+                    expand.grid(name = gwas_list$name[gwas_list$pop != 'EUR'], method = pgs_methods_noneur))
+  }
+
+  # Read in score_list
+  score_list <- read_param(config = config, param = 'score_list')
+
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+  if(!is.null(score_list)){
+    # Read in score_reporter output
+    score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
+    score_list <- merge(score_list, score_reporter, by='name')
+
+    # Remove scores that did not pass ref harmonisation
+    score_list <- score_list[score_list$pass == T,]
+
+    combos <- rbind(combos,
+                    data.frame(
+                      name = score_list$name,
+                      method = 'external'))
+  }
+
+  return(combos)
+}
+
+# Flip effects in score file to match A1 reference
+map_score<-function(ref, score){
+  tmp <- merge(ref, score, by = 'SNP', all.x=T, sort = F)
+  flip <- which(tmp$A1.x != tmp$A1.y)
+  tmp <- as.matrix(tmp[, -1:-5, drop = FALSE])
+  tmp[flip, ] <- -tmp[flip, ,drop=F]
+  new_score<-cbind(ref, tmp)
+  new_score[is.na(new_score)]<-0
+
+  return(new_score)
+}
+
 # Calculate mean and sd of scores in file with plink .sscore format
 score_mean_sd<-function(scores, keep=NULL){
     if(!is.null(keep)){
@@ -15,13 +72,12 @@ score_mean_sd<-function(scores, keep=NULL){
 
 # Scale the target scores based on the reference mean and sd
 score_scale<-function(score, ref_scale){
-    score_scaled<-score
     for(i in ref_scale$Param){
-        score_scaled[[i]]<-score[[i]]-ref_scale$Mean[ref_scale$Param == i]
-        score_scaled[[i]]<-score_scaled[[i]]/ref_scale$SD[ref_scale$Param == i]
-        score_scaled[[i]]<-round(score_scaled[[i]],3)
+        score[[i]]<-score[[i]]-ref_scale$Mean[ref_scale$Param == i]
+        score[[i]]<-score[[i]]/ref_scale$SD[ref_scale$Param == i]
+        score[[i]]<-round(score[[i]],3)
     }
-    return(score_scaled)
+    return(score)
 }
 
 # Read in SNP data from either plink1 binary, bgen or vcf
@@ -86,7 +142,7 @@ read_pop_data <- function(x){
   } else {
     pop_data <- data.table(FID = pop_data$FID,
                            IID = pop_data$IID,
-                           POP = pop_data$POP)  
+                           POP = pop_data$POP)
   }
   return(pop_data)
 }
@@ -236,7 +292,7 @@ dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats
     for(file_i in dbslmm_output_i){
       dbslmm_all_i<-rbind(dbslmm_all_i, fread(paste0(tmp_dir,'/',file_i)))
     }
-    
+
     if(h2f_i == h2f[1]){
       dbslmm_all<-dbslmm_all_i[,c(1,2,4), with=T]
       names(dbslmm_all)<-c('SNP', 'A1', paste0('SCORE_DBSLMM_',h2f_i))

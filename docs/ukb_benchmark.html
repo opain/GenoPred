@@ -68,6 +68,17 @@ document.getElementById('toggleNightMode').addEventListener('change', function()
 });
 </script>
 
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-YR18ZB3PR3"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-YR18ZB3PR3');
+</script>
+
+
 <style type="text/css">
   code{white-space: pre-wrap;}
   span.smallcaps{font-variant: small-caps;}
@@ -760,7 +771,10 @@ gwas_list$sd[is.na(gwas_list$prevalence)]&lt;-1
 
 gwas_list$label&lt;-paste0(&quot;\&quot;&quot;, gwas_list$label, &quot;\&quot;&quot;)
 
-write.table(gwas_list, &#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt&#39;, col.names=T, row.names=F, quote=F)</code></pre>
+write.table(gwas_list, &#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt&#39;, col.names=T, row.names=F, quote=F)
+
+# Write csv containing gwas data for paper
+write.csv(gwas_dat, &#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/gwas_data.csv&#39;, row.names = F)</code></pre>
 </details>
 <hr />
 </div>
@@ -786,7 +800,8 @@ write.table(conf, &#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1
 </div>
 <div id="run-pipeline" class="section level1">
 <h1>Run pipeline</h1>
-<pre class="bash"><code>snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml output_all -n </code></pre>
+<pre class="bash"><code>snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml output_all -n 
+snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml output_all -n </code></pre>
 <hr />
 <div id="computational-benchmark" class="section level2">
 <h2>Computational benchmark</h2>
@@ -808,6 +823,13 @@ bm_files_i &lt;-
     list.files(&#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/output/reference/benchmarks/&#39;)
   )
 
+# Restrict gwas-specific benchmarks to gwas in list
+# Remove outlier detection
+bm_files_i&lt;-bm_files_i[
+  grepl(paste(gwas_list$name, collapse=&#39;|&#39;), bm_files_i) |
+  !grepl(&#39;prep_pgs|target_pgs|sumstat_prep|outlier_detection&#39;, bm_files_i)]
+
+
 # Read in benchmark files
 bm_dat_all &lt;- do.call(rbind, lapply(bm_files_i, function(file) {
   tmp &lt;- fread(file)
@@ -818,8 +840,109 @@ bm_dat_all &lt;- do.call(rbind, lapply(bm_files_i, function(file) {
 # Create rule column
 bm_dat_all$rule &lt;- gsub(&#39;-.*&#39;,&#39;&#39;,bm_dat_all$file)
 
-# Summarise memory and time
-bm_dat_summary &lt;- NULL
+# Calculate total wall time
+sum(bm_dat_all$s)/60/60 # 215.3136 hours
+sum(bm_dat_all$s)/60/60/50 # 4.306272 when allowing 50 jobs simultaneously
+
+#########
+# Quantify time taken by each part of pipeline
+#########
+
+# Calculate wall time taken by rule
+bm_dat_rule_time &lt;- NULL
+for (i in unique(bm_dat_all$rule)) {
+  bm_dat_rule_time &lt;- rbind(
+    bm_dat_rule_time,
+    data.frame(
+      rule = i,
+      time = sum(bm_dat_all$s[bm_dat_all$rule == i])))
+}
+
+# Tidy results
+bm_dat_rule_time &lt;-
+  bm_dat_rule_time[!(bm_dat_rule_time$rule %in% c(&#39;ancestry_reporter&#39;, &#39;score_reporter.txt&#39;)), ]
+
+bm_dat_rule_time$step&lt;-gsub(&#39;_i$&#39;,&#39;&#39;, bm_dat_rule_time$rule)
+bm_dat_rule_time$step&lt;-gsub(&#39;prep_pgs_&#39;,&#39;&#39;, bm_dat_rule_time$step)
+
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;format_target_i&#39;]&lt;-&#39;Target QC&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;sumstat_prep_i&#39;]&lt;-&#39;GWAS QC&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;sample_report_i&#39;]&lt;-&#39;Report Creation&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;outlier_detection_i&#39;]&lt;-&#39;Outlier Detection&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;ancestry_inference_i&#39;]&lt;-&#39;Ancestry Inference&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;target_pgs_i&#39;]&lt;-&#39;Target Scoring&#39;
+
+bm_dat_rule_time&lt;-merge(bm_dat_rule_time, pgs_method_labels, by.x=&#39;step&#39;, by.y=&#39;method&#39;, all.x=T)
+bm_dat_rule_time$step[!is.na(bm_dat_rule_time$label)] &lt;- bm_dat_rule_time$label[!is.na(bm_dat_rule_time$label)]
+bm_dat_rule_time$label&lt;-NULL
+bm_dat_rule_time&lt;-bm_dat_rule_time[order(bm_dat_rule_time$time),]
+
+#######
+# Create a pie chart
+#######
+
+# Collapse prep_pgs into single component
+pgs_data&lt;-bm_dat_rule_time[grepl(&#39;prep_pgs&#39;, bm_dat_rule_time$rule),]
+notpgs_data&lt;-bm_dat_rule_time[!grepl(&#39;prep_pgs&#39;, bm_dat_rule_time$rule),]
+
+# Create data for the graph.
+data &lt;- data.frame(
+  category = notpgs_data$step,
+  values = notpgs_data$time
+)
+
+data&lt;-rbind(data, data.frame(
+  category = &#39;PGS Methods&#39;,
+  values = sum(pgs_data$time)
+))
+
+# Create the pie chart
+fig &lt;- plot_ly(data, labels = ~category, values = ~values, type = &#39;pie&#39;,
+               textposition = &#39;outside&#39;,
+               textinfo = &#39;label+percent&#39;,
+               rotation = 270,  # This rotates the pie chart to move labels to the side
+               marker = list(line = list(color = &#39;#000000&#39;, width = 0.8))) %&gt;%
+  layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         showlegend = FALSE,
+         margin = list(l = 20, r = 20, b = 100, t = 50, autoexpand = TRUE))  # Adjust margins here
+
+# Save fig as a screenshot
+
+#######
+# Create a pie chart for PGS methods only
+#######
+
+# Create data for the graph.
+data &lt;- data.frame(
+  category = bm_dat_rule_time$step[grepl(&#39;prep_pgs&#39;, bm_dat_rule_time$rule)],
+  values = bm_dat_rule_time$time[grepl(&#39;prep_pgs&#39;, bm_dat_rule_time$rule)]
+)
+
+# Quantify time on average per GWAS
+data$time_gwas&lt;-data$values/13
+data$time_gwas_clean&lt;-NA
+data$time_gwas_clean[data$time_gwas &lt; 60] &lt;-
+  paste0(round(data$time_gwas[data$time_gwas &lt; 60], 1), &#39; sec&#39;)
+data$time_gwas_clean[data$time_gwas &gt; 60] &lt;-
+  paste0(round(data$time_gwas[data$time_gwas &gt; 60] / 60, 1), &#39; min&#39;)
+data$time_gwas_clean[data$time_gwas &gt; 3600] &lt;-
+  paste0(round(data$time_gwas[data$time_gwas &gt; 3600] / 60 / 60, 1), &#39; hr&#39;)
+
+data$custom_label&lt;-paste0(data$category, &quot;\n(&quot;, data$time_gwas_clean,&quot;)&quot;)
+
+# Create the pie chart
+fig &lt;- plot_ly(data, labels = ~category, values = ~values, type = &#39;pie&#39;,
+               text = ~custom_label,      # Use custom labels
+               textposition = &#39;outside&#39;,
+               textinfo = &#39;text&#39;,
+               marker = list(line = list(color = &#39;#000000&#39;, width = 0.8))) %&gt;%
+  layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         showlegend = FALSE,
+         margin = list(autoexpand = TRUE))
+
+# Save fig as a screenshot
 
 #######
 # Rules that are only run once
@@ -1467,7 +1590,14 @@ for(pheno_i in phenos){
 cor_subset$model &lt;- factor(cor_subset$model, levels = c(&#39;Top&#39;,&#39;Pseudo&#39;))
 dir.create(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB&#39;)
 
-png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all.png&#39;, res=300, width=4000, height=6000, units = &#39;px&#39;)
+# Create labels indicating gwas used to predict phenotype
+cor_subset$label&lt;-paste0(cor_subset$pheno,&#39; → &#39;,cor_subset$pheno)
+cor_subset$label[cor_subset$pheno == &#39;egfr&#39;]&lt;-&#39;egfr → egfr&#39;
+cor_subset$label[cor_subset$pheno == &#39;ckd&#39;]&lt;-&#39;egfr → ckd&#39;
+cor_subset$label[cor_subset$pheno == &#39;urate&#39;]&lt;-&#39;urate → urate&#39;
+cor_subset$label[cor_subset$pheno == &#39;gout&#39;]&lt;-&#39;urate → gout&#39;
+
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all.png&#39;, res=300, width=4000, height=8000, units = &#39;px&#39;)
 ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
@@ -1484,7 +1614,7 @@ ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12)) +
-  facet_grid(pheno ~ pop , scales=&quot;free_y&quot;) +
+  facet_grid(label ~ pop , scales=&quot;free_y&quot;) +
   panel_border()
 dev.off()
 
@@ -1505,7 +1635,7 @@ ggplot(cor_subset[cor_subset$pop == &#39;EUR&#39;], aes(x = pgs_method, y = r, f
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12)) +
-  facet_wrap(pheno ~ . , scales=&quot;free&quot;, nrow = 3) +
+  facet_wrap(label ~ . , scales=&quot;free&quot;, nrow = 3) +
   panel_border()
 dev.off()</code></pre>
 </details>

@@ -28,16 +28,12 @@ check_target_paths(df = target_list_df, chr = str(get_chr_range(config['testing'
 ##
 # Largely based on Impute.Me by Lasse Folkersen
 
-# Set default values
-n_cores_impute = config.get("ncores", 10)
-mem_impute = 10000*n_cores_impute
-
 if 'target_list' in config:
   rule impute_23andme_i:
     resources:
-      mem_mb=mem_impute,
+      mem_mb=10000*config['cores_impute_23andme'],
       time_min=800
-    threads: n_cores_impute
+    threads: config['cores_impute_23andme']
     input:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
       rules.download_impute2_data.output,
@@ -206,15 +202,8 @@ rule run_ancestry_reporter:
 # Population outlier detection and target sample specific PC calculation
 ####
 
-# Set default values
-n_cores_outlier_detection = config.get("ncores", 10)
-
-# Modify if the 'testing' condition is met
-if config["testing"] != 'NA':
-  n_cores_outlier_detection = config.get("ncores", 5)
-
 rule outlier_detection_i:
-  threads: n_cores_outlier_detection
+  threads: config['cores_outlier_detection']
   resources:
     mem_mb=15000
   input:

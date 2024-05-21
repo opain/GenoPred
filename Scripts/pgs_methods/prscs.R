@@ -102,6 +102,9 @@ gwas_N <- round(mean(gwas$N), 0)
 
 fwrite(gwas, paste0(tmp_dir, '/GWAS_sumstats_temp.txt'), sep=' ')
 
+rm(gwas)
+gc()
+
 # Record start time for test
 if(!is.na(opt$test)){
   test_start.time <- test_start(log_file = log_file)
@@ -117,6 +120,9 @@ pvar$POS<-0
 for(i in CHROMS){
   write.table(pvar[pvar$CHR == i, c('CHR','SNP','POS','BP','A1','A2'), with=F], paste0(tmp_dir,'/ref.chr',i,'.bim'), col.names=F, row.names=F, quote=F)
 }
+
+rm(pvar)
+gc()
 
 # Make a data.frame listing chromosome and phi combinations
 jobs<-NULL
@@ -155,7 +161,11 @@ for(phi_i in phi_param){
   score_all<-cbind(score_all, score_phi)
 }
 
-fwrite(score_all, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+# Flip effects to match reference alleles
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+score_new <- map_score(ref = ref, score = score_all)
+
+fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))

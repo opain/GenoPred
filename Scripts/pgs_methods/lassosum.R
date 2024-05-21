@@ -152,7 +152,11 @@ for(i in 1:length(out$s)){
   }
 }
 
-fwrite(score_file, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+# Flip effects to match reference alleles
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+score_new <- map_score(ref = ref, score = score_file)
+
+fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))
