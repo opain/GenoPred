@@ -11,7 +11,7 @@
 
 
 
-<title>GenoPred Pipeline - Running Offline</title>
+<title>GenoPred Pipeline - Using 23andMe data</title>
 
 <script src="site_libs/header-attrs-2.26/header-attrs.js"></script>
 <script src="site_libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
@@ -422,165 +422,160 @@ div.tocify {
 
 
 
-<h1 class="title toc-ignore">GenoPred Pipeline - Running Offline</h1>
+<h1 class="title toc-ignore">GenoPred Pipeline - Using 23andMe data</h1>
 
 </div>
 
 
 <hr />
-<p>This document describes how to run the GenoPred pipeline offline (an
-environment without access to the internet).</p>
-<p>First, the dependencies of the pipeline will need to prepared within
-an environment that <strong>does</strong> have access to the internet.
-These include the software container and additional pipeline resources.
-Then these resources can be transferred to the offline environment, and
-the pipeline can be run.</p>
-<p>Below, I provide an example of this process.</p>
+<p>This document is a simplified set of instructions for the specific
+scenario where 23andMe data for an individual, and a set of score files
+on the PGS catalogue is being used as the input to the pipeline.</p>
 <hr />
-<div id="download-software-container" class="section level1">
-<h1>Download software container</h1>
-<p>The GenoPred image has already been built using the Dockerfile <a
-href="https://github.com/opain/GenoPred/blob/master/pipeline/misc/docker/Dockerfile">here</a>.
-This image is hosted on dockerhub and the singularity library.</p>
-<pre class="bash"><code># Go to directory where you want to save the container image
-cd /users/k1806347/oliverpainfel/Software/singularity
-
-# Docker
-docker pull opaino/genopred_pipeline:v0.2
-
-# Singularity
-singularity pull --arch amd64 library://opain/genopred/genopred_pipeline:v0.2</code></pre>
-</details>
-<hr />
+<div id="setting-up" class="section level1">
+<h1>Setting up</h1>
+<div id="download-genopred-container" class="section level2">
+<h2>Download GenoPred container</h2>
+<pre class="bash"><code>singularity \
+  pull \
+  --arch \
+  amd64 \
+  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.1.sif \
+  library://opain/genopred/genopred_pipeline:v0.1</code></pre>
 </div>
-<div id="downloading-pipeline-resources" class="section level1">
-<h1>Downloading pipeline resources</h1>
-<p>The resources required by the pipeline depends on the analyses
-requested by the user. I have provided rules to download required
-resources for two scenarios:</p>
-<ul>
-<li><code>get_key_resources</code>: Allows for <strong>most</strong> PGS
-methods (<code>dbslmm</code>, <code>lassosum</code>,
-<code>megaprs</code>, <code>ptclump</code>)</li>
-<li><code>get_all_resources</code>: Allows for <strong>all</strong> PGS
-methods (additionally incl. <code>ldpred2</code>, <code>prscs</code>,
-<code>sbayesr</code>)</li>
-</ul>
-<p>Alternatively, the user can download only the data required for
-<code>ldpred2</code>, <code>prscs</code>, <code>sbayesr</code>:</p>
-<ul>
-<li><code>get_ldpred2_resources</code>: Allows for
-<strong>ldpred2</strong></li>
-<li><code>get_prscs_resources</code>: Allows for
-<strong>prscs</strong></li>
-<li><code>get_sbayesr_resources</code>: Allows for
-<strong>sbayesr</strong></li>
-</ul>
-<p><strong>Note.</strong> <code>23andMe</code> format target data will
-only be allowed for if the <code>download_impute2_data</code> rule is
-run, as reference data for imputation is required.</p>
-<hr />
-<p>In this example, I will run the pipeline using the example
-configuration with the test data (running <code>ptclump</code>,
-<code>dbslmm</code>, and <code>lassosum</code>), so I will use the
-<code>get_key_resources</code> rule to download the required
-resources</p>
-<pre class="bash"><code># Create a configuration file specifying directory to save the required resources
-echo &quot;resdir: genopred_resources&quot; &gt; config_offline.yaml
+<div id="prepare-configuration" class="section level2">
+<h2>Prepare configuration</h2>
+<pre class="r"><code># Create directory to store configuration files, outputs and resources
+workdir&lt;-&#39;/users/k1806347/oliverpainfel/test/genopred_23andme&#39;
+dir.create(paste0(workdir, &#39;/config&#39;), recursive = T)
+dir.create(paste0(workdir, &#39;/resources&#39;), recursive = T)
+dir.create(paste0(workdir, &#39;/output&#39;), recursive = T)
 
-# Run GenoPred pipeline using the get_key_resources rule
-cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
-conda activate genopred
-snakemake \
-  --profile slurm \
-  --configfile=/users/k1806347/oliverpainfel/test/offline_example/config.yaml \
-  get_key_resources</code></pre>
-<hr />
+# Create config file
+config&lt;-c(
+  paste0(&#39;outdir: &#39;, workdir, &#39;/output&#39;),
+  paste0(&#39;resdir: &#39;, workdir, &#39;/resources&#39;),
+  paste0(&#39;config_file: &#39;, workdir, &#39;/config/config.yaml&#39;),
+  paste0(&#39;target_list: &#39;, workdir, &#39;/config/target_list.txt&#39;),
+  paste0(&#39;score_list: &#39;, workdir, &#39;/config/score_list.txt&#39;),
+  &#39;cores_target_pgs: 8&#39;,
+  &#39;cores_impute_23andme: 8&#39;
+)
+
+write.table(config, paste0(workdir, &#39;/config/config.yaml&#39;), col.names = F, row.names = F, quote = F)
+
+# Create target_list
+target_list&lt;-data.frame(
+  name=&#39;Joe_Bloggs&#39;,
+  path=&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/target/23andMe_individual/Joe_Bloggs_genome_0123456789.zip&#39;,
+  type=&#39;23andMe&#39;,
+  indiv_report=TRUE
+)
+
+write.table(target_list, paste0(workdir, &#39;/config/target_list.txt&#39;), col.names=T, row.names=F, quote=F)
+
+# Create score_list
+score_list&lt;-data.frame(
+  name=&#39;PGS002804&#39;,
+  path=NA,
+  label=&#39;Height&#39;
+)
+
+score_list$label&lt;-paste0(&quot;\&quot;&quot;, score_list$label, &quot;\&quot;&quot;)
+
+write.table(score_list, paste0(workdir, &#39;/config/score_list.txt&#39;), col.names=T, row.names=F, quote=F)</code></pre>
 </div>
-<div id="download-test-data" class="section level1">
-<h1>Download test data</h1>
-<p>For demonstration purposes, we will use the test data for the
-GenoPred pipeline. This is the same data as is used for the <a
-href="https://opain.github.io/GenoPred/pipeline_readme.html#Run_using_test_data">main
-pipeline tutorial page</a>.</p>
-<pre class="bash"><code>cd /users/k1806347/oliverpainfel/test/offline_example
-
-# Download from Zenodo
-wget -O test_data.tar.gz https://zenodo.org/records/10640650/files/test_data.tar.gz?download=1
-
-# Decompress
-tar -xf test_data.tar.gz
-
-# Once decompressed, delete compressed version to save space
-rm test_data.tar.gz</code></pre>
-<hr />
-</div>
-<div id="run-pipeline-offline" class="section level1">
-<h1>Run pipeline offline</h1>
-<p>I will now start an interactive session in the downloaded container.
-I will mount a folder within the container so I can read and write files
-outside of the container. See <a
-href="https://docs.docker.com/">docker</a> and <a
-href="https://sylabs.io/docs/">singularity</a> websites for general
-documentation on their use.</p>
-<pre class="bash"><code>######
-# Start interactive session within the container
-######
-# When using singularity or docker, we must mount folders we want to access within the container
-
-# Singularity 
+<div id="run-pipeline" class="section level2">
+<h2>Run pipeline</h2>
+<pre class="bash"><code># Start container
 singularity shell \
   --bind /scratch/prj/oliverpainfel:/scratch/prj/oliverpainfel \
   --writable-tmpfs \
-  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.2.sif
-
-# Docker
-docker run \
-  -it \
-  -v /users/k1806347/oliverpainfel:/users/k1806347/oliverpainfel \
-  genopred_pipeline:v0.2</code></pre>
-<hr />
-<p>Once the container has been started, we can use the pipeline as
-normal. A previously downloaded version of the GenoPred repo will be in
-the folder <code>/tools/GenoPred</code>, and the <code>genopred</code>
-conda environment will already be available.</p>
-<p>In this example, before running the pipeline, I first get the
-configuration set up to the use the test data, the example configuration
-files, and run in an offline environment. First I create a symbolic link
-to the previously downloaded test_data, to align with the
-example_configuration files. Then, I update the example configuration to
-run in an offline environment:</p>
-<ul>
-<li>Update the <code>resdir</code> parameter configfile to use the
-previously downloaded resources</li>
-<li>Update the <code>score_list</code> to only include locally stored
-score files</li>
-</ul>
-<pre class="bash"><code># Activate GenoPred environment
+  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.1.sif
+  
+# Activate GenoPred environment
 source /opt/mambaforge/etc/profile.d/conda.sh
 conda activate genopred
 
-# Create symbolic for test_data inside the pipeline folder to work with the example configuration files
-cd /tools/GenoPred/pipeline
-ln -s /users/k1806347/oliverpainfel/test/offline_example/test_data ./test_data
-
-# Update configuration files to run offline
-# 1. Remove score files requiring direct access to PGS catalogue
-awk -F&#39; &#39; &#39;$2 != &quot;NA&quot; {print}&#39; example_input/score_list.txt &gt; example_input/score_list_2.txt &amp;&amp; mv example_input/score_list_2.txt example_input/score_list.txt
-# 2. Update resdir to previously downloaded resources
-echo &quot;resdir: /scratch/prj/oliverpainfel/test/offline_example/genopred_resources&quot; &gt;&gt; example_input/config.yaml
-
 # Do a dry run to check the scheduled steps are expected (there should not be any steps saying &#39;download&#39;, and it should not be necessary to build the conda environment)
-snakemake -n --use-conda --configfile=example_input/config.yaml output_all
-
-# Run pipeline using test data and example configuration
-snakemake -j4 --use-conda --configfile=example_input/config.yaml output_all</code></pre>
+snakemake -j8 --use-conda --configfile=/users/k1806347/oliverpainfel/test/genopred_23andme/config/config.yaml output_all</code></pre>
 <hr />
 </div>
-<div id="any-questions" class="section level1">
-<h1>Any questions?</h1>
-<p>Please post questions as an issue on the GenoPred GitHub repo <a
-href="https://github.com/opain/GenoPred/issues">here</a>.</p>
+</div>
+<div id="computational-benchmark" class="section level1">
+<h1>Computational benchmark</h1>
+<pre class="r"><code>bm_files_i&lt;-list.files(path=&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/output/23andMe/reference/benchmarks&#39;, full.names = T)
+
+bm_dat_all &lt;- do.call(rbind, lapply(bm_files_i, function(file) {
+  tmp &lt;- fread(file)
+  tmp$file &lt;- basename(file)
+  return(tmp)
+}))
+
+# Create rule column
+bm_dat_all$rule &lt;- gsub(&#39;-.*&#39;,&#39;&#39;,bm_dat_all$file)
+
+# Calculate total wall time
+sum(bm_dat_all$s)/60/60 # 4.904476 hours
+
+# Calculate wall time taken by rule
+bm_dat_rule_time &lt;- NULL
+for (i in unique(bm_dat_all$rule)) {
+  bm_dat_rule_time &lt;- rbind(
+    bm_dat_rule_time,
+    data.frame(
+      rule = i,
+      time = sum(bm_dat_all$s[bm_dat_all$rule == i])))
+}
+
+# Tidy results
+bm_dat_rule_time &lt;-
+  bm_dat_rule_time[!(bm_dat_rule_time$rule %in% c(&#39;ancestry_reporter&#39;, &#39;score_reporter.txt&#39;)), ]
+
+bm_dat_rule_time$step&lt;-gsub(&#39;_i$&#39;,&#39;&#39;, bm_dat_rule_time$rule)
+bm_dat_rule_time$step&lt;-gsub(&#39;prep_pgs_&#39;,&#39;&#39;, bm_dat_rule_time$step)
+
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;format_target_i&#39;]&lt;-&#39;Target QC&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;impute_23andme_i&#39;]&lt;-&#39;Imputation&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;sumstat_prep_i&#39;]&lt;-&#39;GWAS QC&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;indiv_report_i&#39;]&lt;-&#39;Report Creation&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;ancestry_inference_i&#39;]&lt;-&#39;Ancestry Inference&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;target_pgs_i&#39;]&lt;-&#39;Target Scoring&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;prep_pgs_dbslmm_i&#39;]&lt;-&#39;DBSLMM&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;prep_pgs_lassosum_i&#39;]&lt;-&#39;lassosum&#39;
+bm_dat_rule_time$step[bm_dat_rule_time$rule == &#39;prep_pgs_ptclump_i&#39;]&lt;-&#39;pT+clump&#39;
+
+#######
+# Create a pie chart
+#######
+
+data &lt;- data.frame(
+  category = bm_dat_rule_time$step,
+  values = bm_dat_rule_time$time
+)
+
+data$time&lt;-data$values
+data$time_clean&lt;-NA
+data$time_clean[data$time &lt; 60] &lt;-
+  paste0(round(data$time[data$time &lt; 60], 1), &#39; sec&#39;)
+data$time_clean[data$time &gt; 60] &lt;-
+  paste0(round(data$time[data$time &gt; 60] / 60, 1), &#39; min&#39;)
+data$time_clean[data$time &gt; 3600] &lt;-
+  paste0(round(data$time[data$time &gt; 3600] / 60 / 60, 1), &#39; hr&#39;)
+
+data$custom_label&lt;-paste0(data$category, &quot;\n(&quot;, data$time_clean,&quot;)&quot;)
+
+# Create the pie chart
+library(plotly)
+plot_ly(data, labels = ~category, values = ~values, type = &#39;pie&#39;,
+        text = ~custom_label,      # Use custom labels
+        textposition = &#39;outside&#39;,
+        rotation = -20,  # This rotates the pie chart to move labels to the side
+        marker = list(line = list(color = &#39;#000000&#39;, width = 0.8))) %&gt;%
+  layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         showlegend = FALSE,
+         margin = list(l = 20, r = 20, b = 100, t = 50, autoexpand = TRUE))  # Adjust margins here</code></pre>
 </div>
 
 <!-- footer.html -->
