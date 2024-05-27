@@ -5,19 +5,6 @@ def ancestry_munge(x):
     ancestry_report_df = pd.read_table(checkpoint_output, sep=' ')
     return ancestry_report_df['population'].tolist()
 
-# Create a function summarising which score files matched sufficiently with reference
-def score_munge():
-    checkpoints.score_reporter.get().output[0]
-    checkpoint_output = outdir + "/reference/pgs_score_files/external/score_report.txt"
-
-    if os.path.exists(checkpoint_output):
-      score_report_df = pd.read_table(checkpoint_output, sep=' ')
-      score_report_df = score_report_df[(score_report_df['pass'].isin(['T', 'TRUE', True]))]
-    else:
-      score_report_df = pd.DataFrame(columns=['name', 'pass'])
-
-    return score_report_df['name'].tolist()
-
 # Define which pgs_methods are can be applied to any GWAS population
 pgs_methods_noneur = ['ptclump','lassosum','megaprs','prscs','dbslmm']
 
