@@ -34,8 +34,15 @@ This document will provides instructions for the GenoPred pipeline. It covers th
 For a general overview of the GenoPred pipeline, click [here](pipeline_overview.html).
 For a technical details of the GenoPred pipeline, click [here](pipeline_technical.html).
 
-**Please cite the following paper** when you use the GenoPred pipeline: 
-Pain, Oliver, et al. "Evaluation of polygenic prediction methodology within a reference-standardized framework." PLoS genetics 17.5 (2021): e1009021.
+***
+
+**Citations**
+
+Please cite our paper describing the reference-standardised approach used by the GenoPred pipeline: 
+
+- Pain, Oliver, et al. "Evaluation of polygenic prediction methodology within a reference-standardized framework." PLoS genetics 17.5 (2021): e1009021.
+
+Please also cite the relevant studies for the tools and data used by the GenoPred pipeline.
 
 ***
 
@@ -95,7 +102,7 @@ First, you will need to download the GenoPred repository from GitHub. Open your 
 
 <div class="note-box">
 
-**Note:** If you are using an high performance cluster (HPC), it is best run the setup in an interactive session (see [here](#Dont-run-on-the-login-node)).
+**Note:** If you are using an high performance cluster (HPC), it is best run the setup in an interactive session (see [here](#dont-run-on-the-login-node)).
 
 </div>
 
@@ -134,17 +141,19 @@ conda activate genopred
 
 ## Step 3: Download dependencies
 
-Now, go we will download some prepare some additional dependencies of the pipeline. First, go into the `pipeline` folder within the GenoPred repo. Now we are in the pipeline folder, we can use our first Snakemake command to download the dependencies of the GenoPred pipeline.
+Now, we will download some additional dependencies of the pipeline. First, go into the `pipeline` folder within the GenoPred repo. Now we are in the pipeline folder, we can use our first Snakemake command to download the dependencies of the GenoPred pipeline.
 
 ```{bash}
-snakemake --restart-times 3 -j 1 --use-conda --conda-frontend mamba get_dependencies
+cd GenoPred/pipeline
+
+snakemake -j 1 --use-conda --conda-frontend mamba install_r_packages
 ```
 
-This will start by building another conda environment, which the pipeline uses to to perform certain analyses. Then it will download various essential dependencies of the pipeline. In total this process may take ~15 minutes.
+This will start by building other conda environments, which the pipeline uses to perform certain analyses. Then it will download a few other dependencies of the pipeline. In total this process may take ~10 minutes.
 
 <div class="note-box">
 
-**Note:** Check out advice [here](#running-jobs-in-parallel) for running in parallel on an HPC. The command might take some time, so you run via a compute node, and if run interactively, I would suggest using a terminal multiplexer (like tmux) to avoid connection issues (see [here](#avoid-connection-issues)).
+**Note:** Check out advice [here](#running-jobs-in-parallel) for running in parallel on an HPC. The command might take some time, so run it via a compute node, and if run interactively, I would suggest using a terminal multiplexer (like tmux) to avoid connection issues (see [here](#avoid-connection-issues)).
 
 </div>
 
@@ -152,11 +161,10 @@ This will start by building another conda environment, which the pipeline uses t
 
 <summary>See explanation of Snakemake command</summary>
 
--   `--restart-times 3` - Tells Snakemake to try again if a job fails. This is particularly useful when jobs include downloading files from the internet where connections may fail.
 -   `-j 1`- This parameter tells Snakemake how many jobs can be run in parallel. 
 -   `--use-conda` - This tells Snakemake to use conda environments as specified in the pipeline. This parameter should always be included when using GenoPred.
 -   `--conda-frontend mamba` - This tells Snakemake to use mamba when creating new conda environments, which is a faster version of conda. This parameter is only required when running the GenoPred Snakemake for the first time, as the environment only needs to be built once.
--   `get_dependencies` - This is the *rule* we want Snakemake to run. Other useful in GenoPred are described [here](#requesting-specific-outputs). rules The rules included in GenoPred will be described
+-   `install_r_packages` - This is the *rule* we want Snakemake to run. Other useful in GenoPred are described [here](#requesting-specific-outputs). rules The rules included in GenoPred will be described
 
 For more information on Snakemake commands see [here](#basic-Snakemake-commands).
 
@@ -164,9 +172,29 @@ For more information on Snakemake commands see [here](#basic-Snakemake-commands)
 
 ***
 
+# Containers
+
+We have made docker and singularity containers with GenoPred pre-installed. These can be useful when running the pipeline in an offline environment (see [here](#running-in-offline-environment)), or on a computer that does not have a linux operating system. This is how to download the containers using either docker or singularity.
+
+```{bash}
+# Docker
+docker pull opaino/genopred_pipeline:v0.2
+
+# Singularity
+singularity pull --arch amd64 library://opain/genopred/genopred_pipeline:v0.2
+```
+
+<div class="note-box">
+
+**Note:** When running the pipeline in the container, you must mount a home directory. Additionally, specify the `resdir` and `outdir` configfile parameters outside of the container to ensure that the pipeline's resources and outputs are stored persistently for subsequent sessions.
+
+</div>
+
+***
+
 # Pipeline configuration
 
-The pipeline is configured using a configfile, which tell the pipeline what to do, and the location of input data listed by the target_list, gwas_list, and score_list files.
+The pipeline is configured using a configfile, which tells the pipeline what to do, and the location of the input data listed in the target_list, gwas_list, and score_list files.
 
 <div class="centered-container">
 <div class="rounded-image-container" style="width: 75%;">
@@ -183,7 +211,7 @@ Snakemake reads the default `config.yaml` file located in the `pipeline` directo
 This approach allows you to use the GenoPred pipeline with multiple configurations. Importantly, only parameters that differ from the defaults need to be included in your custom `configfile`. Any parameter not explicitly defined in the custom `configfile` will be automatically sourced from the default `pipeline/config.yaml` file. This ensures that Snakemake only overrides the parameters you specify, while continuing to use the default settings for all others.
 
 ```{bash}
- snakemake -j1 --use-conda --configfile=misc/23andMe/config.yaml output_all
+snakemake -j1 --use-conda --configfile=misc/23andMe/config.yaml output_all
 ```
 
 <details>
@@ -197,6 +225,11 @@ config <- list(
       description = 'Directory to save pipeline outputs',
       example = '`test_data/output/test1`',
       note = "Required. I recommend using an absolute path starting from the root of the file system (starting with `/`)"
+    ),
+    resdir = list(
+      description = 'Directory to save pipeline resources',
+      example = '`genopred_resources`',
+      note = "Optional. Default is the `resources` folder within the `GenoPred/pipeline` folder. I recommend using an absolute path starting from the root of the file system (starting with `/`)"
     ),
     config_file = list(
       description = 'Location of the config file itself',
@@ -357,7 +390,7 @@ The pipeline can accept GWAS sumstats with a range of header formats. It uses a 
 
 The sumstats must contain either RSIDs or chromosome and basepair position information. The sumstats must also contain an effect size, either BETA, odds ratio, log(OR), or a signed Z-score. Either P-values or standard errors must also be present. It is also best if the following are present: sample size per variant, GWAS sample allele frequencies (for the effect allele), and imputation quality metrics.
 
-I would suggest checking the sumstat QC log files, to make to check the number of SNPs after QC is expected.
+I would suggest checking the sumstat QC log files, to check the number of SNPs after QC is expected.
 
 </details>
 
@@ -564,18 +597,18 @@ To run the pipeline with the example configfile and test data, we just need to s
 Executing the `output_all` rule will run many steps in the pipeline. If you want to check what will happen before you run the pipeline, it is often useful to use the `-n` parameter, which will do a dry-run, printing out all the steps it would run, without actually running it.
 
 ```{bash}
-# Remember to activate the genopred environment before running the pipeline
+# Remember to activate the genopred environment and go into to the GenoPred/pipeline directory before running the pipeline
 conda activate genopred
+cd ~/GenoPred/pipeline
 
 # Do a dry run to see what would happen
 snakemake -n --configfile=example_input/config.yaml output_all
 
 # Run the pipeline running one step at a time 
 snakemake -j1 --configfile=example_input/config.yaml --use-conda output_all
-
 ```
 
-Once the pipeline is complete, you can check that there is nothing else do by doing another dry run, and it should say 'Nothing to be done'.
+Once the pipeline is complete, you can check that there is nothing else to do by doing another dry run, and it should say 'Nothing to be done'.
 
 ***
 
@@ -597,7 +630,7 @@ FID IID COAD01_DBSLMM
 
 ## Step 4: How to modify the configuration
 
-After running the pipeline, it is often useful to update the configuration of our analysis, for example to added a new GWAS to the gwas_list. This is not a problem - GenoPred uses snakemake to only rerun analyses that are affected by the changes in configuration, rather than running the full pipeline from scratch. 
+After running the pipeline, it is often useful to update the configuration of our analysis, for example to added a new GWAS to the gwas_list. This is not a problem - GenoPred uses Snakemake to only rerun analyses that are affected by the changes in configuration, rather than running the full pipeline from scratch. 
 
 I will demonstrate by adding a new GWAS, but its a similar process when adding new score files or target samples, or when changing certain parameters in `configfile`. We simply add a new row to the `gwas_list`, rerun GenoPred, and it will rerun the required steps. As an example, I will add a row with the name 'COAD02', which uses the same sumstats file as COAD01.
 
@@ -670,23 +703,23 @@ snakemake -j1 --use-conda --configfile=example_input/config.yaml output_all
 
 # A little about Snakemake
 
-There is full documentation of snakemake [here](https://snakemake.readthedocs.io/en/v7.32.3/), but in this section I will give a brief overview and outline a few commands that are particularly useful.
+There is full documentation of Snakemake [here](https://snakemake.readthedocs.io/en/v7.32.3/), but in this section I will give a brief overview and outline a few commands that are particularly useful.
 
-Snakemake is a python based pipeline tool. It contains lists of **rules** - Each rule is like a set of instructions, telling snakemake to create certain outputs given certain inputs. If the user requests an output, Snakemake will run all the rules that are needed to create that output.
+Snakemake is a python based pipeline tool. It contains lists of **rules** - Each rule is like a set of instructions, telling Snakemake to create certain outputs given certain inputs. If the user requests an output, Snakemake will run all the rules that are needed to create that output.
 
-Importantly, snakemake check the timestamps of input and output files, and parameters applied, ensuring the output file is created after the input file, using the latest parameters. This helps if you need to rerun your analysis after some changes, and want to make sure the output has been correctly updated.
+Importantly, Snakemake checks the timestamps of input and output files, and parameters applied, ensuring the output file is created after the input file, using the latest parameters. This helps if you need to rerun your analysis after some changes, and want to make sure the output has been correctly updated.
 
 ***
 
-## Useful snakemake options
+## Useful Snakemake options
 
-Here are some useful snakemake options/commands to run the pipeline:
+Here are some useful Snakemake options/commands to run the pipeline:
 
 ***
 
 ### `--use-conda`
 
-This command tells snakemake to create and use conda environment specified for each rule. This is a handy and reprodible way of installing and running code in a tightly controlled software environment.
+This command tells Snakemake to create and use the conda environment specified for each rule. This is a handy and reproducible way of installing and running code in a tightly controlled software environment.
 
 This command should always be used when running GenoPred. All rules in GenoPred use the same conda environment, so it only has to be build once.
 
@@ -696,11 +729,11 @@ This command allows to set the number of jobs that can run simultaneously. E.g. 
 
 ### `-n`
 
-This command performs a dry run, where snakemake prints out all the jobs it would run, without actually running them. This is particularly useful if you want to see what would happen if you were to specify a certain output or rule. This helps avoid accidentally triggering 100s of unwanted jobs.
+This command performs a dry run, where Snakemake prints out all the jobs it would run, without actually running them. This is particularly useful if you want to see what would happen if you were to specify a certain output or rule. This helps avoid accidentally triggering 100s of unwanted jobs.
 
-### --configfile
+### `--configfile`
 
-This parameter can be used to specify the .yaml file you want snakemake to use as the configuration file. This file is described above (see [here](#configfile)).
+This parameter can be used to specify the .yaml file you want Snakemake to use as the configuration file. This file is described above (see [here](#configfile)).
 
 ```{bash}
 snakemake -j1 --use-conda --configfile=new_config.yaml output_all
@@ -708,7 +741,7 @@ snakemake -j1 --use-conda --configfile=new_config.yaml output_all
 
 ### `-p`
 
-This will print the command snakemake will run beneath of the jobs. This is handy if you want to see what the jobs are doing. This is mainly useful when debugging.
+This will print the command Snakemake will run beneath of the jobs. This is handy if you want to see what the jobs are doing. This is mainly useful when debugging.
 
 ***
 
@@ -720,13 +753,13 @@ The GenoPred pipeline can be easily run in parallel using an HPC. Here I outline
 
 ## Don't run on the login node
 
-HPC's are a shared resource, and the login node is for logging in, not for running analyses. Instead, connect interactively to a compute node before setting up or using the GenoPred pipeline, or submit your snakemake command as a batch job. There are likely time and memory restrictions on the login node, leading to errors, or unhappy colleagues. Read the documentation for your HPC for more information.
+HPC's are a shared resource, and the login node is for logging in, not for running analyses. Instead, connect interactively to a compute node before setting up or using the GenoPred pipeline, or submit your Snakemake command as a batch job. There are likely time and memory restrictions on the login node, leading to errors, or unhappy colleagues. Read the documentation for your HPC for more information.
 
 ***
 
 ## Running jobs in parallel
 
-Snakemake pipelines (such as GenoPred) can be easily parallelised. If you have access to multiple cores, then you can increase the `-j` parameter. Or if you have access to an HPC, then you can tell snakemake to submit jobs to the HPC (this is the most powerful approach and I would recommend if possible). To submit jobs to the cluster, I use the `--profile` flag. This flag points snakemake to a specific .yaml file, specifying snakemake parameters, including those that instruct it to use the HPC. I have provided an example profile file (`example_input/slurm.yaml`), with parameters telling snakemake how to submit jobs to a SLURM scheduler. SLURM users should create a folder called `slurm` in `$HOME/.config/snakemake`, and then copy in the `slurm.yaml`, renaming it to `config.yaml`. More information about profiles in Snakemake can be found [here](https://snakemake.readthedocs.io/en/stable/executing/cli.html#profiles). 
+Snakemake pipelines (such as GenoPred) can be easily parallelised. If you have access to multiple cores, then you can increase the `-j` parameter. Or if you have access to an HPC, then you can tell Snakemake to submit jobs to the HPC (this is the most powerful approach and I would recommend if possible). To submit jobs to the cluster, I use the `--profile` flag. This flag points Snakemake to a specific .yaml file, specifying Snakemake parameters, including those that instruct it to use the HPC. I have provided an example profile file (`example_input/slurm.yaml`), with parameters telling Snakemake how to submit jobs to a SLURM scheduler. SLURM users should create a folder called `slurm` in `$HOME/.config/snakemake`, and then copy in the `slurm.yaml`, renaming it to `config.yaml`. More information about profiles in Snakemake can be found [here](https://snakemake.readthedocs.io/en/stable/executing/cli.html#profiles). 
 
 Once you have set up a .yaml for your scheduler, you can tell Snakemake to submit jobs to the scheduler by using the `--profile slurm` parameter, instead of the `-j1` parameter. E.g.
 
@@ -734,13 +767,13 @@ Once you have set up a .yaml for your scheduler, you can tell Snakemake to submi
 snakemake --profile slurm --use-conda output_all
 ```
 
-Although, running the snakemake command with the `--profile` flag uses very little memory, I would still suggest running it on a compute node to avoid clogging up the login node.
+Although, running the Snakemake command with the `--profile` flag uses very little memory, I would still suggest running it on a compute node to avoid clogging up the login node.
 
 ***
 
 ## Avoid connection issues
 
-The pipeline can take hours for certain tasks, so if you are running the snakemake command using interactive session on your HPC, you will likely run into issues due to your connection dropping out, leading to the snakemake analysis to end.
+The pipeline can take hours for certain tasks, so if you are running the Snakemake command using interactive session on your HPC, you will likely run into issues due to your connection dropping out, leading to the Snakemake analysis to end.
 
 To avoid this, I use a terminal multiplexer, either `tmux` or `screen`. When you are on the login node, start one of these multiplexers. Once inside the multiplexer, start your interactive session. The main reason for using a multiplexer here is that you can reconnect to the session even if your connection stops. There are several other advantages as well. They are really easy to use and will make your life a lot better. 
 
@@ -782,7 +815,7 @@ The GenoPred pipeline has many potential outputs. Here is a detailed schematic d
 
 ## Main rules
 
-Each of the key outputs from the pipeline can be requested using the corresponding snakemake rule. For example, if I just wanted to obtain QC'd GWAS summary statistics I could run the `sumstat_prep` rule.
+Each of the key outputs from the pipeline can be requested using the corresponding Snakemake rule. For example, if I just wanted to obtain QC'd GWAS summary statistics I could run the `sumstat_prep` rule.
 
 ```{bash}
 snakemake -j1 --use-conda sumstat_prep
@@ -801,7 +834,7 @@ pipeline_dict <- list(
       sample_report = "Generates sample-level .html reports for target datasets with `format` = 'plink1', 'plink2', 'bgen', or 'vcf'.",
       indiv_report = 'Generates individual-level .html reports for all individuals in target datasets with `indiv_report = T`',
       ancestry_inference = 'Perform ancestry inference for all target datasets.',
-      target_pgs = 'Calculates polygenic scores in all target datasets using score files for all GWAS and all PGS methods.',
+      target_pgs = 'Calculates all polygenic scores in all target datasets.',
       pc_projection = 'Projects reference genetic PCs into all target datasets',
       format_target = 'Harmonises all target datasets with the reference.',
       outlier_detection = 'Perform QC within the target datasets, seperately for each population with N > 100. Includes relatedness estimation, PCA, and population outlier detection.',
@@ -838,11 +871,11 @@ print(kable(pipeline_df, 'markdown'))
 The rules above trigger sets of outputs to be created. For example the `sumstat_prep` rule performs QC of all GWAS in the `gwas_list`. However, it is also possible to request more specific outputs, such as QC'd sumstats for just one of the GWAS in the `gwas_list`. If we had a GWAS with the name `COAD01`, we could request QC'd sumstats for just that GWAS like this:
 
 ```{bash}
-# Create variables indicating the desired GWAS and the outdir parameter in the config file (by default snakemake reads uses config.yaml)
+# Create variables indicating the desired GWAS and the outdir parameter in the config file (by default Snakemake reads uses config.yaml)
 gwas = COAD01
 outdir = test_data/output/test1
 
-# Run snakemake command
+# Run Snakemake command
 snakemake -j1 --use-conda ${outdir}/reference/gwas_sumstat/${gwas}/${gwas}-cleaned.gz
 ```
 
@@ -1010,7 +1043,16 @@ GenoPred/pipeline
 
 # Reading outputs into R
 
-I have included some handy R functions for reading in the outputs of the pipeline. You just need to source the file `GenoPred/functions/pipeline.R`. Here is a list of useful R functions.
+I have included some handy R functions for reading in the outputs of the pipeline. You just need to set your working directory to the `GenoPred/pipeline` folder, and `source` the file `GenoPred/functions/pipeline.R`. 
+
+For example:
+
+```{r, eval =F }
+setwd('~/GenoPred/pipeline')
+source('../functions/pipeline.R')
+```
+
+Here is a list of useful R functions:
 
 ***
 
@@ -1135,14 +1177,14 @@ ancestry_info <-
 
 ## `find_pseudo`
 
-Determines the pseudo-validation parameter for a given GWAS and PGS method.
+Determines the pseudovalidation parameter for a given GWAS and PGS method. See [here](pipeline_technical.html#pseudovalidation) for more information on pseudovalidation.
 
 - **Parameters**
   - `config`: Configuration file specifying paths and parameters.
   - `gwas`: A single GWAS identifier.
   - `pgs_method`: A single PGS method identifier.
 - **Returns**
-  - A string representing the pseudo-validation parameter.
+  - A string representing the pseudovalidation parameter.
 - **Note**
   - `ptclump` has no pseudovalidation approach, so this function will return the PGS based on a p-value threshold of 1.
 
@@ -1210,7 +1252,7 @@ Required storage space will also vary depending on the input data and configurat
 
 The default reference genotype data used by GenoPred is a previously prepared dataset, which is based on the 1000 Genomes Phase 3 (1KG) and Human Genome Diversity Project  (HGDP) sample, restricted HapMap3 variants. This dataset contains 1204449 variants for 3313 individuals.
 
-Users can provide there own reference data using the `refdir` parameter in the `configfile`. For example, if the reference data was in `~/data/private_ref`, I would include `refdir: ~/data/private_ref` in the `configfile`. The reference data folder must have the following structure:
+Users can provide their own reference data using the `refdir` parameter in the `configfile`. For example, if the reference data was in `~/data/private_ref`, I would include `refdir: ~/data/private_ref` in the `configfile`. The reference data folder must have the following structure:
 
 ```{}
 [refdir]
@@ -1259,15 +1301,9 @@ By default, individuals are assigned to a reference super population if the prob
 
 ***
 
-## Specify resources directory
-
-The GenoPred pipeline automatically downloads resources from the internet. By default these resources are stored within the `resources` folder of the `GenoPred/pipeline` folder. However, the `resdir` parameter in the `configfile` can be used to specify a different folder to store the downloaded resources. This is mainly used when running the pipeline in an offline environment, as then previously downloaded resources can be used by the pipeline.
-
-***
-
 ## Control computational resources
 
-The user can control the cores and memory allocated to certain of the pipeline to fit their needs.
+The user can control the cores and memory allocated to certain tasks in the pipeline to fit their needs.
 
 By default, the pipeline allocates 10 cores running polygenic scoring methods (except `ptclump`). The number of cores allocated to polygenic scoring methods can be altered using the  `cores_prep_pgs` parameter in the config file.
 

@@ -13,7 +13,7 @@
 
 <title>UK Biobank Benchmark</title>
 
-<script src="site_libs/header-attrs-2.25/header-attrs.js"></script>
+<script src="site_libs/header-attrs-2.26/header-attrs.js"></script>
 <script src="site_libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link href="site_libs/bootstrap-3.3.5/css/cosmo.min.css" rel="stylesheet" />
@@ -790,7 +790,9 @@ conf &lt;- c(
   &#39;config_file: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml&#39;,
   &#39;gwas_list: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt&#39;,
   &#39;target_list: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/basic/target_list.txt&#39;,
-  &quot;pgs_methods: [&#39;ptclump&#39;,&#39;dbslmm&#39;,&#39;prscs&#39;,&#39;sbayesr&#39;,&#39;lassosum&#39;,&#39;ldpred2&#39;,&#39;megaprs&#39;]&quot;
+  &quot;pgs_methods: [&#39;ptclump&#39;,&#39;dbslmm&#39;,&#39;prscs&#39;,&#39;sbayesr&#39;,&#39;lassosum&#39;,&#39;ldpred2&#39;,&#39;megaprs&#39;]&quot;,
+  &quot;cores_prep_pgs: 10&quot;,
+  &quot;cores_target_pgs: 50&quot;
 )
 
 write.table(conf, &#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml&#39;, col.names = F, row.names = F, quote = F)</code></pre>
@@ -800,8 +802,11 @@ write.table(conf, &#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1
 </div>
 <div id="run-pipeline" class="section level1">
 <h1>Run pipeline</h1>
-<pre class="bash"><code>snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml output_all -n 
-snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/config.yaml output_all -n </code></pre>
+<pre class="bash"><code>cd /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/GenoPred/pipeline
+git describe --tags
+# v2.2.5-20-gb0bf674
+
+snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/benchmark/config.yaml output_all -n </code></pre>
 <hr />
 <div id="computational-benchmark" class="section level2">
 <h2>Computational benchmark</h2>
@@ -812,6 +817,8 @@ Show code
 <pre class="r"><code>library(data.table)
 library(ggplot2)
 library(cowplot)
+library(dplyr)
+library(plotly)
 
 # read in gwas_list
 gwas_list&lt;-fread(&#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt&#39;)
@@ -827,7 +834,7 @@ bm_files_i &lt;-
 # Remove outlier detection
 bm_files_i&lt;-bm_files_i[
   grepl(paste(gwas_list$name, collapse=&#39;|&#39;), bm_files_i) |
-  !grepl(&#39;prep_pgs|target_pgs|sumstat_prep|outlier_detection&#39;, bm_files_i)]
+  !grepl(&#39;prep_pgs|sumstat_prep|outlier_detection&#39;, bm_files_i)]
 
 
 # Read in benchmark files
@@ -841,8 +848,7 @@ bm_dat_all &lt;- do.call(rbind, lapply(bm_files_i, function(file) {
 bm_dat_all$rule &lt;- gsub(&#39;-.*&#39;,&#39;&#39;,bm_dat_all$file)
 
 # Calculate total wall time
-sum(bm_dat_all$s)/60/60 # 215.3136 hours
-sum(bm_dat_all$s)/60/60/50 # 4.306272 when allowing 50 jobs simultaneously
+sum(bm_dat_all$s)/60/60 # 93.57131 hours
 
 #########
 # Quantify time taken by each part of pipeline
@@ -900,7 +906,7 @@ data&lt;-rbind(data, data.frame(
 fig &lt;- plot_ly(data, labels = ~category, values = ~values, type = &#39;pie&#39;,
                textposition = &#39;outside&#39;,
                textinfo = &#39;label+percent&#39;,
-               rotation = 270,  # This rotates the pie chart to move labels to the side
+               rotation = 140,  # This rotates the pie chart to move labels to the side
                marker = list(line = list(color = &#39;#000000&#39;, width = 0.8))) %&gt;%
   layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
@@ -947,6 +953,7 @@ fig &lt;- plot_ly(data, labels = ~category, values = ~values, type = &#39;pie&#3
 #######
 # Rules that are only run once
 #######
+bm_dat_summary&lt;-NULL
 
 tmp &lt;- bm_dat_all[bm_dat_all$rule %in% c(&#39;ancestry_inference_i&#39;,
                                          &#39;outlier_detection_i&#39;,
@@ -1025,27 +1032,26 @@ rule_i&lt;-&#39;target_pgs_i&#39;
 bm_dat_all_tmp &lt;- bm_dat_all[bm_dat_all$rule == rule_i, ]
 
 rule_split&lt;-strsplit(bm_dat_all_tmp$file, &#39;-&#39;)
-bm_dat_all_tmp$pgs_method &lt;- lapply(rule_split, function(x) x[3])
-bm_dat_all_tmp$pop &lt;- lapply(rule_split, function(x) x[4])
+bm_dat_all_tmp$pop &lt;- lapply(rule_split, function(x) x[3])
+bm_dat_all_tmp$pop&lt;-gsub(&#39;.txt&#39;,&#39;&#39;, bm_dat_all_tmp$pop)
 
-for(pgs_method_i in unique(bm_dat_all_tmp$pgs_method)){
-  for(pop_i in unique(bm_dat_all_tmp$pop)){
-    bm_dat_all_tmp_2&lt;-bm_dat_all_tmp[bm_dat_all_tmp$pgs_method == pgs_method_i &amp; bm_dat_all_tmp$pop == pop_i,]
-    
-    tmp &lt;- data.table(
-      rule = rule_i,
-      pgs_method = pgs_method_i,
-      pop = pop_i,
-      mean_time = mean(bm_dat_all_tmp_2$s),
-      max_time = max(bm_dat_all_tmp_2$s),
-      mean_mem = mean(bm_dat_all_tmp_2$max_rss),
-      max_mem = max(bm_dat_all_tmp_2$max_rss)
-    )
+for(pop_i in unique(bm_dat_all_tmp$pop)){
+  bm_dat_all_tmp_2&lt;-bm_dat_all_tmp[bm_dat_all_tmp$pop == pop_i,]
+  
+  tmp &lt;- data.table(
+    rule = rule_i,
+    pgs_method = &#39;all&#39;,
+    pop = pop_i,
+    mean_time = mean(bm_dat_all_tmp_2$s),
+    max_time = max(bm_dat_all_tmp_2$s),
+    mean_mem = mean(bm_dat_all_tmp_2$max_rss),
+    max_mem = max(bm_dat_all_tmp_2$max_rss)
+  )
 
-    bm_dat_summary&lt;-rbind(bm_dat_summary, tmp)
+  bm_dat_summary&lt;-rbind(bm_dat_summary, tmp)
 
-  }
 }
+
 
 write.csv(bm_dat_summary, &#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/bm_res.csv&#39;)
 
@@ -1272,12 +1278,12 @@ Show code
 library(dplyr)
 library(stringr)
 
-# Extract ICD code and sex from UKB
+# Extract continuous outcomes and age at recruitment from UKB
 project_dir &lt;- &quot;/datasets/ukbiobank/ukb82087&quot;
 f &lt;- bio_field(project_dir)
 f %&gt;%
     select(field, name) %&gt;%
-    filter(str_detect(field, &quot;^50-|^21001-|^30700-|^30750-|^30880-|^30760-&quot;)) %&gt;%
+    filter(str_detect(field, &quot;^21022-|^50-|^21001-|^30700-|^30750-|^30880-|^30760-&quot;)) %&gt;%
     bio_field_add(&quot;/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/continuous_field_subset.txt&quot;)
 
 bio_phen(
@@ -1299,7 +1305,7 @@ df_long&lt;-df_long[!duplicated(df_long[,c(&#39;eid&#39;,&#39;variable&#39;)]),]
 
 var_pheno&lt;-data.frame(
   var=c(&#39;50&#39;,&#39;21001&#39;,&#39;30700&#39;,&#39;30750&#39;,&#39;30880&#39;,&#39;30760&#39;),
-  pheno=c(&#39;height&#39;,&#39;bmi&#39;,&#39;egfr&#39;,&#39;hba1c&#39;,&#39;urate&#39;,&#39;hdl&#39;)
+  pheno=c(&#39;height&#39;,&#39;bmi&#39;,&#39;creatinine&#39;,&#39;hba1c&#39;,&#39;urate&#39;,&#39;hdl&#39;)
 )
 
 library(data.table)
@@ -1323,7 +1329,33 @@ for(i in 1:nrow(var_pheno)){
     na = &#39;NA&#39;,
     sep = &#39;\t&#39;
   )
-}</code></pre>
+}
+
+# For creatinine, convert to eGFR using same formula as: https://www.medrxiv.org/content/10.1101/2023.11.20.23298215v1.full.pdf
+# Read in sex information
+sex &lt;- readRDS(&quot;/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/icd_field_subset.rds&quot;)
+sex&lt;-sex[, c(&#39;eid&#39;,&#39;31-0.0&#39;)]
+age&lt;-df[, c(&#39;eid&#39;,&#39;21022-0.0&#39;)]
+tmp &lt;- df_long[df_long$variable == &#39;30700&#39;,]
+tmp&lt;- merge(tmp, sex, by=&#39;eid&#39;)
+tmp&lt;- merge(tmp, age, by=&#39;eid&#39;)
+tmp_female &lt;- tmp[tmp$`31-0.0` == 0,]
+tmp_male &lt;- tmp[tmp$`31-0.0` == 1,]
+tmp_female$egfr &lt;- 30849 * tmp_female$outcome^-1.154 * tmp_female$`21022-0.0`^-0.203 * 0.742
+tmp_male$egfr &lt;- 30849 * tmp_male$outcome^-1.154 * tmp_male$`21022-0.0`^-0.203
+tmp&lt;-rbind(tmp_female, tmp_male)
+tmp&lt;-tmp[,c(&#39;eid&#39;,&#39;egfr&#39;)]
+names(tmp)&lt;-c(&#39;eid&#39;,&#39;outcome&#39;)
+fwrite(
+  tmp,
+  paste0(
+    &#39;/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/egfr.txt&#39;
+  ),
+  row.names = F,
+  quote = F,
+  na = &#39;NA&#39;,
+  sep = &#39;\t&#39;
+)</code></pre>
 </details>
 <hr />
 </div>
@@ -1431,9 +1463,53 @@ write.csv(n_table, &#39;/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/pheno_n
 </details>
 <hr />
 </div>
+<div id="estimate-correlation-between-phenotypes"
+class="section level3">
+<h3>Estimate correlation between phenotypes</h3>
+<details>
+<summary>
+Show code
+</summary>
+<pre class="r"><code>library(data.table)
+library(ggplot2)
+library(reshape2)
+
+bin_phenos &lt;- c(&#39;bc&#39;, &#39;ckd&#39;, &#39;gout&#39;, &#39;ibd&#39;, &#39;pc&#39;, &#39;ra&#39;, &#39;stroke&#39;, &#39;t1d&#39;, &#39;t2d&#39;)
+con_phenos &lt;- c(&#39;height&#39;,&#39;bmi&#39;,&#39;egfr&#39;,&#39;hba1c&#39;,&#39;urate&#39;,&#39;hdl&#39;)
+phenos&lt;-c(bin_phenos, con_phenos)
+
+pheno_list &lt;- NULL
+for(i in phenos){
+  pheno_list[[i]] &lt;- fread(paste0(
+      &#39;/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/&#39;,
+      i,
+      &#39;.unrel.txt&#39;
+    ))
+  names(pheno_list[[i]])[2]&lt;-i
+}
+
+pheno_all&lt;-Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = &quot;eid&quot;, all = TRUE),
+        pheno_list)
+
+pheno_cor &lt;- cor(pheno_all[,-1], use=&#39;p&#39;)
+pheno_cor_melt&lt;-reshape2::melt(pheno_cor)
+
+ggplot(data = pheno_cor_melt, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = &quot;white&quot;)+
+  scale_fill_gradient2(low = &quot;blue&quot;, high = &quot;red&quot;, mid = &quot;white&quot;, 
+   midpoint = 0, limit = c(-1,1), space = &quot;Lab&quot;, 
+   name=&quot;Pearson\nCorrelation&quot;) +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+  coord_fixed()</code></pre>
+</details>
+<hr />
 </div>
-<div id="check-correlation" class="section level2">
-<h2>Check correlation</h2>
+</div>
+<div id="check-correlation-between-pgs-and-outcomes"
+class="section level2">
+<h2>Check correlation between PGS and outcomes</h2>
 <details>
 <summary>
 Show code
@@ -1597,8 +1673,13 @@ cor_subset$label[cor_subset$pheno == &#39;ckd&#39;]&lt;-&#39;egfr → ckd&#39;
 cor_subset$label[cor_subset$pheno == &#39;urate&#39;]&lt;-&#39;urate → urate&#39;
 cor_subset$label[cor_subset$pheno == &#39;gout&#39;]&lt;-&#39;urate → gout&#39;
 
+# Insert nice labels for PGS methods
+tmp&lt;-pgs_method_labels
+names(tmp)&lt;-c(&#39;method&#39;,&#39;Method&#39;)
+cor_subset&lt;-merge(cor_subset, tmp, by.x=&#39;pgs_method&#39;, by.y=&#39;method&#39;)
+
 png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all.png&#39;, res=300, width=4000, height=8000, units = &#39;px&#39;)
-ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
+ggplot(cor_subset, aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1613,13 +1694,14 @@ ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   theme_half_open() +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, size=12)) +
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position=&#39;bottom&#39;) +
   facet_grid(label ~ pop , scales=&quot;free_y&quot;) +
   panel_border()
 dev.off()
 
-png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_eur.png&#39;, res=300, width=4500, height=3000, units = &#39;px&#39;)
-ggplot(cor_subset[cor_subset$pop == &#39;EUR&#39;], aes(x = pgs_method, y = r, fill = model)) +
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_eur.png&#39;, res=300, width=3000, height=4000, units = &#39;px&#39;)
+ggplot(cor_subset[cor_subset$pop == &#39;EUR&#39;], aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1634,8 +1716,54 @@ ggplot(cor_subset[cor_subset$pop == &#39;EUR&#39;], aes(x = pgs_method, y = r, f
   theme_half_open() +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, size=12)) +
-  facet_wrap(label ~ . , scales=&quot;free&quot;, nrow = 3) +
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position = c(0.80, 0.07)) +
+  facet_wrap(label ~ . , scales=&quot;free&quot;, ncol = 3) +
+  panel_border()
+dev.off()
+
+# Split plot for all populations into two parts
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_part1.png&#39;, res=300, width=3500, height=4000, units = &#39;px&#39;)
+ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[1:7],], aes(x = Method, y = r, fill = model)) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  geom_point(stat=&quot;identity&quot;, position=position_dodge(0.7), size=2, shape=23) +
+  labs(
+    y = &quot;BETA (SE)&quot;,
+    x = &#39;PGS Method&#39;,
+    fill = &#39;Model&#39;
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position=&#39;bottom&#39;) +
+  facet_grid(label ~ pop , scales=&quot;free_y&quot;) +
+  panel_border()
+dev.off()
+
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_part2.png&#39;, res=300, width=3500, height=4000, units = &#39;px&#39;)
+ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[-1:-7],], aes(x = Method, y = r, fill = model)) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  geom_point(stat=&quot;identity&quot;, position=position_dodge(0.7), size=2, shape=23) +
+  labs(
+    y = &quot;BETA (SE)&quot;,
+    x = &#39;PGS Method&#39;,
+    fill = &#39;Model&#39;
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position=&#39;bottom&#39;) +
+  facet_grid(label ~ pop , scales=&quot;free_y&quot;) +
   panel_border()
 dev.off()</code></pre>
 </details>

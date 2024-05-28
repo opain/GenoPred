@@ -1,0 +1,183 @@
+---
+title: GenoPred Pipeline - Using 23andMe data
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+library(knitr)
+library(data.table)
+```
+
+***
+
+This document is a simplified set of instructions for the specific scenario where 23andMe data for an individual, and a set of score files on the PGS catalogue is being used as the input to the pipeline.
+
+***
+
+# Setting up
+
+## Download GenoPred container
+
+```{bash}
+singularity \
+  pull \
+  --arch \
+  amd64 \
+  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.1.sif \
+  library://opain/genopred/genopred_pipeline:v0.1
+```
+
+***
+
+## Prepare configuration
+
+```{r}
+# Create directory to store configuration files, outputs and resources
+workdir<-'/users/k1806347/oliverpainfel/test/genopred_23andme'
+dir.create(paste0(workdir, '/config'), recursive = T)
+dir.create(paste0(workdir, '/resources'), recursive = T)
+dir.create(paste0(workdir, '/output'), recursive = T)
+
+# Create config file
+config<-c(
+  paste0('outdir: ', workdir, '/output'),
+  paste0('resdir: ', workdir, '/resources'),
+  paste0('config_file: ', workdir, '/config/config.yaml'),
+  paste0('target_list: ', workdir, '/config/target_list.txt'),
+  paste0('score_list: ', workdir, '/config/score_list.txt'),
+  'cores_target_pgs: 8',
+  'cores_impute_23andme: 8'
+)
+
+write.table(config, paste0(workdir, '/config/config.yaml'), col.names = F, row.names = F, quote = F)
+
+# Create target_list
+target_list<-data.frame(
+  name='Joe_Bloggs',
+  path='/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/target/23andMe_individual/Joe_Bloggs_genome_0123456789.zip',
+  type='23andMe',
+  indiv_report=TRUE
+)
+
+write.table(target_list, paste0(workdir, '/config/target_list.txt'), col.names=T, row.names=F, quote=F)
+
+# Create score_list
+score_list<-data.frame(
+  name='PGS002804',
+  path=NA,
+  label='Height'
+)
+
+score_list$label<-paste0("\"", score_list$label, "\"")
+
+write.table(score_list, paste0(workdir, '/config/score_list.txt'), col.names=T, row.names=F, quote=F)
+```
+
+## Run pipeline
+
+```{bash}
+# Start container
+singularity shell \
+  --bind /scratch/prj/oliverpainfel:/scratch/prj/oliverpainfel \
+  --writable-tmpfs \
+  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.1.sif
+  
+# Activate GenoPred environment
+source /opt/mambaforge/etc/profile.d/conda.sh
+conda activate genopred
+
+# Do a dry run to check the scheduled steps are expected (there should not be any steps saying 'download', and it should not be necessary to build the conda environment)
+snakemake -j8 --use-conda --configfile=/users/k1806347/oliverpainfel/test/genopred_23andme/config/config.yaml output_all
+```
+
+***
+
+# Computational benchmark
+
+I am using an older run for the timebeing.
+
+```{r}
+bm_files_i<-list.files(path='/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/output/23andMe/reference/benchmarks', full.names = T)
+
+bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
+  tmp <- fread(file)
+  tmp$file <- basename(file)
+  return(tmp)
+}))
+
+# Create rule column
+bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
+
+# Calculate total wall time
+sum(bm_dat_all$s)/60/60 # 4.904476 hours
+
+# Calculate wall time taken by rule
+bm_dat_rule_time <- NULL
+for (i in unique(bm_dat_all$rule)) {
+  bm_dat_rule_time <- rbind(
+    bm_dat_rule_time,
+    data.frame(
+      rule = i,
+      time = sum(bm_dat_all$s[bm_dat_all$rule == i])))
+}
+
+# Tidy results
+bm_dat_rule_time <-
+  bm_dat_rule_time[!(bm_dat_rule_time$rule %in% c('ancestry_reporter', 'score_reporter.txt')), ]
+
+bm_dat_rule_time$step<-gsub('_i$','', bm_dat_rule_time$rule)
+bm_dat_rule_time$step<-gsub('prep_pgs_','', bm_dat_rule_time$step)
+
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'format_target_i']<-'Target QC'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'impute_23andme_i']<-'Imputation'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'sumstat_prep_i']<-'GWAS QC'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'indiv_report_i']<-'Report Creation'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'ancestry_inference_i']<-'Ancestry Inference'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'target_pgs_i']<-'Target Scoring'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'prep_pgs_dbslmm_i']<-'DBSLMM'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'prep_pgs_lassosum_i']<-'lassosum'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'prep_pgs_ptclump_i']<-'pT+clump'
+
+#######
+# Create a pie chart
+#######
+
+data <- data.frame(
+  category = bm_dat_rule_time$step,
+  values = bm_dat_rule_time$time
+)
+
+data$time<-data$values
+data$time_clean<-NA
+data$time_clean[data$time < 60] <-
+  paste0(round(data$time[data$time < 60], 1), ' sec')
+data$time_clean[data$time > 60] <-
+  paste0(round(data$time[data$time > 60] / 60, 1), ' min')
+data$time_clean[data$time > 3600] <-
+  paste0(round(data$time[data$time > 3600] / 60 / 60, 1), ' hr')
+
+data$custom_label<-paste0(data$category, "\n(", data$time_clean,")")
+
+# Create the pie chart
+library(plotly)
+plot_ly(data, labels = ~category, values = ~values, type = 'pie',
+        text = ~custom_label,      # Use custom labels
+        textposition = 'outside',
+        rotation = -20,  # This rotates the pie chart to move labels to the side
+        marker = list(line = list(color = '#000000', width = 0.8))) %>%
+  layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         showlegend = FALSE,
+         margin = list(l = 20, r = 20, b = 100, t = 50, autoexpand = TRUE))  # Adjust margins here
+```
+
+
