@@ -70,7 +70,7 @@ if 'gwas_list' in config:
       path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
     shell:
       """
-      sumstat_cleaner_script=$(Rscript -e 'cat(system.file("scripts", "sumstat_cleaner.R", package = "GenoUtils"))')
+      sumstat_cleaner_script=$(Rscript -e 'cat(system.file("scripts", "sumstat_cleaner.R", package = "GenoUtils"))' 2>&1 | grep -Eo "/.*sumstat_cleaner.R")
       Rscript $sumstat_cleaner_script \
         --sumstats {params.path} \
         --n {params.n} \

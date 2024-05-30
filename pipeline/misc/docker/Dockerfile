@@ -14,7 +14,7 @@ RUN apt-get update && \
 RUN wget https://github.com/conda-forge/miniforge/releases/download/4.10.3-10/Mambaforge-4.10.3-10-Linux-x86_64.sh && \
     bash Mambaforge-4.10.3-10-Linux-x86_64.sh -b -p /opt/mambaforge && \
     rm Mambaforge-4.10.3-10-Linux-x86_64.sh
- 
+
 # Download GenoPred
 RUN mkdir -p /tools/GenoPred && \
     cd /tools/GenoPred && \
@@ -35,8 +35,8 @@ RUN /opt/mambaforge/bin/conda init bash && \
     . /opt/mambaforge/etc/profile.d/conda.sh && \
     conda activate genopred && \
     cd /tools/GenoPred/pipeline && \
-    snakemake --restart-times 3 -j1 --use-conda --conda-frontend mamba install_r_packages && \
+    snakemake --restart-times 3 -j1 --use-conda --conda-frontend mamba install_r_packages resources/software/pgscatalog_utils/download_pgscatalog_utils.done && \
     mamba clean -a -y
-    
+
 ENTRYPOINT ["/bin/bash"]
 CMD ["-c", "source /opt/mambaforge/etc/profile.d/conda.sh && conda init && source ~/.bashrc && conda activate genopred && cd /tools/GenoPred/pipeline && exec /bin/bash"]
