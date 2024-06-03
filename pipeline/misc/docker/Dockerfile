@@ -18,8 +18,7 @@ RUN wget https://github.com/conda-forge/miniforge/releases/download/4.10.3-10/Ma
 # Download GenoPred
 RUN mkdir -p /tools/GenoPred && \
     cd /tools/GenoPred && \
-    latest_tag=$(curl -s https://api.github.com/repos/opain/GenoPred/releases/latest | jq -r '.tag_name') && \
-    git clone --depth 1 --branch $latest_tag https://github.com/opain/GenoPred.git . && \
+    git clone --depth 1 --branch v2.2.7 https://github.com/opain/GenoPred.git . && \
     git fetch --tags
 
 # Create genopred env

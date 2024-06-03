@@ -439,8 +439,11 @@ snakemake --profile slurm --use-conda --configfile=../../usr/k1806347/configs/be
 library(data.table)
 library(ggplot2)
 library(cowplot)
+library(ggrepel)
 library(dplyr)
 library(plotly)
+source('../functions/misc.R')
+source_all('../functions')
 
 # read in gwas_list
 gwas_list<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt')
@@ -537,6 +540,84 @@ fig <- plot_ly(data, labels = ~category, values = ~values, type = 'pie',
 
 # Save fig as a screenshot
 
+###
+# Create timeline plot
+###
+
+data$category<-factor(data$category, 
+                      levels = c('GWAS QC',
+                                 'Target QC',
+                                 'Ancestry Inference',
+                                 'PGS Methods',
+                                 'Target Scoring',
+                                 'Report Creation'))
+
+data<-data[order(data$category),]
+
+data$perc<-data$values/sum(data$values)*100
+data$cum_perc<-cumsum(data$perc)
+
+for(i in 1:length(data$category)) {
+  data$start[i] <- ifelse(i == 1, 0, data$end[i - 1])
+  data$end[i] <- data$cum_perc[i]
+  data$label_position[i] <- data$cum_perc[i] - data$perc[i] / 2
+}
+
+data$time_clean<-NA
+data$time_clean[data$values < 60] <-
+  paste0(round(data$values[data$values < 60], 1), ' sec')
+data$time_clean[data$values > 60] <-
+  paste0(round(data$values[data$values > 60] / 60, 1), ' min')
+data$time_clean[data$values > 3600] <-
+  paste0(round(data$values[data$values > 3600] / 60 / 60, 1), ' hr')
+
+data$label<-paste0(data$category,
+                   "\n(", data$time_clean, ', ',
+                   round(data$perc,1),"%)")
+
+all_timeline<-ggplot(data,
+       aes(
+         xmin = start,
+         xmax = end,
+         ymin = 0,
+         ymax = 0.1,
+         fill = category
+       )) +
+  geom_rect(colour='black', size=0.1) +
+  geom_text_repel(
+    aes(
+      x = label_position,
+      y = 0.1,
+      label = label,
+      segment.square  = T,
+      segment.inflect = T
+    ),
+    force = 100,
+    nudge_y           = 0.15,
+    hjust = 0.5,
+    segment.size      = 0.3,
+    segment.curvature = -0.1,
+    segment.color='darkgrey',
+    box.padding=0.6,
+  ) +
+  scale_x_continuous(breaks = seq(0, 100, by = 20)) +
+  coord_cartesian(clip = "off", xlim = c(-20, 120), ylim = c(0, 0.3)) +
+  labs(x='Time (%)') +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.line.x = element_line(color = "black", size = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
+  )
+
 #######
 # Create a pie chart for PGS methods only
 #######
@@ -571,6 +652,76 @@ fig <- plot_ly(data, labels = ~category, values = ~values, type = 'pie',
          margin = list(autoexpand = TRUE))
 
 # Save fig as a screenshot
+
+###
+# Create timeline plot
+###
+
+data<-data[order(data$category),]
+
+data$perc<-data$time_gwas /sum(data$time_gwas )*100
+data$cum_perc<-cumsum(data$perc)
+
+for(i in 1:length(data$category)) {
+  data$start[i] <- ifelse(i == 1, 0, data$cum_perc[i - 1])
+  data$end[i] <- data$cum_perc[i]
+  if(data$end[i] - data$start[i] < 2){
+    data$end[i] <- data$start[i] + 2
+  }
+  data$label_position[i] <- data$cum_perc[i] - data$perc[i] / 2
+}
+
+data$label<-paste0(data$category,
+                   "\n(", data$time_gwas_clean, ', ',
+                   round(data$perc,1),"%)")
+
+pgs_timeline<-ggplot(data,
+       aes(
+         xmin = start,
+         xmax = end,
+         ymin = 0,
+         ymax = 0.1,
+         fill = category
+       )) +
+  geom_rect(colour='black', size=0.1) +
+  geom_text_repel(
+    aes(
+      x = label_position,
+      y = 0.1,
+      label = label,
+      segment.square  = T,
+      segment.inflect = T
+    ),
+    force = 100,
+    nudge_y           = 0.15,
+    hjust = 0.5,
+    segment.size      = 0.3,
+    segment.curvature = -0.1,
+    segment.color='darkgrey',
+    box.padding=0.6,
+  ) +
+  scale_x_continuous(breaks = seq(0, 100, by = 20)) +
+  coord_cartesian(clip = "off", xlim = c(-20, 120), ylim = c(0, 0.3)) +
+  labs(x='Time (%)') +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.line.x = element_line(color = "black", size = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
+  )
+
+png('~/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/timeline_plot.png', res=300, width=2500, height=1500, units = 'px')
+set.seed(1)
+plot_grid(all_timeline, pgs_timeline, labels = c('A', 'B'), nrow = 2)
+dev.off()
 
 #######
 # Rules that are only run once
@@ -1260,7 +1411,7 @@ cor<-readRDS('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/as
 # Subset results to best and pseudoval
 cor_subset<-NULL
 for(pheno_i in phenos){
-  for(pop_i in names(pgs)){
+  for(pop_i in unique(cor$pop)){
     for(gwas_i in unique(cor$gwas[cor$pheno == pheno_i & cor$pop == pop_i])){
       for(pgs_method_i in unique(cor$pgs_method[cor$pheno == pheno_i & cor$pop == pop_i & cor$gwas == gwas_i])){
         
@@ -1327,7 +1478,8 @@ ggplot(cor_subset, aes(x = Method, y = r, fill = model)) +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12),
-        legend.position='bottom') +
+        legend.position='top',
+        legend.justification = "center") +
   facet_grid(label ~ pop , scales="free_y") +
   panel_border()
 dev.off()
@@ -1356,7 +1508,7 @@ dev.off()
 
 # Split plot for all populations into two parts
 png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_part1.png', res=300, width=3500, height=4000, units = 'px')
-ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[1:7],], aes(x = Method, y = r, fill = model)) +
+ggplot(cor_subset[cor_subset$label %in% sort(unique(cor_subset$label))[1:7],], aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1372,13 +1524,14 @@ ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[1:7],], aes(x =
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12),
-        legend.position='bottom') +
+        legend.position='top',
+        legend.justification = "center") +
   facet_grid(label ~ pop , scales="free_y") +
   panel_border()
 dev.off()
 
 png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_part2.png', res=300, width=3500, height=4000, units = 'px')
-ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[-1:-7],], aes(x = Method, y = r, fill = model)) +
+ggplot(cor_subset[cor_subset$label %in% sort(unique(cor_subset$label))[-1:-7],], aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1394,7 +1547,56 @@ ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[-1:-7],], aes(x
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12),
-        legend.position='bottom') +
+        legend.position='top',
+        legend.justification = "center") +
+  facet_grid(label ~ pop , scales="free_y") +
+  panel_border()
+dev.off()
+
+# Make plot showing results across population for just a continuous outcomes for main text. 
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_small.png', res=300, width=3500, height=4000, units = 'px')
+ggplot(cor_subset[cor_subset$pheno %in% con_phenos ,], aes(x = Method, y = r, fill = model)) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
+  labs(
+    y = "BETA (SE)",
+    x = 'PGS Method',
+    fill = 'Model'
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position='top',
+        legend.justification = "center") +
+  facet_grid(label ~ pop , scales="free_y") +
+  panel_border()
+dev.off()
+
+# Make plot showing results across population for just a continuous outcomes for main text. 
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_binary.png', res=300, width=3500, height=4000, units = 'px')
+ggplot(cor_subset[cor_subset$pheno %in% bin_phenos ,], aes(x = Method, y = r, fill = model)) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
+  labs(
+    y = "BETA (SE)",
+    x = 'PGS Method',
+    fill = 'Model'
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position='top',
+        legend.justification = "center") +
   facet_grid(label ~ pop , scales="free_y") +
   panel_border()
 dev.off()
