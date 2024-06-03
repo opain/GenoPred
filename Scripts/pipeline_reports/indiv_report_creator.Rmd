@@ -449,6 +449,18 @@ for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
   }
 }
 
+if(!is.null(score_list)){
+  pseudoval <- rbind(
+    pseudoval,
+    data.frame(
+      gwas = score_list$name,
+      pseudoval_r2obs = NA,
+      pseudoval_d = NA,
+      pseudoval_auc = NA
+    )
+  )
+}
+
 # Calculate absolute risk
 abs_res <- NULL
 n_quant <- 1000
@@ -511,8 +523,21 @@ for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
   }
 }
 
+if(!is.null(score_list)){
+  abs_res <- rbind(abs_res, 
+    data.frame(
+      pgs_method = 'external',
+      gwas = score_list$name,
+      prev = NA,
+      abs_prob = NA,
+      mean = NA,
+      sd = NA
+    )
+  )
+}
+
 # Create plots
-for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
+for(gwas_i in unique(pgs_dat$gwas)){
   for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
   
     pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
@@ -536,144 +561,174 @@ for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
       labs(y='Number of people', x='Polygenic Score', title='Polygenic Score Distribution') +
       theme(plot.title = element_text(hjust = 0.5))
     
-    # Create absolute plot
-    if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
-      # Define parameters
-      PRS_R2=pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i]
-      Outcome_mean=gwas_list$mean[gwas_list$name == gwas_i]
-      Outcome_sd=gwas_list$sd[gwas_list$name == gwas_i]
-      conf_int=95/100
-      n_quant<-1000
-      
-      # Run analysis
-      quant<-which_quant(PRS_z_score = PRS_z_score, n_quantile = n_quant)
-      
-      risk_quantiles<-mean_sd_quant.f(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n_quantile=n_quant, quant=quant)
-      indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
-      
-      ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-      ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
-                           y=ref,
-                           Group='General public')
-      
-      indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-      indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
-                             y=indiv,
-                             Group='People like you')
-      
-      plot_dat<-rbind(ref_plot, indiv_plot)
-      plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
-      
-      # Calculate 95CI for target individual
-      lowCI<-qnorm((1-conf_int)/2,indiv_result_all$x_mean,indiv_result_all$x_sd)
-      highCI<-qnorm(1-((1-conf_int)/2),indiv_result_all$x_mean,indiv_result_all$x_sd)
-      
-      abs_plot<-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
-        geom_area(alpha=0.4, colour='black') +
-        scale_fill_manual(values=c("#84CA72","#0066CC")) +
-        labs(y='Number of people', x='Trait', title='Absolute Risk', fill=NULL) +
-        geom_segment(aes(x = indiv_result_all$x_mean , y = 0, xend = indiv_result_all$x_mean, yend = 0.4), color="black") +
-        geom_segment(aes(x = lowCI , y = 0, xend = lowCI, yend = 0.38), color="#0066CC", linetype="dashed") +
-        geom_segment(aes(x = highCI , y = 0, xend = highCI, yend = 0.38), color="#0066CC", linetype="dashed") +
-        geom_text(label=paste0('Estimate = ',round(indiv_result_all$x_mean,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='black', hjust='left', vjust=0.8, size=5, check_overlap = TRUE) +
-        geom_text(label=paste0(conf_int*100,'% CI = ',round(lowCI,2),' – ',round(highCI,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='#0066CC', hjust='left', vjust=2.5, size=5, check_overlap = TRUE) +
-        scale_y_continuous(breaks = NULL) +
-        theme_half_open() +
-        theme(plot.title = element_text(hjust = 0.5)) +
-        theme(legend.position=c(0.01,0.95), legend.box = "horizontal")
-      
+    if(pgs_method_i != 'external'){
+      # Create absolute plot
+      if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
+        # Define parameters
+        PRS_R2=pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i]
+        Outcome_mean=gwas_list$mean[gwas_list$name == gwas_i]
+        Outcome_sd=gwas_list$sd[gwas_list$name == gwas_i]
+        conf_int=95/100
+        n_quant<-1000
+        
+        # Run analysis
+        quant<-which_quant(PRS_z_score = PRS_z_score, n_quantile = n_quant)
+        
+        risk_quantiles<-mean_sd_quant.f(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n_quantile=n_quant, quant=quant)
+        indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
+        
+        ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
+        ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
+                             y=ref,
+                             Group='General public')
+        
+        indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
+        indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
+                               y=indiv,
+                               Group='People like you')
+        
+        plot_dat<-rbind(ref_plot, indiv_plot)
+        plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
+        
+        # Calculate 95CI for target individual
+        lowCI<-qnorm((1-conf_int)/2,indiv_result_all$x_mean,indiv_result_all$x_sd)
+        highCI<-qnorm(1-((1-conf_int)/2),indiv_result_all$x_mean,indiv_result_all$x_sd)
+        
+        abs_plot<-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
+          geom_area(alpha=0.4, colour='black') +
+          scale_fill_manual(values=c("#84CA72","#0066CC")) +
+          labs(y='Number of people', x='Trait', title='Absolute Risk', fill=NULL) +
+          geom_segment(aes(x = indiv_result_all$x_mean , y = 0, xend = indiv_result_all$x_mean, yend = 0.4), color="black") +
+          geom_segment(aes(x = lowCI , y = 0, xend = lowCI, yend = 0.38), color="#0066CC", linetype="dashed") +
+          geom_segment(aes(x = highCI , y = 0, xend = highCI, yend = 0.38), color="#0066CC", linetype="dashed") +
+          geom_text(label=paste0('Estimate = ',round(indiv_result_all$x_mean,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='black', hjust='left', vjust=0.8, size=5, check_overlap = TRUE) +
+          geom_text(label=paste0(conf_int*100,'% CI = ',round(lowCI,2),' – ',round(highCI,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='#0066CC', hjust='left', vjust=2.5, size=5, check_overlap = TRUE) +
+          scale_y_continuous(breaks = NULL) +
+          theme_half_open() +
+          theme(plot.title = element_text(hjust = 0.5)) +
+          theme(legend.position=c(0.01,0.95), legend.box = "horizontal")
+        
+      } else {
+        d <- pseudoval$pseudoval_d[pseudoval$gwas == gwas_i]
+        prev <- gwas_list$prevalence[gwas_list$name == gwas_i] * 100
+        E_PRS <- d * (prev / 100)
+        varPRS <- (prev / 100) * (1 + (d ^ 2) - (d * (prev / 100)) ^ 2) + (1 - (prev / 100)) * (1 - (d * (prev / 100)) ^ 2)
+        
+        tmp <-
+          dnorm_2_new(
+            x = seq(-4, 4, length.out = 101),
+            mean_1 = (0 - (E_PRS)) / sqrt(varPRS),
+            sd_1 = 1 / sqrt(varPRS),
+            mean_2 = (d - (E_PRS)) / sqrt(varPRS),
+            sd_2 = 1 / sqrt(varPRS),
+            p_2 = (prev / 100)
+          )
+        
+        # Define parameters
+        indiv_result <- data.table(p_case = abs_res_i$abs_prob,
+                                   p_control = 1 - abs_res_i$abs_prob)
+        
+        indiv_result<-melt(indiv_result)
+        indiv_result$variable<-c('Case','Control')
+        indiv_result$variable<-factor(indiv_result$variable,levels = c('Control','Case'))
+        
+        # Create a grid of dots, some red and some blue
+        n_case_1<-round(indiv_result$value*100,1)[1]
+        n_control_1<-round(indiv_result$value*100,1)[2]
+        n_case<-round(indiv_result$value*100)[1]
+        n_control<-round(indiv_result$value*100)[2]
+        
+        # Create data for general population example
+        pop_case_1<-round(prev,1)
+        pop_case<-round(prev)
+        pop_control_1<-round(100-prev,1)
+        pop_control<-round(100-prev)
+        pop_result<-data.frame(variable=c('Case','Control'),
+                               value=c((prev/100),1-(prev/100)))
+        
+        pop_result$variable<-factor(pop_result$variable, levels = c('Control','Case'))
+        
+        bar_chart<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
+          geom_chicklet(radius = grid::unit(1, 'mm'), data=indiv_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
+          scale_fill_manual(values=c("#84CA72","#0066CC"), drop = F) +
+          annotate("text", x=1.5, y=((((n_control_1)/2))+n_case_1)/100, label=paste0(n_control_1,"%\ndo not have trait"), colour = '#84CA72', hjust=0, size=4) +
+          annotate("text", x=1.5, y=((n_case_1/2))/100, label=paste0(n_case_1,'%\nhave trait'), colour = '#0066CC', hjust=0, size=4) +
+          ylim(-0.1,1.05) +
+          theme_half_open() +
+          labs(title='Of people with your genetics,') +
+          xlim(0.25,2.5) +
+          theme(axis.line=element_blank(),axis.text.x=element_blank(),
+                axis.text.y=element_blank(),axis.ticks=element_blank(),
+                axis.title.x=element_blank(),
+                axis.title.y=element_blank(),
+                panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+                panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
+        
+        bar_chart_pop<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
+          geom_chicklet(radius = grid::unit(1, 'mm'), data=pop_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
+          scale_fill_manual(values=c("#84CA72","#0066CC"), drop = F) +
+          annotate("text", x=1.5, y=(((pop_control_1/2))+pop_case_1)/100, label=paste0(pop_control_1,"%\ndo not have trait"), colour = '#84CA72', hjust=0, size=4) +
+          annotate("text", x=1.5, y=((pop_case_1/2))/100, label=paste0(pop_case_1,'%\nhave trait'), colour = '#0066CC', hjust=0, size=4) +
+          ylim(-0.1,1.05) +
+          theme_half_open() +
+          labs(title='In the general population,') +
+          xlim(0.25,2.5) +
+          theme(axis.line=element_blank(),axis.text.x=element_blank(),
+                axis.text.y=element_blank(),axis.ticks=element_blank(),
+                axis.title.x=element_blank(),
+                axis.title.y=element_blank(),
+                panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+                panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
+        
+        abs_plot <- plot_grid(bar_chart, bar_chart_pop, labels = NULL, nrow = 1)
+        
+      }
     } else {
-      d <- pseudoval$pseudoval_d[pseudoval$gwas == gwas_i]
-      prev <- gwas_list$prevalence[gwas_list$name == gwas_i] * 100
-      E_PRS <- d * (prev / 100)
-      varPRS <- (prev / 100) * (1 + (d ^ 2) - (d * (prev / 100)) ^ 2) + (1 - (prev / 100)) * (1 - (d * (prev / 100)) ^ 2)
-      
-      tmp <-
-        dnorm_2_new(
-          x = seq(-4, 4, length.out = 101),
-          mean_1 = (0 - (E_PRS)) / sqrt(varPRS),
-          sd_1 = 1 / sqrt(varPRS),
-          mean_2 = (d - (E_PRS)) / sqrt(varPRS),
-          sd_2 = 1 / sqrt(varPRS),
-          p_2 = (prev / 100)
-        )
-      
-      # Define parameters
-      indiv_result <- data.table(p_case = abs_res_i$abs_prob,
-                                 p_control = 1 - abs_res_i$abs_prob)
-      
-      indiv_result<-melt(indiv_result)
-      indiv_result$variable<-c('Case','Control')
-      indiv_result$variable<-factor(indiv_result$variable,levels = c('Control','Case'))
-      
-      # Create a grid of dots, some red and some blue
-      n_case_1<-round(indiv_result$value*100,1)[1]
-      n_control_1<-round(indiv_result$value*100,1)[2]
-      n_case<-round(indiv_result$value*100)[1]
-      n_control<-round(indiv_result$value*100)[2]
-      
-      # Create data for general population example
-      pop_case_1<-round(prev,1)
-      pop_case<-round(prev)
-      pop_control_1<-round(100-prev,1)
-      pop_control<-round(100-prev)
-      pop_result<-data.frame(variable=c('Case','Control'),
-                             value=c((prev/100),1-(prev/100)))
-      
-      pop_result$variable<-factor(pop_result$variable, levels = c('Control','Case'))
-      
-      bar_chart<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
-        geom_chicklet(radius = grid::unit(1, 'mm'), data=indiv_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
-        scale_fill_manual(values=c("#84CA72","#0066CC"), drop = F) +
-        annotate("text", x=1.5, y=((((n_control_1)/2))+n_case_1)/100, label=paste0(n_control_1,"%\ndo not have trait"), colour = '#84CA72', hjust=0, size=4) +
-        annotate("text", x=1.5, y=((n_case_1/2))/100, label=paste0(n_case_1,'%\nhave trait'), colour = '#0066CC', hjust=0, size=4) +
-        ylim(-0.1,1.05) +
-        theme_half_open() +
-        labs(title='Of people with your genetics,') +
-        xlim(0.25,2.5) +
-        theme(axis.line=element_blank(),axis.text.x=element_blank(),
-              axis.text.y=element_blank(),axis.ticks=element_blank(),
-              axis.title.x=element_blank(),
-              axis.title.y=element_blank(),
-              panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
-              panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
-      
-      bar_chart_pop<-ggplot(data.frame(x=1,y=0:1), aes(x=x, y=y)) +
-        geom_chicklet(radius = grid::unit(1, 'mm'), data=pop_result, mapping=aes(x=1, y=value, fill=variable), stat="identity",position='stack') +
-        scale_fill_manual(values=c("#84CA72","#0066CC"), drop = F) +
-        annotate("text", x=1.5, y=(((pop_control_1/2))+pop_case_1)/100, label=paste0(pop_control_1,"%\ndo not have trait"), colour = '#84CA72', hjust=0, size=4) +
-        annotate("text", x=1.5, y=((pop_case_1/2))/100, label=paste0(pop_case_1,'%\nhave trait'), colour = '#0066CC', hjust=0, size=4) +
-        ylim(-0.1,1.05) +
-        theme_half_open() +
-        labs(title='In the general population,') +
-        xlim(0.25,2.5) +
-        theme(axis.line=element_blank(),axis.text.x=element_blank(),
-              axis.text.y=element_blank(),axis.ticks=element_blank(),
-              axis.title.x=element_blank(),
-              axis.title.y=element_blank(),
-              panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
-              panel.grid.minor=element_blank(),plot.background=element_blank(), plot.title = element_text(hjust = 0.5), legend.position = "none")
-      
-      abs_plot <- plot_grid(bar_chart, bar_chart_pop, labels = NULL, nrow = 1)
-      
-    }
-    
+      # Create an empty plot with the specified text
+      abs_plot <- ggplot() +
+        annotate(
+          "text",
+          x = 0.5,
+          y = 0.5,
+          label = "Automatic conversion to absolute scale is unavailable\nfor externally derived polygenic scores.\nSee below for more information.",
+          size = 4,
+          hjust = 0.5,
+          vjust = 0.5
+        ) +
+        theme_void() +
+        theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+    }      
     png(paste0(tmp_folder,'/plot_absrisk_', gwas_i,'_',pgs_method_i,'.png'), height = 800, width = 700, res = 95)
       print(plot_grid(rel_plot, abs_plot, ncol = 1, rel_heights = c(1, 1)))
     dev.off()
-    
   }
 }
 
 ```
 
 ```{r, results='asis', eval = pgs_incl}
+score_info<-NULL
 
-gwas_list_brief<-gwas_list[,c('name','label','mean','sd')]
-names(gwas_list_brief)<-c('gwas','label','pop_mean','pop_sd')
-gwas_list_brief<-merge(pseudoval, gwas_list_brief, by='gwas')
+if(!is.null(score_list)){
+  score_list_brief<-score_list[,c('name','label')]
+  score_list_brief$mean <- NA
+  score_list_brief$sd <- NA
+  names(score_list_brief)<-c('gwas','label','pop_mean','pop_sd')
+  score_list_brief<-merge(pseudoval, score_list_brief, by='gwas')
+  
+  score_info<-rbind(score_info, score_list_brief)
+}
+
+if(!is.null(gwas_list)){
+  gwas_list_brief<-gwas_list[,c('name','label','mean','sd')]
+  names(gwas_list_brief)<-c('gwas','label','pop_mean','pop_sd')
+  gwas_list_brief<-merge(pseudoval, gwas_list_brief, by='gwas')
+  
+  score_info<-rbind(score_info, gwas_list_brief)
+}
+
 all_dat<-merge(pgs_dat, abs_res, by=c('gwas','pgs_method'))
-all_dat<-merge(all_dat, gwas_list_brief, by='gwas')
+all_dat<-merge(all_dat, score_info, by='gwas')
 
 for(pgs_method_i in unique(all_dat$pgs_method)){
   
@@ -690,12 +745,16 @@ for(pgs_method_i in unique(all_dat$pgs_method)){
     add_header_above(c(" " = 1, "PGS Descriptives" = 2, "Distribution in General\nPopulation"=3, "Distribution in People\nLike You" = 4)) %>%
     kable_styling(bootstrap_options = c("striped", "hover", "responsive")))
   
-  cat('**Note.** PGS R-squared/AUC is estimated via pseudovalidation, and may be inaccurate. To specify alternative parameters, check out our [interactive tool](https://opain.github.io/GenoPred/PRS_to_Abs_tool.html) for converting polygenic scores to the absolute scale.\n\n')
-
+  if(pgs_method_i == 'external'){
+    cat('**Note.** PGS R-squared/AUC cannot be estimated when using externally derived score files. To specify parameters, check out our [interactive tool](https://opain.github.io/GenoPred/PRS_to_Abs_tool.html) for converting polygenic scores to the absolute scale.\n\n')
+  } else {
+    cat('**Note.** PGS R-squared/AUC is estimated via pseudovalidation, and may be inaccurate. To specify alternative parameters, check out our [interactive tool](https://opain.github.io/GenoPred/PRS_to_Abs_tool.html) for converting polygenic scores to the absolute scale.\n\n')
+  }
+  
   cat('***\n\n')
 
   for(gwas_i in unique(all_dat$gwas[all_dat$pgs_method == pgs_method_i])){
-    cat0('#### GWAS: ',gwas_list$label[gwas_list$name == gwas_i],' {.tabset .tabset-fade}\n')
+    cat0('#### GWAS: ',all_dat$label[all_dat$gwas == gwas_i & all_dat$pgs_method == pgs_method_i],' {.tabset .tabset-fade}\n')
     
     cat0("<center>\n")
 
@@ -706,18 +765,20 @@ for(pgs_method_i in unique(all_dat$pgs_method)){
     pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
     abs_res_i <- abs_res[abs_res$pgs_method == pgs_method_i & abs_res$gwas == gwas_i,]
 
-    cat0('- Your PGS Z-score for ', gwas_list$label[gwas_list$name == gwas_i], ' is ', pgs_dat_i$value,' which is higher than ', paste0(round(100*pnorm(pgs_dat_i$value),1),'%'),' of other ', ref_pop$label[ref_pop$pop == top_pop],' individuals.\n')
+    cat0('- Your PGS Z-score for ', all_dat$label[all_dat$gwas == gwas_i], ' is ', pgs_dat_i$value,' which is higher than ', paste0(round(100*pnorm(pgs_dat_i$value),1),'%'),' of other ', ref_pop$label[ref_pop$pop == top_pop],' individuals.\n\n')
     
-    if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
-      
-      cat0('- Assuming the PGS explains ', round(100*pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],1),'% of the variance in ', gwas_list$label[gwas_list$name == gwas_i],',\n and the mean and SD of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$mean[gwas_list$name == gwas_i],' and ',gwas_list$sd[gwas_list$name == gwas_i],' respectively,\n on average people with your PGS have a ', gwas_list$label[gwas_list$name == gwas_i],' of ', round(abs_res_i$mean,2), " (95% CI = ",round(lowCI,2),' - ',round(highCI,2),").\n\n")
-      cat0('- **Note.** These predictions are estimated using a range of assumptions and should be interpreted with caution. This report is merely a demonstration of how polygenic scores can be interpreted.\n\n')
-
-    } else {
+    if(pgs_method_i != 'external'){
+      if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
         
-      cat0('- Assuming the PGS has an AUC of ', round(pseudoval$pseudoval_auc[pseudoval$gwas == gwas_i],3),', and the prevelance of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$prevalence[gwas_list$name == gwas_i],',\n on average ',round(100*abs_res_i$abs_prob,1),'% of people with your PGS have ', gwas_list$label[gwas_list$name == gwas_i],'.\n\n')
-      cat0('- **Note.** These predictions are estimated using a range of assumptions and should be interpreted with caution. This report is merely a demonstration of how polygenic scores can be interpreted.\n\n')
-
+        cat0('- Assuming the PGS explains ', round(100*pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],1),'% of the variance in ', gwas_list$label[gwas_list$name == gwas_i],',\n and the mean and SD of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$mean[gwas_list$name == gwas_i],' and ',gwas_list$sd[gwas_list$name == gwas_i],' respectively,\n on average people with your PGS have a ', gwas_list$label[gwas_list$name == gwas_i],' of ', round(abs_res_i$mean,2), " (95% CI = ",round(lowCI,2),' - ',round(highCI,2),").\n\n")
+        cat0('- **Note.** These predictions are estimated using a range of assumptions and should be interpreted with caution. This report is merely a demonstration of how polygenic scores can be interpreted.\n\n')
+  
+      } else {
+          
+        cat0('- Assuming the PGS has an AUC of ', round(pseudoval$pseudoval_auc[pseudoval$gwas == gwas_i],3),', and the prevelance of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$prevalence[gwas_list$name == gwas_i],',\n on average ',round(100*abs_res_i$abs_prob,1),'% of people with your PGS have ', gwas_list$label[gwas_list$name == gwas_i],'.\n\n')
+        cat0('- **Note.** These predictions are estimated using a range of assumptions and should be interpreted with caution. This report is merely a demonstration of how polygenic scores can be interpreted.\n\n')
+  
+      }
     }
   }
 }
