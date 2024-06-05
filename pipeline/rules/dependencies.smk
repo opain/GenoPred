@@ -22,6 +22,45 @@ if not conda_env_name == 'genopred':
   print("Error: The genopred conda environment must be active when running the pipeline.\nFor more information: https://opain.github.io/GenoPred/pipeline_readme.html#Step_2:_Create_conda_environment_for_pipeline")
   sys.exit(1)
 
+########
+# Create required functions
+########
+
+# Create function to check whether path of gwas or score exist
+def check_list_paths(df):
+  for index, row in df.iterrows():
+    file_path = row['path']
+    if pd.isna(file_path):
+        continue
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+# Create function to return the range of chromosomes requested
+def get_chr_range(testing):
+  if testing != 'NA':
+    val = int(testing[-2:])
+    return range(val, val + 1)
+  else:
+    return range(1, 23)
+
+# Create function to check whether path of gwas or score exist
+def check_target_paths(df, chr):
+  for index, row in df.iterrows():
+    if row['type'] == '23andMe':
+      file_path = row['path']
+    if row['type'] == 'plink1':
+      file_path =  row['path'] + ".chr" + chr + ".bed"
+    if row['type'] == 'plink2':
+      file_path =  row['path'] + ".chr" + chr + ".pgen"
+    if row['type'] == 'bgen':
+      file_path =  row['path'] + ".chr" + chr + ".bgen"
+    if row['type'] == 'vcf':
+      file_path =  row['path'] + ".chr" + chr + ".vcf.gz"
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+    else :
+      return []
+
 ######
 # Check config file
 ######
@@ -69,51 +108,12 @@ if config['refdir'] == 'NA':
   ref_input=f"{refdir}/ref.pop.txt"
 else:
   refdir=config['refdir']
-  ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in range(1, 23) for ext in ['pgen', 'pvar', 'psam', 'rds']] + \
+  ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in get_chr_range(testing = config['testing']) for ext in ['pgen', 'pvar', 'psam', 'rds']] + \
                  [os.path.join(refdir, file_name) for file_name in ['ref.pop.txt', 'ref.keep.list']]
 
   for full_path in ref_input:
       if not os.path.exists(full_path):
           raise FileNotFoundError(f"File not found: {full_path}. Check reference data format.")
-
-########
-# Create required functions
-########
-
-# Create function to check whether path of gwas or score exist
-def check_list_paths(df):
-  for index, row in df.iterrows():
-    file_path = row['path']
-    if pd.isna(file_path):
-        continue
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-# Create function to return the range of chromosomes requested
-def get_chr_range(testing):
-  if testing != 'NA':
-    val = int(testing[-2:])
-    return range(val, val + 1)
-  else:
-    return range(1, 23)
-
-# Create function to check whether path of gwas or score exist
-def check_target_paths(df, chr):
-  for index, row in df.iterrows():
-    if row['type'] == '23andMe':
-      file_path = row['path']
-    if row['type'] == 'plink1':
-      file_path =  row['path'] + ".chr" + chr + ".bed"
-    if row['type'] == 'plink2':
-      file_path =  row['path'] + ".chr" + chr + ".pgen"
-    if row['type'] == 'bgen':
-      file_path =  row['path'] + ".chr" + chr + ".bgen"
-    if row['type'] == 'vcf':
-      file_path =  row['path'] + ".chr" + chr + ".vcf.gz"
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-    else :
-      return []
 
 ########
 # Check for repo version updates
