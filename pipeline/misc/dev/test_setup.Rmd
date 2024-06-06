@@ -1,0 +1,189 @@
+---
+title: "Test Setup"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+I want to set up a series of tests that can be quickly run to check everything is working as it should. We can test every step all the time, so lets focus on testing the following scenario:
+
+- Target sample data: Same as GenoPred test data, but restricted to subset of SNPs
+- GWAS sumstats: Same as GenoPred test data, but restricted to subset of SNPs
+- External sumstats: Same as GenoPred test data, but restricted to subset of SNPs
+- Reference data: Same as GenoPred test data, but restricted to subset of SNPs
+
+***
+
+# Create test data
+
+## Reference data
+
+```{r}
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+# Read in chromosome 22 data, subset 1000 SNPs
+ref_rds<-readRDS('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr22.rds')
+test_snps<-ref_rds$SNP[1:1000]
+dir.create('misc/dev/test_data/')
+write.table(test_snps, 'misc/dev/test_data/test_snps.txt', col.names = F, row.names = F, quote = F)
+
+# Create folder containing mini version of reference data
+dir.create('misc/dev/test_data/ref')
+saveRDS(ref_rds[ref_rds$SNP %in% test_snps,], 'misc/dev/test_data/ref/ref.chr22.rds')
+
+system('cp ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.pop.txt misc/dev/test_data/ref/')
+system('cp ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.keep.list misc/dev/test_data/ref/')
+system('cp -r ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/keep_files misc/dev/test_data/ref/')
+
+pops<-list.files('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/freq_files')
+for(i in pops){
+  dir.create(paste0('misc/dev/test_data/ref/freq_files/',i), recursive = T)
+  freq_i<-fread(paste0('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/freq_files/',i,'/ref.',i,'.chr22.afreq'))
+  freq_i<-freq_i[freq_i$ID %in% test_snps,]
+  fwrite(freq_i, paste0('misc/dev/test_data/ref/freq_files/',i,'/ref.',i,'.chr22.afreq'), quote=F, sep=' ', na='NA')
+}
+```
+```{bash}
+cd ~/oliverpainfel/Software/MyGit/GenoPred/pipeline
+
+~/oliverpainfel/Software/plink2 \
+  --pfile ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr22 \
+  --extract misc/dev/test_data/test_snps.txt \
+  --make-pgen \
+  --out misc/dev/test_data/ref/ref.chr22
+```
+
+***
+
+# Target sample data
+
+```{bash}
+mkdir misc/dev/test_data/target
+
+~/oliverpainfel/Software/plink2 \
+  --pfile ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/target/imputed_sample_plink2/example.chr22 \
+  --extract misc/dev/test_data/test_snps.txt \
+  --make-pgen \
+  --out misc/dev/test_data/target/example.chr22
+```
+
+***
+
+# GWAS sumstats
+
+```{r}
+library(data.table)
+ss<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/reference/gwas_sumstats/BODY04.gz')
+ss<-ss[ss$SNP %in% test_snps,]
+dir.create('misc/dev/test_data/gwas')
+fwrite(ss, 'misc/dev/test_data/gwas/BODY04.gz', quote=F, sep=' ', na='NA')
+```
+***
+
+# External score file
+
+```{r}
+ext_score<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/reference/score_files/PGS002804.txt.gz')
+ext_score<-ext_score[ext_score$rsID %in% test_snps,]
+dir.create('misc/dev/test_data/ext_score')
+fwrite(ext_score, 'misc/dev/test_data/ext_score/PGS002804.txt.gz', quote=F, sep=' ', na='NA')
+```
+
+***
+
+# Try running pipeline with test data
+
+## Create config
+
+```{r}
+dir.create('misc/dev/test_data/config')
+
+# gwas_list
+gwas_list<-data.frame(
+  name='BODY04',
+  path='misc/dev/test_data/gwas/BODY04.gz',
+  population='EUR',
+  n=NA,
+  sampling=NA,
+  prevalence=NA,
+  mean=0,
+  sd=1,
+  label='Body Mass Index'
+)
+
+gwas_list$label<-paste0("\"", gwas_list$label, "\"")
+
+write.table(gwas_list, 'misc/dev/test_data/config/gwas_list.txt', col.names = T, row.names = F, quote = F)
+
+# target_list
+target_list<-data.frame(
+  name='example_plink2',
+  path='misc/dev/test_data/target/example',
+  type='plink2',
+  indiv_report=F
+)
+
+write.table(target_list, 'misc/dev/test_data/config/target_list.txt', col.names = T, row.names = F, quote = F)
+
+# score_list
+score_list<-data.frame(
+  name='PGS002804',
+  path='misc/dev/test_data/ext_score/PGS002804.txt.gz',
+  label='Height Yengo EUR'
+)
+
+score_list$label<-paste0("\"", score_list$label, "\"")
+
+write.table(score_list, 'misc/dev/test_data/config/score_list.txt', col.names = T, row.names = F, quote = F)
+
+# config file
+config<-c(
+  "outdir: misc/dev/test_data/output",
+  "config_file: misc/dev/test_data/config/config.yaml",
+  "refdir: misc/dev/test_data/ref",
+  "gwas_list: misc/dev/test_data/config/gwas_list.txt",
+  "target_list: misc/dev/test_data/config/target_list.txt",
+  "score_list: misc/dev/test_data/config/score_list.txt",
+  "pgs_methods: ['ptclump']",
+  "testing: chr22",
+  "cores_target_pgs: 1",
+  "mem_target_pgs: 2000"
+  )
+
+write.table(config, 'misc/dev/test_data/config/config.yaml', col.names = F, row.names = F, quote = F)
+```
+
+***
+
+## Run pipeline
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate genopred
+snakemake -j1 --use-conda output_all --configfile=misc/dev/test_data/config/config.yaml
+```
+
+***
+
+## Generate unit tests
+
+The snakemake --generate-unit-tests function does not work well. We will create our own unit tests. Move the output of the above into a folder called tests/expected.
+
+```{bash}
+mkdir -p tests/expected
+cp -r misc/dev/test_data/output tests/expected/
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
