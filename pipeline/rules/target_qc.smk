@@ -156,7 +156,7 @@ rule ancestry_inference_i:
   input:
     f"{outdir}/reference/target_checks/{{name}}/format_target.done"
   output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/ancestry_inference.done")
+    f"{outdir}/{{name}}/ancestry/{{name}}.Ancestry.model_pred"
   benchmark:
     f"{outdir}/reference/benchmarks/ancestry_inference_i-{{name}}.txt"
   log:
@@ -178,12 +178,12 @@ rule ancestry_inference_i:
       --test {params.testing} > {log} 2>&1"
 
 rule ancestry_inference:
-  input: expand(f"{outdir}/reference/target_checks/{{name}}/ancestry_inference.done", name=target_list_df['name'])
+  input: expand(f"{outdir}/{{name}}/ancestry/{{name}}.Ancestry.model_pred", name=target_list_df['name'])
 
 # Create a file listing target samples and population assignments
 checkpoint ancestry_reporter:
   input:
-    f"{outdir}/reference/target_checks/{{name}}/ancestry_inference.done",
+    f"{outdir}/{{name}}/ancestry/{{name}}.Ancestry.model_pred",
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done")
   benchmark:

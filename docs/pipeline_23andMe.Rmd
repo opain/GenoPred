@@ -34,8 +34,8 @@ singularity \
   pull \
   --arch \
   amd64 \
-  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.3.sif \
-  library://opain/genopred/genopred_pipeline:v0.3
+  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.4.sif \
+  library://opain/genopred/genopred_pipeline:v0.4
 ```
 
 ***
@@ -57,8 +57,7 @@ config<-c(
   paste0('target_list: ', workdir, '/config/target_list.txt'),
   paste0('score_list: ', workdir, '/config/score_list.txt'),
   'cores_target_pgs: 8',
-  'cores_impute_23andme: 8',
-  'testing: chr22'
+  'cores_impute_23andme: 8'
 )
 
 write.table(config, paste0(workdir, '/config/config.yaml'), col.names = F, row.names = F, quote = F)
@@ -94,7 +93,7 @@ write.table(score_list, paste0(workdir, '/config/score_list.txt'), col.names=T, 
 singularity shell \
   --bind /scratch/prj/oliverpainfel:/scratch/prj/oliverpainfel \
   --writable-tmpfs \
-  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.3.sif
+  /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_v0.4.sif
   
 # Activate GenoPred environment
 source /opt/mambaforge/etc/profile.d/conda.sh
@@ -111,12 +110,10 @@ snakemake -j8 --use-conda --configfile=/users/k1806347/oliverpainfel/test/genopr
 
 # Computational benchmark
 
-**This section is under development**
-
-I am using an older run for the timebeing.
+<details><summary>Show code</summary>
 
 ```{r}
-bm_files_i<-list.files(path='/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/output/23andMe/reference/benchmarks', full.names = T)
+bm_files_i<-list.files(path='/users/k1806347/oliverpainfel/test/genopred_23andme/output/reference/benchmarks', full.names = T)
 
 bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
   tmp <- fread(file)
@@ -153,9 +150,8 @@ bm_dat_rule_time$step[bm_dat_rule_time$rule == 'sumstat_prep_i']<-'GWAS QC'
 bm_dat_rule_time$step[bm_dat_rule_time$rule == 'indiv_report_i']<-'Report Creation'
 bm_dat_rule_time$step[bm_dat_rule_time$rule == 'ancestry_inference_i']<-'Ancestry Inference'
 bm_dat_rule_time$step[bm_dat_rule_time$rule == 'target_pgs_i']<-'Target Scoring'
-bm_dat_rule_time$step[bm_dat_rule_time$rule == 'prep_pgs_dbslmm_i']<-'DBSLMM'
-bm_dat_rule_time$step[bm_dat_rule_time$rule == 'prep_pgs_lassosum_i']<-'lassosum'
-bm_dat_rule_time$step[bm_dat_rule_time$rule == 'prep_pgs_ptclump_i']<-'pT+clump'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'prep_pgs_external_i']<-'Score file QC'
+bm_dat_rule_time$step[bm_dat_rule_time$rule == 'download_pgs_external']<-'Download score file'
 
 #######
 # Create a pie chart
@@ -166,28 +162,99 @@ data <- data.frame(
   values = bm_dat_rule_time$time
 )
 
-data$time<-data$values
+data$category<-factor(data$category, 
+                      levels = c('Imputation',
+                                 'Target QC',
+                                 'Ancestry Inference',
+                                 'Download score file',
+                                 'Score file QC',
+                                 'Target Scoring',
+                                 'Report Creation'))
+
+data<-data[order(data$category),]
+
+data$perc<-data$values/sum(data$values)*100
+data$cum_perc<-cumsum(data$perc)
+
+for(i in 1:length(data$category)) {
+  data$start[i] <- ifelse(i == 1, 0, data$end[i - 1])
+  data$end[i] <- data$cum_perc[i]
+  data$label_position[i] <- data$cum_perc[i] - data$perc[i] / 2
+}
+
 data$time_clean<-NA
-data$time_clean[data$time < 60] <-
-  paste0(round(data$time[data$time < 60], 1), ' sec')
-data$time_clean[data$time > 60] <-
-  paste0(round(data$time[data$time > 60] / 60, 1), ' min')
-data$time_clean[data$time > 3600] <-
-  paste0(round(data$time[data$time > 3600] / 60 / 60, 1), ' hr')
+data$time_clean[data$values < 60] <-
+  paste0(round(data$values[data$values < 60], 1), ' sec')
+data$time_clean[data$values > 60] <-
+  paste0(round(data$values[data$values > 60] / 60, 1), ' min')
+data$time_clean[data$values > 3600] <-
+  paste0(round(data$values[data$values > 3600] / 60 / 60, 1), ' hr')
 
-data$custom_label<-paste0(data$category, "\n(", data$time_clean,")")
+data$label<-paste0(data$category,
+                   "\n(", data$time_clean, ', ',
+                   round(data$perc,1),"%)")
 
-# Create the pie chart
-library(plotly)
-plot_ly(data, labels = ~category, values = ~values, type = 'pie',
-        text = ~custom_label,      # Use custom labels
-        textposition = 'outside',
-        rotation = -20,  # This rotates the pie chart to move labels to the side
-        marker = list(line = list(color = '#000000', width = 0.8))) %>%
-  layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
-         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
-         showlegend = FALSE,
-         margin = list(l = 20, r = 20, b = 100, t = 50, autoexpand = TRUE))  # Adjust margins here
+library(ggplot2)
+library(ggrepel)
+
+png('~/oliverpainfel/Software/MyGit/GenoPred/docs/Images/Benchmark/23andme_benchmark.png', res=300, width=2500, height=1000, units = 'px')
+
+set.seed(1)
+ggplot(data,
+       aes(
+         xmin = start,
+         xmax = end,
+         ymin = 0,
+         ymax = 0.1,
+         fill = category
+       )) +
+  geom_rect(colour='black', size=0.1) +
+  geom_text_repel(
+    aes(
+      x = label_position,
+      y = 0.1,
+      label = label,
+      segment.square  = T,
+      segment.inflect = T
+    ),
+    force = 100,
+    nudge_y           = 0.15,
+    hjust = 0.5,
+    segment.size      = 0.3,
+    segment.curvature = -0.1,
+    segment.color='darkgrey',
+    box.padding=0.6,
+  ) +
+  scale_x_continuous(breaks = seq(0, 100, by = 20)) +
+  coord_cartesian(clip = "off", xlim = c(-20, 120), ylim = c(0, 0.3)) +
+  labs(x='Time (%)') +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.line.x = element_line(color = "black", size = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "none",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
+  )
+
+dev.off()
+
 ```
+
+</details>
+
+***
+
+<div class="centered-container">
+<div class="rounded-image-container">
+![Time taken for each step](Images/Benchmark/23andme_benchmark.png)
+</div>
+</div>
 
 
