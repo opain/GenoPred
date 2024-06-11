@@ -122,37 +122,42 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
 
 # Create function to read in parameters in the config file
 read_param <- function(config, param, return_obj = T){
-
+  library(yaml)
+  
   # Read in the config file
-  config_file <- readLines(config)
+  config_file <- read_yaml(config)
 
-  if(all(grepl(paste0('^',param,':'), config_file) == F)){
+  if(all(names(config_file) != param)){
     # Check default config file
-    config_file <- readLines('config.yaml')
-
-    if(all(grepl(paste0('^',param,':'), config_file) == F)){
+    config_file <- read_yaml('config.yaml')
+    
+    if(all(names(config_file) != param)){
       cat('Requested parameter is not present in user specified config file or default config file.')
       return(NULL)
     } else {
       cat('Parameter is not present in user specified config file, so will use value in default config file.')
     }
   }
-
+  
   # Identify value for param
-  file <- gsub(paste0(param,': '), '', config_file[grepl(paste0('^',param,':'), config_file)])
+  file <- config_file[[param]]
   file[file == 'NA']<-NA
-
+  
   # If resdir, and NA, set to 'resources'
-  if(param == 'resdir' & is.na(file)){
-    file <- 'resources'
+  if(param == 'resdir'){
+    if(is.na(file)){
+      file <- 'resources'
+    }
   }
-
+  
   # If refdir, and NA, set to '<resdir>/data/ref'
-  if(param == 'refdir' & is.na(file)){
-    resdir <- read_param(config = config, param = 'resdir', return_obj = F)
-    file <- paste0(resdir, '/data/ref')
+  if(param == 'refdir'){
+    if(is.na(file)){
+      resdir <- read_param(config = config, param = 'resdir', return_obj = F)
+      file <- paste0(resdir, '/data/ref')
+    }
   }
-
+  
   if(return_obj){
     if(!is.na(file)){
       obj <- fread(file)
@@ -161,10 +166,7 @@ read_param <- function(config, param, return_obj = T){
     }
     return(obj)
   } else {
-
-    file <- unlist(strsplit(gsub("'", '', gsub(']', '', gsub('\\[', '', file))),','))
     file <- file[order(file)]
-
     return(file)
   }
 }
