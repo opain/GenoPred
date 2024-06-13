@@ -7,7 +7,8 @@ on:
       inputs:
         tag:
           description: 'Tag for the release'
-          required: true
+          required: false
+          default: ''
 
 jobs:
   build-and-deploy:
@@ -32,9 +33,13 @@ jobs:
     - name: Login to Docker Hub
       run: echo "${{ secrets.DOCKER_HUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
 
+    - name: Set Tag
+      id: set_tag
+      run: echo "::set-output name=tag::${{ steps.set_tag.outputs.tag || github.sha }}"
+
     - name: Build and Push Docker Image
       run: |
-        docker buildx build --platform linux/amd64 -f $DOCKERFILE_PATH -t $DOCKER_IMAGE_NAME:latest -t $DOCKER_IMAGE_NAME:${{ github.event.inputs.tag }} --push .
+        docker buildx build --platform linux/amd64 -f $DOCKERFILE_PATH -t $DOCKER_IMAGE_NAME:latest -t $DOCKER_IMAGE_NAME:${{ steps.set_tag.outputs.tag }} --push .
 
     - name: Install Singularity
       run: |
@@ -52,6 +57,6 @@ jobs:
     - name: Push Singularity Image to Singularity Library
       run: |
         singularity push ${GITHUB_WORKSPACE}/image.sif $SINGULARITY_IMAGE_NAME:latest
-        singularity build ${GITHUB_WORKSPACE}/image_${{ github.event.inputs.tag }}.sif docker-daemon://${DOCKER_IMAGE_NAME}:${{ github.event.inputs.tag }}
-        singularity push ${GITHUB_WORKSPACE}/image_${{ github.event.inputs.tag }}.sif $SINGULARITY_IMAGE_NAME:${{ github.event.inputs.tag }}
+        singularity build ${GITHUB_WORKSPACE}/image_${{ steps.set_tag.outputs.tag }}.sif docker-daemon://${DOCKER_IMAGE_NAME}:${{ steps.set_tag.outputs.tag }}
+        singularity push ${GITHUB_WORKSPACE}/image_${{ steps.set_tag.outputs.tag }}.sif $SINGULARITY_IMAGE_NAME:${{ steps.set_tag.outputs.tag }}
         
