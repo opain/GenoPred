@@ -6,8 +6,6 @@ tempdir <- function(prefix = "tmpdir") {
   return(tmpdir)
 }
 
-setwd('../../')
-
 # Build conda environments
 test_that("Building conda environments", {
   # Create resdir

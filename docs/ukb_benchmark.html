@@ -817,8 +817,11 @@ Show code
 <pre class="r"><code>library(data.table)
 library(ggplot2)
 library(cowplot)
+library(ggrepel)
 library(dplyr)
 library(plotly)
+source(&#39;../functions/misc.R&#39;)
+source_all(&#39;../functions&#39;)
 
 # read in gwas_list
 gwas_list&lt;-fread(&#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt&#39;)
@@ -915,6 +918,84 @@ fig &lt;- plot_ly(data, labels = ~category, values = ~values, type = &#39;pie&#3
 
 # Save fig as a screenshot
 
+###
+# Create timeline plot
+###
+
+data$category&lt;-factor(data$category, 
+                      levels = c(&#39;GWAS QC&#39;,
+                                 &#39;Target QC&#39;,
+                                 &#39;Ancestry Inference&#39;,
+                                 &#39;PGS Methods&#39;,
+                                 &#39;Target Scoring&#39;,
+                                 &#39;Report Creation&#39;))
+
+data&lt;-data[order(data$category),]
+
+data$perc&lt;-data$values/sum(data$values)*100
+data$cum_perc&lt;-cumsum(data$perc)
+
+for(i in 1:length(data$category)) {
+  data$start[i] &lt;- ifelse(i == 1, 0, data$end[i - 1])
+  data$end[i] &lt;- data$cum_perc[i]
+  data$label_position[i] &lt;- data$cum_perc[i] - data$perc[i] / 2
+}
+
+data$time_clean&lt;-NA
+data$time_clean[data$values &lt; 60] &lt;-
+  paste0(round(data$values[data$values &lt; 60], 1), &#39; sec&#39;)
+data$time_clean[data$values &gt; 60] &lt;-
+  paste0(round(data$values[data$values &gt; 60] / 60, 1), &#39; min&#39;)
+data$time_clean[data$values &gt; 3600] &lt;-
+  paste0(round(data$values[data$values &gt; 3600] / 60 / 60, 1), &#39; hr&#39;)
+
+data$label&lt;-paste0(data$category,
+                   &quot;\n(&quot;, data$time_clean, &#39;, &#39;,
+                   round(data$perc,1),&quot;%)&quot;)
+
+all_timeline&lt;-ggplot(data,
+       aes(
+         xmin = start,
+         xmax = end,
+         ymin = 0,
+         ymax = 0.1,
+         fill = category
+       )) +
+  geom_rect(colour=&#39;black&#39;, size=0.1) +
+  geom_text_repel(
+    aes(
+      x = label_position,
+      y = 0.1,
+      label = label,
+      segment.square  = T,
+      segment.inflect = T
+    ),
+    force = 100,
+    nudge_y           = 0.15,
+    hjust = 0.5,
+    segment.size      = 0.3,
+    segment.curvature = -0.1,
+    segment.color=&#39;darkgrey&#39;,
+    box.padding=0.6,
+  ) +
+  scale_x_continuous(breaks = seq(0, 100, by = 20)) +
+  coord_cartesian(clip = &quot;off&quot;, xlim = c(-20, 120), ylim = c(0, 0.3)) +
+  labs(x=&#39;Time (%)&#39;) +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.line.x = element_line(color = &quot;black&quot;, size = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    legend.position = &quot;none&quot;,
+    plot.background = element_rect(fill = &quot;white&quot;, color = NA),
+    panel.background = element_rect(fill = &quot;white&quot;, color = NA)
+  )
+
 #######
 # Create a pie chart for PGS methods only
 #######
@@ -949,6 +1030,81 @@ fig &lt;- plot_ly(data, labels = ~category, values = ~values, type = &#39;pie&#3
          margin = list(autoexpand = TRUE))
 
 # Save fig as a screenshot
+
+###
+# Create timeline plot
+###
+
+data&lt;-data[order(data$category),]
+  
+data$perc&lt;-data$time_gwas /sum(data$time_gwas )*100
+data$cum_perc&lt;-cumsum(data$perc)
+
+for(i in 1:length(data$category)) {
+  data$start[i] &lt;- ifelse(i == 1, 0, data$cum_perc[i - 1])
+  data$end[i] &lt;- data$cum_perc[i]
+  if(data$end[i] - data$start[i] &lt; 2){
+    data$end[i] &lt;- data$start[i] + 2
+  }
+  data$label_position[i] &lt;- data$cum_perc[i] - data$perc[i] / 2
+}
+
+data$label&lt;-paste0(data$category,
+                   &quot;\n(&quot;, data$time_gwas_clean, &#39;, &#39;,
+                   round(data$perc,1),&quot;%)&quot;)
+
+pgs_timeline&lt;-ggplot(data,
+       aes(
+         xmin = start,
+         xmax = end,
+         ymin = 0,
+         ymax = 0.1,
+         fill = category
+       )) +
+  geom_rect(colour=&#39;black&#39;, size=0.1) +
+  geom_text_repel(
+    aes(
+      x = label_position,
+      y = 0.1,
+      label = label,
+      segment.square  = T,
+      segment.inflect = T
+    ),
+    force = 100,
+    nudge_y           = 0.15,
+    hjust = 0.5,
+    segment.size      = 0.3,
+    segment.curvature = -0.1,
+    segment.color=&#39;darkgrey&#39;,
+    box.padding=0.6,
+  ) +
+  scale_x_continuous(breaks = seq(0, 100, by = 20)) +
+  coord_cartesian(clip = &quot;off&quot;, xlim = c(-20, 120), ylim = c(0, 0.3)) +
+  labs(x=&#39;Time (%)&#39;) +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.line.x = element_line(color = &quot;black&quot;, size = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    legend.position = &quot;none&quot;,
+    plot.background = element_rect(fill = &quot;white&quot;, color = NA),
+    panel.background = element_rect(fill = &quot;white&quot;, color = NA)
+  )
+
+png(&#39;~/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/timeline_plot.png&#39;, res=300, width=2500, height=1500, units = &#39;px&#39;)
+set.seed(1)
+plot_grid(all_timeline, pgs_timeline, labels = c(&#39;A&#39;, &#39;B&#39;), nrow = 2)
+dev.off()
+
+set.seed(1)
+timeline_plot&lt;-plot_grid(all_timeline, pgs_timeline, labels = c(&#39;A&#39;, &#39;B&#39;), nrow = 2)
+
+ggsave(&#39;~/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/timeline_plot.svg&#39;, plot = timeline_plot, width=2500, height=1500, units = &#39;px&#39;)
 
 #######
 # Rules that are only run once
@@ -1091,6 +1247,16 @@ pgs_method_mem &lt;-
 png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/bm_pgs_methods.png&#39;, res = 300, width = 1800, height = 1800, units = &#39;px&#39;)
   plot_grid(pgs_method_time, pgs_method_mem, nrow=2)
 dev.off()</code></pre>
+</details>
+<details>
+<summary>
+Show time taken for each stage
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container">
+<p><img src="Images/UKB/timeline_plot.svg" /></p>
+</div>
+</div>
 </details>
 <hr />
 </div>
@@ -1628,7 +1794,7 @@ cor&lt;-readRDS(&#39;/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k180
 # Subset results to best and pseudoval
 cor_subset&lt;-NULL
 for(pheno_i in phenos){
-  for(pop_i in names(pgs)){
+  for(pop_i in unique(cor$pop)){
     for(gwas_i in unique(cor$gwas[cor$pheno == pheno_i &amp; cor$pop == pop_i])){
       for(pgs_method_i in unique(cor$pgs_method[cor$pheno == pheno_i &amp; cor$pop == pop_i &amp; cor$gwas == gwas_i])){
         
@@ -1678,30 +1844,11 @@ tmp&lt;-pgs_method_labels
 names(tmp)&lt;-c(&#39;method&#39;,&#39;Method&#39;)
 cor_subset&lt;-merge(cor_subset, tmp, by.x=&#39;pgs_method&#39;, by.y=&#39;method&#39;)
 
-png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all.png&#39;, res=300, width=4000, height=8000, units = &#39;px&#39;)
-ggplot(cor_subset, aes(x = Method, y = r, fill = model)) +
-  geom_errorbar(
-    aes(ymin = r - se, ymax = r + se),
-    width = .2,
-    position = position_dodge(width = 0.7)
-  ) +
-  geom_point(stat=&quot;identity&quot;, position=position_dodge(0.7), size=2, shape=23) +
-  labs(
-    y = &quot;BETA (SE)&quot;,
-    x = &#39;PGS Method&#39;,
-    fill = &#39;Model&#39;
-  ) +
-  theme_half_open() +
-  background_grid() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, size=12),
-        legend.position=&#39;bottom&#39;) +
-  facet_grid(label ~ pop , scales=&quot;free_y&quot;) +
-  panel_border()
-dev.off()
+# To make it easier to read the plot, flip the effect of the PGS for egfr to ckd
+cor_subset_flip&lt;-cor_subset
+cor_subset_flip$r[cor_subset_flip$label == &quot;egfr → ckd&quot;] &lt;- -cor_subset_flip$r[cor_subset_flip$label == &quot;egfr → ckd&quot;]
 
-png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_eur.png&#39;, res=300, width=3000, height=4000, units = &#39;px&#39;)
-ggplot(cor_subset[cor_subset$pop == &#39;EUR&#39;], aes(x = Method, y = r, fill = model)) +
+plot1&lt;-ggplot(cor_subset_flip[cor_subset_flip$pop == &#39;EUR&#39;], aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1720,11 +1867,15 @@ ggplot(cor_subset[cor_subset$pop == &#39;EUR&#39;], aes(x = Method, y = r, fill 
         legend.position = c(0.80, 0.07)) +
   facet_wrap(label ~ . , scales=&quot;free&quot;, ncol = 3) +
   panel_border()
+
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_eur.png&#39;, res=300, width=3000, height=4000, units = &#39;px&#39;)
+plot1
 dev.off()
 
-# Split plot for all populations into two parts
-png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_part1.png&#39;, res=300, width=3500, height=4000, units = &#39;px&#39;)
-ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[1:7],], aes(x = Method, y = r, fill = model)) +
+ggsave(filename = &#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_eur.svg&#39;, plot = plot1, width=3000, height=4000, units = &#39;px&#39;)
+
+# Make plot showing results across population for just a continuous outcomes for main text. 
+plot2&lt;-ggplot(cor_subset_flip[cor_subset_flip$pheno %in% con_phenos ,], aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1740,13 +1891,20 @@ ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[1:7],], aes(x =
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12),
-        legend.position=&#39;bottom&#39;) +
+        legend.position=&#39;top&#39;,
+        legend.justification = &quot;center&quot;) +
   facet_grid(label ~ pop , scales=&quot;free_y&quot;) +
   panel_border()
+
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_cont.png&#39;, res=300, width=3500, height=4000, units = &#39;px&#39;)
+plot2
 dev.off()
 
-png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_part2.png&#39;, res=300, width=3500, height=4000, units = &#39;px&#39;)
-ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[-1:-7],], aes(x = Method, y = r, fill = model)) +
+ggsave(filename = &#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_cont.svg&#39;, plot = plot2, width=3500, height=4000, units = &#39;px&#39;)
+
+
+# Make plot showing results across population for just a continuous outcomes for main text. 
+plot3&lt;-ggplot(cor_subset_flip[cor_subset_flip$pheno %in% bin_phenos ,], aes(x = Method, y = r, fill = model)) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
     width = .2,
@@ -1762,22 +1920,46 @@ ggplot(cor_subset[cor_subset$label %in% unique(cor_subset$label)[-1:-7],], aes(x
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12),
-        legend.position=&#39;bottom&#39;) +
+        legend.position=&#39;top&#39;,
+        legend.justification = &quot;center&quot;) +
   facet_grid(label ~ pop , scales=&quot;free_y&quot;) +
   panel_border()
-dev.off()</code></pre>
+
+png(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_binary.png&#39;, res=300, width=3500, height=4000, units = &#39;px&#39;)
+plot3
+dev.off()
+
+ggsave(filename = &#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/UKB/cor_all_binary.svg&#39;, plot = plot3, width=3500, height=4000, units = &#39;px&#39;)</code></pre>
 </details>
 <details>
 <summary>
-Show associations for all populations
+Show associations for continuous outcomes in all populations
 </summary>
 <div class="centered-container">
 <div class="rounded-image-container">
 <div class="figure">
-<img src="Images/UKB/cor_all.png" alt="" />
+<img src="Images/UKB/cor_all_cont.svg" alt="" />
 <p class="caption">UK Biobank - All populations</p>
 </div>
 </div>
+</div>
+</details>
+<details>
+<summary>
+Show associations for binary outcomes in all populations
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container">
+<div class="figure">
+<img src="Images/UKB/cor_all_binary.svg" alt="" />
+<p class="caption">UK Biobank - All populations</p>
+</div>
+</div>
+</div>
+<div class="note-box">
+<p><strong>Note:</strong> In the ‘egfr → ckd’ plot, the direction of
+associations was reversed to ensure the highest values correspond to the
+best performance in all plots.</p>
 </div>
 </details>
 <details>
@@ -1787,7 +1969,7 @@ Show associations for European population
 <div class="centered-container">
 <div class="rounded-image-container">
 <div class="figure">
-<img src="Images/UKB/cor_eur.png" alt="" />
+<img src="Images/UKB/cor_eur.svg" alt="" />
 <p class="caption">UK Biobank - All populations</p>
 </div>
 </div>
