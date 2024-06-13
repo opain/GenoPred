@@ -35,28 +35,30 @@ jobs:
 
     - name: Set Tag
       id: set_tag
-      run: echo "::set-output name=tag::${{ steps.set_tag.outputs.tag || github.sha }}"
-
+      run:
+        if [ "${{ github.event_name }}" == "release" ]; then
+          echo "::set-output name=tag::${{ github.event.release.tag_name }}"
+        else
+          echo "::set-output name=tag::${{ github.event.inputs.tag || github.sha }}"
+        fi
+        
     - name: Build and Push Docker Image
       run: |
         docker buildx build --platform linux/amd64 -f $DOCKERFILE_PATH -t $DOCKER_IMAGE_NAME:latest -t $DOCKER_IMAGE_NAME:${{ steps.set_tag.outputs.tag }} --push .
 
-    - name: Install Singularity
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y singularity-container
+    - name: Setup Apptainer
+      uses: eWaterCycle/setup-apptainer@v2.0.0
 
     - name: Convert Docker Image to Singularity SIF
       run: |
         docker pull $DOCKER_IMAGE_NAME:latest
-        singularity build ${GITHUB_WORKSPACE}/image.sif docker-daemon://${DOCKER_IMAGE_NAME}:latest
+        apptainer build ${GITHUB_WORKSPACE}/image.sif docker-daemon://${DOCKER_IMAGE_NAME}:latest
 
     - name: Login to Singularity Library
-      run: echo "${{ secrets.SINGULARITY_LIBRARY_TOKEN }}" | singularity remote login --tokenfile -
+      run: echo "${{ secrets.SINGULARITY_LIBRARY_TOKEN }}" | apptainer remote login --tokenfile -
 
     - name: Push Singularity Image to Singularity Library
       run: |
-        singularity push ${GITHUB_WORKSPACE}/image.sif $SINGULARITY_IMAGE_NAME:latest
-        singularity build ${GITHUB_WORKSPACE}/image_${{ steps.set_tag.outputs.tag }}.sif docker-daemon://${DOCKER_IMAGE_NAME}:${{ steps.set_tag.outputs.tag }}
-        singularity push ${GITHUB_WORKSPACE}/image_${{ steps.set_tag.outputs.tag }}.sif $SINGULARITY_IMAGE_NAME:${{ steps.set_tag.outputs.tag }}
+        apptainer push ${GITHUB_WORKSPACE}/image.sif $SINGULARITY_IMAGE_NAME:latest
+        apptainer push ${GITHUB_WORKSPACE}/image.sif $SINGULARITY_IMAGE_NAME:${{ steps.set_tag.outputs.tag }}
         
