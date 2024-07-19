@@ -143,7 +143,7 @@ if(per_var_N == F & opt$impute_N == T){
 }
 
 error<-foreach(i = CHROMS, .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  log <- system(paste0(opt$gctb, ' --sbayes R --ldm ', opt$ld_matrix_chr, i, '.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ', tmp_dir, '/GWAS_sumstats_COJO.txt --chain-length 10000 ', sbayesr_opt, '--exclude-mhc --burn-in 2000 --impute-n --out-freq 1000 --out ', tmp_dir, '/GWAS_sumstats_SBayesR.chr', i),  intern = T)
+  log <- system(paste0(opt$gctb, ' --sbayes R --ldm ', opt$ld_matrix_chr, i, '.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ', tmp_dir, '/GWAS_sumstats_COJO.txt --chain-length 10000 ', sbayesr_opt, '--exclude-mhc --burn-in 2000 --out-freq 1000 --out ', tmp_dir, '/GWAS_sumstats_SBayesR.chr', i),  intern = T)
 
   # Check whether the analysis converged
   if(any(grepl("Analysis finished", log))){
