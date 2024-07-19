@@ -18,8 +18,11 @@ jobs:
       DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
       DOCKER_HUB_PASSWORD: ${{ secrets.DOCKER_HUB_PASSWORD }}
       SINGULARITY_LIBRARY_TOKEN: ${{ secrets.SINGULARITY_LIBRARY_TOKEN }}
+      SIGNING_PRIVATE_KEY_BASE64: ${{ secrets.SIGNING_PRIVATE_KEY_BASE64 }}
+      SIGNING_PUBLIC_KEY_BASE64: ${{ secrets.SIGNING_PUBLIC_KEY_BASE64 }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
       DOCKER_IMAGE_NAME: opaino/genopred_pipeline
-      SINGULARITY_IMAGE_NAME: library://opain/genopred
+      SINGULARITY_IMAGE_NAME: library://opain/genopred/genopred_pipeline
       IMAGE_TAG: ${{ github.ref_name }}
       DOCKERFILE_PATH: pipeline/misc/docker/Dockerfile
 
@@ -27,36 +30,79 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
+    - name: Export Secrets to Environment
+      run: |
+        echo "SINGULARITY_LIBRARY_TOKEN=${{ secrets.SINGULARITY_LIBRARY_TOKEN }}" >> $GITHUB_ENV
+
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
+      uses: docker/setup-buildx-action@v3
 
     - name: Login to Docker Hub
       run: echo "${{ secrets.DOCKER_HUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
 
     - name: Set Tag
       id: set_tag
-      run: echo "::set-output name=tag::${{ steps.set_tag.outputs.tag || github.sha }}"
+      run: |
+        if [ "${{ github.event_name }}" == "release" ]; then
+          echo "::set-output name=tag::${{ github.event.release.tag_name }}"
+        else
+          echo "::set-output name=tag::${{ github.event.inputs.tag || github.sha }}"
+        fi
 
-    - name: Build and Push Docker Image
+    - name: Set up Docker Buildx
       run: |
         docker buildx build --platform linux/amd64 -f $DOCKERFILE_PATH -t $DOCKER_IMAGE_NAME:latest -t $DOCKER_IMAGE_NAME:${{ steps.set_tag.outputs.tag }} --push .
 
-    - name: Install Singularity
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y singularity-container
+    - name: Setup Apptainer
+      uses: eWaterCycle/setup-apptainer@v2.0.0
 
     - name: Convert Docker Image to Singularity SIF
       run: |
-        docker pull $DOCKER_IMAGE_NAME:latest
-        singularity build ${GITHUB_WORKSPACE}/image.sif docker-daemon://${DOCKER_IMAGE_NAME}:latest
+        apptainer pull image.sif docker://${DOCKER_IMAGE_NAME}:latest
+
+    - name: Install expect
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y expect
+        
+    - name: Decode and Import Signing Keys
+      run: |
+        echo "${{ secrets.SIGNING_PRIVATE_KEY_BASE64 }}" | base64 --decode > private.key
+        echo "${{ secrets.SIGNING_PUBLIC_KEY_BASE64 }}" | base64 --decode > public.key
+        expect -c '
+        spawn apptainer key import private.key
+        expect "Enter your key passphrase : "
+        send -- "${{ secrets.SIGNING_KEY_PASSWORD }}\r"
+        expect eof
+        '
+        expect -c '
+        spawn apptainer key import public.key
+        expect "Enter your key passphrase : "
+        send -- "${{ secrets.SIGNING_KEY_PASSWORD }}\r"
+        expect eof
+        '
+    - name: Sign the Singularity Image
+      run: |
+        expect -c '
+        spawn apptainer sign image.sif
+        expect "Enter your key passphrase : "
+        send -- "${{ secrets.SIGNING_KEY_PASSWORD }}\r"
+        expect eof
+        '
+    - name: Create Token File
+      run: echo "${{ secrets.SINGULARITY_LIBRARY_TOKEN }}" > tokenfile
 
     - name: Login to Singularity Library
-      run: echo "${{ secrets.SINGULARITY_LIBRARY_TOKEN }}" | singularity remote login --tokenfile -
+      run: |
+        apptainer remote add --no-login SylabsCloud cloud.sycloud.io
+        apptainer remote use SylabsCloud
+        apptainer remote login --tokenfile tokenfile
 
     - name: Push Singularity Image to Singularity Library
       run: |
-        singularity push ${GITHUB_WORKSPACE}/image.sif $SINGULARITY_IMAGE_NAME:latest
-        singularity build ${GITHUB_WORKSPACE}/image_${{ steps.set_tag.outputs.tag }}.sif docker-daemon://${DOCKER_IMAGE_NAME}:${{ steps.set_tag.outputs.tag }}
-        singularity push ${GITHUB_WORKSPACE}/image_${{ steps.set_tag.outputs.tag }}.sif $SINGULARITY_IMAGE_NAME:${{ steps.set_tag.outputs.tag }}
-        
+        apptainer push image.sif $SINGULARITY_IMAGE_NAME:latest
+
+    - name: Setup tmate session
+      if: ${{ failure() }}
+      uses: mxschmitt/action-tmate@v3
+      timeout-minutes: 60
