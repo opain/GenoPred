@@ -10,6 +10,26 @@ tempdir <- function(prefix = "tmpdir") {
 # Create temp_dir
 temp_dir<-tempdir()
 
+# Change directory
+setwd('../../')
+
+# Retrieve .SIF file location
+sif_file <- Sys.getenv("SIF_FILE")
+
+if(sif_file == ''){
+  stop("SIF_FILE is not specified")
+}
+if(!file.exists(sif_file)){
+  stop("SIF_FILE does not exist")
+}
+
+# Retrieve branch name
+repo_branch <- Sys.getenv("BRANCH_NAME")
+
+if(repo_branch == ''){
+  stop("BRANCH_NAME is not specified")
+}
+
 ################
 # Prepare configuration files for testing
 ################
@@ -21,7 +41,7 @@ temp_dir<-tempdir()
 # Update config to use temp_dir as outdir and resdir
 # Note. Using read_yaml and write_yaml converts single line lists to multiline lists, which causes an error in snakemake
 config <- readLines('misc/dev/test_data/config/config.yaml')
-config[grepl('^resdir', config)]<-paste0('resdir: ', temp_dir)
+config[grepl('^resdir', config)]<-paste0('resdir: ', temp_dir, '/resources')
 config[grepl('^outdir', config)]<-paste0('outdir: ', temp_dir)
 config[grepl('^config_file', config)]<-paste0('config_file: ', temp_dir, '/config.yaml')
 write.table(config, paste0(temp_dir, '/config1.yaml'), col.names = F, row.names = F, quote = F)
@@ -79,37 +99,60 @@ write.table(config_tmp, paste0(temp_dir, '/config4.yaml'), col.names = F, row.na
 
 # Add lassosum to pgs_methods list
 config_tmp<-config
-config_tmp[grepl('^pgs_methods', config_tmp)]<-paste0("pgs_methods: ['ptclump','lassosum']")
+config_tmp[grepl('^pgs_methods', config_tmp)]<-paste0("pgs_methods: ['ptclump','lassosum','dbslmm']")
 write.table(config_tmp, paste0(temp_dir, '/config5.yaml'), col.names = F, row.names = F, quote = F)
+
+#######
+# Future tests to be implemented
+#######
+# other pgs methods - It will take a lot more time to run due to download of reference data and slower PGS methods.
 
 #################
 # Run pipeline commands inside container
 #################
 
-system(paste0(
-  "singularity exec --writable-tmpfs /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_latest.sif bash -c \"
+requested_output <- paste0("output_all pc_projection ", temp_dir, "/reference/target_checks/example_plink2/indiv_report-4_EAS.4_EAS-report.done")
+
+exit_status <- system(paste0(
+  "singularity exec --writable-tmpfs ", sif_file, " bash -c \"
+      # Set to exit if any errors incurred
+      set -e &&
+      # Initiate conda
       source /opt/mambaforge/etc/profile.d/conda.sh &&
+      # Activate genopred environment
       conda activate genopred &&
+      # Go to repo
       cd /tools/GenoPred/pipeline &&
+      # Checkout to dev branch
+      git checkout ", repo_branch, " &&
+      # Fetch latest commits
+      git pull &&
       # Clear output directory
-      rm -r ", temp_dir, "/*
+      rm -r -f ", temp_dir, "/reference &&
+      rm -r -f ", temp_dir, "/example_plink2 &&
+      rm -r -f ", temp_dir, "/resources &&
       # Test 1
       cp ", temp_dir, "/config1.yaml ", temp_dir, "/config.yaml &&
-      snakemake -j1 --use-conda output_all --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake1.log 2>&1 &&
+      snakemake -j1 --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake1.log 2>&1 &&
       # Test 2
       cp ", temp_dir, "/config2.yaml ", temp_dir, "/config.yaml &&
-      snakemake -j1 -n --use-conda output_all --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake2.log 2>&1 &&
+      snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake2.log 2>&1 &&
       # Test 3
       cp ", temp_dir, "/config3.yaml ", temp_dir, "/config.yaml &&
-      snakemake -j1 -n --use-conda output_all --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake3.log 2>&1 &&
+      snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake3.log 2>&1 &&
       # Test 4
       cp ", temp_dir, "/config4.yaml ", temp_dir, "/config.yaml &&
-      snakemake -j1 -n --use-conda output_all --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake4.log 2>&1
+      snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake4.log 2>&1
       # Test 5
       cp ", temp_dir, "/config5.yaml ", temp_dir, "/config.yaml &&
-      snakemake -j1 -n --use-conda output_all --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake5.log 2>&1
+      snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake5.log 2>&1
     \""
 ))
+
+# Check system command completed successfully
+if (exit_status != 0) {
+  stop("The script failed. Check the logs for details.")
+}
 
 #################
 # Perform tests
@@ -119,7 +162,7 @@ system(paste0(
 # Test 1
 ######
 
-test_that("Run pipeline with standard config", {
+test_that("Check pipeline runs without error", {
 
   # Read in log file
   log<-readLines(paste0(temp_dir, '/snakemake1.log'))
@@ -127,104 +170,153 @@ test_that("Run pipeline with standard config", {
   # Check it finished without errors
   expect_true(any(grepl("steps \\(100%\\) done", log)))
 
-  ###############
-  # Check the output of each step
-  ###############
+})
 
-  #######
-  # target_qc
-  #######
+###############
+# Check the output of each step
+###############
 
-  ###
-  # ancestry_inference_i
-  ###
+#######
+# target_qc
+#######
+
+###
+# ancestry_inference_i
+###
+
+test_that("Check ancestry_inference_i output", {
   results<-fread(paste0(temp_dir,'/example_plink2/ancestry/example_plink2.Ancestry.model_pred'))
-  expected<-fread('tests/expected/output/example_plink2/ancestry/example_plink2.Ancestry.model_pred')
+  expected<-fread('misc/dev/test_data/output/example_plink2/ancestry/example_plink2.Ancestry.model_pred')
   expect_equal(expected, results)
+})
 
-  ###
-  # ancestry_reporter
-  ###
+###
+# ancestry_reporter
+###
+
+test_that("Check ancestry_reporter output", {
   results<-fread(paste0(temp_dir,'/example_plink2/ancestry/ancestry_report.txt'))
-  expected<-fread('tests/expected/output/example_plink2/ancestry/ancestry_report.txt')
+  expected<-fread('misc/dev/test_data/output/example_plink2/ancestry/ancestry_report.txt')
   expect_equal(expected, results)
+})
 
-  ###
-  # format_target_i
-  ###
-  for(i in c('pgen','psam','pvar')){
+###
+# format_target_i
+###
+
+for(i in c('pgen','psam','pvar')){
+  test_that(paste0("Check format_target_i output: ", i), {
     results<-paste0(temp_dir,'/example_plink2/geno/example_plink2.ref.chr22.', i)
-    expected<-paste0('tests/expected/output/example_plink2/geno/example_plink2.ref.chr22.', i)
+    expected<-paste0('misc/dev/test_data/output/example_plink2/geno/example_plink2.ref.chr22.', i)
 
     diff_result <- system2("diff", args = c("-q", expected, results), stdout = TRUE, stderr = TRUE)
     expect_true(identical(diff_result, character(0)))
-  }
+  })
+}
 
-  #######
-  # pgs_methods
-  #######
+#######
+# pgs_methods
+#######
 
-  ###
-  # sumstat_prep_i
-  ###
+###
+# ref_pca_i
+###
+
+for(i in c('eigenvec.var.gz','AFR.scale')){
+  test_that(paste0("Check ref_pca_i output: ", i), {
+    results<-fread(paste0(temp_dir,'/resources/data/ref/pc_score_files/AFR/ref-AFR-pcs.', i))
+    expected<-fread(paste0('misc/dev/test_data/output/resources/data/ref/pc_score_files/AFR/ref-AFR-pcs.', i))
+    expect_equal(expected, results)
+  })
+}
+
+###
+# sumstat_prep_i
+###
+
+test_that("Check sumstat_prep_i output", {
   results<-fread(paste0(temp_dir,'/reference/gwas_sumstat/BODY04/BODY04-cleaned.gz'))
-  expected<-fread('tests/expected/output/reference/gwas_sumstat/BODY04/BODY04-cleaned.gz')
+  expected<-fread('misc/dev/test_data/output/reference/gwas_sumstat/BODY04/BODY04-cleaned.gz')
   expect_equal(expected, results)
+})
 
-  ###
-  # prep_pgs_ptclump_i
-  ###
-  # score.gz
-  results <- fread(paste0(temp_dir,'/reference/pgs_score_files/ptclump/BODY04/ref-BODY04.score.gz'))
-  expected<-fread('tests/expected/output/reference/pgs_score_files/ptclump/BODY04/ref-BODY04.score.gz')
-  expect_equal(expected, results)
+###
+# internal
+###
+for(i in c('ptclump','lassosum')){
+  for(j in c('.score.gz','-AFR.scale')){
+    test_that(paste0("Check prep_pgs_", i,"_i output: ", j), {
+      results <- fread(paste0(temp_dir,'/reference/pgs_score_files/', i,'/BODY04/ref-BODY04', j))
+      expected<-fread(paste0('misc/dev/test_data/output/reference/pgs_score_files/', i, '/BODY04/ref-BODY04', j))
+      expect_equal(expected, results)
+    })
+  }
+}
 
-  # AFR.scale
-  results<-fread(paste0(temp_dir,'/reference/pgs_score_files/ptclump/BODY04/ref-BODY04-AFR.scale'))
-  expected<-fread('tests/expected/output/reference/pgs_score_files/ptclump/BODY04/ref-BODY04-AFR.scale')
-  expect_equal(expected, results)
+###
+# prep_pgs_lassosum_i
+###
+for(i in c('.score.gz','-AFR.scale')){
+  test_that(paste0("Check prep_pgs_ptclump_i output: ", i), {
+    results <- fread(paste0(temp_dir,'/reference/pgs_score_files/ptclump/BODY04/ref-BODY04', i))
+    expected<-fread(paste0('misc/dev/test_data/output/reference/pgs_score_files/ptclump/BODY04/ref-BODY04', i))
+    expect_equal(expected, results)
+  })
+}
 
-  ###
-  # prep_pgs_external_i
-  ###
-  # score.gz
-  results<-fread(paste0(temp_dir,'/reference/pgs_score_files/external/PGS002804/ref-PGS002804.score.gz'))
-  expected<-fread('tests/expected/output/reference/pgs_score_files/external/PGS002804/ref-PGS002804.score.gz')
-  expect_equal(expected, results)
+###
+# prep_pgs_external_i
+###
+for(i in c('.score.gz','-AFR.scale')){
+  test_that(paste0("Check prep_pgs_external_i output: ", i), {
+    results<-fread(paste0(temp_dir,'/reference/pgs_score_files/external/PGS002804/ref-PGS002804', i))
+    expected<-fread(paste0('misc/dev/test_data/output/reference/pgs_score_files/external/PGS002804/ref-PGS002804', i))
+    expect_equal(expected, results)
+  })
+}
 
-  # AFR.scale
-  results<-fread(paste0(temp_dir,'/reference/pgs_score_files/external/PGS002804/ref-PGS002804-AFR.scale'))
-  expected<-fread('tests/expected/output/reference/pgs_score_files/external/PGS002804/ref-PGS002804-AFR.scale')
-  expect_equal(expected, results)
+#######
+# target_scoring
+#######
 
-  #######
-  # target_scoring
-  #######
+###
+# target_pgs_i
+###
 
-  ###
-  # target_pgs_i
-  ###
-
-  # external
+# external
+test_that("Check target_pgs_i output: external", {
   results <- fread(paste0(temp_dir,'/example_plink2/pgs/AFR/external/PGS002804/example_plink2-PGS002804-AFR.profiles'))
-  expected <- fread('tests/expected/output/example_plink2/pgs/AFR/external/PGS002804/example_plink2-PGS002804-AFR.profiles')
+  expected <- fread('misc/dev/test_data/output/example_plink2/pgs/AFR/external/PGS002804/example_plink2-PGS002804-AFR.profiles')
   expect_equal(expected, results)
+})
 
-  # ptclump
-  results <- fread(paste0(temp_dir,'/example_plink2/pgs/AFR/ptclump/BODY04/example_plink2-BODY04-AFR.profiles'))
-  expected <- fread('tests/expected/output/example_plink2/pgs/AFR/ptclump/BODY04/example_plink2-BODY04-AFR.profiles')
-  expect_equal(expected, results)
+# internal
+for(i in c('ptclump','lassosum')){
+  test_that(paste0("Check target_pgs_i output: ", i), {
+    results <- fread(paste0(temp_dir,'/example_plink2/pgs/AFR/', i, '/BODY04/example_plink2-BODY04-AFR.profiles'))
+    expected <- fread(paste0('misc/dev/test_data/output/example_plink2/pgs/AFR/', i, '/BODY04/example_plink2-BODY04-AFR.profiles'))
+    expect_equal(expected, results)
+  })
+}
 
-  #######
-  # report
-  #######
+#######
+# report
+#######
 
-  ###
-  # sample_report_i
-  ###
+###
+# sample_report_i
+###
+test_that("Check sample_report_i output", {
   results<-paste0(temp_dir,'/example_plink2/reports/example_plink2-report.html')
   expect_true(file.exists(results))
+})
 
+###
+# indiv_report_i
+###
+test_that("Check indiv_report_i output", {
+  results<-paste0(temp_dir,'/example_plink2/reports/individual/example_plink2-4_EAS.4_EAS-report.html')
+  expect_true(file.exists(results))
 })
 
 ######
@@ -276,4 +368,21 @@ test_that("Modify score_list and check jobs to be rerun", {
 
   # Check additional output from format_target_i etc. are required
   expect_true(all(c("output_all", "prep_pgs_external_i", "sample_report_i", "score_reporter", "target_pgs_all", "target_pgs_i") %in% to_do), log)
+})
+
+######
+# Test 5
+######
+
+# Modify gwas_list and check jobs to be rerun
+test_that("Modify pgs_methods and check jobs to be rerun", {
+
+  # Read in log file
+  log<-readLines(paste0(temp_dir, '/snakemake5.log'))
+
+  # List rules to be run
+  to_do<-gsub(' .*','', log[(grep('^Job stats:', log)[2]+3):(grep('^Reasons:', log)-3)])
+
+  # Check additional output from format_target_i etc. are required
+  expect_true(all(c("download_dbslmm", "download_hm3_snplist", "download_ld_blocks", "download_ldsc", "download_ldscores_panukb", "download_plink", "indiv_report_i", "output_all", "prep_pgs_dbslmm_i", "sample_report_i", "target_pgs_all", "target_pgs_i") %in% to_do), log)
 })
