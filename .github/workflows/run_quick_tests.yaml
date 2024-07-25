@@ -2,25 +2,25 @@ name: Run quick tests of pipeline
 
 on:
   pull_request:
-    types: [closed]
     branches:
       - master
   workflow_dispatch:
 
 jobs:
   run-tests:
-    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    container:
+      image: rocker/r-ver:4.1.0
+      options: --privileged
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up R
-        uses: r-lib/actions/setup-r@v2
-
-      - name: Setup singularity
+      - name: Setup Singularity
         uses: eWaterCycle/setup-singularity@v7
+        with:
+          singularity-version: 3.8.3
 
       - name: Download Singularity container
         run: |
@@ -29,27 +29,24 @@ jobs:
       - name: Set environment variables
         run: |
           echo "SIF_FILE=$GITHUB_WORKSPACE/genopred_pipeline_latest.sif" >> $GITHUB_ENV
-          echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
-
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "BRANCH_NAME=${{ github.head_ref }}" >> $GITHUB_ENV
+          else
+            echo "BRANCH_NAME=${{ github.ref_name }}" >> $GITHUB_ENV
+          fi
+          
       - name: Install R dependencies
         run: |
           Rscript -e 'install.packages("testthat", repos="https://cran.rstudio.com/")'
           Rscript -e 'install.packages("data.table", repos="https://cran.rstudio.com/")'
+          Rscript -e 'install.packages("R.utils", repos="https://cran.rstudio.com/")'
 
       - name: Run tests
         run: |
-          mkdir -p test_results
-          Rscript -e "testthat::test_dir('pipeline/tests/testthat', reporter = 'junit')" > test_results/results.xml
+          Rscript -e "testthat::test_dir('pipeline/tests/testthat')"
         env:
           SIF_FILE: ${{ env.SIF_FILE }}
           BRANCH_NAME: ${{ env.BRANCH_NAME }}
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: test-results
-          path: test_results/results.xml
 
       - name: Setup tmate session
         if: ${{ failure() }}
