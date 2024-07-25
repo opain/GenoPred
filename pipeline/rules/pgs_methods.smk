@@ -9,9 +9,7 @@ rule ref_pca_i:
   conda:
     "../envs/analysis.yaml",
   params:
-    testing=config["testing"],
-    outdir=config["outdir"],
-    refdir=config["refdir"]
+    testing=config["testing"]
   benchmark:
     f"{resdir}/data/benchmarks/ref_pca_i-{{population}}.txt"
   log:
