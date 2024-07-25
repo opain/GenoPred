@@ -1,6 +1,9 @@
 library(data.table)
 library(testthat)
 
+# Change directory
+setwd('../../')
+
 tempdir <- function(prefix = "tmpdir") {
   tmpdir <- tempfile(pattern = prefix)
   dir.create(tmpdir)
@@ -10,11 +13,8 @@ tempdir <- function(prefix = "tmpdir") {
 # Create temp_dir
 temp_dir<-tempdir()
 
-# Change directory
-setwd('../../')
-
 # Retrieve .SIF file location
-sif_file <- Sys.getenv("SIF_FILE")
+sif_file <- Sys.getenv("SIF_FILE", '/users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_latest.sif')
 
 if(sif_file == ''){
   stop("SIF_FILE is not specified")
@@ -24,7 +24,7 @@ if(!file.exists(sif_file)){
 }
 
 # Retrieve branch name
-repo_branch <- Sys.getenv("BRANCH_NAME")
+repo_branch <- Sys.getenv("BRANCH_NAME", 'dev')
 
 if(repo_branch == ''){
   stop("BRANCH_NAME is not specified")
@@ -103,6 +103,66 @@ config_tmp[grepl('^pgs_methods', config_tmp)]<-paste0("pgs_methods: ['ptclump','
 write.table(config_tmp, paste0(temp_dir, '/config5.yaml'), col.names = F, row.names = F, quote = F)
 
 #######
+# Test 6: No target_list specified
+#######
+
+# Create new temp_dir so the pipeline starts a fresh
+temp_dir2<-tempdir()
+
+config <- readLines('misc/dev/test_data/config/config.yaml')
+config[grepl('^resdir', config)]<-paste0('resdir: ', temp_dir2, '/resources')
+config[grepl('^outdir', config)]<-paste0('outdir: ', temp_dir2)
+config[grepl('^config_file', config)]<-paste0('config_file: ', temp_dir2, '/config6.yaml')
+
+# Remove target_list
+config<-config[!grepl('^target_list', config)]
+
+write.table(config, paste0(temp_dir2, '/config6.yaml'), col.names = F, row.names = F, quote = F)
+
+#######
+# Test 7: No score_list specified
+#######
+
+config <- readLines('misc/dev/test_data/config/config.yaml')
+config[grepl('^resdir', config)]<-paste0('resdir: ', temp_dir2, '/resources')
+config[grepl('^outdir', config)]<-paste0('outdir: ', temp_dir2)
+config[grepl('^config_file', config)]<-paste0('config_file: ', temp_dir2, '/config6.yaml')
+
+# Remove target_list
+config<-config[!grepl('^score_list', config)]
+
+write.table(config, paste0(temp_dir2, '/config7.yaml'), col.names = F, row.names = F, quote = F)
+
+#######
+# Test 8: No gwas_list specified
+#######
+
+config <- readLines('misc/dev/test_data/config/config.yaml')
+config[grepl('^resdir', config)]<-paste0('resdir: ', temp_dir2, '/resources')
+config[grepl('^outdir', config)]<-paste0('outdir: ', temp_dir2)
+config[grepl('^config_file', config)]<-paste0('config_file: ', temp_dir2, '/config8.yaml')
+
+# Remove target_list
+config<-config[!grepl('^gwas_list', config)]
+
+write.table(config, paste0(temp_dir2, '/config8.yaml'), col.names = F, row.names = F, quote = F)
+
+#######
+# Test 9: No gwas_list or score_list specified
+#######
+
+config <- readLines('misc/dev/test_data/config/config.yaml')
+config[grepl('^resdir', config)]<-paste0('resdir: ', temp_dir2, '/resources')
+config[grepl('^outdir', config)]<-paste0('outdir: ', temp_dir2)
+config[grepl('^config_file', config)]<-paste0('config_file: ', temp_dir2, '/config9.yaml')
+
+# Remove target_list
+config<-config[!grepl('^gwas_list', config)]
+config<-config[!grepl('^score_list', config)]
+
+write.table(config, paste0(temp_dir2, '/config9.yaml'), col.names = F, row.names = F, quote = F)
+
+#######
 # Future tests to be implemented
 #######
 # other pgs methods - It will take a lot more time to run due to download of reference data and slower PGS methods.
@@ -142,10 +202,18 @@ exit_status <- system(paste0(
       snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake3.log 2>&1 &&
       # Test 4
       cp ", temp_dir, "/config4.yaml ", temp_dir, "/config.yaml &&
-      snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake4.log 2>&1
+      snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake4.log 2>&1 &&
       # Test 5
       cp ", temp_dir, "/config5.yaml ", temp_dir, "/config.yaml &&
-      snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake5.log 2>&1
+      snakemake -j1 -n --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake5.log 2>&1 &&
+      # Test 6
+      snakemake -j1 -n --use-conda prep_pgs --configfile=", temp_dir2, "/config6.yaml > ", temp_dir2, "/snakemake6.log 2>&1 &&
+      # Test 7
+      snakemake -j1 -n --use-conda output_all --configfile=", temp_dir2, "/config7.yaml > ", temp_dir2, "/snakemake7.log 2>&1 &&
+      # Test 8
+      snakemake -j1 -n --use-conda output_all --configfile=", temp_dir2, "/config8.yaml > ", temp_dir2, "/snakemake8.log 2>&1 &&
+      # Test 9
+      snakemake -j1 -n --use-conda output_all --configfile=", temp_dir2, "/config9.yaml > ", temp_dir2, "/snakemake9.log 2>&1
     \""
 ))
 
@@ -323,7 +391,6 @@ test_that("Check indiv_report_i output", {
 # Test 2
 ######
 
-# Modify gwas_list and check jobs to be rerun
 test_that("Modify gwas_list and check jobs to be rerun", {
 
   # Read in log file
@@ -340,7 +407,6 @@ test_that("Modify gwas_list and check jobs to be rerun", {
 # Test 3
 ######
 
-# Modify gwas_list and check jobs to be rerun
 test_that("Modify target_list and check jobs to be rerun", {
 
   # Read in log file
@@ -357,7 +423,6 @@ test_that("Modify target_list and check jobs to be rerun", {
 # Test 4
 ######
 
-# Modify gwas_list and check jobs to be rerun
 test_that("Modify score_list and check jobs to be rerun", {
 
   # Read in log file
@@ -374,7 +439,6 @@ test_that("Modify score_list and check jobs to be rerun", {
 # Test 5
 ######
 
-# Modify gwas_list and check jobs to be rerun
 test_that("Modify pgs_methods and check jobs to be rerun", {
 
   # Read in log file
@@ -386,3 +450,68 @@ test_that("Modify pgs_methods and check jobs to be rerun", {
   # Check additional output from format_target_i etc. are required
   expect_true(all(c("download_dbslmm", "download_hm3_snplist", "download_ld_blocks", "download_ldsc", "download_ldscores_panukb", "download_plink", "indiv_report_i", "output_all", "prep_pgs_dbslmm_i", "sample_report_i", "target_pgs_all", "target_pgs_i") %in% to_do), log)
 })
+
+######
+# Test 6
+######
+
+test_that("Check jobs to be run when no target_list", {
+
+  # Read in log file
+  log<-readLines(paste0(temp_dir2, '/snakemake6.log'))
+
+  # List rules to be run
+  to_do<-gsub(' .*','', log[(grep('^Job stats:', log)[2]+3):(grep('^Reasons:', log)-3)])
+
+  # Check additional output from format_target_i etc. are required
+  expect_true(all(c("prep_pgs", "prep_pgs_external_i", "prep_pgs_lassosum_i", "prep_pgs_ptclump_i", "score_reporter", "sumstat_prep_i") %in% to_do), log)
+})
+
+######
+# Test 7
+######
+
+test_that("Check jobs to be run when no score_list", {
+
+  # Read in log file
+  log<-readLines(paste0(temp_dir2, '/snakemake7.log'))
+
+  # List rules to be run
+  to_do<-gsub(' .*','', log[(grep('^Job stats:', log)[2]+3):(grep('^Reasons:', log)-3)])
+
+  # Check additional output from format_target_i etc. are required
+  expect_true(all(c("ancestry_inference_i", "ancestry_reporter", "format_target_all", "format_target_i", "output_all", "sample_report_i", "sumstat_prep_i", "target_pgs_all") %in% to_do), log)
+})
+
+######
+# Test 8
+######
+
+test_that("Check jobs to be run when no gwas_list", {
+
+  # Read in log file
+  log<-readLines(paste0(temp_dir2, '/snakemake8.log'))
+
+  # List rules to be run
+  to_do<-gsub(' .*','', log[(grep('^Job stats:', log)[2]+3):(grep('^Reasons:', log)-3)])
+
+  # Check additional output from format_target_i etc. are required
+  expect_true(all(c("ancestry_inference_i", "ancestry_reporter", "format_target_all", "format_target_i", "output_all", "prep_pgs_external_i", "sample_report_i", "score_reporter", "target_pgs_all") %in% to_do), log)
+})
+
+######
+# Test 9
+######
+
+test_that("Check jobs to be run when no score_list or gwas_list", {
+
+  # Read in log file
+  log<-readLines(paste0(temp_dir2, '/snakemake9.log'))
+
+  # List rules to be run
+  to_do<-gsub(' .*','', log[(grep('^Job stats:', log)[2]+3):(grep('^Reasons:', log)-3)])
+
+  # Check additional output from format_target_i etc. are required
+  expect_true(all(c("ancestry_inference_i", "ancestry_reporter", "format_target_all", "format_target_i", "output_all", "sample_report_i", "target_pgs_all") %in% to_do), log)
+})
+
