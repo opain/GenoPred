@@ -6,12 +6,10 @@ if 'target_list' in config and config["target_list"] != 'NA':
 
 if 'gwas_list' in config and config["gwas_list"] != 'NA':
   output_all_input.append(rules.sumstat_prep.input)
-  output_all_input.append(rules.prep_pgs.input)
   label_list = pd.concat([label_list, gwas_list_df['label']])
 
 if 'score_list' in config and config["score_list"] != 'NA':
   output_all_input.append(rules.score_reporter.output)
-  output_all_input.append(rules.prep_pgs.input)
   label_list = pd.concat([label_list, score_list_df['label']])
 
 # Identify temp directory
@@ -133,6 +131,5 @@ rule indiv_report:
 
 rule output_all:
   input:
-    output_all_input,
     rules.sample_report.input,
     rules.indiv_report.input
