@@ -314,7 +314,7 @@ prscs_ref_ukb_dropbox = {
 
 rule download_prscs_ref_ukb:
   output:
-    f"{resdir}/data/prscs_ref/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5"
+    f"{resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5"
   benchmark:
     f"{resdir}/data/benchmarks/download_prscs_ref_ukb-{{population}}.txt"
   log:
@@ -324,17 +324,17 @@ rule download_prscs_ref_ukb:
   shell:
     """
     {{
-      mkdir -p {resdir}/data/prscs_ref; \
-      rm -r -f {resdir}/data/prscs_ref/ldblk_ukbb_{wildcards.population}; \
-      wget --no-check-certificate -O {resdir}/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
-      tar -zxvf {resdir}/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/; \
-      rm {resdir}/data/prscs_ref/ldblk_ukbb_{wildcards.population}.tar.gz
+      mkdir -p {resdir}/data/prscs_ref/ukbb; \
+      rm -r -f {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}; \
+      wget --no-check-certificate -O {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
+      tar -zxvf {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/ukbb/; \
+      rm {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
 
 rule download_prscs_ref_ukb_all:
   input:
-    lambda w: expand(f"{resdir}/data/prscs_ref/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
+    lambda w: expand(f"{resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
 
 # Download 1KG-based PRScs reference
 prscs_ref_1kg_dropbox = {
@@ -347,7 +347,7 @@ prscs_ref_1kg_dropbox = {
 
 rule download_prscs_ref_1kg:
   output:
-    f"{resdir}/data/prscs_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5"
+    f"{resdir}/data/prscs_ref/1kg/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5"
   benchmark:
     f"{resdir}/data/benchmarks/download_prscs_ref_1kg-{{population}}.txt"
   log:
@@ -357,17 +357,17 @@ rule download_prscs_ref_1kg:
   shell:
     """
     {{
-      mkdir -p {resdir}/data/prscs_ref; \
-      rm -r -f {resdir}/data/prscs_ref/ldblk_1kg_{wildcards.population}; \
-      wget --no-check-certificate -O {resdir}/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz {params.url}; \
-      tar -zxvf {resdir}/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/; \
-      rm {resdir}/data/prscs_ref/ldblk_1kg_{wildcards.population}.tar.gz
+      mkdir -p {resdir}/data/prscs_ref/1kg; \
+      rm -r -f {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}; \
+      wget --no-check-certificate -O {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz {params.url}; \
+      tar -zxvf {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/1kg/; \
+      rm {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
 
 rule download_prscs_ref_1kg_all:
   input:
-    lambda w: expand(f"{resdir}/data/prscs_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
+    lambda w: expand(f"{resdir}/data/prscs_ref/1kg/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
 
 # Download PRScs software
 rule download_prscs_software:
@@ -385,6 +385,60 @@ rule download_prscs_software:
       git reset --hard 621fdc80daac56c93d9528eb1a1187f7b1fc9afb
     }} > {log} 2>&1
     """
+
+# Download PRS-CSx software
+rule download_prscsx_software:
+  output:
+    directory(f"{resdir}/software/prscsx/")
+  benchmark:
+    f"{resdir}/data/benchmarks/download_prscsx_software.txt"
+  log:
+    f"{resdir}/data/logs/download_prscsx_software.log"
+  shell:
+    """
+    {{
+      git clone https://github.com/getian107/PRScsx.git {output}; \
+      cd {output}; \
+      git reset --hard 29a1148875f6ae3f2594b25579f40d4b587c5691
+    }} > {log} 2>&1
+    """
+
+####
+# Download PRS-CSx SNP data for reference
+####
+
+rule download_prscs_snp_data_ukb:
+  output:
+    f"{resdir}/data/prscs_ref/ukbb/snpinfo_mult_ukbb_hm3"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_prscs_snp_data_ukb.txt"
+  log:
+    f"{resdir}/data/logs/download_prscs_snp_data_ukb.log"
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data/prscs_ref/ukbb; \
+      rm -r -f {resdir}/data/prscs_ref/ukbb/snpinfo_mult_ukbb_hm3; \
+      wget --no-check-certificate -O {resdir}/data/prscs_ref/ukbb/snpinfo_mult_ukbb_hm3 https://www.dropbox.com/s/oyn5trwtuei27qj/snpinfo_mult_ukbb_hm3?dl=0; \
+    }} > {log} 2>&1
+    """
+
+rule download_prscs_snp_data_1kg:
+  output:
+    f"{resdir}/data/prscs_ref/1kg/snpinfo_mult_1kg_hm3"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_prscs_snp_data_ukb.txt"
+  log:
+    f"{resdir}/data/logs/download_prscs_snp_data_ukb.log"
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data/prscs_ref/1kg; \
+      rm -r -f {resdir}/data/prscs_ref/1kg/snpinfo_mult_1kg_hm3; \
+      wget --no-check-certificate -O {resdir}/data/prscs_ref/1kg/snpinfo_mult_1kg_hm3 https://www.dropbox.com/s/rhi806sstvppzzz/snpinfo_mult_1kg_hm3?dl=0; \
+    }} > {log} 2>&1
+    """
+
 # Download gctb reference
 rule download_gctb_ref:
   output:

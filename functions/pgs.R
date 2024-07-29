@@ -12,11 +12,13 @@ list_score_files <- function(config){
     # Identify PGS methods to be included
     pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
 
+    # Remove methods that are applied to groups of gwas
+    pgs_methods_list <- pgs_methods_list[!(pgs_methods_list %in% pgs_group_methods)]
+
     combos <- rbind(combos,
                     expand.grid(name = gwas_list$name[gwas_list$pop == 'EUR'], method = pgs_methods_list))
 
     # List PGS methods applied to non-EUR populations
-    pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs','dbslmm')
     pgs_methods_noneur <- pgs_methods_noneur[pgs_methods_noneur %in% pgs_methods_list]
 
     combos <- rbind(combos,
@@ -41,6 +43,21 @@ list_score_files <- function(config){
                       name = score_list$name,
                       method = 'external'))
   }
+
+  # Read in gwas_groups
+  gwas_groups <- read_param(config = config, param = 'gwas_groups')
+
+  if(!is.null(gwas_groups)){
+    # Identify PGS methods to be included
+    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+
+    # Retain methods that are applied to groups of gwas
+    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% pgs_group_methods)]
+
+    combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = pgs_methods_list))
+  }
+
+  combos <- data.table(apply(combos, 2, as.character))
 
   return(combos)
 }

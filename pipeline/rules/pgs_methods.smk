@@ -186,7 +186,7 @@ rule prep_pgs_prscs_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
-    lambda w: f"{resdir}/data/prscs_ref/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
+    lambda w: f"{resdir}/data/prscs_ref/" + prscs_ldref + "/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
   output:
     f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -211,7 +211,7 @@ rule prep_pgs_prscs_i:
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
     --PRScs_path {resdir}/software/prscs/PRScs.py \
-    --PRScs_ref_path {resdir}/data/prscs_ref/ldblk_{prscs_ldref}_{params.population} \
+    --PRScs_ref_path {resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{params.population} \
     --n_cores {threads} \
     --phi_param {params.phi} \
     --test {params.testing} > {log} 2>&1
@@ -479,6 +479,83 @@ checkpoint score_reporter:
   shell:
     "Rscript ../Scripts/pipeline_misc/score_reporter.R {params.config_file} > {log} 2>&1"
 
+###########
+# Multi-ancestry methods
+###########
+
+# Read in the gwas_groups or make an empty version
+if 'gwas_groups' in config and config["gwas_groups"] != 'NA':
+  gwas_groups_df = pd.read_table(config["gwas_groups"], sep=r'\s+')
+else:
+  gwas_groups_df = pd.DataFrame(columns = ["name", "gwas", "label"])
+
+# Function to get the list of GWAS names for a given group
+def get_gwas_names(gwas_group):
+    gwas_names_str = gwas_groups_df[gwas_groups_df['name'] == gwas_group]['gwas'].iloc[0]
+    return gwas_names_str.split(',')
+
+# Function to generate comma-separated list of populations for each name
+def get_populations(gwas_group):
+    gwas_names = get_gwas_names(gwas_group)
+    sumstats_populations = []
+    for gwas in gwas_names:
+        gwas_info = gwas_list_df[gwas_list_df['name'] == gwas].iloc[0]
+        sumstats_populations.append(gwas_info['population'])
+    return sumstats_populations
+
+####
+# PRS-CSx
+####
+
+# Note. Threads are set to 1, and phi and chr are run in parallel. Increasing number of threads shows no improvement in speed.
+
+rule prep_pgs_prscsx_i:
+  resources:
+    mem_mb=2000*config['cores_prep_pgs'],
+    time_min=800
+  threads: config['cores_prep_pgs']
+  input:
+    rules.download_prscsx_software.output,
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{{population}}/ldblk_{prscs_ldref}_chr1.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
+    f"{resdir}/data/prscs_ref/{prscs_ldref}/snpinfo_mult_{prscs_ldref}_hm3"
+  output:
+    f"{outdir}/reference/pgs_score_files/prscsx/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_prscsx_i-{{gwas_group}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_prscsx_i-{{gwas_group}}.log"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    phi= ",".join(map(str, config["prscs_phi"])),
+    testing=config["testing"]
+  shell:
+    """
+    export MKL_NUM_THREADS=1; \
+    export NUMEXPR_NUM_THREADS=1; \
+    export OMP_NUM_THREADS=1; \
+    export OPENBLAS_NUM_THREADS=1; \
+    Rscript ../Scripts/pgs_methods/prscsx.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --populations {params.populations} \
+      --prscsx_ref_path {resdir}/data/prscs_ref/{prscs_ldref} \
+      --phi_param {params.phi} \
+      --pop_data {refdir}/ref.pop.txt \
+      --prscsx_path {resdir}/software/prscsx/PRScsx.py \
+      --output {outdir}/reference/pgs_score_files/prscsx/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1
+    """
+
+rule prep_pgs_prscsx:
+  input: expand(f"{outdir}/reference/pgs_score_files/prscsx/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+
+###############################################
+
 ##
 # Use a rule to check requested PGS methods have been run for all GWAS
 ##
@@ -501,6 +578,8 @@ if 'megaprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_megaprs.input)
 if 'external' in pgs_methods_all:
   pgs_methods_input.append(rules.score_reporter.output)
+if 'prscsx' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_prscsx.input)
 
 rule prep_pgs:
   input:
