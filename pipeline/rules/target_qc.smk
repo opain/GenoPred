@@ -21,6 +21,9 @@ else:
 ####
 
 # Check specific target paths exist
+check_target_type(df = target_list_df)
+
+# Check specific target paths exist
 check_target_paths(df = target_list_df, chr = str(get_chr_range(config['testing'])[0]))
 
 ##

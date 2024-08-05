@@ -33,6 +33,7 @@ setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
 
 config <- readLines('misc/opensnp/config.yaml')
 
+config[grepl('^config_file:', config)]<- 'config_file: misc/opensnp/config_cross_pop.yaml'
 config[grepl('^testing:', config)]<- 'testing: chr22'
 config <- config[!grepl('^score_list:', config)]
 config[grepl('^outdir:', config)]<- 'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test_cross_pop_1'
@@ -45,4 +46,120 @@ write.table(config, 'misc/opensnp/config_cross_pop.yaml', col.names = F, row.nam
 
 ```{bash}
 snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_cross_pop.yaml output_all
+```
+
+## Evaluate PGS
+
+<details><summary>Show code</summary>
+
+```{r}
+# Test correlation between PGS and observed height
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in pheno data
+pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt')
+
+# Read in PGS
+pgs <- read_pgs(config = 'misc/opensnp/config_cross_pop.yaml', name = 'opensnp')$opensnp
+
+# Estimate correlation between pheno and pgs
+cor <- NULL
+for(pop_i in names(pgs)){
+  for(gwas_i in names(pgs[[pop_i]])){
+    for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
+      pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
+      pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
+      
+      for(model_i in names(pgs_i)[-1:-2]){
+        y <- scale(pheno_pgs$height)
+        x <- scale(pheno_pgs[[model_i]])
+        
+        if(all(is.na(x))){
+          next
+        }
+        
+        coef_i <- coef(summary(mod <- lm(y ~ x)))
+        
+        tmp <- data.table(
+          pop = pop_i,
+          gwas = gwas_i,
+          pgs_method = pgs_method_i,
+          name = model_i,
+          r = coef_i[2,1],
+          se = coef_i[2,2],
+          p = coef_i[2,4],
+          n = nobs(mod))
+      cor <- rbind(cor, tmp)
+      
+      }
+    }
+  }
+}
+
+# The European sample is the only one large enough for interpretable results
+# Subset EUR results
+cor_eur <- cor[cor$pop == 'EUR', ]
+
+# Restrict to best and and pseudoval only
+cor_eur_subset <- NULL
+for(pop_i in unique(cor_eur$pop)){
+  for(gwas_i in unique(cor_eur$gwas[cor_eur$pop == pop_i])){
+    for(pgs_method_i in unique(cor_eur$pgs_method[cor_eur$pop == pop_i & cor_eur$gwas == gwas_i])){
+      
+      # Subset relevant results
+      cor_eur_i <- cor_eur[
+        cor_eur$pop == pop_i &
+        cor_eur$gwas == gwas_i &
+        cor_eur$pgs_method == pgs_method_i,]
+  
+      # Top R
+      if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm')){
+        top_i <- cor_eur_i[which(cor_eur_i$r == max(cor_eur_i$r, na.rm = T))[1],]
+        top_i$model <- 'Top'
+        cor_eur_subset <- rbind(cor_eur_subset, top_i)
+      }
+  
+      # PseudoVal
+      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm')){
+        cor_eur_i$name <- gsub(paste0(gwas_i, '_'), '', cor_eur_i$name)
+        pseudo_param <- find_pseudo(config = 'misc/opensnp/config_cross_pop.yaml', gwas = gwas_i, pgs_method = pgs_method_i)
+        pseudo_i <- cor_eur_i[cor_eur_i$name == pseudo_param,]
+        pseudo_i$model <- 'Pseudo'
+        cor_eur_subset <- rbind(cor_eur_subset, pseudo_i)
+      }
+    }
+  }
+}
+
+# Plot the results
+cor_eur_subset$model <- factor(cor_eur_subset$model, levels = c('Top','Pseudo','External'))
+dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP')
+
+plot_obj_eur <- 
+  ggplot(cor_eur_subset, aes(x = pgs_method, y = r, fill = model)) +
+  geom_bar(stat = "identity", position = position_dodge2(preserve = "single"), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  labs(
+    y = "Correlation (SE)",
+    x = 'PGS Method',
+    fill = 'Model',
+    title = paste0("OpenSNP - EUR\n(N = ", cor_eur_subset$n[1], ")")
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12))
+
+
 ```

@@ -51,7 +51,7 @@ mv 'CrowdAI_v3.tar.gz?download=1' CrowdAI_v3.tar.gz
 tar -xvzf CrowdAI_v3.tar.gz
 rm CrowdAI_v3.tar.gz
 
-# Use fullset (training) data as the target for GenoPred, as the sample size is larger
+# Use both training and testing data to maximise sample size for testing.
 ```
 
 </details>
@@ -65,14 +65,22 @@ rm CrowdAI_v3.tar.gz
 ```{r}
 library(data.table)
 
-dat <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/training_set_details.txt')
-dat$FID <- 0
-dat$IID <- dat$id
-dat <- dat[, c('FID', 'IID', 'height'), with = F]
+# Training 
+train_dat <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/training_set_details.txt')
+train_dat$FID <- train_dat$id
+train_dat$IID <- train_dat$id
+train_dat <- train_dat[, c('FID', 'IID', 'height'), with = F]
 
+# Test 
+test_dat <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/test_set_details_SECRET.txt')
+test_dat$FID <- test_dat$id
+test_dat$IID <- test_dat$id
+test_dat <- test_dat[, c('FID', 'IID', 'height'), with = F]
+
+all_dat<-rbind(train_dat, test_dat)
 dir.create('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno', recursive = T)
 write.table(
-  dat,
+  all_dat,
   '/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt',
   col.names = T,
   row.names = F,
@@ -89,18 +97,27 @@ write.table(
 <details><summary>Show code</summary>
 
 ```{bash}
+module add bcftools/1.12-gcc-13.2.0-python-3.11.6
+
 # Create index
-module add bcftools/1.14-gcc-10.3.0-python3+-chk-version
 bcftools index /users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/fullset/genotyping_data_fullset_train.vcf.gz
+
+bcftools index /users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/fullset/genotyping_data_fullset_test.vcf.gz
+
+# Merge the vcfs for training and testing data
+bcftools merge \
+  /users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/fullset/genotyping_data_fullset_train.vcf.gz \
+  /users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/fullset/genotyping_data_fullset_test.vcf.gz \
+  -o /users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/fullset/genotyping_data_fullset_merged.vcf.gz
 
 # Now, split by chromosome using plink2
 # Run on the command line within pipeline conda environment
 mkdir /users/k1806347/oliverpainfel/Data/OpenSNP/processed/geno
 for chr in $(seq 1 22);do
-    plink2 \
-        --vcf /users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/fullset/genotyping_data_fullset_train.vcf.gz \
+    /users/k1806347/oliverpainfel/Software/plink2 \
+        --vcf /users/k1806347/oliverpainfel/Data/OpenSNP/raw/CrowdAI_v3/fullset/genotyping_data_fullset_merged.vcf.gz \
         --chr ${chr} \
-        --out /users/k1806347/oliverpainfel/Data/OpenSNP/processed/geno/opensnp_train.chr${chr} \
+        --out /users/k1806347/oliverpainfel/Data/OpenSNP/processed/geno/opensnp_merged.chr${chr} \
         --export vcf bgz
 done
 ```
@@ -134,12 +151,13 @@ library(data.table)
 
 # Create config file
 conf <- c(
-  'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test5',
+  'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test6',
   'config_file: misc/opensnp/config.yaml',
   'gwas_list: misc/opensnp/gwas_list.txt',
   'score_list: misc/opensnp/score_list.txt',
   'target_list: misc/opensnp/target_list.txt',
-  "pgs_methods: ['ptclump','dbslmm','prscs','sbayesr','lassosum','ldpred2','megaprs']",
+  'gwas_groups: misc/opensnp/gwas_groups.txt',
+  "pgs_methods: ['ptclump','dbslmm','prscs','sbayesr','lassosum','ldpred2','megaprs','prscsx']",
   'testing: NA'
 )
 
@@ -148,11 +166,11 @@ dir.create('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred', recursive = T)
 write.table(conf, 'misc/opensnp/config.yaml', col.names = F, row.names = F, quote = F)
 
 # Create target_list
-target_list <- fread('example_input/target_list_example.txt')
+target_list <- fread('example_input/target_list.txt')
 target_list <- rbind(target_list,
                      data.table(name = 'opensnp',
-                                path = '/users/k1806347/oliverpainfel/Data/OpenSNP/processed/geno/opensnp_train',
-                                type = 'samp_imp_vcf',
+                                path = '/users/k1806347/oliverpainfel/Data/OpenSNP/processed/geno/opensnp_merged',
+                                type = 'vcf',
                                 indiv_report = F))
 
 target_list <- target_list[target_list$name == 'opensnp', ]
@@ -160,7 +178,7 @@ target_list <- target_list[target_list$name == 'opensnp', ]
 write.table(target_list, 'misc/opensnp/target_list.txt', col.names = T, row.names = F, quote = F, sep = ' ')
 
 # Create gwas_list
-gwas_list <- fread('example_input/gwas_list_example.txt')
+gwas_list <- fread('example_input/gwas_list.txt')
 gwas_list<-rbind(gwas_list, 
                  data.table(name='yengo_eur',
                             path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.txt',
@@ -187,6 +205,15 @@ gwas_list <- rbind(gwas_list,
 gwas_list <- gwas_list[gwas_list$name %in% c('yengo_eur', 'yengo_eas'), ]
 
 write.table(gwas_list, 'misc/opensnp/gwas_list.txt', col.names = T, row.names = F, quote = F, sep = ' ')
+
+# Create gwas_groups
+gwas_groups <- data.frame(
+  name = 'height',
+  gwas = 'yengo_eur,yengo_eas',
+  label = "\"Yengo 2022 Height EUR+EAS\""
+)
+
+write.table(gwas_groups, 'misc/opensnp/gwas_groups.txt', col.names = T, row.names = F, quote = F, sep = ' ')
 
 # Create score_list
 score_list <- data.frame(
@@ -228,8 +255,8 @@ library(cowplot)
 # Read in configuration specific benchmark files
 bm_files_i <-
   paste0(
-    '/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test5/reference/benchmarks/',
-    list.files('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test5/reference/benchmarks/')
+    '/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test6/reference/benchmarks/',
+    list.files('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test6/reference/benchmarks/')
   )
 
 # Read in benchmark files
@@ -246,9 +273,8 @@ bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
 # PGS methods
 #####
 # Look at the memory required for each PGS method using the EUR GWAS
-bm_dat_yengo_eur <-
-  bm_dat_all[grepl('prep_pgs', bm_dat_all$file) &
-               grepl('yengo_eur.txt', bm_dat_all$file), ]
+bm_dat_pgs_prep <-
+  bm_dat_all[grepl('prep_pgs', bm_dat_all$file), ]
 
 bm_dat_yengo_eur$method <- gsub('_i', '', gsub('prep_pgs_','',bm_dat_yengo_eur$rule))
 bm_dat_yengo_eur<-merge(bm_dat_yengo_eur, pgs_method_labels, by='method')
@@ -275,6 +301,36 @@ dev.off()
 
 write.csv(bm_dat_yengo_eur, 'Images/OpenSNP/time_cpu_bench_pgs_methods.csv', row.names=F, quote=F)
 
+# Look at time and memory for PRS-CSx analysis
+bm_dat_height <-
+  bm_dat_all[grepl('prep_pgs', bm_dat_all$file) &
+               grepl('height.txt', bm_dat_all$file), ]
+
+bm_dat_height$method <- gsub('_i', '', gsub('prep_pgs_','',bm_dat_height$rule))
+bm_dat_height<-merge(bm_dat_height, pgs_method_labels, by='method')
+
+pgs_method_time <-
+  ggplot(bm_dat_height, aes(x = label, y = s, fill = label)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "PGS Method", y = "Time (seconds)") +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+
+pgs_method_mem <-
+  ggplot(bm_dat_height, aes(x = label, y = max_rss, fill = label)) +
+  geom_bar(stat = "identity", position="dodge") +
+  labs(x = "PGS Method", y = "Max Memory (Mb)") +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+
+png('Images/OpenSNP/time_cpu_bench_pgs_methods_prscsx.png', res = 300, width = 800, height = 1800, units = 'px')
+  plot_grid(pgs_method_time, pgs_method_mem, nrow=2)
+dev.off()
+
+write.csv(bm_dat_height, 'Images/OpenSNP/time_cpu_bench_pgs_methods_prscsx.csv', row.names=F, quote=F)
+
 ```
 </details>
 
@@ -290,6 +346,16 @@ write.csv(bm_dat_yengo_eur, 'Images/OpenSNP/time_cpu_bench_pgs_methods.csv', row
 
 **Note:** pT+clump is run using 1 core. All other methods are run using 10 cores.
 
+</div>
+
+</details>
+
+<details><summary>Show PRS-CSx benchmark</summary>
+
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 50%;">
+![Time and max. memory used by PRS-CSx](Images/OpenSNP/time_cpu_bench_pgs_methods.png)
+</div>
 </div>
 
 </details>
@@ -313,12 +379,6 @@ source_all('../functions')
 
 # Read in pheno data
 pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt')
-
-# Define pgs_methods used
-pgs_methods <- c('external',read_param(config = 'misc/opensnp/config.yaml', param = 'pgs_methods', return_obj = F))
-
-# Define pgs_methods applied to non-EUR GWAS
-pgs_methods_eur <- c('ptclump','lassosum','megaprs','prscs','dbslmm')
 
 # Read in PGS
 pgs <- read_pgs(config = 'misc/opensnp/config.yaml', name = 'opensnp')$opensnp
@@ -357,7 +417,15 @@ for(pop_i in names(pgs)){
   }
 }
 
-# The European sample is the only one large enough for interpretable results
+# Save the results
+dir.create('/scratch/prj/oliverpainfel/Data/OpenSNP/assoc')
+write.csv(
+  cor,
+  '/scratch/prj/oliverpainfel/Data/OpenSNP/assoc/genopred-yengo-assoc.csv',
+  row.names = F
+)
+
+# The European sample is the only one large enough for interpretable results. All other populations are <20 individuals
 # Subset EUR results
 cor_eur <- cor[cor$pop == 'EUR', ]
 
@@ -379,13 +447,24 @@ for(pop_i in unique(cor_eur$pop)){
         top_i$model <- 'Top'
         cor_eur_subset <- rbind(cor_eur_subset, top_i)
       }
-  
+      if(pgs_method_i %in% c('prscsx')){
+        for(targ_i in unique(gsub('.*_','', gsub('_phi.*','',cor_eur_i$name)))){
+          cor_eur_k<-cor_eur_i[grepl(paste0(targ_i,'_phi_'), cor_eur_i$name),]
+          top_i <- cor_eur_k[which(cor_eur_k$r == max(cor_eur_k$r, na.rm = T))[1],]
+          top_i$model <- 'Top'
+          top_i$pgs_method<-paste0(top_i$pgs_method, " (", targ_i, ")")
+          cor_eur_subset <- rbind(cor_eur_subset, top_i)
+        }
+      }  
+      
       # PseudoVal
-      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','lassosum','dbslmm')){
-        cor_eur_i$name <- gsub(paste0(gwas_i, '_'), '', cor_eur_i$name)
+      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','lassosum','dbslmm','prscsx')){
         pseudo_param <- find_pseudo(config = 'misc/opensnp/config.yaml', gwas = gwas_i, pgs_method = pgs_method_i)
-        pseudo_i <- cor_eur_i[cor_eur_i$name == pseudo_param,]
+        pseudo_i <- cor_eur_i[grepl(paste0(pseudo_param,'$'), cor_eur_i$name),]
         pseudo_i$model <- 'Pseudo'
+        if(pgs_method_i %in% c('prscsx')){
+          pseudo_i$pgs_method<-paste0(pseudo_i$pgs_method, " (", gsub('.*_','', gsub(paste0('_',pseudo_param), '', pseudo_i$name)), ")")
+        }
         cor_eur_subset <- rbind(cor_eur_subset, pseudo_i)
       }
       
@@ -496,14 +575,89 @@ png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/g
 
 dev.off()
 
+# Subset EAS results
+cor_eas <- cor[cor$pop == 'EAS', ]
+# Restrict to best and and pseudoval only
+cor_eas_subset <- NULL
+for(pop_i in unique(cor_eas$pop)){
+  for(gwas_i in unique(cor_eas$gwas[cor_eas$pop == pop_i])){
+    for(pgs_method_i in unique(cor_eas$pgs_method[cor_eas$pop == pop_i & cor_eas$gwas == gwas_i])){
+      
+      # Subset relevant results
+      cor_eas_i <- cor_eas[
+        cor_eas$pop == pop_i &
+        cor_eas$gwas == gwas_i &
+        cor_eas$pgs_method == pgs_method_i,]
+  
+      # Top R
+      if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','lassosum','dbslmm')){
+        top_i <- cor_eas_i[which(cor_eas_i$r == max(cor_eas_i$r, na.rm = T))[1],]
+        top_i$model <- 'Top'
+        cor_eas_subset <- rbind(cor_eas_subset, top_i)
+      }
+      if(pgs_method_i %in% c('prscsx')){
+        for(targ_i in unique(gsub('.*_','', gsub('_phi.*','',cor_eas_i$name)))){
+          cor_eas_k<-cor_eas_i[grepl(paste0(targ_i,'_phi_'), cor_eas_i$name),]
+          top_i <- cor_eas_k[which(cor_eas_k$r == max(cor_eas_k$r, na.rm = T))[1],]
+          top_i$model <- 'Top'
+          top_i$pgs_method<-paste0(top_i$pgs_method, " (", targ_i, ")")
+          cor_eas_subset <- rbind(cor_eas_subset, top_i)
+        }
+      }
+  
+      # PseudoVal
+      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','lassosum','dbslmm','prscsx')){
+        pseudo_param <- find_pseudo(config = 'misc/opensnp/config.yaml', gwas = gwas_i, pgs_method = pgs_method_i)
+        pseudo_i <- cor_eas_i[grepl(paste0(pseudo_param,'$'), cor_eas_i$name),]
+        pseudo_i$model <- 'Pseudo'
+        if(pgs_method_i %in% c('prscsx')){
+          pseudo_i$pgs_method<-paste0(pseudo_i$pgs_method, " (", gsub('.*_','', gsub(paste0('_',pseudo_param), '', pseudo_i$name)), ")")
+        }
+        cor_eas_subset <- rbind(cor_eas_subset, pseudo_i)
+      }
+      
+      # External
+      external_tmp<-cor_eas_i[cor_eas_i$pgs_method == 'external',]
+      external_tmp$model <- 'External'
+      cor_eas_subset <- rbind(cor_eas_subset, external_tmp)
+      
+    }
+  }
+}
 
-# Save the results
-dir.create('/scratch/prj/oliverpainfel/Data/OpenSNP/assoc')
-write.csv(
-  cor,
-  '/scratch/prj/oliverpainfel/Data/OpenSNP/assoc/genopred-yengo-assoc.csv',
-  row.names = F
-)
+# Make a plot including PRS-CSx comparing in EUR and EAS OpenSNP individuals
+cor_eur_eas_subset<-rbind(cor_eur_subset, cor_eas_subset)
+cor_eur_eas_subset$pop<-paste0(cor_eur_eas_subset$pop, " (N = ", cor_eur_eas_subset$n, ")")
+
+plot_obj_prscsx <- 
+  ggplot(cor_eur_eas_subset[cor_eur_eas_subset$gwas %in% c('yengo_eur','yengo_eas','height'),], aes(x = pgs_method, y = r, colour = model)) +
+  geom_point(stat = "identity", size = 4, position = position_dodge(width = 0.7)) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  labs(
+    y = "Correlation (SE)",
+    x = 'PGS Method',
+    colour = 'Model',
+  ) +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  facet_grid(pop ~ gwas, scales = 'free', space = 'free_x') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12))
+
+png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-prscsx.png',
+    units = 'px',
+    width = 3000,
+    height = 1500,
+    res = 300)
+  
+  plot_obj_prscsx
+
+dev.off()
 
 ```
 
@@ -543,6 +697,19 @@ Note. 'external' is based on a larger GWAS (incl. 23andMe)
 
 </details>
 
+<details><summary>Show results in OpenSNP when using PRS-CSx</summary>
+
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 60%;">
+![Yengo - EUR/EAS PGS correlation with height in OpenSNP EUR and EAS populations ](Images/OpenSNP/genopred-prscsx.png)
+</div>
+</div>
+
+<br/>
+
+Note. 'external' is based on a larger GWAS (incl. 23andMe)
+
+</details>
 ***
 
 # GenoPred V1 comparison

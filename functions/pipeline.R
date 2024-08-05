@@ -57,7 +57,9 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
       for(score_i in 1:nrow(score_file_list)){
         gwas_i <- score_file_list$name[score_i]
         pgs_method_i <- score_file_list$method[score_i]
-        pgs[[name_i]][[pop_i]][[gwas_i]] <- list()
+        if (is.null(pgs[[name_i]][[pop_i]][[gwas_i]])) {
+          pgs[[name_i]][[pop_i]][[gwas_i]] <- list()
+        }
         pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <-
             fread(
               paste0(
@@ -209,7 +211,7 @@ find_pseudo <- function(config, gwas, pgs_method){
     return('phi_auto')
   }
   if(pgs_method == 'prscsx'){
-    return('META_phi_auto')
+    return('phi_auto')
   }
   if(pgs_method == 'megaprs'){
     # Read in megaprs log file

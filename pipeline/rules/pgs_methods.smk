@@ -554,6 +554,60 @@ rule prep_pgs_prscsx_i:
 rule prep_pgs_prscsx:
   input: expand(f"{outdir}/reference/pgs_score_files/prscsx/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
 
+####
+# X-WING
+####
+
+rule prep_pgs_xwing_i:
+  resources:
+    mem_mb=2000*config['cores_prep_pgs'],
+    time_min=800
+  threads: config['cores_prep_pgs']
+  input:
+    rules.download_xwing_software.output,
+    rules.download_leopard_panther_snp_data.output,
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{{population}}/ldblk_{prscs_ldref}_chr1.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
+    f"{resdir}/data/prscs_ref/{prscs_ldref}/snpinfo_mult_{prscs_ldref}_hm3",
+    lambda w: expand(f"{resdir}/data/PANTHER_LEOPARD_1kg_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr13.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
+    lambda w: expand(f"{resdir}/data/LEOPARD_1kg_ref/{{population}}/{{population}}_part1.bed", population=get_populations(w.gwas_group)),
+    lambda w: expand(f"{resdir}/data/LOGODetect_1kg_ref/{{population}}/1000G_{{population}}_QC.bim", population=get_populations(w.gwas_group))
+  output:
+    f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  conda:
+    "../envs/xwing.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_xwing_i-{{gwas_group}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_xwing_i-{{gwas_group}}.log"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"]
+  shell:
+    """
+    export MKL_NUM_THREADS=1; \
+    export NUMEXPR_NUM_THREADS=1; \
+    export OMP_NUM_THREADS=1; \
+    export OPENBLAS_NUM_THREADS=1; \
+    Rscript ../Scripts/pgs_methods/xwing.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --populations {params.populations} \
+      --logodetect_ref {resdir}/data/LOGODetect_1kg_ref \
+      --panther_ref {resdir}/data/prscs_ref/{prscs_ldref} \
+      --leopard_ref {resdir}/data/LEOPARD_1kg_ref \
+      --panther_leopard_ref {resdir}/data/PANTHER_LEOPARD_1kg_ref \
+      --xwing_repo {resdir}/software/xwing \
+      --pop_data {refdir}/ref.pop.txt \
+      --output {outdir}/reference/pgs_score_files/xwing/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1
+    """
+
+rule prep_pgs_xwing:
+  input: expand(f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+
 ###############################################
 
 ##
@@ -580,6 +634,8 @@ if 'external' in pgs_methods_all:
   pgs_methods_input.append(rules.score_reporter.output)
 if 'prscsx' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_prscsx.input)
+if 'xwing' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_xwing.input)
 
 rule prep_pgs:
   input:

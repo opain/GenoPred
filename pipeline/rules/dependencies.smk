@@ -61,6 +61,32 @@ def check_target_paths(df, chr):
     else :
       return []
 
+# Create function that checks the type column given in the target_list
+def check_target_type(df, column='type'):
+    valid_formats = {'plink1', 'plink2', 'vcf', 'bgen', '23andMe'}
+    invalid_formats = df[~df[column].isin(valid_formats)]
+
+    if not invalid_formats.empty:
+        raise ValueError(f"Invalid format entries found in column '{column}': {invalid_formats[column].unique()}. Must be either 'plink1', 'plink2', 'vcf', 'bgen' or '23andMe'")
+
+def check_target_type(df, column='type'):
+    valid_formats = {'plink1', 'plink2', 'vcf', 'bgen', '23andMe'}
+
+    # Check if the dataframe is empty
+    if df.empty:
+        return
+
+    # Check if the column exists
+    if column not in df.columns:
+        return
+
+    # Check for invalid formats
+    invalid_formats = df[~df[column].isin(valid_formats)]
+
+    if not invalid_formats.empty:
+        raise ValueError(f"Invalid format entries found in column '{column}': {invalid_formats[column].unique()}. Must be either 'plink1', 'plink2', 'vcf', 'bgen' or '23andMe'")
+
+
 ######
 # Check config file
 ######
@@ -675,6 +701,157 @@ rule download_pgscatalog_utils:
       poetry build; \
       pip3 install --user dist/*.whl; \
       download_scorefiles -h > download_pgscatalog_utils.done
+    }} > {log} 2>&1
+    """
+
+# Download XPASS for X-wing dependencies
+rule install_xpass:
+  input:
+    "envs/xwing.yaml"
+  output:
+    touch("resources/software/install_xpass.done")
+  conda:
+    "../envs/xwing.yaml"
+  benchmark:
+    "resources/data/benchmarks/install_xpass.txt"
+  log:
+    "resources/data/logs/install_xpass.log"
+  shell:
+    """
+    {{
+      Rscript -e 'devtools::install_github(\"YangLabHKUST/XPASS@65877ffba60dce69e0a6aa31c2e61045bf36dc40\")'
+    }} > {log} 2>&1
+    """
+
+# Install GenoUtils in X-wing environment
+rule install_genoutils_xwing:
+  input:
+    rules.install_xpass.output
+  output:
+    touch("resources/software/install_genoutils_xwing.done")
+  conda:
+    "../envs/xwing.yaml"
+  benchmark:
+    "resources/data/benchmarks/install_genoutils_xwing.txt"
+  log:
+    "resources/data/logs/install_genoutils_xwing.log"
+  shell:
+    """
+    {{
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@50ac8a2078226c8c2349064f904031576fbfe606\")'
+    }} > {log} 2>&1
+    """
+
+
+# Download X-wing repo
+rule download_xwing_software:
+  input:
+    rules.install_xpass.output,
+    rules.install_genoutils_xwing.output
+  output:
+    "resources/software/xwing/block_partition.txt"
+  conda:
+    "../envs/xwing.yaml"
+  benchmark:
+    "resources/data/benchmarks/download_xwing_software.txt"
+  log:
+    "resources/data/logs/download_xwing_software.log"
+  shell:
+    """
+    {{
+      rm -r -f resources/software/xwing; \
+      git clone https://github.com/qlu-lab/X-Wing resources/software/xwing; \
+      cd resources/software/xwing; \
+      git reset --hard 01cb3f3b75cbd68b58eabc1fa28cbcf5368bfdf3
+    }} > {log} 2>&1
+    """
+
+# Download LOGODetect (X-wing) reference data
+rule download_logodetect_ref:
+  output:
+    f"{resdir}/data/LOGODetect_1kg_ref/{{population}}/1000G_{{population}}_QC.bim"
+  benchmark:
+    f"{resdir}/data/benchmarks/logodetect_ref-{{population}}.txt"
+  log:
+    f"{resdir}/data/logs/logodetect_ref-{{population}}.log"
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data; \
+      wget --no-check-certificate -O {resdir}/data/LOGODetect_1kg_{wildcards.population}.tar.gz ftp://ftp.biostat.wisc.edu/pub/lu_group/Projects/XWING/ref/LOGODetect/LOGODetect_1kg_{wildcards.population}.tar.gz; \
+      tar -zxvf {resdir}/data/LOGODetect_1kg_{wildcards.population}.tar.gz -C {resdir}/data/; \
+      rm {resdir}/data/LOGODetect_1kg_{wildcards.population}.tar.gz
+    }} > {log} 2>&1
+    """
+
+rule download_logodetect_ref_all:
+  input:
+    lambda w: expand(f"{resdir}/data/LOGODetect_1kg_ref/{{population}}/1000G_{{population}}_QC.bim", population=['EUR','EAS','AFR','SAS','AMR'])
+
+# Download PANTHER (X-wing) reference data
+# The reference data is the same as the PRS-CS reference data
+# The PRS-CS ref parameter will also affect the X-WING/PANTHER analysis
+
+# Download LEOPARD (X-wing) reference data
+rule download_leopard_ref:
+  output:
+    f"{resdir}/data/LEOPARD_1kg_ref/{{population}}/{{population}}_part1.bed"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_leopard_ref-{{population}}.txt"
+  log:
+    f"{resdir}/data/logs/download_leopard_ref-{{population}}.log"
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data; \
+      wget --no-check-certificate -O {resdir}/data/LEOPARD_1kg_hm3_{wildcards.population}.tar.gz ftp://ftp.biostat.wisc.edu/pub/lu_group/Projects/XWING/ref/LEOPARD/LEOPARD_1kg_hm3_{wildcards.population}.tar.gz; \
+      tar -zxvf {resdir}/data/LEOPARD_1kg_hm3_{wildcards.population}.tar.gz -C {resdir}/data/; \
+      rm {resdir}/data/LEOPARD_1kg_hm3_{wildcards.population}.tar.gz
+    }} > {log} 2>&1
+    """
+
+rule download_leopard_ref_all:
+  input:
+    lambda w: expand(f"{resdir}/data/LEOPARD_1kg_ref/{{population}}/{{population}}_part1.bed", population=['EUR','EAS','AFR','SAS','AMR'])
+
+# Download LEOPARD and subsampled PANTHER (X-wing) reference data
+rule download_leopard_panther_ref:
+  output:
+    f"{resdir}/data/PANTHER_LEOPARD_1kg_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr13.hdf5"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_leopard_panther_ref-{{population}}.txt"
+  log:
+    f"{resdir}/data/logs/download_leopard_panther_ref-{{population}}.log"
+  params:
+    pop_upper=lambda w: w.population.upper()
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data; \
+      wget --no-check-certificate -O {resdir}/data/PANTHER_LEOPARD_1kg_{wildcards.population}.tar.gz ftp://ftp.biostat.wisc.edu/pub/lu_group/Projects/XWING/ref/LEOPARD/PANTHER_LEOPARD_1kg_{params.pop_upper}.tar.gz; \
+      tar -zxvf {resdir}/data/PANTHER_LEOPARD_1kg_{wildcards.population}.tar.gz -C {resdir}/data/; \
+      rm {resdir}/data/PANTHER_LEOPARD_1kg_{wildcards.population}.tar.gz
+    }} > {log} 2>&1
+    """
+
+rule download_leopard_panther_ref_all:
+  input:
+    lambda w: expand(f"{resdir}/data/PANTHER_LEOPARD_1kg_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr13.hdf5", population=['eur','eas','afr','sas','amr'])
+
+rule download_leopard_panther_snp_data:
+  output:
+    f"{resdir}/data/PANTHER_LEOPARD_1kg_ref/snpinfo_mult_1kg_hm3"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_leopard_panther_snp_data.txt"
+  log:
+    f"{resdir}/data/logs/download_leopard_panther_snp_data.log"
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data; \
+      wget --no-check-certificate -O {resdir}/data/snpinfo_mult_1kg_hm3_PANTHER_LEOPARD.tar.gz ftp://ftp.biostat.wisc.edu/pub/lu_group/Projects/XWING/ref/LEOPARD/snpinfo_mult_1kg_hm3_PANTHER_LEOPARD.tar.gz; \
+      tar -zxvf {resdir}/data/snpinfo_mult_1kg_hm3_PANTHER_LEOPARD.tar.gz -C {resdir}/data/; \
+      rm {resdir}/data/snpinfo_mult_1kg_hm3_PANTHER_LEOPARD.tar.gz
     }} > {log} 2>&1
     """
 
