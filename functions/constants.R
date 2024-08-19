@@ -37,14 +37,14 @@ ref_pop <- data.frame(
 
 # Make a data.frame giving labels to the 1KG reference populations
 pgs_method_labels <- data.frame(
-  method = c('ptclump','dbslmm','ldpred2','sbayesr','lassosum','prscs','megaprs','external','prscsx'),
-  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','lassosum','PRS-CS','MegaPRS','External','PRS-CSx')
+  method = c('ptclump','dbslmm','ldpred2','sbayesr','lassosum','prscs','megaprs','external','prscsx','xwing','tlprs'),
+  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','lassosum','PRS-CS','MegaPRS','External','PRS-CSx','X-Wing','TL-PRS')
 )
-pgs_method_labels[order(pgs_method_labels$method),]
+pgs_method_labels<-pgs_method_labels[order(pgs_method_labels$method),]
 
 # Make vector indicating pgs_methods that can be applied to non-european GWAS
 pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs','dbslmm')
 
 # Make vector indicating pgs_methods that are to be applied to gwas_groups
-pgs_group_methods <- c('prscsx')
+pgs_group_methods <- c('prscsx','xwing','tlprs')
 

@@ -86,7 +86,6 @@ def check_target_type(df, column='type'):
     if not invalid_formats.empty:
         raise ValueError(f"Invalid format entries found in column '{column}': {invalid_formats[column].unique()}. Must be either 'plink1', 'plink2', 'vcf', 'bgen' or '23andMe'")
 
-
 ######
 # Check config file
 ######
@@ -108,7 +107,7 @@ def check_config_parameters(config):
         print("Error: Missing parameters in user-specified and default config files:", missing_params)
         sys.exit(1)
 
-# Check the sample config
+# Check the config
 check_config_parameters(config)
 
 # Set outdir parameter
@@ -140,6 +139,43 @@ else:
   for full_path in ref_input:
       if not os.path.exists(full_path):
           raise FileNotFoundError(f"File not found: {full_path}. Check reference data format.")
+
+# Check valid pgs_methods are specified
+def check_pgs_methods(x):
+    valid_pgs_methods = {
+        "ptclump", "dbslmm", "prscs", "sbayesr", "lassosum", "ldpred2", "megaprs", "xwing", "prscsx", "tlprs"
+    }
+
+    invalid_methods = [method for method in x if method not in valid_pgs_methods]
+
+    if invalid_methods:
+        raise ValueError(f"Invalid pgs_methods specified: {', '.join(invalid_methods)}. "
+                         f"Valid methods are: {', '.join(valid_pgs_methods)}.")
+
+check_pgs_methods(config['pgs_methods'])
+
+# Check valid tlprs_methods are specified
+def check_tlprs_methods(config):
+    valid_tlprs_methods = {
+        "ptclump", "dbslmm", "prscs", "sbayesr", "lassosum", "ldpred2", "megaprs"
+    }
+
+    # Check if 'tlprs' is in the pgs_methods list
+    if 'tlprs' in config.get('pgs_methods', []):
+        # Check if tlprs_methods is defined and not None/NA
+        tlprs_methods = config.get('tlprs_methods')
+
+        if tlprs_methods is None or tlprs_methods == 'NA':
+            raise ValueError("tlprs_methods must be specified when 'tlprs' is included in pgs_methods.")
+
+        # Check for invalid methods
+        invalid_methods = [method for method in tlprs_methods if method not in valid_tlprs_methods]
+
+        if invalid_methods:
+            raise ValueError(f"Invalid tlprs_methods specified: {', '.join(invalid_methods)}. "
+                             f"Valid methods are: {', '.join(valid_tlprs_methods)}.")
+
+check_tlprs_methods(config)
 
 ########
 # Check for repo version updates
@@ -654,6 +690,7 @@ rule install_lassosum:
       Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'
     }} > {log} 2>&1
     """
+
 # Install GenoUtils
 rule install_genoutils:
   input:
@@ -760,9 +797,9 @@ rule download_xwing_software:
     """
     {{
       rm -r -f resources/software/xwing; \
-      git clone https://github.com/qlu-lab/X-Wing resources/software/xwing; \
+      git clone https://github.com/opain/X-Wing resources/software/xwing; \
       cd resources/software/xwing; \
-      git reset --hard 01cb3f3b75cbd68b58eabc1fa28cbcf5368bfdf3
+      git reset --hard e9fcc264266e0e884323311816bfe20053fd3f7a
     }} > {log} 2>&1
     """
 
@@ -852,6 +889,25 @@ rule download_leopard_panther_snp_data:
       wget --no-check-certificate -O {resdir}/data/snpinfo_mult_1kg_hm3_PANTHER_LEOPARD.tar.gz ftp://ftp.biostat.wisc.edu/pub/lu_group/Projects/XWING/ref/LEOPARD/snpinfo_mult_1kg_hm3_PANTHER_LEOPARD.tar.gz; \
       tar -zxvf {resdir}/data/snpinfo_mult_1kg_hm3_PANTHER_LEOPARD.tar.gz -C {resdir}/data/; \
       rm {resdir}/data/snpinfo_mult_1kg_hm3_PANTHER_LEOPARD.tar.gz
+    }} > {log} 2>&1
+    """
+
+############
+
+# Install TL-PRS
+rule install_tlprs:
+  output:
+    touch("resources/software/install_tlprs.done")
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    "resources/data/benchmarks/install_tlprs.txt"
+  log:
+    "resources/data/logs/install_tlprs.log"
+  shell:
+    """
+    {{
+      Rscript -e 'devtools::install_github(\"opain/TLPRS@660c5332b55e0a78ee4b09f4785b6a1bc8e3dfa3\")'
     }} > {log} 2>&1
     """
 

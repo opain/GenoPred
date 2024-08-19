@@ -286,7 +286,7 @@ rule prep_pgs_lassosum_i:
      --gwas_pop {params.population} \
      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --n_cores {threads} \
+     --n_cores {threads} \
      --pop_data {refdir}/ref.pop.txt \
      --test {params.testing} > {log} 2>&1"
 
@@ -608,6 +608,49 @@ rule prep_pgs_xwing_i:
 rule prep_pgs_xwing:
   input: expand(f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
 
+####
+# TL-PRS
+####
+
+rule prep_pgs_tlprs_i:
+  resources:
+    mem_mb=10000,
+    time_min=800
+  threads: config['cores_prep_pgs']
+  input:
+    rules.install_tlprs.output,
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method=w.method)
+  output:
+    f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_tlprs_i-{{gwas_group}}-{{method}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_tlprs_i-{{gwas_group}}-{{method}}.log"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    scores= lambda w: ",".join(expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method=w.method)),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"]
+  shell:
+    """
+    Rscript ../Scripts/pgs_methods/tlprs.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --scores {params.scores} \
+      --populations {params.populations} \
+      --pop_data {refdir}/ref.pop.txt \
+      --ref_keep_dir {refdir}/keep_files \
+      --output {outdir}/reference/pgs_score_files/tlprs_{wildcards.method}/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1
+    """
+
+rule prep_pgs_tlprs:
+  input: expand(f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method=config["tlprs_methods"])
+
 ###############################################
 
 ##
@@ -636,6 +679,8 @@ if 'prscsx' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_prscsx.input)
 if 'xwing' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_xwing.input)
+if 'tlprs' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_tlprs.input)
 
 rule prep_pgs:
   input:
