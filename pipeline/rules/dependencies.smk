@@ -907,7 +907,7 @@ rule install_tlprs:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/TLPRS@660c5332b55e0a78ee4b09f4785b6a1bc8e3dfa3\")'
+      Rscript -e 'devtools::install_github(\"opain/TLPRS@fb71076267d405d5f7df97e445ab0de73d76bc0f\")'
     }} > {log} 2>&1
     """
 

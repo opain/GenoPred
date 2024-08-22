@@ -183,26 +183,32 @@ for(i in 1:length(populations)){
     )
   )
 
-  beta_list=as.data.frame(beta_list[,-c(5,9)])
-  colnames(beta_list)[1:2]=c("SNP","A1")
+  # Flip effects to correspond to original A1
+  beta.info<-beta_list[, 1:9]
+  beta_list<-beta_list[, -1:-9]
+  flip<-beta.info$V5 != beta.info$A1
+  beta_list[flip,]<- -beta_list[flip,]
 
-  beta.info=beta_list[,1:2]
-  for (k in 8:ncol(beta_list)){
+  for (k in 1:ncol(beta_list)){
     sdtemp=sd(beta_list[,k],na.rm=T)
     if (sdtemp>1){
       beta_list[,k:ncol(beta_list)]=1
     }
   }
 
-  beta_list=beta_list[,8:ncol(beta_list)]/beta_list$sd
-  tl_betas<-data.table(cbind(beta.info, beta_list))
-  tl_betas<-merge(score_file[, c('SNP','A1','A2'), with=F], tl_betas, by=c('SNP','A1'))
+  beta_list=beta_list/beta.info$sd
 
-  names(tl_betas)<-gsub('^Beta', paste0('SCORE_targ_', populations[i]), names(tl_betas))
+  colnames(beta.info)[1:2]=c("SNP","A1")
+  beta.info<-beta.info[, 1:2]
+
+  beta_list<-data.table(cbind(beta.info, beta_list))
+  beta_list<-merge(score_file[, c('SNP','A1','A2'), with=F], beta_list, by=c('SNP','A1'))
+
+  names(beta_list)<-gsub('^Beta', paste0('SCORE_targ_', populations[i]), names(beta_list))
 
   # Flip effects to match reference alleles
-  tl_betas <- map_score(ref = ref, score = tl_betas)
-  tl_betas_list[[i]]<-tl_betas
+  beta_list <- map_score(ref = ref, score = beta_list)
+  tl_betas_list[[i]]<-beta_list
 }
 
 tl_betas_all<-Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1','A2'), all = TRUE), tl_betas_list)
