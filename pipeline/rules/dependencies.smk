@@ -912,6 +912,45 @@ rule install_tlprs:
     """
 
 ############
+
+# Install GenoUtils in BridgePRS environment
+rule install_genoutils_bridgeprs:
+  output:
+    touch("resources/software/install_genoutils_bridgeprs.done")
+  conda:
+    "../envs/bridgeprs.yaml"
+  benchmark:
+    "resources/data/benchmarks/install_genoutils_bridgeprs.txt"
+  log:
+    "resources/data/logs/install_genoutils_bridgeprs.log"
+  shell:
+    """
+    {{
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@50ac8a2078226c8c2349064f904031576fbfe606\")'
+    }} > {log} 2>&1
+    """
+
+# Download BridgePRS
+rule download_bridgeprs_software:
+  input:
+    rules.install_genoutils_bridgeprs.output
+  output:
+    "resources/software/bridgeprs/block_partition.txt"
+  benchmark:
+    "resources/data/benchmarks/download_bridgeprs_software.txt"
+  log:
+    "resources/data/logs/download_bridgeprs_software.log"
+  shell:
+    """
+    {{
+      rm -r -f resources/software/bridgeprs; \
+      git clone https://github.com/clivehoggart/BridgePRS.git resources/software/bridgeprs; \
+      cd resources/software/xwing; \
+      git reset --hard 1e1c9477d42d44ed312759751adbc25d146aeb9f
+    }} > {log} 2>&1
+    """
+
+############
 # Check all dependencies are available
 ############
 

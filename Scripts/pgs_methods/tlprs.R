@@ -24,6 +24,8 @@ option_list = list(
       help="Comma-seperated list of score files [required]"),
   make_option("--populations", action="store", default=NULL, type='character',
       help="Comma-seperated list of population codes matching GWAS [required]"),
+  make_option("--retain_nonoverlapping", action="store", default=T, type='character',
+      help="Logical indicating whether or not to retain the original BETA if variant is missing in target GWAS [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
       help="Number of cores for parallel computing [optional]"),
   make_option("--test", action="store", default=NA, type='character',
@@ -206,12 +208,26 @@ for(i in 1:length(populations)){
 
   names(beta_list)<-gsub('^Beta', paste0('SCORE_targ_', populations[i]), names(beta_list))
 
+  if(opt$retain_nonoverlapping){
+    # Insert original BETA if variant not present in target GWAS
+    miss_snps <- score_file[!(score_file$SNP %in% beta_list$SNP),]
+    beta_list <- merge(beta_list, miss_snps, by = c('SNP','A1','A2'), all=T)
+    for(j in gsub('Beta_', '', names(score_file)[-1:-3])){
+      beta_list[!is.na(get(paste0('Beta_', j))),
+                (which(grepl('SCORE', names(beta_list)) & grepl(j, names(beta_list))))] <-
+        beta_list[[paste0('Beta_', j)]][!is.na(beta_list[[paste0('Beta_', j)]])]
+    }
+    beta_list<-beta_list[, !grepl('Beta_', names(beta_list)), with=F]
+  }
+
   # Flip effects to match reference alleles
   beta_list <- map_score(ref = ref, score = beta_list)
+
   tl_betas_list[[i]]<-beta_list
+
 }
 
-tl_betas_all<-Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1','A2'), all = TRUE), tl_betas_list)
+tl_betas_all<-Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1','A2'), all = TRUE, sort = F), tl_betas_list)
 
 fwrite(tl_betas_all, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
