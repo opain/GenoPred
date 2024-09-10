@@ -69,6 +69,17 @@ if(!is.na(opt$test)){
 # Identify score files to be combined
 score_files<-list_score_files(opt$config)
 
+if(is.null(score_files)){
+  log_add(log_file = log_file, message = paste0('No score files specified.'))
+  end.time <- Sys.time()
+  time.taken <- end.time - start.time
+  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  cat('Analysis finished at',as.character(end.time),'\n')
+  cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
+  sink()
+  quit(save = "no", status = 0)
+}
+
 # Subset score files
 if(!is.null(opt$score)){
   if(all(score_files$name != opt$score)){

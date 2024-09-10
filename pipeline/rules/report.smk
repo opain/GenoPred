@@ -70,10 +70,10 @@ def id_munge(name):
     val = str(22)
 
   checkpoint_output = checkpoints.ancestry_reporter.get(name=name).output[0]
-  
+
   if 'score_list' in config and config["score_list"] != 'NA':
     checkpoint_output = checkpoints.score_reporter.get().output[0]
-    
+
   checkpoint_output = f"{outdir}/{name}/geno/{name}.ref.chr{val}.psam"
   fam_df = pd.read_table(checkpoint_output, delim_whitespace=True, usecols=[0,1], names=['FID', 'IID'], header=0)
   fam_df['id'] = fam_df.FID.apply(str) + '.' + fam_df.IID.apply(str)
@@ -121,7 +121,7 @@ rule indiv_report_all:
     touch(f"{outdir}/reference/target_checks/{{name}}/indiv_report.done")
 
 rule indiv_report:
-  input: 
+  input:
     expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report.done", name= target_list_df_indiv_report['name']),
     lambda w: checkpoints.score_reporter.get().output[0] if 'score_list' in config and config["score_list"] != 'NA' else []
 
