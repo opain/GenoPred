@@ -422,7 +422,7 @@ rule download_pgs_external:
     "../envs/pgscatalog_utils.yaml"
   shell:
     "mkdir -p {outdir}/reference/pgs_score_files/raw_external/{wildcards.score}; \
-    download_scorefiles -w -i {wildcards.score} -o {outdir}/reference/pgs_score_files/raw_external/{wildcards.score} -b GRCh37 > {log} 2>&1"
+    pgscatalog-download --pgs {wildcards.score} -o {outdir}/reference/pgs_score_files/raw_external/{wildcards.score} --build GRCh37 > {log} 2>&1"
 
 # Create function to return path for score file, depeding on whether the score file was downloaded
 def score_path(w):
