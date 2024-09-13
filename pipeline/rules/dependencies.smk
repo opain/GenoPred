@@ -143,7 +143,7 @@ else:
 # Check valid pgs_methods are specified
 def check_pgs_methods(x):
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr", "lassosum", "ldpred2", "megaprs", "xwing", "prscsx", "tlprs", "bridgeprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr", "lassosum", "ldpred2", "megaprs", "xwing", "prscsx", "tlprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
