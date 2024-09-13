@@ -651,6 +651,46 @@ rule prep_pgs_tlprs_i:
 rule prep_pgs_tlprs:
   input: expand(f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method=config["tlprs_methods"])
 
+####
+# BridgePRS
+####
+
+rule prep_pgs_bridgeprs_i:
+  resources:
+    mem_mb=2000*config['cores_prep_pgs'],
+    time_min=800
+  threads: config['cores_prep_pgs']
+  input:
+    rules.download_bridgeprs_software.output,
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))
+  output:
+    f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_bridgeprs_i-{{gwas_group}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_bridgeprs_i-{{gwas_group}}.log"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"]
+  shell:
+    """
+    Rscript ../Scripts/pgs_methods/bridgeprs.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --populations {params.populations} \
+      --pop_data {refdir}/ref.pop.txt \
+      --output {outdir}/reference/pgs_score_files/bridgeprs/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} \
+      --bridgeprs_repo {resdir}/software/bridgeprs \
+      --n_cores {threads} > {log} 2>&1
+    """
+
+rule prep_pgs_bridgeprs:
+  input: expand(f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+
 ###############################################
 
 ##
@@ -681,6 +721,8 @@ if 'xwing' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_xwing.input)
 if 'tlprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_tlprs.input)
+if 'bridgeprs' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_bridgeprs.input)
 
 rule prep_pgs:
   input:

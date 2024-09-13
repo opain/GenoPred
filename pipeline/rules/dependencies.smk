@@ -143,7 +143,7 @@ else:
 # Check valid pgs_methods are specified
 def check_pgs_methods(x):
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr", "lassosum", "ldpred2", "megaprs", "xwing", "prscsx", "tlprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr", "lassosum", "ldpred2", "megaprs", "xwing", "prscsx", "tlprs", "bridgeprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
@@ -768,7 +768,7 @@ rule install_genoutils_xwing:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@50ac8a2078226c8c2349064f904031576fbfe606\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@cd4495f554be835872e77db72b6a8500c753273e\")'
     }} > {log} 2>&1
     """
 
@@ -894,9 +894,9 @@ rule install_tlprs:
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "resources/data/benchmarks/install_tlprs.txt"
+    f"{resdir}/data/benchmarks/install_tlprs.txt"
   log:
-    "resources/data/logs/install_tlprs.log"
+    f"{resdir}/data/logs/install_tlprs.log"
   shell:
     """
     {{
@@ -913,13 +913,13 @@ rule install_genoutils_bridgeprs:
   conda:
     "../envs/bridgeprs.yaml"
   benchmark:
-    "resources/data/benchmarks/install_genoutils_bridgeprs.txt"
+    f"{resdir}/data/benchmarks/install_genoutils_bridgeprs.txt"
   log:
-    "resources/data/logs/install_genoutils_bridgeprs.log"
+    f"{resdir}/data/logs/install_genoutils_bridgeprs.log"
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@50ac8a2078226c8c2349064f904031576fbfe606\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@cd4495f554be835872e77db72b6a8500c753273e\")'
     }} > {log} 2>&1
     """
 
@@ -928,17 +928,17 @@ rule download_bridgeprs_software:
   input:
     rules.install_genoutils_bridgeprs.output
   output:
-    "resources/software/bridgeprs/block_partition.txt"
+    f"{resdir}/software/bridgeprs/bridgePRS"
   benchmark:
-    "resources/data/benchmarks/download_bridgeprs_software.txt"
+    f"{resdir}/data/benchmarks/download_bridgeprs_software.txt"
   log:
-    "resources/data/logs/download_bridgeprs_software.log"
+    f"{resdir}/data/logs/download_bridgeprs_software.log"
   shell:
     """
     {{
-      rm -r -f resources/software/bridgeprs; \
-      git clone https://github.com/clivehoggart/BridgePRS.git resources/software/bridgeprs; \
-      cd resources/software/xwing; \
+      rm -r -f {resdir}/software/bridgeprs; \
+      git clone https://github.com/clivehoggart/BridgePRS.git {resdir}/software/bridgeprs; \
+      cd {resdir}/software/bridgeprs; \
       git reset --hard 1e1c9477d42d44ed312759751adbc25d146aeb9f
     }} > {log} 2>&1
     """

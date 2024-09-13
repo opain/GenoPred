@@ -33,9 +33,6 @@ library(GenoUtils)
 library(data.table)
 source('../functions/misc.R')
 source_all('../functions')
-library(foreach)
-library(doMC)
-registerDoMC(opt$n_cores)
 
 # Check required inputs
 if(is.null(opt$ref_plink_chr)){
@@ -77,33 +74,103 @@ if(!is.na(opt$test)){
 sumstats<-unlist(strsplit(opt$sumstats, ','))
 log_add(log_file = log_file, message = paste0(length(sumstats), ' sets of GWAS have been provided.'))
 
+# Split opt$populations
+populations<-unlist(strsplit(opt$populations, ','))
+
+#####
+# Create LD reference folder
+#####
+# Bridge requires the LD reference data to be stored in a folder
+# Data should be in PLINK1 format, split by chromosome with format "chr<1-22>.ext
+# The folder should also include a files called <POP>_ids.txt, which are keep files for each reference population
+
+dir.create(paste0(tmp_dir, '/ref_ld'))
+for(i in CHROMS){
+  for(j in c('bed','bim','fam')){
+    system(paste0(opt$plink2, ' --pfile ', opt$ref_plink_chr, i, ' --make-bed --out ', tmp_dir, '/ref_ld/chr', i))
+  }
+}
+
+pop_data <- read_pop_data(opt$pop_data)
+for(i in unique(pop_data$POP)){
+  fwrite(
+    pop_data[pop_data$POP == i, c('FID', 'IID'), with = F],
+    paste0(tmp_dir, '/ref_ld/', i, '_ids.txt'),
+    col.names = F,
+    row.names = F,
+    quote = F,
+    sep = ' '
+  )
+}
+
+#####
+# Prepare sumstats
+#####
+
 gwas_N<-NULL
 for(i in 1:length(sumstats)){
-
-  #####
-  # Read in sumstats
-  #####
 
   log_add(log_file = log_file, message = 'Reading in GWAS.')
 
   # Read in, check and format GWAS summary statistics
-  gwas <- read_sumstats(sumstats = sumstats[i], chr = CHROMS, log_file = log_file, req_cols = c('SNP','A1','A2','BETA','SE','N'))
+  gwas <- read_sumstats(sumstats = sumstats[i], chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','A1','A2','BETA','P','N'))
 
   # Store average sample size
   gwas_N <- c(gwas_N, round(mean(gwas$N), 0))
+  gwas$N<NULL
 
-  fwrite(gwas, paste0(tmp_dir, '/GWAS_sumstats_',i,'_temp.txt'), sep=' ')
+  # Write sumstats split by chromosome
+  for(j in CHROMS){
+    tmp<-gwas[gwas$CHR == j,]
+    tmp$CHR<-NULL
+    fwrite(tmp, paste0(tmp_dir, '/GWAS_sumstats_',i,'_temp_chr', j, '.txt'), sep=' ')
+  }
 
   rm(gwas)
   gc()
 
+}
 
+#####
+# Create fake phenotype data
+#####
+
+fam<-fread(paste0(tmp_dir, '/ref_ld/chr', CHROMS[1], '.fam'))
+names(fam)[1:2]<-c('FID','IID')
+pheno<-fam[, 1:2]
+pheno$y<-rnorm(nrow(pheno))
+write.table(pheno, paste0(tmp_dir, '/fake_pheno.txt'), row.names = F, quote = F)
+
+#####
+# Create config files
+#####
+
+for(i in 1:length(sumstats)){
+  config_i<-c(
+    paste0("POP=", populations[i]),
+    paste0("LDPOP=", populations[i]),
+    paste0("LD_PATH=", tmp_dir, '/ref_ld'),
+    paste0("SUMSTATS_PREFIX=", tmp_dir, '/GWAS_sumstats_', i, '_temp_chr'),
+    "SUMSTATS_SUFFIX=.txt",
+    "SUMSTATS_FIELDS=SNP,A2,A1,P,BETA",
+    paste0("SUMSTATS_SIZE=", gwas_N[i]),
+    paste0("GENOTYPE_PREFIX=",tmp_dir, '/ref_ld/chr'),
+    paste0("PHENOTYPE_FILE=", tmp_dir, '/fake_pheno.txt')
+  )
+
+  writeLines(config_i, paste0(tmp_dir, '/', i, '.config'))
 }
 
 # Record start time for test
 if(!is.na(opt$test)){
   test_start.time <- test_start(log_file = log_file)
 }
+
+#####
+# Run BridgePRS
+#####
+
+system(paste0(opt$bridgeprs_repo, '/bridgePRS pipeline go -o ', tmp_dir,'/out --config_files ', tmp_dir, '/', 1, '.config ', tmp_dir, '/', 2, '.config --phenotype y'))
 
 #####
 # Process sumstats using PRS-CSx
