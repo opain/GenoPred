@@ -706,7 +706,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@b90c92fe95c67d0845e1e884c0b20c3f3ab33f98\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
     }} > {log} 2>&1
     """
 
@@ -768,7 +768,7 @@ rule install_genoutils_xwing:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@b90c92fe95c67d0845e1e884c0b20c3f3ab33f98\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
     }} > {log} 2>&1
     """
 
@@ -919,7 +919,7 @@ rule install_genoutils_bridgeprs:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@b90c92fe95c67d0845e1e884c0b20c3f3ab33f98\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
     }} > {log} 2>&1
     """
 
