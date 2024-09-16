@@ -32,7 +32,7 @@ make_option("--ld_scores", action="store", default=NULL, type='character',
     help="Path to genome-wide ld scores [required]"),
 make_option("--hm3_snplist", action="store", default=NULL, type='character',
     help="Path to LDSC HapMap3 snplist [required]"),
-make_option("--hm3_no_mhc", action="store", default=F, type='character',
+make_option("--hm3_no_mhc", action="store", default=F, type='logical',
     help="Logical indicating whether MHC region should be removed for LDSC analysis [required]"),
 make_option("--pop_prev", action="store", default=NULL, type='numeric',
     help="Population prevelance (if binary) [optional]"),
@@ -121,7 +121,7 @@ opt$h2f <- as.numeric(unlist(strsplit(opt$h2f, ',')))
 # Estimate the SNP-heritability using LD-Score Regression
 #####
 
-if(opt$hm3_no_mhc){
+if(opt$hm3_no_mhc & 6 %in% CHROMS){
   # Remove MHC region from hapmap3 SNP-list
   hm3<-fread(opt$hm3_snplist)
 
