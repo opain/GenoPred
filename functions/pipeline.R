@@ -233,7 +233,7 @@ find_pseudo <- function(config, gwas, pgs_method){
 
   # Multi-population methods
   if(pgs_method == 'prscsx'){
-    return('phi_auto')
+    return('META_phi_auto')
   }
   if(pgs_method == 'xwing'){
     return('targ_EUR_weighted') # NOTE. This is inappropriate when the target is not EUR. There should be a population parameter in the find_pseudo function to find score tailored for a given population. This also doesn't allow for gwas_groups that do not contain a EUR GWAS.
