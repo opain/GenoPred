@@ -49,3 +49,10 @@ filter_columns_by_missing <- function(data, threshold, first_col_keep = TRUE) {
 
   return(data_filtered)
 }
+
+# Set the grid search for the elastic net
+# This is expanded from the default to allow more aggressive shrinkage
+enet_grid <- expand.grid(
+  alpha = seq(0, 1, length = 5),          # Explore alpha values: 0 (Ridge) to 1 (Lasso)
+  lambda = 10^seq(-4, 1, length = 10)     # Explore lambda values: 0.0001 to 10
+)

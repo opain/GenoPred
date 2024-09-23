@@ -460,7 +460,7 @@ done
 ######
 
 prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
-prscsx_dat<-prscsx_dat[1:5,]
+prscsx_dat<-prscsx_dat[4,]
 
 gwas_list_eur<-data.frame(
   name=paste0(prscsx_dat$labels,'_UKB'),
@@ -701,11 +701,11 @@ for disc_pop in $(echo EUR EAS); do
     fi
     
     for pheno in $(head -n 5 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt); do
-      sbatch --mem 20G -n 5 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
+      sbatch --mem 10G -n 1 -p cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
         --pheno /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
         --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/single.${disc_pop}_disc.targ_${targ_pop}/${pheno}/predictor_list.txt \
         --output /users/k1806347/oliverpainfel/Analyses/crosspop/single.${disc_pop}_disc.targ_${targ_pop}/${pheno}/res \
-        --n_core 5 \
+        --n_core 1 \
         --top1 T \
         --compare_predictors T \
         --assoc T"
@@ -728,13 +728,13 @@ for targ_pop in $(echo EUR EAS); do
   else
       targ_pop2=$targ_pop
   fi
-  echo $targ_pop2
+
   for pheno in $(head -n 5 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt); do
-    sbatch --mem 20G -n 5 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
+    sbatch --mem 10G -n 1 -p cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
       --pheno /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
       --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/multi.targ_${targ_pop}/${pheno}/predictor_list.txt \
       --output /users/k1806347/oliverpainfel/Analyses/crosspop/multi.targ_${targ_pop}/${pheno}/res \
-      --n_core 5 \
+      --n_core 1 \
       --top1 T \
       --compare_predictors T \
       --assoc T"
@@ -946,13 +946,29 @@ dev.off()
 ### Prediction modelling results
 
 ```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
 library(data.table)
 library(ggplot2)
 library(cowplot)
 
+source('../functions/misc.R')
+source_all('../functions')
+
 # Read in list of outcomes 
 prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
-prscsx_dat<-prscsx_dat[1:5,]
+prscsx_dat<-prscsx_dat[4,]
+
+config<-'/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/config.yaml'
+  
+# Define pgs_methods used
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+
+# Define gwas_list used
+gwas_list<-read_param(config = config, param = 'gwas_list')
+
+# Define gwas_groups used
+gwas_groups<-read_param(config = config, param = 'gwas_groups')
 
 #############
 # Single source
@@ -983,8 +999,39 @@ for(pheno_i in prscsx_dat$labels){
   }
   
   res_i$Method<-gsub('_.*','',res_i$Model)
+  res_i$Method<-sub('\\..*','',res_i$Method)
+  
   res_i$Group[grepl('top1', res_i$Model)]<-'Top1'
-  res_i$Group[!grepl('top1', res_i$Model)]<-'Multi'
+  res_i$Group[!grepl('top1|PredFile', res_i$Model)]<-'Multi'
+  
+  res_i_pseudo<-res_i[grepl('PredFile', res_i$Model),]
+  res_i<-res_i[!grepl('PredFile', res_i$Model),]
+  
+  # Identify PGS selected by pseudovalidation
+  for(pgs_method_i in pgs_methods[
+    pgs_methods %in% res_i$Method & 
+    pgs_methods %in% c('dbslmm')]) { # Restrict to methods with pseudo method
+    res_i_tmp<-res_i_pseudo[res_i_pseudo$Method == pgs_method_i,]
+      gwas_list_i<-gwas_list[grepl(pheno_i, gwas_list$name),]
+      for(gwas_i in gwas_list_i$name){
+        gwas_i_2 <- gsub('_', '.', gwas_i)
+        res_i_tmp2 <-
+          res_i_tmp[grepl(gwas_i_2, res_i_tmp$Model), ]
+        res_i_tmp2$param<-gsub(paste0('.*', gwas_i_2, '.'), '', res_i_tmp2$Model)
+        
+        pseudo_param<-find_pseudo(config = config, 
+                    gwas = gwas_i, 
+                    pgs_method = pgs_method_i, 
+                    target_pop = targ_pop_i)
+        pseudo_param <- gsub("[[:punct:]]", ".",pseudo_param)
+        
+        res_i_tmp2<-res_i_tmp2[res_i_tmp2$param == pseudo_param,]
+        res_i_tmp2$param<-NULL
+        res_i_tmp2$Group<-'Pseudo'
+        res_i<-rbind(res_i, res_i_tmp2)
+      }
+  }
+
   res_i$Method<-factor(res_i$Method, levels=unique(res_i$Method))
   res_i$Group<-factor(res_i$Group, levels=unique(res_i$Group))
   
@@ -1005,7 +1052,7 @@ for(pheno_i in prscsx_dat$labels){
 png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/single.eval.png',
   res = 300,
-  height = 5000,
+  height = 1200*nrow(prscsx_dat),
   width = 3000,
   units = 'px'
 )
@@ -1038,8 +1085,45 @@ for(pheno_i in prscsx_dat$labels){
   }
   
   res_i$Method<-gsub('_.*','',res_i$Model)
+  res_i$Method<-sub('\\..*','',res_i$Method)
+  
   res_i$Group[grepl('top1', res_i$Model)]<-'Top1'
-  res_i$Group[!grepl('top1', res_i$Model)]<-'Multi'
+  res_i$Group[!grepl('top1|PredFile', res_i$Model)]<-'Multi'
+  
+  res_i_pseudo<-res_i[grepl('PredFile', res_i$Model),]
+  res_i<-res_i[!grepl('PredFile', res_i$Model),]
+
+  # Identify PGS selected by pseudovalidation
+  for(pgs_method_i in pgs_methods[
+    pgs_methods %in% res_i$Method & 
+    pgs_methods %in% c('prscsx','xwing')]) { # Restrict to methods with pseudo method
+      res_i_tmp<-res_i_pseudo[res_i_pseudo$Method == pgs_method_i,]
+      gwas_groups_i<-gwas_groups[grepl(pheno_i, gwas_groups$name),]
+      
+      for(gwas_group_i in gwas_groups_i$name){
+        gwas_group_i_2 <- gsub('_', '.', gwas_group_i)
+        res_i_tmp2 <-
+          res_i_tmp[grepl(gwas_group_i_2, res_i_tmp$Model), ]
+        res_i_tmp2$param<-gsub(paste0('.*', gwas_group_i_2, '.'), '', res_i_tmp2$Model)
+        
+        for(targ_pop_i in pop){
+          pseudo_param<-find_pseudo(config = config, 
+                      gwas = gwas_group_i, 
+                      pgs_method = pgs_method_i, 
+                      target_pop = targ_pop_i)
+          pseudo_param <- gsub("[[:punct:]]", ".",pseudo_param)
+          
+          res_i_tmp3 <-
+            res_i_tmp2[res_i_tmp2$param == pseudo_param &
+                         res_i_tmp2$target == targ_pop_i, ]
+          
+          res_i_tmp3$param<-NULL
+          res_i_tmp3$Group<-'Pseudo'
+          res_i<-rbind(res_i, res_i_tmp3)
+        }
+      }
+  }
+
   res_i$Method<-factor(res_i$Method, levels=unique(res_i$Method))
   res_i$Group<-factor(res_i$Group, levels=unique(res_i$Group))
   
@@ -1060,7 +1144,7 @@ for(pheno_i in prscsx_dat$labels){
 png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/multi.eval.png',
   res = 300,
-  height = 5000,
+  height = 1200*nrow(prscsx_dat),
   width = 3000,
   units = 'px'
 )

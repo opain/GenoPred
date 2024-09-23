@@ -364,7 +364,7 @@ if(opt$model_comp == T){
       ##############
       # Evaluate top1 model
       ##############
-      for(group in unique(predictors_list_new$group[predictors_list_new$group != '.'])){
+      for(group in unique(predictors_list_new$group[predictors_list_new$group != '.' & !grepl('PredFile', predictors_list_new$group)])){
         group_name<-paste0(group, '_top1')
         for(outer_val in 1:opt$n_outer_fold){
           Outcome_Predictors_train_ind <- d[train.ext[[outer_val]]]
@@ -481,19 +481,17 @@ if(opt$model_comp == T){
     		}
 
     		# If there is only one predictor, use glm
-    		if(dim(Outcome_Predictors_train_x_group)[2] > 1){
+    		if(ncol(Outcome_Predictors_train_x_group) > 1){
     				model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_inner_fold, classProbs=T, savePredictions = 'final'), method="glmnet", family=opt$family)
     		} else {
-    				model<- train(y=Outcome_Predictors_train_y, x=cbind(0,Outcome_Predictors_train_x_group), trControl=trainControl(method="cv", seeds=seeds, number=opt$n_inner_fold, classProbs=T, savePredictions = 'final'), method="glm", family=opt$family)
+    				model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_inner_fold, classProbs=T, savePredictions = 'final'), method="glm", family=opt$family)
     		}
 
-  		  if(dim(Outcome_Predictors_train_x_group)[2] > 1){
+  		  if(ncol(Outcome_Predictors_train_x_group) > 1){
   				Indep_Pred<-as.numeric(predict(object = model$finalModel, newx = data.matrix(Outcome_Predictors_test_x_group), type = "response", s = model$finalModel$lambdaOpt))
   			} else {
-  					tmp<-data.frame(cbind(0,Outcome_Predictors_test_x_group))
-  					names(tmp)[1]<-'0'
-  					Indep_Pred<-predict(object = model$finalModel, newdata = tmp, type = "response")
-  					rm(tmp)
+					Indep_Pred<-predict(object = model$finalModel, newdata = Outcome_Predictors_test_x_group, type = "response")
+					rm(tmp)
   			}
 
   		  Indep_Pred_tab<-data.frame(obs=Outcome_Predictors_test_y,
@@ -533,13 +531,13 @@ if(opt$model_comp == T){
   	# Compare predictive utiliy of the different models
   	###################
     if(opt$top1){
-      predictors_list_new_top1<-predictors_list_new[-nrow(predictors_list_new),]
+      predictors_list_new_top1<-predictors_list_new[predictors_list_new$group != '.' & !grepl('PredFile', predictors_list_new$group),]
       predictors_list_new_top1$group<-paste0(predictors_list_new_top1$group, '_top1')
-      predictors_list_new<-rbind(predictors_list_new, predictors_list_new_top1)
+      predictors_list_new2<-rbind(predictors_list_new, predictors_list_new_top1)
     }
   	comp_res_all<-NULL
-  	for(group1 in unique(predictors_list_new$group)){
-    	for(group2 in unique(predictors_list_new$group)){
+  	for(group1 in unique(predictors_list_new2$group)){
+    	for(group2 in unique(predictors_list_new2$group)){
     	    if(group1 == '.'){
     	      group1<-'All'
     	    }

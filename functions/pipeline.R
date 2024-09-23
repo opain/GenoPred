@@ -159,13 +159,19 @@ read_ancestry <- function(config, name){
 }
 
 # Return score corresponding to pseudovalidation
-find_pseudo <- function(config, gwas, pgs_method){
+find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
 
   if(length(pgs_method) > 1){
     stop('Only one pgs_method can be specified at a time')
   }
   if(length(gwas) > 1){
     stop('Only one gwas can be specified at a time')
+  }
+  if(length(target_pop) > 1){
+    stop('Only one target_pop can be specified at a time')
+  }
+  if(pgs_method %in% pgs_group_methods & is.null(target_pop)){
+    stop('target_pop must be specified when using multi-ancestry PGS method')
   }
 
   # Identify score files
@@ -236,19 +242,30 @@ find_pseudo <- function(config, gwas, pgs_method){
     return('META_phi_auto')
   }
   if(pgs_method == 'xwing'){
-    return('targ_EUR_weighted') # NOTE. This is inappropriate when the target is not EUR. There should be a population parameter in the find_pseudo function to find score tailored for a given population. This also doesn't allow for gwas_groups that do not contain a EUR GWAS.
+    if(target_pop == 'TRANS'){
+      cat('No pseudovalidation for TRANS target population available for xwing.')
+      cat('Returning result for EUR target population.')
+      return('targ_EUR_weighted')
+    } else {
+      return(paste0('targ_', target_pop, '_weighted'))
+    }
   }
   if(grepl('^tlprs', pgs_method)){
+    if(target_pop == 'TRANS'){
+      cat('No pseudovalidation for TRANS target population available for xwing.')
+      cat('Returning result for EUR target population.')
+      target_pop <- 'EUR'
+    }
+
     # Use most stringent p-value threshold of 0.05 as pseudo
     if(grepl('ptclump', pgs_method)){
-      return('targ_EUR_0_1_TLPRS_1')
+      return(paste0('targ_', target_pop, '_0_1_TLPRS_61'))
     }
 
     # Retrieve pseudoval param
     if(grepl('dbslmm', pgs_method)){
-      return('targ_EUR_DBSLMM_1_TLPRS_1')
+      return(paste0('targ_', target_pop, '_DBSLMM_1_TLPRS_61'))
     }
-    # NOTE. This is inappropriate when the target is not EUR. There should be a population parameter in the find_pseudo function to find score tailored for a given population. This also doesn't allow for gwas_groups that do not contain a EUR GWAS.
   }
 }
 
