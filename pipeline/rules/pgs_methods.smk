@@ -503,6 +503,13 @@ def get_populations(gwas_group):
         sumstats_populations.append(gwas_info['population'])
     return sumstats_populations
 
+# Check whether gwas_groups contains gwas that are not in the gwas_list
+gwas_groups_gwas = gwas_groups_df['gwas'].str.split(',', expand=True).stack().unique()
+gwas_list_names = gwas_list_df['name'].unique()
+missing_gwas = set(gwas_groups_gwas) - set(gwas_list_names)
+if missing_gwas:
+    raise ValueError(f"The following GWAS are in gwas_groups but missing in gwas_list: {', '.join(missing_gwas)}")
+
 ####
 # PRS-CSx
 ####
@@ -561,7 +568,7 @@ rule prep_pgs_prscsx:
 rule prep_pgs_xwing_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=800
+    time_min=10000
   threads: config['cores_prep_pgs']
   input:
     rules.download_xwing_software.output,
