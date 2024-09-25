@@ -242,7 +242,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
     return('META_phi_auto')
   }
   if(pgs_method == 'xwing'){
-    if(target_pop == 'TRANS'){
+    if(!is.null(target_pop) && target_pop == 'TRANS'){
       cat('No pseudovalidation for TRANS target population available for xwing.')
       cat('Returning result for EUR target population.')
       return('targ_EUR_weighted')
@@ -251,7 +251,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
     }
   }
   if(grepl('^tlprs', pgs_method)){
-    if(target_pop == 'TRANS'){
+    if(!is.null(target_pop) && target_pop == 'TRANS'){
       cat('No pseudovalidation for TRANS target population available for xwing.')
       cat('Returning result for EUR target population.')
       target_pop <- 'EUR'
