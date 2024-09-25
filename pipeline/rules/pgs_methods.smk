@@ -181,7 +181,7 @@ rule prep_pgs_dbslmm:
 rule prep_pgs_prscs_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -300,7 +300,7 @@ rule prep_pgs_lassosum:
 rule prep_pgs_ldpred2_i:
   resources:
     mem_mb=30000,
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -345,7 +345,7 @@ rule prep_pgs_ldpred2:
 rule prep_pgs_megaprs_i:
   resources:
     mem_mb=20000,
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -519,7 +519,7 @@ if missing_gwas:
 rule prep_pgs_prscsx_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     rules.download_prscsx_software.output,
@@ -622,7 +622,7 @@ rule prep_pgs_xwing:
 rule prep_pgs_tlprs_i:
   resources:
     mem_mb=10000,
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     rules.install_tlprs.output,
@@ -665,7 +665,7 @@ rule prep_pgs_tlprs:
 rule prep_pgs_bridgeprs_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     rules.download_bridgeprs_software.output,

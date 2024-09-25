@@ -16,6 +16,30 @@ h2l_R2 <- function(k, r2, p) {
   h2l_R2 = C*r2 / (1 + C*theta*r2)
 }
 
+# Functions for reading in predictor file
+read_predictor<-function(x, pred_miss, file_index = NULL){
+  # Read in predictor file
+  tmp <- fread(x)
+
+  # Create a column that combines FID and IID
+  tmp <- combine_fid_iid(tmp)
+
+  # Remove variables with > opt$pred_miss missing values
+  tmp <- filter_columns_by_missing(tmp, threshold = opt$pred_miss)
+
+  # Remove individuals with any missing data
+  tmp <- tmp[complete.cases(tmp), ]
+
+  # Update column names to avoid duplicate column names between predictor files
+  names(tmp) <- gsub("[[:punct:]]", ".", names(tmp))
+  names(tmp)[-1] <- paste0('PredFile', file_index, '.', names(tmp)[-1])
+
+  log_add(log_file = log_file, message = paste0('Predictors file ', file_index, ' contains ', ncol(tmp) - 1, ' predictors with sufficient data.'))
+  log_add(log_file = log_file, message = paste0('Predictors file ', file_index, ' contains ', nrow(tmp) ,' individuals with complete data for remaining predictors.'))
+
+  return(tmp)
+}
+
 # Function for merging by IID
 predictor_merger <- function(x, y) {
   return(merge(x, y, by = 'IID'))
@@ -56,3 +80,102 @@ enet_grid <- expand.grid(
   alpha = seq(0, 1, length = 5),          # Explore alpha values: 0 (Ridge) to 1 (Lasso)
   lambda = 10^seq(-4, 1, length = 10)     # Explore lambda values: 0.0001 to 10
 )
+
+# Read in outcome file
+read_outcome<-function(x, keep = NULL){
+  outcome <- fread(x)
+  outcome <- outcome[complete.cases(outcome), ]
+  names(outcome)[3] <- 'outcome_var'
+
+  # Create a column that combines FID and IID
+  outcome <- combine_fid_iid(outcome)
+
+  log_add(log_file = log_file, message = paste0('Outcome file contains ',nrow(outcome),' individuals with complete data.'))
+
+  if(!is.null(keep)){
+    ############
+    # Extract individuals in the keep file
+    ############
+
+    # Read in keep file
+    keep_file <- fread(keep)
+    names(keep_file)[1:2] <- c('FID', 'IID')
+    # Create a column that combines FID and IID
+    keep_file <- combine_fid_iid(keep_file)
+    # Extract keep individuals from the phenotypic data
+    outcome <- outcome[(outcome$IID %in% keep_file$IID), ]
+
+    log_add(log_file = log_file, message = paste0('Outcome file contains ',nrow(outcome),' individuals after extraction of individuals in ', keep,'.'))
+  }
+
+  return(outcome)
+}
+
+# Create a variable containing seeds for internal cross validation
+fold_seeds<-function(n_fold){
+  seeds <- vector(mode = "list", length = n_fold+1)
+  for(i in 1:(n_fold)){
+    seeds[[i]]<- sample.int(n=1000, 6)
+  }
+  seeds[[n_fold+1]]<-sample.int(n=1000, 1)
+
+  return(seeds)
+}
+
+# Subset training and testing data
+subset_train_test<-function(dat, train_ind, fold){
+
+  dat_list<-list()
+  dat_list$train<-list()
+  dat_list$test<-list()
+
+  # Subset data to training and testing sets
+  dat_list$train$IID <- dat$IID[train_ind[[fold]]]
+  dat_list$test$IID <- dat$IID[-train_ind[[fold]]]
+
+  dat_list$train$y <- dat$outcome_var[train_ind[[fold]]]
+  dat_list$test$y <- dat$outcome_var[-train_ind[[fold]]]
+
+  dat_list$train$x <- dat[train_ind[[fold]], !(names(dat) %in% c('IID','outcome_var')), with=F]
+  dat_list$test$x <- dat[-train_ind[[fold]], !(names(dat) %in% c('IID','outcome_var')), with=F]
+
+  # If there is only one predictor, insert a column of 0s so elastic net function doesn't fail
+  if(ncol(dat_list$train$x) == 1){
+    dat_list$train$x<-data.table(cbind(0, dat_list$train$x))
+    dat_list$test$x<-data.table(cbind(0, dat_list$test$x))
+  }
+
+  return(dat_list)
+}
+
+# Compare predicted and observed values
+eval_pred <- function(obs, pred, family){
+  mod <- summary(lm(scale(as.numeric(obs)) ~ scale(as.numeric(pred))))
+
+  mod_sum <- data.table(
+    R = coef(mod)[2, 1],
+    SE = coef(mod)[2, 2],
+    P = coef(mod)[2, 4]
+  )
+
+  if(family == 'binomial'){
+    mod_sum <- data.table(
+      mod_sum,
+      R2l = h2l_R2(
+        opt$outcome_pop_prev,
+        coef(Indep_mod)[2, 1] ^ 2,
+        sum(cv_dat$test$y == 'CASE') / length(cv_dat$test$y)
+      ),
+      N = length(obs),
+      Ncase = sum(obs == 'CASE'),
+      Ncont = sum(obs == 'CONTROL')
+    )
+  } else {
+    mod_sum <- data.table(
+      mod_sum,
+      R2o = coef(mod)[2, 1] ^ 2,
+      N = length(obs)
+    )
+  }
+  return(mod_sum)
+}

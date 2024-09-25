@@ -4,34 +4,32 @@ start.time <- Sys.time()
 suppressMessages(library("optparse"))
 
 option_list = list(
-make_option("--pheno", action="store", default=NULL, type='character',
-		help="File containing phenotypic data [required]"),
+make_option("--outcome", action="store", default=NULL, type='character',
+    help="File containing outcome data [required]"),
 make_option("--predictors", action="store", default=NULL, type='character',
-		help="File listing files containing predictors, with a groups column for model comparison [required]"),
-make_option("--n_outer_fold", action="store", default=5, type='numeric',
+    help="File listing files containing predictors, with a groups column for model comparison [required]"),
+make_option("--n_outer_fold", action="store", default=10, type='numeric',
     help="Number of folds in for outer cross-validation [optional]"),
 make_option("--n_inner_fold", action="store", default=10, type='numeric',
     help="Number of folds for inner cross-validation [optional]"),
 make_option("--n_core", action="store", default=1, type='numeric',
-		help="Number of cores for parallel computing [optional]"),
+    help="Number of cores for parallel computing [optional]"),
 make_option("--keep", action="store", default=NULL, type='character',
-		help="File containing list of individuals to include in analysis [optional]"),
+    help="File containing list of individuals to include in analysis [optional]"),
 make_option("--outcome_pop_prev", action="store", default=NULL, type='numeric',
-		help="Prevalence of outcome in the general population [optional]"),
-make_option("--output", action="store", default=NULL, type='character',
-		help="Prefix for output files [required]"),
-make_option("--save_group_model", action="store", default=F, type='logical',
-		help="Save group models for external validation [optional]"),
+    help="Prevalence of outcome in the general population [optional]"),
+make_option("--out", action="store", default=NULL, type='character',
+    help="Prefix for output files [required]"),
 make_option("--assoc", action="store", default=T, type='logical',
-		help="Perform association analysis between each predictor and outcome [optional]"),
+    help="Perform association analysis between each predictor and outcome [optional]"),
 make_option("--compare_predictors", action="store", default=F, type='logical',
     help="Option to assign each predictor to own group [optional]"),
-make_option("--interaction", action="store", default=F, type='logical',
-    help="Option to include interaction terms between predictors in each group [optional]"),
 make_option("--pred_miss", action="store", default=0.1, type='numeric',
     help="Proportion of missing values allowed in predictor [optional]"),
-make_option("--top1", action="store", default=F, type='numeric',
+make_option("--top1", action="store", default=F, type='logical',
     help="Evaluate model using top predictor within each group [optional]"),
+make_option("--all_model", action="store", default=T, type='logical',
+    help="Evaluate model containing all predictors [optional]"),
 make_option("--seed", action="store", default=1, type='numeric',
     help="Set seed number [optional]")
 )
@@ -52,541 +50,379 @@ suppressMessages(library(psych))
 registerDoMC(opt$n_core)
 
 # Check required inputs
-if(is.null(opt$pheno)){
-  stop('--pheno must be specified.\n')
+if(is.null(opt$outcome)){
+  stop('--outcome must be specified.\n')
 }
 if(is.null(opt$predictors)){
   stop('--predictors must be specified.\n')
 }
-if(is.null(opt$output)){
+if(is.null(opt$out)){
   stop('--out must be specified.\n')
 }
 
 # Create output directory
-opt$output_dir <- paste0(dirname(opt$output), '/')
+opt$output_dir <- paste0(dirname(opt$out), '/')
 system(paste0('mkdir -p ', opt$output_dir))
 
 # Create temp directory
 tmp_dir <- tempdir()
 
 # Initiate log file
-log_file <- paste0(opt$output,'.log')
+log_file <- paste0(opt$out,'.log')
 log_header(log_file = log_file, opt = opt, script = 'model_builder.R', start.time = start.time)
 
-##################
+###########
+# Read in predictors
+###########
+# We will create a table indicating which predictors belong to each group as well.
 
-# Read in the predictors file
-predictors_list <- fread(opt$predictors)
-names(predictors_list)[1] <- 'predictor'
+predictors_file <- fread(opt$predictors)
 
-# Determine if there is a group column, and if there is more than 1 group.
-if (opt$compare_predictors == F) {
-  if (!is.null(predictors_list$group)) {
-    if (length(unique(predictors_list$group)) != 1) {
-      opt$group_info <- T
-      opt$model_comp <- T
-      predictors_list$group <-
-        gsub("[[:punct:]]", ".", predictors_list$group)
-      log_add(log_file = log_file, message = 'Predictors file contains group information so model comparisons will be performed.')
-    } else {
-      opt$group_info <- T
-      opt$model_comp <- F
-      log_add(log_file = log_file, message = 'Predictors file does not contain group information so model comparisons will not be performed.')
-    }
-  } else {
-    opt$group_info <- F
-    opt$model_comp <- F
-    log_add(log_file = log_file, message = 'Predictors file does not contain group information so model comparisons will not be performed.')
+if(nrow(predictors_file) > 1){
+  predictors <- foreach(i = 1:nrow(predictors_file)) %dopar% {
+    read_predictor(x = predictors_file$predictor[i], pred_miss = opt$pred_miss, file_index = i)
   }
+  names(predictors) <- predictors_file$group
+
+  group_list <- do.call(rbind, lapply(names(predictors), function(group) {
+    data.table(group = group, predictor = names(predictors[[group]])[-1])
+  }))
+
+  predictors <- Reduce(function(x, y) merge(x, y, by = "IID"), predictors)
+
+  log_add(log_file = log_file, message = paste0('After merging the ', nrow(predictors_file), ' predictors files, ', ncol(predictors)-1, ' predictors remain.'))
+  log_add(log_file = log_file, message = paste0('After merging the ', nrow(predictors_file), ' predictors files, ', nrow(predictors), ' individuals remain.'))
 } else {
-  if (!is.null(predictors_list$group)) {
-    opt$group_info <- T
-    if (length(unique(predictors_list$group)) != 1) {
-      predictors_list$group <-
-        gsub("[[:punct:]]", ".", predictors_list$group)
-      log_add(log_file = log_file, message = 'Predictors file contains group information so model comparisons will be performed.')
-    } else {
-      log_add(log_file = log_file, message = 'Predictors file does not contain group information.')
-    }
-  } else {
-    opt$group_info <- F
-    log_add(log_file = log_file, message = 'Predictors file does not contain group information.')
-  }
-  log_add(log_file = log_file, message = 'Each predictor will be assigned to a seperate group and model comparisons will be performed.')
-  opt$model_comp <- T
+  predictors <- read_predictor(x = predictors_file$predictor[1], pred_miss = opt$pred_miss)
+  group_list <- data.table(group = predictors_file$group[1], predictor = names(predictors)[-1])
+}
+
+# Remove predictors with zero variance
+nz_var <- sapply(predictors[, -1, with = FALSE], function(col) var(col) != 0)
+if(sum(!nz_var) > 1){
+  log_add(log_file = log_file, message = paste0(sum(!nz_var), ' predictors have zero variance and will be excluded from downstream analyes.'))
+}
+if(all(!(nz_var))){
+  stop('All predictors have zero variance.')
+}
+predictors <- predictors[, c(TRUE, nz_var), with = FALSE]
+group_list <- group_list[group_list$predictor %in% names(predictors),]
+
+###########
+# Create list of groups for downstream comparison
+###########
+
+if(opt$compare_predictors){
+  group_list <-
+    rbind(group_list,
+          data.table(
+            group = paste0(group_list$group, '.', group_list$predictor),
+            predictor = group_list$predictor
+          ))
+  log_add(log_file = log_file, message = 'Each predictor has been assigned to its own group.')
+}
+
+
+# Add a group containing all predictors
+if(nrow(group_list) > 1 & opt$all_model){
+  group_list <-
+    rbind(group_list,
+          data.table(
+            group = 'all',
+            predictor = unique(group_list$predictor)
+          ))
+  log_add(log_file = log_file, message = 'Group containing all predictors created.')
+}
+
+log_add(log_file = log_file, message = paste0(length(unique(group_list$group)), ' groups of predictors present.'))
+
+# Calculate the number of predictors in each group
+for(i in unique(group_list$group)){
+  group_list$n[group_list$group == i] <- sum(group_list$group == i)
 }
 
 ###########
-# Read in the phenotypic data
+# Read in the outcome data
 ###########
 
-Outcome <- fread(opt$pheno)
-Outcome <- Outcome[complete.cases(Outcome), ]
-names(Outcome)[3] <- 'Outcome_var'
-
-# Create a column that combines FID and IID
-Outcome <- combine_fid_iid(Outcome)
-
-log_add(log_file = log_file, message = paste0('Phenotype file contains ',nrow(Outcome),' individuals with complete data.'))
+outcome<-read_outcome(x = opt$outcome, keep = opt$keep)
 
 # Determine whether outcome is binary or continuous and format accordingly
-if (length(unique(Outcome$Outcome_var)) > 2) {
-  opt$family <- 'gaussian'
+if (length(unique(outcome$outcome_var)) > 2) {
+  family <- 'gaussian'
 }
-if (length(unique(Outcome$Outcome_var)) == 2) {
-  opt$family <- 'binomial'
-  Outcome$Outcome_var <- factor(Outcome$Outcome_var, labels = c('CONTROL', 'CASE'))
-}
-
-log_add(log_file = log_file, message = paste0('Phenotype is ', ifelse(opt$family == 'binomial', 'binary', 'quantitative'),'.'))
-
-if(!is.null(opt$keep)){
-	############
-	# Extract individuals in the keep file
-	############
-
-  # Read in keep file
-  keep_file <- fread(opt$keep)
-  names(keep_file)[1:2] <- c('FID', 'IID')
-  # Create a column that combines FID and IID
-  keep_file <- combine_fid_iid(keep_file)
-  # Extract keep individuals from the phenotypic data
-  Outcome <- Outcome[(Outcome$IID %in% keep_file$IID), ]
-
-	log_add(log_file = log_file, message = paste0('Phenotype file contains ',nrow(Outcome),' individuals after extraction of individuals in ',opt$keep,'.'))
+if (length(unique(outcome$outcome_var)) == 2) {
+  family <- 'binomial'
+  outcome$outcome_var <- factor(outcome$outcome_var, labels = c('CONTROL', 'CASE'))
 }
 
-############
-# Read in the predictor variables
-############
-
-if(nrow(predictors_list) > 1) {
-  Predictors<-foreach(k = 1:dim(predictors_list)[1], .combine = predictor_merger) %dopar% {
-    # Read in predictor file k
-    tmp <- fread(predictors_list$predictor[k])
-
-    # Create a column that combines FID and IID
-    tmp <- combine_fid_iid(tmp)
-
-    # Remove variables with > opt$pred_miss missing values
-    tmp <- filter_columns_by_missing(tmp, threshold = opt$pred_miss)
-
-    # Remove individuals with any missing data
-    tmp <- tmp[complete.cases(tmp), ]
-
-    # Update column names to avoid duplicate column names between predictor files
-    names(tmp)[-1] <- paste0('PredFile', k, '.', names(tmp)[-1])
-
-    if(opt$model_comp == T){
-      # Add group name to each predictor
-      names(tmp)[-1]<-paste0('Group_',predictors_list$group[k],'.',names(tmp)[-1])
-    }
-
-    log_add(log_file = log_file, message = paste0('Predictors file ',k,' contains ',ncol(tmp)-1,' predictors with sufficient data.'))
-    log_add(log_file = log_file, message = paste0('Predictors file ',k,' contains ',nrow(tmp),' individuals with complete data for remaining predictors.'))
-
-    tmp
-  }
-
-  Predictors<-data.table(Predictors)
-
-  log_add(log_file = log_file, message = paste0('After merging the ', length(predictors_list), ' predictors files,', ncol(Predictors)-1, ' predictors remain.'))
-  log_add(log_file = log_file, message = paste0('After merging the ', length(predictors_list), ' predictors files,', nrow(Predictors), ' individuals remain.'))
-
-} else {
-
-	# Read in the predictor variables
-	Predictors<-fread(predictors_list$predictor[1])
-
-	# Create a column that combines FID and IID
-	Predictors <- combine_fid_iid(Predictors)
-
-	# Remove variables with > opt$pred_miss missing values
-	Predictors <- filter_columns_by_missing(Predictors, threshold = opt$pred_miss)
-
-	# Remove individuals with any missing data
-	Predictors<-Predictors[complete.cases(Predictors),]
-
-	if(opt$compare_predictors == T){
-		# Create the object predictors_list
-		predictors_list <- data.table(predictor=names(Predictors)[-1], group=names(Predictors)[-1])
-		predictors_list$group <- gsub("[[:punct:]]", ".",predictors_list$group)
-
-		# Add group name to each predictor
-		names(Predictors)[-1]<-paste0('Group_',names(Predictors)[-1],'.',names(Predictors)[-1])
-	}
-
-	log_add(log_file = log_file, message = paste0('Predictors file contains ', ncol(Predictors)-1, ' predictors with sufficient data.'))
-	log_add(log_file = log_file, message = paste0('Predictors file contains ', dim(Predictors)[1], ' individuals with complete data for remaining predictors.'))
-
-}
-
-predictors_list_new<-predictors_list
-
-if(opt$compare_predictors == T){
-  if(opt$group_info == T){
-    # Create the object predictors_list
-    predictors_list_new <-
-      rbind(predictors_list_new,
-            data.table(
-              predictor = names(Predictors)[-1],
-              group = names(Predictors)[-1]
-            ))
-    predictors_list_new$group <- gsub("[[:punct:]]", ".",predictors_list_new$group)
-    predictors_list_new$group <- gsub('Group.','', predictors_list_new$group)
-  }
-}
+log_add(log_file = log_file, message = paste0('Phenotype is ', ifelse(family == 'binomial', 'binary', 'quantitative'),'.'))
 
 ###########
-# Merge the phenotype and predictor variables
+# Merge the outcome and predictors
 ###########
 
-Outcome_Predictors <- merge(Outcome, Predictors, by='IID')
+outcome_predictors <- merge(outcome, predictors, by='IID')
 
-rm(Outcome,Predictors)
+rm(outcome, predictors)
 
-log_add(log_file = log_file, message = paste0(nrow(Outcome_Predictors),' individuals have both phenotypic and predictor data.'))
+log_add(log_file = log_file, message = paste0(nrow(outcome_predictors),' individuals have both phenotypic and predictor data.'))
 
 # Report the size of the combined outcome and predictor data
-log_add(log_file = log_file, message = paste0('Data to be carried foward is ',format(object.size(Outcome_Predictors), units='auto'),'.'))
+log_add(log_file = log_file, message = paste0('Data to be carried foward is ',format(object.size(outcome_predictors), units='auto'),'.'))
 
-if(opt$assoc == T){
+############
+# Test association between outcome and each predictor
+############
 
-	############
-	# Test association between Outcome and each variable in Predictors
-	############
-
+if(opt$assoc){
   log_add(log_file = log_file, message = 'Performing association analysis with each predictor...')
 
-	Outcome_Predictors_y <- Outcome_Predictors$Outcome_var
-	Outcome_Predictors_x <- Outcome_Predictors[, -1:-2]
+	outcome_predictors_y <- outcome_predictors$outcome_var
+	outcome_predictors_x <- outcome_predictors[, -1:-2]
 
-	Assoc_res<-NULL
+	assoc_res <- NULL
+	assoc_res <- foreach(i = 1:ncol(outcome_predictors_x), .combine=rbind) %dopar% {
 
-	if(opt$family == 'binomial'){
-		Assoc_res<-foreach(i=1:ncol(Outcome_Predictors_x), .combine=rbind) %dopar% {
-			if(var(Outcome_Predictors_x[[i]]) == 0){
-				Assoc_res_temp<-data.frame(	Predictor = names(Outcome_Predictors_x)[i],
-																		BETA = NA,
-																		SE = NA,
-																		P = NA,
-																		Obs_R2 = NA)
+  	if(family == 'binomial'){
+  	  mod <- glm(outcome_predictors_y ~ scale(outcome_predictors_x[[i]]), family=family)
+  		obs_r2 <- cor(predict(mod), as.numeric(outcome_predictors_y))^2
+  	  sum_mod <- summary(mod)
+  	} else {
+  	  mod <- glm(scale(outcome_predictors_y) ~ scale(outcome_predictors_x[[i]]), family = family)
+  	  obs_r2 <- cor(predict(mod), as.numeric(outcome_predictors_y))^2
+  	  sum_mod <- summary(mod)
+  	}
 
-				Assoc_res_temp
-			} else {
-			  mod <- glm(Outcome_Predictors_y ~ scale(Outcome_Predictors_x[[i]]), family=opt$family)
-				obs_r2 <- cor(predict(mod), as.numeric(Outcome_Predictors_y))^2
-			  sum_mod <- summary(mod)
-				prob <- predict(mod,type=c("response"))
-				Assoc_res_temp <-
-				  data.table(
-				    Predictor = names(Outcome_Predictors_x)[i],
-				    BETA = coef(sum_mod)[2, 1],
-				    SE = coef(sum_mod)[2, 2],
-				    P = coef(sum_mod)[2, 4],
-				    Obs_R2 = obs_r2
-				  )
-			  Assoc_res_temp
-			}
-		}
-		# Convert Nagelkerke R2 to liability scale
-		Assoc_res$Liab_R2 <-
-		  h2l_R2(
-		    opt$outcome_pop_prev,
-		    Assoc_res$Obs_R2,
-		    sum(Outcome_Predictors_y == 'CASE') / length(Outcome_Predictors_y)
-		  )
-	} else {
-		Assoc_res <- foreach(i = 1:ncol(Outcome_Predictors_x), .combine=rbind) %dopar% {
-			if(var(Outcome_Predictors_x[[i]]) == 0){
-				Assoc_res_temp<-data.frame(	Predictor=names(Outcome_Predictors_x)[i],
-																		BETA=NA,
-																		SE=NA,
-																		P=NA,
-																		Obs_R2=NA)
+	  data.table(
+	    Group = group_list$group[group_list$predictor == names(outcome_predictors_x)[i]][1],
+	    Predictor = names(outcome_predictors_x)[i],
+	    BETA = coef(sum_mod)[2, 1],
+	    SE = coef(sum_mod)[2, 2],
+	    P = coef(sum_mod)[2, 4],
+	    Obs_R2 = obs_r2,
+  		N = length(outcome_predictors_y)
+	  )
 
-				Assoc_res_temp
-			} else {
-				mod <- glm(scale(Outcome_Predictors_y) ~ scale(Outcome_Predictors_x[[i]]), family = opt$family)
-				sum_mod <- summary(mod)
-				Assoc_res_temp <-
-				  data.table(
-				    Predictor = names(Outcome_Predictors_x)[i],
-				    BETA = coef(sum_mod)[2, 1],
-				    SE = coef(sum_mod)[2, 2],
-				    P = coef(sum_mod)[2, 4],
-				    Obs_R2 = coef(sum_mod)[2, 1] ^ 2
-				  )
-				Assoc_res_temp
-			}
-		}
+	}
+
+	if(family == 'binomial'){
+  	assoc_res$N_case <- sum(outcome_predictors_y == 'CASE')
+  	assoc_res$N_control <- sum(outcome_predictors_y == 'CONTROL')
+  	assoc_res$Liab_R2 <- h2l_R2(
+  	  opt$outcome_pop_prev,
+  	  assoc_res$obs_r2,
+  	  sum(outcome_predictors_y == 'CASE') / length(outcome_predictors_y)
+  	)
 	}
 
 	# Write out the results
-	write.table(Assoc_res, paste0(opt$output,'.assoc.txt'), col.names=T, row.names=F, quote=F)
-	log_add(log_file = log_file, message = paste0('Predictor association results saved as ',opt$output,'.assoc.txt.'))
+	write.table(assoc_res, paste0(opt$out,'.assoc.txt'), col.names=T, row.names=F, quote=F)
+	log_add(log_file = log_file, message = paste0('Predictor association results saved as ',opt$out,'.assoc.txt.'))
 }
 
-if(opt$model_comp == T){
-  ############
-  # Build and evaluate models using predictors together
-  ############
-  # We will use nested cross validation to evaluate models
+############
+# Prediction modelling
+############
+# We will use elastic net model when groups contain more than one predictor, and a glm when the group contains only 1 predictor.
+# Elastic net models will be derived and evaluated using nested cross validation, but glm will be evaluated using standard cross validation.
 
-  # Split the sample into n=opt$internal_validation_prop equal parts
-  set.seed(opt$seed)
-  nr <- nrow(Outcome_Predictors)
-  d <- sample(1:nr)
+# Split the sample into opt$n_outer_fold folds
+set.seed(opt$seed)
+d <- sample(1:nrow(outcome_predictors))
+train_ind <- createFolds(d, k = opt$n_outer_fold, returnTrain=TRUE)
 
-  train.ext = createFolds(d, k = opt$n_outer_fold, returnTrain = TRUE)
-  test.ext = lapply(train.ext, function(x) (1:nr)[-x])
+# Set seeds for internal loop of nested CV for elastic net
+seeds <- fold_seeds(opt$n_outer_fold)
 
-  # Create a variable containing seeds for internal cross validation
-  seeds <- vector(mode = "list", length = opt$n_inner_fold+1)
-  for(i in 1:(opt$n_inner_fold)){
-    seeds[[i]] <- sample.int(n=1000, 10)
+# Create objects to store outputs
+indep_pred_list <- list()
+eval_pred_all <- NULL
+
+####
+# Evaluate single best predictor from each group, identifying the best predictor using training data, and then evaluating in the test data
+####
+
+if(opt$top1){
+  # Only run for groups containing more than 1 predictor
+  for(group_i in unique(group_list$group[group_list$n > 1])){
+    group_name<-paste0(group_i, '.top1')
+    for(outer_val in 1:opt$n_outer_fold){
+      # Subset training and testing data
+      cv_dat <- subset_train_test(dat = outcome_predictors, train_ind = train_ind, fold = outer_val)
+
+      # Subset variables in group
+      pred_name <- group_list$predictor[group_list$group == group_i]
+      cv_dat$train$x <- cv_dat$train$x[, pred_name, with = F]
+
+      # Evaluate each predictor in training data
+      # NOTE. Should we be using the RMSE to select the best predictor within a group.
+      top1_res<-NULL
+      for(pred_i in names(cv_dat$train$x)){
+        res_pred_i <- cor(cv_dat$train$y, cv_dat$train$x[[pred_i]], use='p')
+        top1_res <- rbind(
+          top1_res,
+          data.table(
+            pred = pred_i,
+            cor = res_pred_i)
+        )
+      }
+      top_pred <- top1_res$pred[which.max(abs(top1_res$cor))]
+
+      # Build model using best predictor
+      train_tmp <- data.table(y = cv_dat$train$y, x = cv_dat$train$x[[top_pred]])
+      train_mod <- glm(y ~ x, family=family, data=train_tmp)
+
+      # Evaluate best performing predictor in test data
+      test_tmp <- data.table(x = cv_dat$test$x[[top_pred]])
+      indep_pred <- predict(object = train_mod, newdata = test_tmp, type = "response")
+      indep_pred <- data.table(obs = cv_dat$test$y, pred = indep_pred)
+
+      # Save test set predictions from each outer loop
+      indep_pred_list[[group_name]] <- rbind(indep_pred_list[[group_name]], indep_pred)
+    }
+
+    eval_pred_all <-
+      rbind(
+        eval_pred_all,
+        data.table(Group = group_name, eval_pred(obs = indep_pred_list[[group_name]]$obs, pred = indep_pred_list[[group_name]]$pred, family = family))
+      )
   }
-  seeds[[opt$n_inner_fold + 1]] <- sample.int(n = 1000, 1)
-
-  # Create a model for each group, and using all predictors
-  predictors_list_new <-
-    rbind(predictors_list_new,
-          data.frame(predictor = 'All',
-                     group = '.'))
-
-  log_add(log_file = log_file, message = 'Initiating nested cross-validation...')
-
-  indep_pred<-list()
-  Prediction_summary_all<-NULL
-
-  if(opt$model_comp == T){
-    if(opt$top1){
-      ##############
-      # Evaluate top1 model
-      ##############
-      for(group in unique(predictors_list_new$group[predictors_list_new$group != '.' & !grepl('PredFile', predictors_list_new$group)])){
-        group_name<-paste0(group, '_top1')
-        for(outer_val in 1:opt$n_outer_fold){
-          Outcome_Predictors_train_ind <- d[train.ext[[outer_val]]]
-
-          Outcome_Predictors_train <- Outcome_Predictors[Outcome_Predictors_train_ind,]
-          Outcome_Predictors_test <- Outcome_Predictors[-Outcome_Predictors_train_ind,]
-
-          Outcome_Predictors_train_y <- Outcome_Predictors_train$Outcome_var
-          Outcome_Predictors_train_x <- Outcome_Predictors_train[, -1:-2]
-
-          Outcome_Predictors_test_y <- Outcome_Predictors_test$Outcome_var
-          Outcome_Predictors_test_x <- Outcome_Predictors_test[, -1:-2]
-
-          Outcome_Predictors_train_x_group <-
-            Outcome_Predictors_train_x[,grepl(
-              paste0('Group_', group, '\\.', '|', 'Group_', group, '$'),
-              names(Outcome_Predictors_train_x)
-            ), with=F]
-
-          # Evaluate each predictor in training data
-          top1_res<-NULL
-          for(pred_i in names(Outcome_Predictors_train_x_group)){
-            res_pred_i<-cor(Outcome_Predictors_train_y, Outcome_Predictors_train_x_group[[pred_i]], use='p')
-            top1_res<-rbind(
-              top1_res,
-              data.frame(
-                pred=pred_i,
-                cor=res_pred_i)
-            )
-          }
-
-          # Build model using best predictor
-          train_tmp<-data.frame(
-            y=Outcome_Predictors_train_y,
-            x=Outcome_Predictors_train_x_group[[top1_res$pred[which.max(abs(top1_res$cor))]]])
-          train_mod<-glm(y ~ x, family=opt$family, data=train_tmp)
-
-          # Evaluate best performing predictor in test data
-          test_tmp<-data.frame(
-            x=Outcome_Predictors_test_x[[top1_res$pred[which.max(abs(top1_res$cor))]]])
-
-          Indep_Pred<-predict(object = train_mod, newdata = test_tmp, type = "response")
-
-          rm(train_tmp)
-          rm(test_tmp)
-          Indep_Pred_tab<-data.frame(obs=Outcome_Predictors_test_y,
-                                     pred=Indep_Pred)
-
-          print(top1_res$pred[which.max(abs(top1_res$cor))])
-          print(cor(Indep_Pred_tab))
-
-          # Save test set predictions from each outer loop
-          indep_pred[[group_name]]<-rbind(indep_pred[[group_name]], Indep_Pred_tab)
-
-        }
-        Indep_mod<-summary(lm(scale(as.numeric(indep_pred[[group_name]]$obs)) ~ scale(indep_pred[[group_name]]$pred)))
-
-        if(opt$family=='binomial'){
-          Prediction_summary_all<-rbind(Prediction_summary_all, data.frame(	Model=paste0(group_name,'_group'),
-                                                                            R=coef(Indep_mod)[2,1],
-                                                                            SE=coef(Indep_mod)[2,2],
-                                                                            P=coef(Indep_mod)[2,4],
-                                                                            R2l=h2l_R2(opt$outcome_pop_prev, coef(Indep_mod)[2,1]^2, sum(Outcome_Predictors_train_y == 'CASE')/length(Outcome_Predictors_train_y)),
-                                                                            N=dim(indep_pred[[group_name]])[1],
-                                                                            Ncase=sum(Outcome_Predictors_train_y == 'CASE'),
-                                                                            Ncont=sum(Outcome_Predictors_train_y == 'CONTROL')))
-        } else {
-          Prediction_summary_all<-rbind(Prediction_summary_all, data.frame(	Model=paste0(group_name,'_group'),
-                                                                            R=coef(Indep_mod)[2,1],
-                                                                            SE=coef(Indep_mod)[2,2],
-                                                                            P=coef(Indep_mod)[2,4],
-                                                                            R2o=coef(Indep_mod)[2,1]^2,
-                                                                            N=dim(indep_pred[[group_name]])[1]))
-        }
-      }
-    }
-
-    # Build glmnet using each group of predictors at a time
-    for(group in unique(predictors_list_new$group)){
-      for(outer_val in 1:opt$n_outer_fold){
-        print(outer_val)
-
-        Outcome_Predictors_train_ind <- d[train.ext[[outer_val]]]
-
-        Outcome_Predictors_train <- Outcome_Predictors[Outcome_Predictors_train_ind,]
-        Outcome_Predictors_test <- Outcome_Predictors[-Outcome_Predictors_train_ind,]
-
-        Outcome_Predictors_train_y <- Outcome_Predictors_train$Outcome_var
-        Outcome_Predictors_train_x <- Outcome_Predictors_train[, -1:-2]
-
-        Outcome_Predictors_test_y <- Outcome_Predictors_test$Outcome_var
-        Outcome_Predictors_test_x <- Outcome_Predictors_test[, -1:-2]
-
-        # Subset predictor in the group
-        print(group)
-        Outcome_Predictors_train_x_group <-
-          Outcome_Predictors_train_x[,grepl(
-            paste0('Group_', group, '\\.', '|', 'Group_', group, '$'),
-            names(Outcome_Predictors_train_x)
-          ), with=F]
-        Outcome_Predictors_test_x_group <-
-          Outcome_Predictors_test_x[,grepl(
-            paste0('Group_', group, '\\.', '|', 'Group_', group, '$'),
-            names(Outcome_Predictors_test_x)
-          ), with=F]
-
-    		# Rename group to 'all' if == '.'
-    		if (group == '.') {
-    		  group_name <- 'All'
-    		  Outcome_Predictors_train_x_group <- Outcome_Predictors_train_x
-    		  Outcome_Predictors_test_x_group <- Outcome_Predictors_test_x
-    		} else {
-    		  group_name <- group
-    		}
-
-    		# If there is only one predictor, use glm
-    		if(ncol(Outcome_Predictors_train_x_group) > 1){
-    				model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_inner_fold, classProbs=T, savePredictions = 'final'), method="glmnet", family=opt$family)
-    		} else {
-    				model<- train(y=Outcome_Predictors_train_y, x=Outcome_Predictors_train_x_group, trControl=trainControl(method="cv", seeds=seeds, number=opt$n_inner_fold, classProbs=T, savePredictions = 'final'), method="glm", family=opt$family)
-    		}
-
-  		  if(ncol(Outcome_Predictors_train_x_group) > 1){
-  				Indep_Pred<-as.numeric(predict(object = model$finalModel, newx = data.matrix(Outcome_Predictors_test_x_group), type = "response", s = model$finalModel$lambdaOpt))
-  			} else {
-					Indep_Pred<-predict(object = model$finalModel, newdata = Outcome_Predictors_test_x_group, type = "response")
-					rm(tmp)
-  			}
-
-  		  Indep_Pred_tab<-data.frame(obs=Outcome_Predictors_test_y,
-  		                             pred=Indep_Pred)
-
-  			# Save test set predictions from each outer loop
-  			indep_pred[[group_name]]<-rbind(indep_pred[[group_name]], Indep_Pred_tab)
-      }
-
-      Indep_mod<-summary(lm(scale(as.numeric(indep_pred[[group_name]]$obs)) ~ scale(indep_pred[[group_name]]$pred)))
-
-      if(opt$family=='binomial'){
-        Prediction_summary_all<-rbind(Prediction_summary_all, data.frame(	Model=paste0(group_name,'_group'),
-                                                                          R=coef(Indep_mod)[2,1],
-                                                                          SE=coef(Indep_mod)[2,2],
-                                                                          P=coef(Indep_mod)[2,4],
-                                                                          R2l=h2l_R2(opt$outcome_pop_prev, coef(Indep_mod)[2,1]^2, sum(Outcome_Predictors_train_y == 'CASE')/length(Outcome_Predictors_train_y)),
-                                                                          N=dim(indep_pred[[group_name]])[1],
-                                                                          Ncase=sum(Outcome_Predictors_train_y == 'CASE'),
-                                                                          Ncont=sum(Outcome_Predictors_train_y == 'CONTROL')))
-      } else {
-        Prediction_summary_all<-rbind(Prediction_summary_all, data.frame(	Model=paste0(group_name,'_group'),
-                                                                          R=coef(Indep_mod)[2,1],
-                                                                          SE=coef(Indep_mod)[2,2],
-                                                                          P=coef(Indep_mod)[2,4],
-                                                                          R2o=coef(Indep_mod)[2,1]^2,
-                                                                          N=dim(indep_pred[[group_name]])[1]))
-      }
-    }
-
-    # Write out the results
-    write.table(Prediction_summary_all, paste0(opt$output,'.pred_eval.txt'), col.names=T, row.names=F, quote=F)
-
-    log_add(log_file = log_file, message = paste0('Model evaluation results saved as ',opt$output,'.pred_eval.txt.'))
-
-  	###################
-  	# Compare predictive utiliy of the different models
-  	###################
-    if(opt$top1){
-      predictors_list_new_top1<-predictors_list_new[predictors_list_new$group != '.' & !grepl('PredFile', predictors_list_new$group),]
-      predictors_list_new_top1$group<-paste0(predictors_list_new_top1$group, '_top1')
-      predictors_list_new2<-rbind(predictors_list_new, predictors_list_new_top1)
-    }
-  	comp_res_all<-NULL
-  	for(group1 in unique(predictors_list_new2$group)){
-    	for(group2 in unique(predictors_list_new2$group)){
-    	    if(group1 == '.'){
-    	      group1<-'All'
-    	    }
-      	  if(group2 == '.'){
-    	      group2<-'All'
-      	  }
-    	    if(group1 == group2){
-      			group1_r<-cor(scale(as.numeric(indep_pred[[group1]]$obs)), scale(indep_pred[[group1]]$pred))[1]
-    			  group2_r<-cor(scale(as.numeric(indep_pred[[group2]]$obs)), scale(indep_pred[[group2]]$pred))[1]
-
-    	      comp_res<-data.frame(Model_1=group1,
-    	                           Model_2=group2,
-    	                           Model_1_R=group1_r,
-    	                           Model_2_R=group2_r,
-    	                           R_diff=0,
-    	                           R_diff_pval=1)
-    	      comp_res_all<-rbind(comp_res_all,comp_res)
-    	      next
-    	    } else {
-    	      group1_r<-cor(scale(as.numeric(indep_pred[[group1]]$obs)), scale(indep_pred[[group1]]$pred))[1]
-    	      group2_r<-cor(scale(as.numeric(indep_pred[[group2]]$obs)), scale(indep_pred[[group2]]$pred))[1]
-
-    	      r_diff<-group1_r-group2_r
-
-    	      group1_group2_r<-cor(scale(indep_pred[[group1]]$pred), scale(indep_pred[[group2]]$pred))
-
-    	      r_diff_p<-paired.r(xy=group1_r, xz=group2_r, yz=group1_group2_r, n=length(scale(indep_pred[[group1]]$pred)), twotailed=T)$p[1]
-
-    	      comp_res<-data.frame(Model_1=group1,
-    	                           Model_2=group2,
-    	                           Model_1_R=group1_r,
-    	                           Model_2_R=group2_r,
-    	                           R_diff=r_diff,
-    	                           R_diff_pval=r_diff_p)
-    	    }
-
-    	    comp_res_all<-rbind(comp_res_all,comp_res)
-    	 }
-  	}
-
-    # Write out the results
-    write.table(comp_res_all, paste0(opt$output,'.pred_comp.txt'), col.names=T, row.names=F, quote=F)
-
-    log_add(log_file = log_file, message = paste0('Model evaluation results saved as ',opt$output,'.pred_comp.txt.'))
-  }
-
 }
+
+###
+# Evaluate model containing groups containing only one predictor
+###
+
+for(group_i in unique(group_list$group[group_list$n == 1])){
+  for(outer_val in 1:opt$n_outer_fold){
+    # Subset training and testing data
+    cv_dat <- subset_train_test(dat = outcome_predictors, train_ind = train_ind, fold = outer_val)
+
+    # Subset variables in group
+    pred_name <- group_list$predictor[group_list$group == group_i]
+    cv_dat$train$x <- cv_dat$train$x[[pred_name]]
+
+    # Build model using predictor
+    train_tmp<-data.table(y = cv_dat$train$y, x = cv_dat$train$x)
+    train_mod<-glm(y ~ x, family=family, data=train_tmp)
+
+    # Evaluate best performing predictor in test data
+    test_tmp <- data.table(x = cv_dat$test$x[[pred_name]])
+    indep_pred <- predict(object = train_mod, newdata = test_tmp, type = "response")
+    indep_pred <- data.table(obs = cv_dat$test$y, pred = indep_pred)
+
+    # Save test set predictions from each outer loop
+    indep_pred_list[[group_i]] <- rbind(indep_pred_list[[group_i]], indep_pred)
+  }
+
+  eval_pred_all <-
+    rbind(
+      eval_pred_all,
+      data.table(Group = group_i, eval_pred(obs = indep_pred_list[[group_i]]$obs, pred = indep_pred_list[[group_i]]$pred, family = family))
+    )
+}
+
+###
+# Evaluate elastic net model containing all predictors within each group
+###
+# Only apply to groups with more than one predictor
+for(group_i in unique(group_list$group[group_list$n > 1])){
+  for(outer_val in 1:opt$n_outer_fold){
+    # Subset training and testing data
+    cv_dat <- subset_train_test(dat = outcome_predictors, train_ind = train_ind, fold = outer_val)
+
+    # Subset variables in group
+    pred_name <- group_list$predictor[group_list$group == group_i]
+    cv_dat$train$x <- cv_dat$train$x[, pred_name, with = F]
+    cv_dat$test$x <- cv_dat$test$x[, pred_name, with = F]
+
+    # Train elastic net
+    model <-
+      train(
+        y = cv_dat$train$y,
+        x = cv_dat$train$x,
+        trControl = trainControl(
+          method = "cv",
+          seeds = seeds,
+          number = opt$n_inner_fold
+        ),
+        method = "glmnet",
+        family = family,
+        tuneGrid = enet_grid
+      )
+
+    indep_pred <- as.numeric(predict(object = model$finalModel, newx = data.matrix(cv_dat$test$x), type = "response", s = model$finalModel$lambdaOpt))
+    indep_pred <- data.table(obs = cv_dat$test$y, pred = indep_pred)
+
+    # Save test set predictions from each outer loop
+    indep_pred_list[[group_i]] <- rbind(indep_pred_list[[group_i]], indep_pred)
+  }
+
+  eval_pred_all <-
+    rbind(
+      eval_pred_all,
+      data.table(Group = group_i, eval_pred(obs = indep_pred_list[[group_i]]$obs, pred = indep_pred_list[[group_i]]$pred, family = family))
+    )
+}
+
+
+# Write out the results
+write.table(eval_pred_all, paste0(opt$out,'.pred_eval.txt'), col.names=T, row.names=F, quote=F)
+log_add(log_file = log_file, message = paste0('Model evaluation results saved as ',opt$out,'.pred_eval.txt.'))
+
+###################
+# Compare predictive utiliy of the different models
+###################
+
+comp_res_all<-NULL
+for(group1 in eval_pred_all$Group){
+	for(group2 in eval_pred_all$Group){
+			group1_r <- cor(scale(as.numeric(indep_pred_list[[group1]]$obs)), scale(indep_pred_list[[group1]]$pred))[1]
+		  group2_r <- cor(scale(as.numeric(indep_pred_list[[group2]]$obs)), scale(indep_pred_list[[group2]]$pred))[1]
+
+		  if(group1 == group2){
+			  comp_res <- data.table(
+			    Model_1 = group1,
+			    Model_2 = group2,
+			    Model_1_R = group1_r,
+			    Model_2_R = group2_r,
+			    R_diff = 0,
+			    R_diff_pval = 1
+			  )
+	    } else {
+	      r_diff <- group1_r - group2_r
+
+	      group1_group2_r <- cor(scale(indep_pred_list[[group1]]$pred), scale(indep_pred_list[[group2]]$pred))
+
+	      r_diff_p <-
+	        paired.r(
+	          xy = group1_r,
+	          xz = group2_r,
+	          yz = group1_group2_r,
+	          n = length(scale(indep_pred_list[[group1]]$pred)),
+	          twotailed = T
+	        )$p[1]
+
+	      comp_res <- data.table(
+	        Model_1 = group1,
+	        Model_2 = group2,
+	        Model_1_R = group1_r,
+	        Model_2_R = group2_r,
+	        R_diff = r_diff,
+	        R_diff_pval = r_diff_p
+	      )
+	    }
+		  comp_res_all <- rbind(comp_res_all, comp_res)
+	}
+}
+
+# Write out the results
+write.table(comp_res_all, paste0(opt$out,'.pred_comp.txt'), col.names=T, row.names=F, quote=F)
+
+log_add(log_file = log_file, message = paste0('Model evaluation results saved as ',opt$out,'.pred_comp.txt.'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
 log_add(log_file = log_file, message = paste0('Analysis finished at ',as.character(end.time)))
-log_add(log_file = log_file, message = paste0('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units')))
+log_add(log_file = log_file, message = paste0('Analysis duration was ',as.character(round(time.taken,2)),attr(time.taken, 'units')))
