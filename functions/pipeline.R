@@ -196,25 +196,29 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   # Find outdir
   outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 
+  # If TLPRS, find pseudo param, and then edit value for TLPRS
+  tlprs <- ifelse(grepl('tlprs', pgs_method), T, F)
+  pgs_method <- gsub('tlprs_', '', pgs_method)
+
   # Use most stringent p-value threshold of 0.05 as pseudo
   if(pgs_method == 'ptclump'){
-    return('0_1')
+    pseudo_val <- '0_1'
   }
 
   # Pseudoval only methods
   if(pgs_method == 'sbayesr'){
-    return('SBayesR')
+    pseudo_val <- 'SBayesR'
   }
 
   # Retrieve pseudoval param
   if(pgs_method == 'dbslmm'){
-    return('DBSLMM_1')
+    pseudo_val <- 'DBSLMM_1'
   }
   if(pgs_method == 'ldpred2'){
-    return('beta_auto')
+    pseudo_val <- 'beta_auto'
   }
   if(pgs_method == 'prscs'){
-    return('phi_auto')
+    pseudo_val <- 'phi_auto'
   }
 
   if(pgs_method == 'megaprs'){
@@ -222,51 +226,44 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
     log <- readLines(paste0(outdir,'/reference/pgs_score_files/',pgs_method,'/',gwas,'/ref-',gwas,'.log'))
     log <- log[grepl('identified as the best with correlation', log)]
     pseudoval <- gsub(' .*','', gsub('Model ', '', log))
-    return(paste0('ldak_Model', pseudoval))
+    pseudo_val <- paste0('ldak_Model', pseudoval)
   }
   if(pgs_method == 'lassosum'){
     # Read in megaprs log file
     log <- readLines(paste0(outdir,'/reference/pgs_score_files/',pgs_method,'/',gwas,'/ref-',gwas,'.log'))
     s_val <- gsub('.* ', '', log[grepl('^s = ', log)])
     lambda_val <- gsub('.* ', '', log[grepl('^lambda = ', log)])
-    return(paste0('s', s_val, '_lambda', lambda_val))
+    pseudo_val <- paste0('s', s_val, '_lambda', lambda_val)
   }
 
   # If pgs_method is external, return the only score
   if(pgs_method == 'external'){
-    return('external')
+    pseudo_val <- 'external'
   }
 
   # Multi-population methods
   if(pgs_method == 'prscsx'){
-    return('META_phi_auto')
+    pseudo_val <- 'META_phi_auto'
   }
   if(pgs_method == 'xwing'){
     if(!is.null(target_pop) && target_pop == 'TRANS'){
       cat('No pseudovalidation for TRANS target population available for xwing.')
       cat('Returning result for EUR target population.')
-      return('targ_EUR_weighted')
+      pseudo_val <- 'targ_EUR_weighted'
     } else {
-      return(paste0('targ_', target_pop, '_weighted'))
+      pseudo_val <- paste0('targ_', target_pop, '_weighted')
     }
   }
-  if(grepl('^tlprs', pgs_method)){
+
+  if(tlprs){
     if(!is.null(target_pop) && target_pop == 'TRANS'){
-      cat('No pseudovalidation for TRANS target population available for xwing.')
+      cat('No pseudovalidation for TRANS target population available for tlprs')
       cat('Returning result for EUR target population.')
       target_pop <- 'EUR'
     }
-
-    # Use most stringent p-value threshold of 0.05 as pseudo
-    if(grepl('ptclump', pgs_method)){
-      return(paste0('targ_', target_pop, '_0_1_TLPRS_61'))
-    }
-
-    # Retrieve pseudoval param
-    if(grepl('dbslmm', pgs_method)){
-      return(paste0('targ_', target_pop, '_DBSLMM_1_TLPRS_61'))
-    }
+    pseudo_val <- paste0('targ_', target_pop, '_', pseudo_val, '_TLPRS_61')
   }
+  return(pseudo_val)
 }
 
 # Read in lassosum pseudoval results
