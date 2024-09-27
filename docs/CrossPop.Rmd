@@ -460,7 +460,7 @@ done
 ######
 
 prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
-prscsx_dat<-prscsx_dat[4,]
+prscsx_dat<-prscsx_dat[1:5,]
 
 gwas_list_eur<-data.frame(
   name=paste0(prscsx_dat$labels,'_UKB'),
@@ -566,12 +566,13 @@ prscsx_dat<-prscsx_dat[4,]
 # Get a list of score files
 scores <- list_score_files(config)
 
-pop <- c('EUR','EAS')
-for(disc_pop_i in pop){
+disc_pop <- c('EUR','EAS')
+targ_pop <- c('EUR','EAS','AFR','CSA','AMR')
+for(disc_pop_i in disc_pop){
   disc_samp<-ifelse(disc_pop_i == 'EUR', 'UKB', 'BBJ')
   scores_disc_pop_i <- scores[grepl(disc_samp, scores$name), ]
 
-  for(targ_pop_i in pop){
+  for(targ_pop_i in targ_pop){
     for(trait_i in prscsx_dat$labels){
       dir.create(
         paste0(
@@ -604,6 +605,29 @@ for(disc_pop_i in pop){
         group=scores_tmp$method
       )
       
+      # Extract the pseudo score for each method and specify as a seperate group
+      for(i in 1:nrow(scores_tmp)) {
+        param <- find_pseudo(
+          config = config,
+          gwas = scores_tmp$name[i],
+          pgs_method = scores_tmp$method[i],
+          target_pop = pop_i
+        )
+        
+        predictors <- fread(
+          predictors_tmp$predictor[i],
+          select = c('FID', 'IID', 
+                     paste0(scores_tmp$name[i], '_', param)))
+        
+        fwrite(predictors, 
+               gsub('.profiles', '.pseudo.profiles', predictors_tmp$predictor[i]))
+      }
+      
+      predictors_tmp2<-predictors_tmp
+      predictors_tmp2$group<-paste0(predictors_tmp$group,'.pseudo')
+      predictors_tmp2$predictor<-gsub('.profiles', '.pseudo.profiles', predictors_tmp$predictor)
+      predictors_tmp <- rbind(predictors_tmp, predictors_tmp2)
+      
       write.table(
         predictors_tmp,
         paste0(
@@ -630,7 +654,7 @@ for(disc_pop_i in pop){
 # Get a list of score files
 scores <- list_score_files(config)
 
-pop <- c('EUR','EAS')
+pop <- c('EUR','EAS','AFR','CSA','AMR')
 for(pop_i in pop){
   for(trait_i in prscsx_dat$labels){
     dir.create(
@@ -662,6 +686,28 @@ for(pop_i in pop){
       group=scores_tmp$method
     )
     
+    # Extract the pseudo score for each method and specify as a seperate group
+    for(i in 1:nrow(scores_tmp)) {
+      param <- find_pseudo(
+        config = config,
+        gwas = scores_tmp$name[i],
+        pgs_method = scores_tmp$method[i],
+        target_pop = pop_i
+      )
+      
+      predictors <- fread(
+        predictors_tmp$predictor[i],
+        select = c('FID', 'IID', 
+                   paste0(scores_tmp$name[i], '_', param)))
+      
+      fwrite(predictors, gsub('.profiles', '.pseudo.profiles', predictors_tmp$predictor[i]))
+    }
+    
+    predictors_tmp2<-predictors_tmp
+    predictors_tmp2$group<-paste0(predictors_tmp$group,'.pseudo')
+    predictors_tmp2$predictor<-gsub('.profiles', '.pseudo.profiles', predictors_tmp$predictor)
+    predictors_tmp <- rbind(predictors_tmp, predictors_tmp2)
+
     write.table(
       predictors_tmp,
       paste0(
@@ -693,7 +739,8 @@ cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
 conda activate model_builder
 
 for disc_pop in $(echo EUR EAS); do
-  for targ_pop in $(echo EUR EAS); do
+#  for targ_pop in $(echo EUR EAS ); do
+  for targ_pop in $(echo AFR CSA AMR); do
     if [ "$targ_pop" == "EUR" ]; then
         targ_pop2="EUR_test"
     else
@@ -701,13 +748,13 @@ for disc_pop in $(echo EUR EAS); do
     fi
     
     for pheno in $(head -n 4 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt | tail -n 1); do
-      sbatch --mem 20G -n 5 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
+      sbatch --mem 50G -n 10 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
         --outcome /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
         --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/single.${disc_pop}_disc.targ_${targ_pop}/${pheno}/predictor_list.txt \
         --out /users/k1806347/oliverpainfel/Analyses/crosspop/single.${disc_pop}_disc.targ_${targ_pop}/${pheno}/res \
-        --n_core 5 \
+        --n_core 10 \
         --top1 T \
-        --compare_predictors T \
+        --all_model F \
         --assoc T"
     done
   done
@@ -722,7 +769,8 @@ done
 cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
 conda activate model_builder
 
-for targ_pop in $(echo EUR EAS); do
+#  for targ_pop in $(echo EUR EAS ); do
+for targ_pop in $(echo AFR CSA AMR); do
   if [ "$targ_pop" == "EUR" ]; then
       targ_pop2="EUR_test"
   else
@@ -730,13 +778,13 @@ for targ_pop in $(echo EUR EAS); do
   fi
 
   for pheno in $(head -n 4 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt | tail -n 1); do
-    sbatch --mem 20G -n 5 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
+    sbatch --mem 50G -n 10 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
       --outcome /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
       --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/multi.targ_${targ_pop}/${pheno}/predictor_list.txt \
       --out /users/k1806347/oliverpainfel/Analyses/crosspop/multi.targ_${targ_pop}/${pheno}/res \
-      --n_core 5 \
+      --n_core 10 \
       --top1 T \
-      --compare_predictors T \
+      --all_model F \
       --assoc T"
   done
 done
@@ -760,71 +808,6 @@ library(cowplot)
 prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
 prscsx_dat<-prscsx_dat[4,]
 
-#############
-# Single source
-#############
-
-plot_list<-list()
-pop=c('EUR','EAS')
-for(pheno_i in prscsx_dat$labels){
-  res_i<-NULL
-  for(disc_pop_i in pop){
-    for(targ_pop_i in pop){
-        assoc_i <-
-          fread(
-            paste0(
-              '/users/k1806347/oliverpainfel/Analyses/crosspop/single.',
-              disc_pop_i,
-              '_disc.targ_',
-              targ_pop_i,
-              '/',
-              pheno_i,
-              '/res.assoc.txt'
-            )
-          )
-        assoc_i$Method <-
-          gsub('\\..*', '', gsub('Group_', '', assoc_i$Predictor))
-        assoc_i$Predictor<-sub("^[^.]*\\.[^.]*\\.", "", assoc_i$Predictor)
-        assoc_i$gwas<-sub("^(([^_]*_)[^_]*).*", "\\1", assoc_i$Predictor)
-        assoc_i$name<-sub("^([^_]+_){2}", "", assoc_i$Predictor)
-        assoc_i$test<-paste0(disc_pop_i, ' → ', targ_pop_i)
-        
-        res_i<-rbind(res_i, assoc_i)
-    }
-  }
-  
-  res_i$Method<-factor(res_i$Method, levels=unique(res_i$Method))
-  res_i$test<-factor(res_i$test, levels=unique(res_i$test))
-  res_i$name<-factor(res_i$name, levels=unique(res_i$name))
-
-  plot_list[[pheno_i]] <-  ggplot(res_i, aes(x=name, y=BETA, colour = Method)) +
-    geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
-                  width = .2,
-                  position = position_dodge(width = 0.7)) +
-    geom_point() +
-    geom_line() +
-    geom_hline(yintercept = 0) +
-    facet_grid(.~ test, scales = 'free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-}
-
-png(
-  '/users/k1806347/oliverpainfel/Analyses/crosspop/single.assoc.png',
-  res = 300,
-  height = 1200*nrow(prscsx_dat),
-  width = 4000,
-  units = 'px'
-)
-plot_grid(plotlist = plot_list, labels = names(plot_list), ncol=1)
-dev.off()
-
-#############
-# Multi source
-#############
-
 single_plot_list<-list()
 prscsx_xwing_plot_list<-list()
 tlprs_plot_list<-list()
@@ -843,75 +826,94 @@ for(pheno_i in prscsx_dat$labels){
             '/res.assoc.txt'
           )
         )
-      assoc_i$Method <-
-        gsub('\\..*', '', gsub('Group_', '', assoc_i$Predictor))
-      assoc_i$Predictor<-sub("^[^.]*\\.[^.]*\\.", "", assoc_i$Predictor)
-      assoc_i$gwas<-sub("^(([^_]*_)[^_]*).*", "\\1", assoc_i$Predictor)
-      assoc_i$name<-sub("^([^_]+_){2}", "", assoc_i$Predictor)
-      assoc_i$name[assoc_i$Method == 'prscsx']<-paste0(gsub('.*_','', assoc_i$gwas[assoc_i$Method == 'prscsx']),'_', assoc_i$name[assoc_i$Method == 'prscsx'])
-      assoc_i$disc[grepl('tlprs|prscsx|xwing', assoc_i$Method)] <-'EUR+EAS'
-      assoc_i$disc[grepl('UKB', assoc_i$gwas)] <-'EUR' 
-      assoc_i$disc[grepl('BBJ', assoc_i$gwas)] <-'EAS' 
+      
+      # Determine whether single or multi source
+      assoc_i$multi_source <- ifelse(!(grepl(paste(pgs_group_methods, collapse ='|'), assoc_i$Group)), F, T)
+      
+      # Identify GWAS for single source
+      assoc_i$gwas[assoc_i$multi_source == F] <-
+        sub("^(([^.]+\\.){1}[^.]+)\\..*", "\\1",
+            sub("^[^.]*\\.", "",
+                assoc_i$Predictor[assoc_i$multi_source == F]))
+      
+      # Identify discovery sample
+      assoc_i$disc[assoc_i$multi_source == F] <-
+        sub(".*\\.", "",
+            assoc_i$gwas[assoc_i$multi_source == F])
+      
+      assoc_i$disc[assoc_i$disc == 'UKB'] <- 'EUR'
+      assoc_i$disc[assoc_i$disc == 'BBJ'] <- 'EAS'
+      assoc_i$disc[is.na(assoc_i$disc)] <- 'EUR+EAS'
+      
+      assoc_i$pheno <- pheno_i
       assoc_i$test<-paste0(assoc_i$disc, ' → ', targ_pop_i)
+      
       assoc_i$tlprs_target<-NA
-      assoc_i$tlprs_target[grepl('tlprs', assoc_i$Method) & grepl('EUR.DBSLMM', assoc_i$name)]<-'EUR-tuned'
-      assoc_i$tlprs_target[grepl('tlprs', assoc_i$Method) & grepl('EAS.DBSLMM', assoc_i$name)]<-'EAS-tuned'
+      assoc_i$tlprs_target[grepl('tlprs', assoc_i$Group) & grepl('targ.EUR', assoc_i$Predictor)]<-'EUR-tuned'
+      assoc_i$tlprs_target[grepl('tlprs', assoc_i$Group) & grepl('targ.EAS', assoc_i$Predictor)]<-'EAS-tuned'
       
       res_i<-rbind(res_i, assoc_i)
   }
 
-    res_i$name<-factor(res_i$name, levels = unique(res_i$name))
-    res_i$Method<-factor(res_i$Method, levels=unique(res_i$Method))
-    res_i$test<-factor(res_i$test, levels=unique(res_i$test))
-    
-    tmp<-res_i[res_i$Method %in% c('ptclump','dbslmm'),]
-    tmp$param<-gsub('.*UKB.','',tmp$name)
-    tmp$param<-gsub('.*BBJ.','',tmp$param)
-    tmp$param<-factor(tmp$param, levels=unique(tmp$param))
+  res_i$test<-factor(res_i$test, levels = unique(res_i$test))
+  res_i$disc<-factor(res_i$disc, levels = unique(res_i$disc))
+  res_i$pheno<-factor(res_i$pheno, levels = unique(res_i$pheno))
+  res_i$tlprs_target<-factor(res_i$tlprs_target, levels = unique(res_i$tlprs_target))
 
-    single_plot_list[[pheno_i]] <-  ggplot(tmp, aes(x=param, y=BETA, colour = Method)) +
-    geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
-                  width = .2,
-                  position = position_dodge(width = 0.7)) +
-    geom_point() +
-    geom_line() +
-    geom_hline(yintercept = 0) +
-    facet_grid(.~ test, scales = 'free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  tmp<-res_i[!(res_i$multi_source),]
+  tmp<-tmp[!(grepl('pseudo', tmp$Group))]
+  tmp$param<-gsub('.*UKB.','',tmp$Predictor)
+  tmp$param<-gsub('.*BBJ.','',tmp$param)
+  tmp$param<-factor(tmp$param, levels=unique(tmp$param))
 
-    tmp<-res_i[(res_i$Method %in% c('prscsx','xwing')),]
+  single_plot_list[[pheno_i]] <-  ggplot(tmp, aes(x=param, y=BETA, colour = Group)) +
+  geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
+                width = .2,
+                position = position_dodge(width = 0.7)) +
+  geom_point() +
+  geom_line() +
+  geom_hline(yintercept = 0) +
+  facet_grid(~ test, scales = 'free', space = 'free_x') +
+  theme_half_open() +
+  background_grid() + 
+  panel_border() + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
-    prscsx_xwing_plot_list[[pheno_i]] <- ggplot(tmp, aes(x=name, y=BETA, colour = Method)) +
-    geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
-                  width = .2,
-                  position = position_dodge(width = 0.7)) +
-    geom_point() +
-    geom_line() +
-    geom_hline(yintercept = 0) +
-    facet_grid(.~ test, scales = 'free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-  
-    tmp<-res_i[(grepl('tlprs', res_i$Method) & grepl('DBSLMM.1.', res_i$name)),]
-    tmp$name<-as.numeric(gsub('_','',gsub('.*TLPRS\\.','',tmp$name)))
-    
-    tlprs_plot_list[[pheno_i]] <-  ggplot(tmp, aes(x=name, y=BETA, colour = Method)) +
-    geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
-                  width = .2,
-                  position = position_dodge(width = 0.7)) +
-    geom_point() +
-    geom_line() +
-    geom_hline(yintercept = 0) +
-    facet_grid(test ~ tlprs_target, scales = 'free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  tmp<-res_i[(res_i$Group %in% c('prscsx','xwing')),]
+  tmp<-tmp[!(grepl('pseudo', tmp$Group))]
+  tmp$param<-gsub(paste0('.*',pheno_i,'\\.'),'',tmp$Predictor)
+  tmp$param<-factor(tmp$param, levels=unique(tmp$param))
+
+  prscsx_xwing_plot_list[[pheno_i]] <- ggplot(tmp, aes(x=param, y=BETA, colour = Group)) +
+  geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
+                width = .2,
+                position = position_dodge(width = 0.7)) +
+  geom_point() +
+  geom_line() +
+  geom_hline(yintercept = 0) +
+  facet_grid(.~ test, scales = 'free', space = 'free_x') +
+  theme_half_open() +
+  background_grid() + 
+  panel_border() + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+  tmp<-res_i[(grepl('tlprs', res_i$Group)),]
+  tmp<-tmp[(grepl('SBayesR|phi.auto|DBSLMM.1.TLPRS', tmp$Predictor)),]
+  tmp<-tmp[!(grepl('pseudo', tmp$Group))]
+  tmp$param <- as.numeric(gsub('.*\\.','',tmp$Predictor))
+
+  tlprs_plot_list[[pheno_i]] <-  ggplot(tmp, aes(x=param, y=BETA, fill = Group, colour = Group)) +
+  geom_line() +
+  geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
+                width = .2,
+                position = position_dodge(width = 0.7)) +
+  geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
+  geom_hline(yintercept = 0) +
+  facet_grid(test ~ tlprs_target, scales = 'free', space = 'free_x') +
+  theme_half_open() +
+  background_grid() + 
+  panel_border() + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 }
 
 png(
@@ -938,7 +940,7 @@ png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/multi.tlprs.assoc.png',
   res = 300,
   height = 1200*nrow(prscsx_dat),
-  width = 3000,
+  width = 4000,
   units = 'px'
 )
 plot_grid(plotlist = tlprs_plot_list, labels = names(tlprs_plot_list), ncol=1)
@@ -1006,41 +1008,15 @@ for(pheno_i in prscsx_dat$labels){
     }
   }
   
-  res_i$Method<-sub('\\..*','',res_i$Method)
+  res_i$Method<-sub('\\..*','',res_i$Group)
   
   res_i$Model[grepl('top1', res_i$Group)]<-'Top1'
-  res_i$Model[!grepl('top1|PredFile', res_i$Group)]<-'Multi'
+  res_i$Model[grepl('pseudo', res_i$Group)]<-'Pseudo'
+  res_i$Model[!grepl('top1|pseudo', res_i$Group)]<-'Multi'
   
-  res_i_pseudo<-res_i[grepl('PredFile', res_i$Group),]
-  res_i<-res_i[!grepl('PredFile', res_i$Group),]
-  
-  # Identify PGS selected by pseudovalidation
-  for(pgs_method_i in pgs_methods[
-    pgs_methods %in% res_i$Method & 
-    pgs_methods %in% c('dbslmm')]) { # Restrict to methods with pseudo method
-      res_i_tmp<-res_i_pseudo[res_i_pseudo$Method == pgs_method_i,]
-      gwas_list_i<-gwas_list[grepl(pheno_i, gwas_list$name),]
-      for(gwas_i in gwas_list_i$name){
-        gwas_i_2 <- gsub('_', '.', gwas_i)
-        res_i_tmp2 <-
-          res_i_tmp[grepl(gwas_i_2, res_i_tmp$Group), ]
-        res_i_tmp2$param<-gsub(paste0('.*', gwas_i_2, '.'), '', res_i_tmp2$Group)
-        
-        pseudo_param<-find_pseudo(config = config, 
-                    gwas = gwas_i, 
-                    pgs_method = pgs_method_i, 
-                    target_pop = targ_pop_i)
-        pseudo_param <- gsub("[[:punct:]]", ".",pseudo_param)
-        
-        res_i_tmp2<-res_i_tmp2[res_i_tmp2$param == pseudo_param,]
-        res_i_tmp2$param<-NULL
-        res_i_tmp2$Model<-'Pseudo'
-        res_i<-rbind(res_i, res_i_tmp2)
-      }
-  }
-
   res_i$Method<-factor(res_i$Method, levels=unique(res_i$Method))
   res_i$Model<-factor(res_i$Model, levels=unique(res_i$Model))
+  res_i$test<-factor(res_i$test, levels=unique(res_i$test))
   
   plot_list[[pheno_i]] <-  ggplot(res_i, aes(x=Method, y=R, fill = Model)) +
     geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
@@ -1048,8 +1024,8 @@ for(pheno_i in prscsx_dat$labels){
                   position = position_dodge(width = 0.7)) +
     geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
     geom_hline(yintercept = 0) +
-    geom_vline(xintercept = c(1.5,2.5), linetype="dotted") +
-    facet_grid(.~ test, scales = 'free', space = 'free_x') +
+    geom_vline(xintercept = seq(1.5, length(unique(res_i$Method))), linetype="dotted") +
+    facet_grid(.~ test) +
     theme_half_open() +
     background_grid() + 
     panel_border() + 
@@ -1060,7 +1036,7 @@ png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/single.eval.png',
   res = 300,
   height = 1200*nrow(prscsx_dat),
-  width = 3000,
+  width = 4000,
   units = 'px'
 )
 plot_grid(plotlist = plot_list, labels = names(plot_list), ncol=1)
@@ -1090,55 +1066,24 @@ for(pheno_i in prscsx_dat$labels){
       res_i<-rbind(res_i, eval_i)
   }
   
-  res_i$Method<-sub('\\..*','',res_i$Method)
+  res_i$Method<-sub('\\..*','',res_i$Group)
   
   res_i$Model[grepl('top1', res_i$Group)]<-'Top1'
-  res_i$Model[!grepl('top1|PredFile', res_i$Group)]<-'Multi'
+  res_i$Model[grepl('pseudo', res_i$Group)]<-'Pseudo'
+  res_i$Model[!grepl('top1|pseudo', res_i$Group)]<-'Multi'
   
-  res_i_pseudo<-res_i[grepl('PredFile', res_i$Group),]
-  res_i<-res_i[!grepl('PredFile', res_i$Group),]
-
-  # Identify PGS selected by pseudovalidation
-  for(pgs_method_i in pgs_methods[
-    pgs_methods %in% res_i$Method & 
-    pgs_methods %in% c('prscsx','xwing')]) { # Restrict to methods with pseudo method
-      res_i_tmp<-res_i_pseudo[res_i_pseudo$Method == pgs_method_i,]
-      gwas_groups_i<-gwas_groups[grepl(pheno_i, gwas_groups$name),]
-      
-      for(gwas_group_i in gwas_groups_i$name){
-        gwas_group_i_2 <- gsub('_', '.', gwas_group_i)
-        res_i_tmp2 <-
-          res_i_tmp[grepl(gwas_group_i_2, res_i_tmp$Group), ]
-        res_i_tmp2$param<-gsub(paste0('.*', gwas_group_i_2, '.'), '', res_i_tmp2$Group)
-        
-        for(targ_pop_i in pop){
-          pseudo_param<-find_pseudo(config = config, 
-                      gwas = gwas_group_i, 
-                      pgs_method = pgs_method_i, 
-                      target_pop = targ_pop_i)
-          pseudo_param <- gsub("[[:punct:]]", ".",pseudo_param)
-          
-          res_i_tmp3 <-
-            res_i_tmp2[res_i_tmp2$param == pseudo_param &
-                         res_i_tmp2$target == targ_pop_i, ]
-          
-          res_i_tmp3$param<-NULL
-          res_i_tmp3$Model<-'Pseudo'
-          res_i<-rbind(res_i, res_i_tmp3)
-        }
-      }
-  }
-
+  res_i <- res_i[!grepl('pseudo.top1', res_i$Group),]
+  
   res_i$Method<-factor(res_i$Method, levels=unique(res_i$Method))
   res_i$Model<-factor(res_i$Model, levels=unique(res_i$Model))
-  
+
   plot_list[[pheno_i]] <-  ggplot(res_i, aes(x=Method, y=R, fill = Model)) +
     geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
                   width = .2,
                   position = position_dodge(width = 0.7)) +
     geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
     geom_hline(yintercept = 0) +
-    geom_vline(xintercept = seq(1.5, 5.5, by=1), linetype="dotted") +
+    geom_vline(xintercept = seq(1.5, length(unique(res_i$Method))), linetype="dotted") +
     facet_grid(.~ target, scales = 'free', space = 'free_x') +
     theme_half_open() +
     background_grid() + 

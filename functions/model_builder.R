@@ -179,3 +179,77 @@ eval_pred <- function(obs, pred, family){
   }
   return(mod_sum)
 }
+
+#########
+# Function for progress bar
+#########
+
+initialise_progress <- function(log_message, log_file){
+  progress_file <- tempfile()
+  saveRDS(0, progress_file)
+  log_add(log_file = log_file, message = log_message)
+  return(progress_file)
+}
+
+update_progress_file <- function(progress_file) {
+  # Lock the file for writing (this ensures only one worker can modify it at a time)
+  lockfile <- paste0(progress_file, ".lock")
+  while (file.exists(lockfile)) {
+    Sys.sleep(0.01)  # Wait if another worker is updating the file
+  }
+
+  # Create the lockfile
+  file.create(lockfile)
+
+  # Read current progress
+  progress <- readRDS(progress_file)
+
+  # Update progress_file
+  progress <- progress + 1
+  saveRDS(progress, progress_file)
+
+  # Remove the lockfile
+  file.remove(lockfile)
+
+  return(progress)  # Return progress
+}
+
+update_log_file <- function(log_file, message) {
+  # Read the current content of the log file
+  log_content <- readLines(log_file)
+
+  # Update the last line with the new message
+  if (length(log_content) > 0) {
+    log_content[length(log_content)] <- message
+  } else {
+    log_content <- message
+  }
+
+  # Write the updated log content back to the file
+  writeLines(log_content, con = log_file)
+}
+
+export_final_model <- function(model, group, outdir){
+  if ("glm" %in% class(model)) {
+    model_coefficients <- as.matrix(coef(model))
+    rownames(model_coefficients)[1]<-'intercept'
+  }
+  if ("glmnet" %in% class(model)) {
+    model_coefficients <- coef(model, s = model$lambdaOpt)
+    rownames(model_coefficients)[1]<-'intercept'
+    model_coefficients <- as.matrix(model_coefficients[model_coefficients[,1] != 0, , drop=F])
+  }
+
+  write.table(
+    model_coefficients,
+    paste0(
+      outdir,
+      '/',
+      group,
+      '.final_model.txt'
+    ),
+    row.names = T,
+    col.names = F,
+    quote = F
+  )
+}

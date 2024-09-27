@@ -30,6 +30,8 @@ make_option("--top1", action="store", default=F, type='logical',
     help="Evaluate model using top predictor within each group [optional]"),
 make_option("--all_model", action="store", default=T, type='logical',
     help="Evaluate model containing all predictors [optional]"),
+make_option("--export_models", action="store", default=T, type='logical',
+    help="Export model coefficients [optional]"),
 make_option("--seed", action="store", default=1, type='numeric',
     help="Set seed number [optional]")
 )
@@ -67,6 +69,11 @@ system(paste0('mkdir -p ', opt$output_dir))
 # Create temp directory
 tmp_dir <- tempdir()
 
+# Create directory for final models to be saved
+if(opt$export_models){
+  system(paste0('mkdir ', opt$output_dir, '/final_models'))
+}
+
 # Initiate log file
 log_file <- paste0(opt$out,'.log')
 log_header(log_file = log_file, opt = opt, script = 'model_builder.R', start.time = start.time)
@@ -82,10 +89,9 @@ if(nrow(predictors_file) > 1){
   predictors <- foreach(i = 1:nrow(predictors_file)) %dopar% {
     read_predictor(x = predictors_file$predictor[i], pred_miss = opt$pred_miss, file_index = i)
   }
-  names(predictors) <- predictors_file$group
 
-  group_list <- do.call(rbind, lapply(names(predictors), function(group) {
-    data.table(group = group, predictor = names(predictors[[group]])[-1])
+  group_list <- do.call(rbind, lapply(1:nrow(predictors_file), function(predfile) {
+    data.table(group = predictors_file$group[predfile], predictor = names(predictors[[predfile]])[-1])
   }))
 
   predictors <- Reduce(function(x, y) merge(x, y, by = "IID"), predictors)
@@ -226,6 +232,7 @@ if(opt$assoc){
 ############
 # We will use elastic net model when groups contain more than one predictor, and a glm when the group contains only 1 predictor.
 # Elastic net models will be derived and evaluated using nested cross validation, but glm will be evaluated using standard cross validation.
+# We will store the predicted and observed values from the outer loops for each model, and then evaluate the models at the end
 
 # Split the sample into opt$n_outer_fold folds
 set.seed(opt$seed)
@@ -237,22 +244,28 @@ seeds <- fold_seeds(opt$n_outer_fold)
 
 # Create objects to store outputs
 indep_pred_list <- list()
-eval_pred_all <- NULL
 
 ####
-# Evaluate single best predictor from each group, identifying the best predictor using training data, and then evaluating in the test data
+# Generate predictions using single best predictor from each group, identifying the best predictor using training data, and then evaluating in the test data
 ####
 
 if(opt$top1){
   # Only run for groups containing more than 1 predictor
-  for(group_i in unique(group_list$group[group_list$n > 1])){
-    group_name<-paste0(group_i, '.top1')
+  top1_groups <- unique(group_list$group[group_list$n > 1])
+
+  # Initialise progress log
+  log_message <- 'Generate predictions using top1 models for each group... '
+  progress_file <- initialise_progress(log_message = log_message, log_file = log_file)
+
+  top1_indep_pred <- foreach(i = 1:length(top1_groups), .combine = 'c') %dopar% {
+    group_name<-paste0(top1_groups[i], '.top1')
+    indep_pred <- NULL
     for(outer_val in 1:opt$n_outer_fold){
       # Subset training and testing data
       cv_dat <- subset_train_test(dat = outcome_predictors, train_ind = train_ind, fold = outer_val)
 
       # Subset variables in group
-      pred_name <- group_list$predictor[group_list$group == group_i]
+      pred_name <- group_list$predictor[group_list$group == top1_groups[i]]
       cv_dat$train$x <- cv_dat$train$x[, pred_name, with = F]
 
       # Evaluate each predictor in training data
@@ -275,151 +288,267 @@ if(opt$top1){
 
       # Evaluate best performing predictor in test data
       test_tmp <- data.table(x = cv_dat$test$x[[top_pred]])
-      indep_pred <- predict(object = train_mod, newdata = test_tmp, type = "response")
-      indep_pred <- data.table(obs = cv_dat$test$y, pred = indep_pred)
+      indep_pred_i <- predict(object = train_mod, newdata = test_tmp, type = "response")
+      indep_pred_i <- data.table(obs = cv_dat$test$y, pred = indep_pred_i)
 
       # Save test set predictions from each outer loop
-      indep_pred_list[[group_name]] <- rbind(indep_pred_list[[group_name]], indep_pred)
+      indep_pred <- rbind(indep_pred, indep_pred_i)
     }
 
-    eval_pred_all <-
-      rbind(
-        eval_pred_all,
-        data.table(Group = group_name, eval_pred(obs = indep_pred_list[[group_name]]$obs, pred = indep_pred_list[[group_name]]$pred, family = family))
-      )
+    # Derive and export final model using all data
+    if(opt$export_models){
+      top1_res<-NULL
+      for(pred_i in names(cv_dat$train$x)){
+        res_pred_i <- cor(outcome_predictors$outcome_var, outcome_predictors[[pred_i]], use='p')
+        top1_res <- rbind(
+          top1_res,
+          data.table(
+            pred = pred_i,
+            cor = res_pred_i)
+        )
+      }
+      top_pred <- top1_res$pred[which.max(abs(top1_res$cor))]
+
+      train_mod <- glm(as.formula(paste0('outcome_var ~ ', top_pred)), family=family, data=outcome_predictors)
+
+      export_final_model(model = train_mod,
+                         group = group_name,
+                         outdir = paste0(opt$output_dir,
+                                         '/final_models'))
+    }
+
+    # Update progress log
+    progress <- update_progress_file(progress_file)
+    update_log_file(log_file = log_file, message = paste0(log_message, floor(progress/length(top1_groups)*100),'%'))
+
+    # Output results
+    setNames(list(indep_pred), group_name)
   }
+
+  indep_pred_list <- c(indep_pred_list, top1_indep_pred)
+  update_log_file(log_file = log_file, message = paste0(log_message, 'Done!'))
 }
 
 ###
-# Evaluate model containing groups containing only one predictor
+# Generate predictions using single predictor groups
 ###
 
-for(group_i in unique(group_list$group[group_list$n == 1])){
-  for(outer_val in 1:opt$n_outer_fold){
-    # Subset training and testing data
-    cv_dat <- subset_train_test(dat = outcome_predictors, train_ind = train_ind, fold = outer_val)
+if(any(group_list$n == 1)){
+  single_groups <- unique(group_list$group[group_list$n == 1])
 
-    # Subset variables in group
-    pred_name <- group_list$predictor[group_list$group == group_i]
-    cv_dat$train$x <- cv_dat$train$x[[pred_name]]
+  # Initialise progress log
+  log_message <- 'Generate predictions using models containing single predictor... '
+  progress_file <- initialise_progress(log_message = log_message, log_file = log_file)
 
-    # Build model using predictor
-    train_tmp<-data.table(y = cv_dat$train$y, x = cv_dat$train$x)
-    train_mod<-glm(y ~ x, family=family, data=train_tmp)
+  single_indep_pred <- foreach(i = 1:length(single_groups), .combine=c) %dopar% {
+    indep_pred <- NULL
+    for(outer_val in 1:opt$n_outer_fold){
+      # Subset training and testing data
+      cv_dat <- subset_train_test(dat = outcome_predictors, train_ind = train_ind, fold = outer_val)
 
-    # Evaluate best performing predictor in test data
-    test_tmp <- data.table(x = cv_dat$test$x[[pred_name]])
-    indep_pred <- predict(object = train_mod, newdata = test_tmp, type = "response")
-    indep_pred <- data.table(obs = cv_dat$test$y, pred = indep_pred)
+      # Subset variables in group
+      pred_name <- group_list$predictor[group_list$group == single_groups[i]]
+      cv_dat$train$x <- cv_dat$train$x[[pred_name]]
 
-    # Save test set predictions from each outer loop
-    indep_pred_list[[group_i]] <- rbind(indep_pred_list[[group_i]], indep_pred)
+      # Build model using predictor
+      train_tmp<-data.table(y = cv_dat$train$y, x = cv_dat$train$x)
+      train_mod<-glm(y ~ x, family=family, data=train_tmp)
+
+      # Evaluate best performing predictor in test data
+      test_tmp <- data.table(x = cv_dat$test$x[[pred_name]])
+      indep_pred_i <- predict(object = train_mod, newdata = test_tmp, type = "response")
+      indep_pred_i <- data.table(obs = cv_dat$test$y, pred = indep_pred_i)
+
+      # Save test set predictions from each outer loop
+      indep_pred <- rbind(indep_pred, indep_pred_i)
+    }
+
+    # Derive and export final model using all data
+    if(opt$export_models){
+      train_mod <- glm(as.formula(paste0('outcome_var ~ ', pred_name)), family=family, data=outcome_predictors)
+
+      export_final_model(model = train_mod,
+                         group = single_groups[i],
+                         outdir = paste0(opt$output_dir,
+                                         '/final_models'))
+    }
+
+    # Update progress log
+    progress <- update_progress_file(progress_file)
+    update_log_file(log_file = log_file, message = paste0(log_message, floor(progress/length(single_groups)*100),'%'))
+
+    # Output results
+    setNames(list(indep_pred), single_groups[i])
   }
 
-  eval_pred_all <-
-    rbind(
-      eval_pred_all,
-      data.table(Group = group_i, eval_pred(obs = indep_pred_list[[group_i]]$obs, pred = indep_pred_list[[group_i]]$pred, family = family))
-    )
+  indep_pred_list <- c(indep_pred_list, single_indep_pred)
+  update_log_file(log_file = log_file, message = paste0(log_message, 'Done!'))
 }
 
 ###
-# Evaluate elastic net model containing all predictors within each group
+# Generate predictions using elastic net model containing all predictors within each group
 ###
 # Only apply to groups with more than one predictor
-for(group_i in unique(group_list$group[group_list$n > 1])){
-  for(outer_val in 1:opt$n_outer_fold){
-    # Subset training and testing data
-    cv_dat <- subset_train_test(dat = outcome_predictors, train_ind = train_ind, fold = outer_val)
+if(any(group_list$n > 1)){
 
-    # Subset variables in group
-    pred_name <- group_list$predictor[group_list$group == group_i]
-    cv_dat$train$x <- cv_dat$train$x[, pred_name, with = F]
-    cv_dat$test$x <- cv_dat$test$x[, pred_name, with = F]
+  # Initialise progress log
+  log_message <- 'Generate predictions using elastic net models for each group... '
+  progress_file <- initialise_progress(log_message = log_message, log_file = log_file)
 
-    # Train elastic net
-    model <-
-      train(
-        y = cv_dat$train$y,
-        x = cv_dat$train$x,
-        trControl = trainControl(
-          method = "cv",
-          seeds = seeds,
-          number = opt$n_inner_fold
-        ),
-        method = "glmnet",
-        family = family,
-        tuneGrid = enet_grid
-      )
+  group_enet <- unique(group_list$group[group_list$n > 1])
+  enet_indep_pred <- list()
+  for(i in 1:length(group_enet)){
+    indep_pred <- NULL
+    for(outer_val in 1:opt$n_outer_fold){
+      # Subset training and testing data
+      cv_dat <- subset_train_test(dat = outcome_predictors, train_ind = train_ind, fold = outer_val)
 
-    indep_pred <- as.numeric(predict(object = model$finalModel, newx = data.matrix(cv_dat$test$x), type = "response", s = model$finalModel$lambdaOpt))
-    indep_pred <- data.table(obs = cv_dat$test$y, pred = indep_pred)
+      # Subset variables in group
+      pred_name <- group_list$predictor[group_list$group == group_enet[i]]
+      cv_dat$train$x <- cv_dat$train$x[, pred_name, with = F]
+      cv_dat$test$x <- cv_dat$test$x[, pred_name, with = F]
 
-    # Save test set predictions from each outer loop
-    indep_pred_list[[group_i]] <- rbind(indep_pred_list[[group_i]], indep_pred)
+      # Train elastic net
+      model <-
+        train(
+          y = cv_dat$train$y,
+          x = cv_dat$train$x,
+          trControl = trainControl(
+            method = "cv",
+            seeds = seeds,
+            number = opt$n_inner_fold
+          ),
+          method = "glmnet",
+          family = family,
+          tuneGrid = enet_grid
+        )
+
+      indep_pred_i <- as.numeric(predict(object = model$finalModel, newx = data.matrix(cv_dat$test$x), type = "response", s = model$finalModel$lambdaOpt))
+      indep_pred_i <- data.table(obs = cv_dat$test$y, pred = indep_pred_i)
+
+      # Save test set predictions from each outer loop
+      indep_pred <- rbind(indep_pred, indep_pred_i)
+    }
+
+    # Derive and export final model using all data
+    if(opt$export_models){
+      model <-
+        train(
+          y = outcome_predictors$outcome_var,
+          x = outcome_predictors[, pred_name, with=F],
+          trControl = trainControl(
+            method = "cv",
+            seeds = seeds,
+            number = opt$n_inner_fold
+          ),
+          method = "glmnet",
+          family = family,
+          tuneGrid = enet_grid
+        )
+
+      export_final_model(model = model$finalModel,
+                         group = group_enet[i],
+                         outdir = paste0(opt$output_dir,
+                                         '/final_models'))
+    }
+
+    # Update progress log
+    progress <- update_progress_file(progress_file)
+    update_log_file(log_file = log_file, message = paste0(log_message, floor(progress/length(group_enet)*100),'%'))
+
+    # Output results
+    enet_indep_pred[[group_enet[i]]] <- indep_pred
   }
 
-  eval_pred_all <-
-    rbind(
-      eval_pred_all,
-      data.table(Group = group_i, eval_pred(obs = indep_pred_list[[group_i]]$obs, pred = indep_pred_list[[group_i]]$pred, family = family))
+  indep_pred_list <- c(indep_pred_list, enet_indep_pred)
+  update_log_file(log_file = log_file, message = paste0(log_message, 'Done!'))
+}
+
+###################
+# Evaluate all models
+###################
+
+# Initialise progress log
+log_message <- 'Evaluating all models... '
+progress_file <- initialise_progress(log_message = log_message, log_file = log_file)
+
+pred_eval_all <- foreach(i = 1:length(indep_pred_list), .combine=rbind) %dopar% {
+  # Update progress log
+  progress <- update_progress_file(progress_file)
+  update_log_file(log_file = log_file, message = paste0(log_message, floor(progress/length(indep_pred_list)*100),'%'))
+
+  data.table(
+      Group = names(indep_pred_list)[i],
+      eval_pred(
+        obs = indep_pred_list[[i]]$obs,
+        pred = indep_pred_list[[i]]$pred,
+        family = family
+      )
     )
 }
 
+update_log_file(log_file = log_file, message = paste0(log_message, 'Done!'))
 
 # Write out the results
-write.table(eval_pred_all, paste0(opt$out,'.pred_eval.txt'), col.names=T, row.names=F, quote=F)
+write.table(pred_eval_all, paste0(opt$out,'.pred_eval.txt'), col.names=T, row.names=F, quote=F)
 log_add(log_file = log_file, message = paste0('Model evaluation results saved as ',opt$out,'.pred_eval.txt.'))
 
 ###################
 # Compare predictive utiliy of the different models
 ###################
 
-comp_res_all<-NULL
-for(group1 in eval_pred_all$Group){
-	for(group2 in eval_pred_all$Group){
-			group1_r <- cor(scale(as.numeric(indep_pred_list[[group1]]$obs)), scale(indep_pred_list[[group1]]$pred))[1]
-		  group2_r <- cor(scale(as.numeric(indep_pred_list[[group2]]$obs)), scale(indep_pred_list[[group2]]$pred))[1]
+# Initialise progress log
+log_message <- 'Comparing model performance... '
+progress_file <- initialise_progress(log_message = log_message, log_file = log_file)
 
-		  if(group1 == group2){
-			  comp_res <- data.table(
-			    Model_1 = group1,
-			    Model_2 = group2,
-			    Model_1_R = group1_r,
-			    Model_2_R = group2_r,
-			    R_diff = 0,
-			    R_diff_pval = 1
-			  )
-	    } else {
-	      r_diff <- group1_r - group2_r
+# Identify number of pairwise comparisons
+models <- pred_eval_all$Group
+model_comps <- data.table(t(combn(models, 2)))
 
-	      group1_group2_r <- cor(scale(indep_pred_list[[group1]]$pred), scale(indep_pred_list[[group2]]$pred))
+comp_res_all <- foreach(i = 1:length(models), .combine=rbind) %dopar% {
+  group1 <- models[i]
+  comp_res_i <- NULL
+  for(group2 in model_comps$V2[model_comps$V1 == group1]){
 
-	      r_diff_p <-
-	        paired.r(
-	          xy = group1_r,
-	          xz = group2_r,
-	          yz = group1_group2_r,
-	          n = length(scale(indep_pred_list[[group1]]$pred)),
-	          twotailed = T
-	        )$p[1]
+  	group1_r <- cor(scale(as.numeric(indep_pred_list[[group1]]$obs)), scale(indep_pred_list[[group1]]$pred))[1]
+    group2_r <- cor(scale(as.numeric(indep_pred_list[[group2]]$obs)), scale(indep_pred_list[[group2]]$pred))[1]
 
-	      comp_res <- data.table(
-	        Model_1 = group1,
-	        Model_2 = group2,
-	        Model_1_R = group1_r,
-	        Model_2_R = group2_r,
-	        R_diff = r_diff,
-	        R_diff_pval = r_diff_p
-	      )
-	    }
-		  comp_res_all <- rbind(comp_res_all, comp_res)
-	}
+    r_diff <- group1_r - group2_r
+
+    group1_group2_r <- cor(scale(indep_pred_list[[group1]]$pred), scale(indep_pred_list[[group2]]$pred))
+
+    r_diff_p <-
+      paired.r(
+        xy = group1_r,
+        xz = group2_r,
+        yz = group1_group2_r,
+        n = length(scale(indep_pred_list[[group1]]$pred)),
+        twotailed = T
+      )$p[1]
+
+    comp_res <- data.table(
+      Model_1 = group1,
+      Model_2 = group2,
+      Model_1_R = group1_r,
+      Model_2_R = group2_r,
+      R_diff = r_diff,
+      R_diff_pval = r_diff_p
+    )
+
+    comp_res_i <- rbind(comp_res_i, comp_res)
+  }
+
+  # Update progress log
+  progress <- update_progress_file(progress_file)
+  update_log_file(log_file = log_file, message = paste0(log_message, floor(progress/length(models)*100),'%'))
+
+  comp_res_i
 }
+
+update_log_file(log_file = log_file, message = paste0(log_message, 'Done!'))
 
 # Write out the results
 write.table(comp_res_all, paste0(opt$out,'.pred_comp.txt'), col.names=T, row.names=F, quote=F)
-
 log_add(log_file = log_file, message = paste0('Model evaluation results saved as ',opt$out,'.pred_comp.txt.'))
 
 end.time <- Sys.time()
