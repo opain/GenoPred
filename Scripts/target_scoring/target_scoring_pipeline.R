@@ -88,37 +88,96 @@ if(!is.null(opt$score)){
   score_files <- score_files[score_files$name == opt$score,]
 }
 
-#####
-# Combine score files
-#####
+# Read in target_list
+target_list <- read_param(config = opt$config, param = 'target_list', return_obj = T)
 
-log_add(log_file = log_file, message = paste0('Processing ', nrow(score_files),' score files.'))
+# Set params for plink_score
+opt$target_plink_chr <- paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr')
+opt$target_keep <- paste0(outdir, '/', opt$name, '/ancestry/keep_files/model_based/', opt$population, '.keep')
+refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
+opt$ref_freq_chr <- paste0(refdir, '/freq_files/', opt$population,'/ref.', opt$population,'.chr')
 
-# Extract SNP A1 and A2 information
-system(paste0('zcat ', outdir, '/reference/pgs_score_files/', score_files$method[1],'/', score_files$name[1],'/ref-',score_files$name[1],".score.gz | cut -d' ' -f1-3 - > ", tmp_dir,'/map.txt'))
+# Read in reference SNP data
+ref <- read_pvar(paste0(refdir, '/ref.chr'), chr = CHROMS)[, c('CHR','SNP','A1','A2'), with=F]
 
-# Extract process score files for each name (gwas/score) in parallel
-foreach(i = 1:nrow(score_files), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  system(paste0('zcat ', outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],".score.gz | cut -d' ' --complement -f1-3 - | sed '1 s/SCORE/",paste0(score_files$method[i],'.',score_files$name[i]),"/g' > ", tmp_dir,'/tmp_score.',paste0(score_files$method[i],'.',score_files$name[i]),'.txt'))
+# We will process score files and perform target scoring for one chromosome for efficiency
+for(chr_i in CHROMS){
+  log_add(log_file = log_file, message = '########################')
+  log_add(log_file = log_file, message = paste0('Processing chromosome ', chr_i,':'))
+
+  #####
+  # Combine score files
+  #####
+  # Create row number index to subset score files by chromosome
+  row_index <- format(which(ref$CHR == chr_i) + 1, scientific = FALSE)
+  write.table(row_index, paste0(tmp_dir,'/row_index.txt'), row.names=F, quote=F, col.names = F)
+
+  # Create file containing SNP, A1, and A2 information for each chromosome
+  fwrite(ref[ref$CHR == chr_i, c('SNP','A1','A2'), with=F], paste0(tmp_dir,'/map.txt'), row.names=F, quote=F, sep=' ')
+
+  # Extract process score files for each name (gwas/score) in parallel
+  foreach(i = 1:nrow(score_files), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+    system(paste0(
+      'zcat ', outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],".score.gz | ",
+      'awk \'NR==FNR {rows[$1]; next} FNR==1 || FNR in rows\' ', paste0(tmp_dir,'/row_index.txt'), ' - | ',  # Corrected to retain the header and process indexed rows
+      "cut -d' ' --complement -f1-3 | ",  # Keep relevant columns, remove first 3
+      "sed '1 s/SCORE/", paste0(score_files$method[i], '.', score_files$name[i]), "/g' > ",  # Replace SCORE in the header
+      tmp_dir, '/tmp_score.', paste0(score_files$method[i], '.', score_files$name[i]), '.txt'
+    ))
+  }
+
+  # Paste files together in batches
+  # Set number of batches according to the number of score files to combine
+  num_batches <- max(c(1, min(c(opt$n_cores, floor(nrow(score_files) / 2)))))
+  tmp_score_files <- paste0(tmp_dir,'/tmp_score.',score_files$method,'.',score_files$name,'.txt')
+  set.seed(1)
+  batches <- split(sample(tmp_score_files), rep(1:num_batches, length.out = length(tmp_score_files)))
+  log_add(log_file = log_file, message = paste0('Aggregating score files in ', num_batches,' batches.'))
+  foreach(i = 1:length(batches), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+    system(paste0("paste -d ' ' ", paste(batches[[i]], collapse = " "),' > ',tmp_dir,'/tmp_batch_',i))
+    system(paste0('rm ', paste(batches[[i]], collapse = " ")))
+  }
+
+  # Paste batches together
+  log_add(log_file = log_file, message = paste0('Aggregating batched score files.'))
+  tmp_batch_files <- paste0(tmp_dir,'/tmp_batch_',1:length(batches))
+  system(paste0("paste -d ' ' ", tmp_dir,'/map.txt ', paste(tmp_batch_files, collapse = " "), ' > ', tmp_dir, '/all_score.txt'))
+  system(paste0('rm ', paste(tmp_batch_files, collapse = " ")))
+
+  # Perform polygenic risk scoring
+  scores_i <-
+    plink_score(
+      pfile = opt$target_plink_chr,
+      chr = chr_i,
+      plink2 = opt$plink2,
+      score = paste0(tmp_dir,'/all_score.txt'),
+      keep = opt$target_keep,
+      frq = opt$ref_freq_chr,
+      threads = opt$n_cores
+    )
+
+  # Sum scores across chromosomes
+  if(chr_i == CHROMS[1]){
+    scores_ids <- scores_i[, 1:2, with = F]
+    current_scores <- as.matrix(scores_i[, -1:-2, with = FALSE])
+    scores <- current_scores
+  } else {
+    current_scores <- as.matrix(scores_i[, -1:-2, with = FALSE])
+    scores <- scores + current_scores
+  }
+
+  system(paste0('rm ', tmp_dir, '/all_score.txt'))
+  system(paste0('rm ', tmp_dir, '/row_index.txt'))
+  system(paste0('rm ', tmp_dir, '/map.txt'))
 }
 
-# Paste files together in batches
-# Set number of batches according to the number of score files to combine
-num_batches <- max(c(1, min(c(opt$n_cores, floor(nrow(score_files) / 2)))))
-tmp_score_files <- paste0(tmp_dir,'/tmp_score.',score_files$method,'.',score_files$name,'.txt')
-set.seed(1)
-batches <- split(sample(tmp_score_files), rep(1:num_batches, length.out = length(tmp_score_files)))
-log_add(log_file = log_file, message = paste0('Aggregating score files in ', num_batches,' batches.'))
-foreach(i = 1:length(batches), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  system(paste0("paste -d ' ' ", paste(batches[[i]], collapse = " "),' > ',tmp_dir,'/tmp_batch_',i))
-  system(paste0('rm ', paste(batches[[i]], collapse = " ")))
-}
+# Combine score with IDs
+scores<-data.table(scores_ids,
+                   scores)
 
-# Paste batches together
-log_add(log_file = log_file, message = paste0('Aggregating batched score files.'))
-tmp_batch_files <- paste0(tmp_dir,'/tmp_batch_',1:length(batches))
-system(paste0("paste -d ' ' ", tmp_dir,'/map.txt ', paste(tmp_batch_files, collapse = " "), ' > ', tmp_dir, '/all_score.txt'))
-system(paste0('rm ', paste(tmp_batch_files, collapse = " ")))
+###
+# Scale the polygenic scores based on the reference
+###
 
 # Read in scale file and update Param
 log_add(log_file = log_file, message = paste0('Reading in scale files.'))
@@ -130,35 +189,6 @@ for(i in 1:nrow(score_files)){
 
 # Concatenate scale files
 all_scale<-do.call(rbind, scale_files)
-
-#####
-# Perform polygenic risk scoring
-#####
-
-# Read in target_list
-target_list <- read_param(config = opt$config, param = 'target_list', return_obj = T)
-
-# Set params for plink_score
-opt$target_plink_chr <- paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr')
-opt$target_keep <- paste0(outdir, '/', opt$name, '/ancestry/keep_files/model_based/', opt$population, '.keep')
-refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
-opt$ref_freq_chr <- paste0(refdir, '/freq_files/', opt$population,'/ref.', opt$population,'.chr')
-
-log_add(log_file = log_file, message = 'Calculating polygenic scores in the target sample.')
-scores <-
-  plink_score(
-    pfile = opt$target_plink_chr,
-    chr = CHROMS,
-    plink2 = opt$plink2,
-    score = paste0(tmp_dir,'/all_score.txt'),
-    keep = opt$target_keep,
-    frq = opt$ref_freq_chr,
-    threads = opt$n_cores
-  )
-
-###
-# Scale the polygenic scores based on the reference
-###
 
 log_add(log_file = log_file, message = 'Scaling target polygenic scores to the reference.')
 scores<-score_scale(score=scores, ref_scale=all_scale)
