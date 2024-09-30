@@ -316,6 +316,9 @@ names(betas)[-1:-3] <- paste0('SCORE_', names(betas)[-1:-3])
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
 score_new <- map_score(ref = ref, score = betas)
 
+# Reduce number of significant figures to save space
+score_new[, (4:ncol(score_new)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_new)]
+
 fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){

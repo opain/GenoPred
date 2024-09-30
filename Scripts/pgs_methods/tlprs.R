@@ -229,6 +229,9 @@ for(i in 1:length(populations)){
 
 tl_betas_all<-Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1','A2'), all = TRUE, sort = F), tl_betas_list)
 
+# Reduce number of significant figures to save space
+tl_betas_all[, (4:ncol(tl_betas_all)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(tl_betas_all)]
+
 fwrite(tl_betas_all, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
