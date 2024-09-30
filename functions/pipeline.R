@@ -85,10 +85,10 @@ read_param <- function(config, param, return_obj = T){
     config_file <- read_yaml('config.yaml')
 
     if(all(names(config_file) != param)){
-      cat(param, 'parameter is not present in user specified config file or default config file.')
+      cat(param, 'parameter is not present in user specified config file or default config file.\n')
       return(NULL)
     } else {
-      cat(param, 'parameter is not present in user specified config file, so will use value in default config file.')
+      cat(param, 'parameter is not present in user specified config file, so will use value in default config file.\n')
     }
   }
 
@@ -174,6 +174,17 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
     stop('target_pop must be specified when using multi-ancestry PGS method')
   }
 
+  # Read in gwas_list
+  gwas_list <- read_param(config = config, param = 'gwas_list')
+
+  # Read in gwas_groups
+  gwas_groups <- read_param(config = config, param = 'gwas_groups')
+
+  # If pgs_method is multi-source, subset gwas_list to gwas in relevant group
+  if(pgs_method %in% pgs_group_methods){
+    gwas_list <- gwas_list[gwas_list$name %in% unlist(strsplit(gwas_groups$gwas[gwas_groups$name == gwas], ','))]
+  }
+
   # Identify score files
   score_file_list <- list_score_files(config)
 
@@ -247,18 +258,25 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   }
   if(pgs_method == 'xwing'){
     if(!is.null(target_pop) && target_pop == 'TRANS'){
-      cat('No pseudovalidation for TRANS target population available for xwing.')
-      cat('Returning result for EUR target population.')
-      pseudo_val <- 'targ_EUR_weighted'
-    } else {
-      pseudo_val <- paste0('targ_', target_pop, '_weighted')
+      cat('No pseudovalidation for TRANS target population available for xwing.\n')
+      cat('Returning result for EUR target population.\n')
+      target_pop <- 'EUR'
+    } else if(!is.null(target_pop) && !(target_pop %in% gwas_list$population)){
+      cat(paste0('target_pop ', target_pop,' is not present in gwas_group ', gwas, '.\n'))
+      cat('Returning result for EUR target population.\n')
+      target_pop <- 'EUR'
     }
+    pseudo_val <- paste0('targ_', target_pop, '_weighted')
   }
 
   if(tlprs){
     if(!is.null(target_pop) && target_pop == 'TRANS'){
-      cat('No pseudovalidation for TRANS target population available for tlprs')
-      cat('Returning result for EUR target population.')
+      cat('No pseudovalidation for TRANS target population available for xwing.\n')
+      cat('Returning result for EUR target population.\n')
+      target_pop <- 'EUR'
+    } else if(!is.null(target_pop) && !(target_pop %in% gwas_list$population)){
+      cat(paste0('target_pop ', target_pop,' is not present in gwas_group ', gwas, '.\n'))
+      cat('Returning result for EUR target population.\n')
       target_pop <- 'EUR'
     }
     pseudo_val <- paste0('targ_', target_pop, '_', pseudo_val, '_TLPRS_61')

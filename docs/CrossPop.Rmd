@@ -391,6 +391,8 @@ done
 
 # Download relevant BBJ sumstats
 
+<details><summary>Show code</summary>
+
 ```{r}
 # Identify wget command for relevant phenotypes
 library(data.table)
@@ -447,12 +449,127 @@ sbatch -p neurohack_cpu --wrap="/users/k1806347/oliverpainfel/Software/pigz -dc 
 done
 
 ```
+</details>
+
+***
+
+# Download relevant UGR sumstats
+
+<details><summary>Show code</summary>
+
+```{r}
+# Identify wget command for relevant phenotypes
+library(data.table)
+
+# Read in UGR GWAS info from GWAS catalogue
+ugr_gwas<-fread('~/oliverpainfel/Data/GWAS_sumstats/UGR/ugr_sumstats.csv')
+
+# Map UGR trait names to those used for UKB
+ugr_gwas$trait<-gsub(' levels','', ugr_gwas$reportedTrait)
+ugr_gwas$trait<-gsub(' count','', ugr_gwas$trait)
+
+ugr_to_prscsx <- c(
+  "Aspartate aminotransferase" = "Aspartate transaminase",
+  "Bilirubin" = NA,  # No direct match
+  "Eosinophils" = "Eosinophil",
+  "Gamma glutamyl transferase" = "γ-glutamyl transpeptidase",
+  "HDL cholesterol" = "HDL-cholesterol",
+  "Hemoglobin A1c" = "HbA1c",
+  "Hip circumference" = NA,  # No direct match
+  "LDL cholesterol" = "LDL-cholesterol",
+  "Red cell distribution width" = NA,  # No direct match
+  "Serum albumin" = "Albumin",
+  "Serum alkaline phosphatase" = "Alkaline phosphatase",
+  "Systolic blood pressure" = "Sytolic blood pressure",
+  "Triglyceride" = "Triglycerides",
+  "Waist circumference" = NA,  # No direct match
+  "Waist-hip ratio" = NA,  # No direct match
+  "Weight" = "Body weight"
+)
+
+ugr_gwas$trait <- ifelse(ugr_gwas$trait %in% names(ugr_to_prscsx),
+                                   ugr_to_prscsx[ugr_gwas$trait],
+                                   ugr_gwas$trait)
+
+# Merge the ugr trait info with the prscsx trait info
+prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
+prscsx_dat <- merge(ugr_gwas, prscsx_dat, by='trait')
+
+write.csv(prscsx_dat, '~/oliverpainfel/Data/GWAS_sumstats/UGR/ugr_sumstats_prscsx.csv', row.names = F)
+
+# Create column indicating wget command
+for(i in 1:nrow(prscsx_dat)){
+  log<-system(paste0('curl ', gsub('http:','ftp:', prscsx_dat$summaryStatistics[i]), '/'), intern = T)
+  log<-log[grepl('.txt.gz', log)]
+  log<-gsub('.* ','', log)
+  prscsx_dat$wget[i]<-paste0(prscsx_dat$summaryStatistics[i], '/', log)
+}
+
+# Write a table showing label matching prscsx info and wget url
+write.table(prscsx_dat[, c('labels', 'wget'), with=F], '~/oliverpainfel/Data/GWAS_sumstats/UGR/ugr_sumstats_wget.txt', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+# wget and unzip sumstats
+for pheno in $(head -n 5 ~/oliverpainfel/Data/GWAS_sumstats/UGR/ugr_sumstats_wget.txt | cut -d' ' -f 1); do
+  url=$(awk -v var="$pheno" '$1 == var {print $2}' ~/oliverpainfel/Data/GWAS_sumstats/UGR/ugr_sumstats_wget.txt)
+  sbatch -p cpu --wrap="wget -O ~/oliverpainfel/Data/GWAS_sumstats/UGR/${pheno}.txt.gz ${url}"
+done
+
+```
+
+```{r}
+library(data.table)
+ugr_data<-fread('~/oliverpainfel/Data/GWAS_sumstats/UGR/ugr_sumstats_prscsx.csv')[1:5,]
+
+for(i in 1:nrow(ugr_data)){
+  sumstats <- fread(paste0("~/oliverpainfel/Data/GWAS_sumstats/UGR/", ugr_data$label[i], ".txt.gz"))
+  sumstats <- sumstats[, names(sumstats) %in% c("snpid", "pval_fe", "se_fe") | grepl('^beta_|^af_|^no_', names(sumstats)), with=F]
+
+  # Extract CHR, BP, A1, A2 from snpid
+  snp_split <- tstrsplit(sumstats$snpid, ":", fixed = TRUE)
+  sumstats[, `:=`(CHR = snp_split[[1]], BP = snp_split[[2]], A1 = snp_split[[3]], A2 = snp_split[[4]])]
+
+  # Set no_ and af_ to NA if beta is NA
+  cohorts <- gsub('^no_','', names(sumstats)[grepl('^no_', names(sumstats))])
+  for (cohort in cohorts) {
+    sumstats[[paste0('no_', cohort)]][is.na(sumstats[[paste0('beta_', cohort)]])] <- NA
+    sumstats[[paste0('af_', cohort)]][is.na(sumstats[[paste0('beta_', cohort)]])] <- NA
+  }
+
+  # Calculate sample size weighted average for allele frequency
+  for (cohort in cohorts) {
+    sumstats[[paste0('af_', cohort, '_weighted')]] <- sumstats[[paste0('af_', cohort)]] * sumstats[[paste0('no_', cohort)]]
+  }
+  
+  # Calculate total N and frequency
+  sumstats[, N := rowSums(.SD, na.rm = TRUE), .SDcols = patterns("^no_")]
+  sumstats[, FREQ := rowSums(.SD, na.rm = TRUE) / N, .SDcols = patterns("weighted$")]
+
+  # Rename columns
+  setnames(sumstats, old = c('beta_fe', 'se_fe', 'pval_fe'), new = c('BETA', 'SE', 'P'))
+
+  # Select relevant columns and remove rows with missing data
+  sumstats <- sumstats[, .(CHR, BP, A1, A2, BETA, SE, P, FREQ, N)]
+  sumstats <- sumstats[complete.cases(sumstats)]
+  
+  fwrite(sumstats, paste0("~/oliverpainfel/Data/GWAS_sumstats/UGR/", ugr_data$label[i], ".reformat.txt.gz"), sep=' ', quote=F, na='NA')
+  
+}
+
+```
+
+</details>
+
 
 ***
 
 # Run GenoPred
 
 ## Prepare configuration
+
+<details><summary>Show code</summary>
 
 ```{r}
 ######
@@ -524,6 +641,7 @@ config<-c(
 write.table(config, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/config.yaml', col.names = F, row.names = F, quote = F)
 
 ```
+</details>
 
 ***
 
@@ -542,6 +660,8 @@ Lets use the model builder script which implements nested 10 fold cross validati
 ***
 
 ## Create predictor lists
+
+<details><summary>Show code</summary>
 
 ```{r}
 
@@ -725,10 +845,13 @@ for(pop_i in pop){
 }
 
 ```
+</details>
 
 ***
 
 ## Run model_builder
+
+<details><summary>Show code</summary>
 
 ```{bash}
 ###########
@@ -778,11 +901,11 @@ for targ_pop in $(echo AFR CSA AMR); do
   fi
 
   for pheno in $(head -n 4 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt | tail -n 1); do
-    sbatch --mem 50G -n 10 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
+    sbatch --mem 20G -n 5 -p cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
       --outcome /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
       --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/multi.targ_${targ_pop}/${pheno}/predictor_list.txt \
       --out /users/k1806347/oliverpainfel/Analyses/crosspop/multi.targ_${targ_pop}/${pheno}/res \
-      --n_core 10 \
+      --n_core 5 \
       --top1 T \
       --all_model F \
       --assoc T"
@@ -790,6 +913,7 @@ for targ_pop in $(echo AFR CSA AMR); do
 done
 
 ```
+</details>
 
 ***
 
@@ -798,6 +922,8 @@ done
 ### Assoc results
 
 Let's see how results vary across parameters. This is a sanity check as well as being informative of how I should structure the models for each method.
+
+<details><summary>Show code</summary>
 
 ```{r}
 library(data.table)
@@ -811,7 +937,7 @@ prscsx_dat<-prscsx_dat[4,]
 single_plot_list<-list()
 prscsx_xwing_plot_list<-list()
 tlprs_plot_list<-list()
-pop=c('EUR','EAS')
+pop=c('EUR','EAS','AFR','CSA','AMR')
 for(pheno_i in prscsx_dat$labels){
   res_i<-NULL
   for(targ_pop_i in pop){
@@ -920,7 +1046,7 @@ png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/single.assoc.png',
   res = 300,
   height = 1000*nrow(prscsx_dat),
-  width = 4000,
+  width = 8000,
   units = 'px'
 )
 plot_grid(plotlist = single_plot_list, labels = names(single_plot_list), ncol=1)
@@ -930,7 +1056,7 @@ png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/multi.prscsx_xwing.assoc.png',
   res = 300,
   height = 1000*nrow(prscsx_dat),
-  width = 4000,
+  width = 8000,
   units = 'px'
 )
 plot_grid(plotlist = prscsx_xwing_plot_list, labels = names(prscsx_xwing_plot_list), ncol=1)
@@ -939,7 +1065,7 @@ dev.off()
 png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/multi.tlprs.assoc.png',
   res = 300,
-  height = 1200*nrow(prscsx_dat),
+  height = 3500*nrow(prscsx_dat),
   width = 4000,
   units = 'px'
 )
@@ -947,6 +1073,7 @@ plot_grid(plotlist = tlprs_plot_list, labels = names(tlprs_plot_list), ncol=1)
 dev.off()
 
 ```
+</details>
 
 - PRS-CSx say to model the EUR, EAS and META output (for each phi)
 - x-wing produce output for each target population
@@ -955,6 +1082,8 @@ dev.off()
 ***
 
 ### Prediction modelling results
+
+<details><summary>Show code</summary>
 
 ```{r}
 setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
@@ -986,11 +1115,12 @@ gwas_groups<-read_param(config = config, param = 'gwas_groups')
 #############
 
 plot_list<-list()
-pop=c('EUR','EAS')
+disc_pop=c('EUR','EAS')
+targ_pop=c('EUR','EAS','AFR','CSA','AMR')
 for(pheno_i in prscsx_dat$labels){
   res_i<-NULL
-  for(disc_pop_i in pop){
-    for(targ_pop_i in pop){
+  for(disc_pop_i in disc_pop){
+    for(targ_pop_i in targ_pop){
         eval_i <-
           fread(
             paste0(
@@ -1036,7 +1166,7 @@ png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/single.eval.png',
   res = 300,
   height = 1200*nrow(prscsx_dat),
-  width = 4000,
+  width = 5000,
   units = 'px'
 )
 plot_grid(plotlist = plot_list, labels = names(plot_list), ncol=1)
@@ -1047,7 +1177,7 @@ dev.off()
 #############
 
 plot_list<-list()
-pop=c('EUR','EAS')
+pop=c('EUR','EAS','AFR','CSA','AMR')
 for(pheno_i in prscsx_dat$labels){
   res_i<-NULL
   for(targ_pop_i in pop){
@@ -1095,11 +1225,12 @@ png(
   '/users/k1806347/oliverpainfel/Analyses/crosspop/multi.eval.png',
   res = 300,
   height = 1200*nrow(prscsx_dat),
-  width = 3000,
+  width = 5000,
   units = 'px'
 )
 plot_grid(plotlist = plot_list, labels = names(plot_list), ncol=1)
 dev.off()
 
 ```
+</details>
 

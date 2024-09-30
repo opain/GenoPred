@@ -71,7 +71,7 @@ tmp_dir <- tempdir()
 
 # Create directory for final models to be saved
 if(opt$export_models){
-  system(paste0('mkdir ', opt$output_dir, '/final_models'))
+  system(paste0('mkdir -p ', opt$output_dir, '/final_models'))
 }
 
 # Initiate log file
