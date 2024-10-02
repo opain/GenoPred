@@ -31,18 +31,6 @@ rule ref_pca:
 # QC and format GWAS summary statistics
 ##
 
-# Read in the gwas_list or make an empty version
-if 'gwas_list' in config and config["gwas_list"] != 'NA':
-  gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
-else:
-  gwas_list_df = pd.DataFrame(columns = ["name", "path", "population", "n", "sampling", "prevalence", "mean", "sd", "label"])
-
-# Check whether gwas_list paths exist
-check_list_paths(gwas_list_df)
-
-# Identify gwas_list with population == 'EUR'
-gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
-
 if 'gwas_list' in config:
   rule sumstat_prep_i:
     input:
@@ -304,7 +292,7 @@ rule prep_pgs_ldpred2_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    rules.download_ldpred2_ref.output
+    lambda w: f"{ldpred2_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds"
   output:
     f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -315,6 +303,7 @@ rule prep_pgs_ldpred2_i:
     "../envs/analysis.yaml"
   params:
     model=",".join(map(str, config["ldpred2_model"])),
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     inference=",".join(map(str, config["ldpred2_inference"])),
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
@@ -323,8 +312,7 @@ rule prep_pgs_ldpred2_i:
     "export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/ldpred2.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_keep {refdir}/keep_files/EUR.keep \
-      --ldpred2_ref_dir {resdir}/data/ldpred2_ref \
+      --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -336,7 +324,7 @@ rule prep_pgs_ldpred2_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:
-  input: expand(f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df_eur['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # LDAK MegaPRS

@@ -8,8 +8,6 @@ option_list = list(
       help="Path to per chromosome reference PLINK files [required]"),
   make_option("--ldpred2_ref_dir", action="store", default=NULL, type='character',
       help="Path to directory containing LDpred2 reference data [required]"),
-  make_option("--ref_keep", action="store", default=NULL, type='character',
-      help="Keep file to subset individuals in reference for auto model [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
       help="File containing the population code and location of the keep file [required]"),
   make_option("--plink2", action="store", default='plink2', type='character',
@@ -124,7 +122,8 @@ if(!is.na(opt$test)){
 
 # Harmonise with the LDpred2 reference
 map<-readRDS(paste0(opt$ldpred2_ref_dir, '/map.rds'))
-map<-map[, c('chr', 'pos', 'a0', 'a1', 'af_UKBB', 'ld')]
+names(map)[names(map) == 'af_UKBB']<-'af'
+map<-map[, c('chr', 'pos', 'a0', 'a1', 'af', 'ld')]
 info_snp <- snp_match(sumstats, map)
 
 #####
@@ -132,7 +131,7 @@ info_snp <- snp_match(sumstats, map)
 #####
 
 # Remove SDss < 0.5 * SDval or SDss > 0.1 + SDval or SDss < 0.1 or SDval < 0.05
-sd_val <- with(info_snp, sqrt(2 * af_UKBB * (1 - af_UKBB)))
+sd_val <- with(info_snp, sqrt(2 * af * (1 - af)))
 
 if(opt$binary == F){
   sd_y_est = median(sd_val * info_snp$beta_se * sqrt(info_snp$n_eff))

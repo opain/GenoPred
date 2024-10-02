@@ -113,6 +113,18 @@ check_config_parameters(config)
 # Set outdir parameter
 outdir=config['outdir']
 
+# Read in the gwas_list or make an empty version
+if 'gwas_list' in config and config["gwas_list"] != 'NA':
+  gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
+else:
+  gwas_list_df = pd.DataFrame(columns = ["name", "path", "population", "n", "sampling", "prevalence", "mean", "sd", "label"])
+
+# Check whether gwas_list paths exist
+check_list_paths(gwas_list_df)
+
+# Identify gwas_list with population == 'EUR'
+gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
+
 # Set PRS-CS ld reference path
 if config['prscs_ldref'] == 'ukb':
     prscs_ldref='ukbb'
@@ -125,6 +137,29 @@ if config['resdir'] == 'NA':
   resdir='resources'
 else:
   resdir=config['resdir']
+
+# Set ldpred2 reference path
+if config['ldpred2_ldref'] == 'NA':
+  ldpred2_ldref=f"{resdir}/data/ldpred2_ref"
+else:
+  ldpred2_ldref=config['ldpred2_ldref']
+
+# Check the ldpred2 ldref data is present for the required populations in the gwas_list
+if 'ldpred2' in config['pgs_methods']:
+  for pop in gwas_list_df['population'].unique():
+    path = f"{ldpred2_ldref}/{pop}"
+    # Check if map.rds file exists
+    map_file = os.path.join(path, "map.rds")
+    if not os.path.exists(map_file):
+      print(f"File not found: {map_file}")
+      raise FileNotFoundError(f"Required file not found: {map_file}. LDpred2 reference data must include map.rds for all populations.")
+
+    # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
+    for chr in range(1, 23):
+      ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
+      if not os.path.exists(ld_file):
+        print(f"File not found: {ld_file}")
+        raise FileNotFoundError(f"Required file not found: {ld_file}. LDpred2 reference data must include files for all chromosomes.")
 
 # Set refdir parameter
 # If refdir is NA, set refdir to '${resdir}/data/ref'
@@ -544,7 +579,7 @@ rule download_gctb_software:
 # Download LDpred2 reference
 rule download_ldpred2_ref:
   output:
-    directory(f"{resdir}/data/ldpred2_ref")
+    f"{resdir}/data/ldpred2_ref/EUR/map.rds"
   benchmark:
     f"{resdir}/data/benchmarks/download_ldpred2_ref.txt"
   log:
@@ -552,14 +587,14 @@ rule download_ldpred2_ref:
   shell:
     """
     {{
-      mkdir -p {resdir}/data/ldpred2_ref; \
-      wget --no-check-certificate -O {resdir}/data/ldpred2_ref/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
-      unzip {resdir}/data/ldpred2_ref/download.zip -d {resdir}/data/ldpred2_ref/; \
-      rm {resdir}/data/ldpred2_ref/download.zip; \
-      unzip {resdir}/data/ldpred2_ref/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/; \
-      mv {resdir}/data/ldpred2_ref/ldref/* {resdir}/data/ldpred2_ref/; \
-      rm {resdir}/data/ldpred2_ref/ldref_with_blocks.zip; \
-      rm -r {resdir}/data/ldpred2_ref/ldref
+      mkdir -p {resdir}/data/ldpred2_ref/EUR; \
+      wget --no-check-certificate -O {resdir}/data/ldpred2_ref/EUR/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
+      unzip {resdir}/data/ldpred2_ref/EUR/download.zip -d {resdir}/data/ldpred2_ref/EUR/; \
+      rm {resdir}/data/ldpred2_ref/EUR/download.zip; \
+      unzip {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/EUR/; \
+      mv {resdir}/data/ldpred2_ref/EUR/ldref/* {resdir}/data/ldpred2_ref/EUR/; \
+      rm {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip; \
+      rm -r {resdir}/data/ldpred2_ref/EUR/ldref
     }} > {log} 2>&1
     """
 # Download LDAK

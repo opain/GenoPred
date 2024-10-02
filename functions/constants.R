@@ -43,7 +43,7 @@ pgs_method_labels <- data.frame(
 pgs_method_labels<-pgs_method_labels[order(pgs_method_labels$method),]
 
 # Make vector indicating pgs_methods that can be applied to non-european GWAS
-pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs','dbslmm')
+pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs','dbslmm','ldpred2')
 
 # Make vector indicating pgs_methods that are to be applied to gwas_groups
 pgs_group_methods <- c('prscsx','xwing','tlprs')
