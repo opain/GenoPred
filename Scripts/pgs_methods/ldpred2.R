@@ -244,13 +244,25 @@ if('grid' %in% opt$model){
 ####
 
 if('auto' %in% opt$model){
-  coef_shrink <- 0.95
 
-  # takes less than 2 min with 4 cores
-  multi_auto <- snp_ldpred2_auto(
-    corr, sumstats, h2_init = ldsc[["h2"]],
-    vec_p_init = seq_log(1e-4, 0.2, length.out = 30), ncores = opt$n_cores,
-    allow_jump_sign = FALSE, shrink_corr = coef_shrink)
+  coef_shrink <- seq(0.95, 0.4, by = -0.05) # Updated the sequence to decrement correctly
+
+  for(coef_shrink_i in coef_shrink){
+    multi_auto <- snp_ldpred2_auto(
+      corr, sumstats, h2_init = ldsc[["h2"]],
+      vec_p_init = seq_log(1e-4, 0.2, length.out = 30), ncores = opt$n_cores,
+      allow_jump_sign = FALSE, shrink_corr = coef_shrink_i)
+
+    if(!all(is.na(multi_auto[[1]]$beta_est))){
+      log_add(log_file = log_file, message = paste0('Auto model: ld matrix shrink_corr=', coef_shrink_i,' was used'))
+      break  # Break the loop if beta_est is not all NA
+    }
+
+    if(coef_shrink_i == 0.4 && all(is.na(multi_auto[[1]]$beta_est))){
+      log_add(log_file = log_file, message = 'Error: auto model did not converge even with shrink_corr=0.4.')
+      stop('auto model did not converge even with shrink_corr=0.4.')
+    }
+  }
 
   # Create convergence plot
   auto <- multi_auto[[1]] # first chain
@@ -355,13 +367,12 @@ for(pop_i in unique(pop_data$POP)){
 if(opt$inference){
 
   log_add(log_file = log_file, message = 'Performing inference...')
-  coef_shrink <- 0.95
-
+  coef_shrink_i
   multi_auto <- snp_ldpred2_auto(
     corr, sumstats, h2_init = ldsc[["h2"]],
     vec_p_init = seq_log(1e-4, 0.2, length.out = 50), ncores = opt$n_cores,
     burn_in = 500, num_iter = 500, report_step = 20,
-    allow_jump_sign = FALSE, shrink_corr = coef_shrink)
+    allow_jump_sign = FALSE, shrink_corr = coef_shrink_i)
 
   range <- sapply(multi_auto, function(auto) diff(range(auto$corr_est)))
   keep <- which(range > (0.95 * quantile(range, 0.95, na.rm = TRUE)))
@@ -389,7 +400,7 @@ if(opt$inference){
   all_r2 <- do.call("cbind", lapply(seq_along(bsamp), function(ic) {
     b1 <- bsamp[[ic]]
     Rb1 <- apply(b1, 2, function(x)
-      coef_shrink * bigsparser::sp_prodVec(corr, x) + (1 - coef_shrink) * x)
+      coef_shrink_i * bigsparser::sp_prodVec(corr, x) + (1 - coef_shrink_i) * x)
     b2 <- do.call("cbind", bsamp[-ic])
     b2Rb1 <- as.matrix(Matrix::crossprod(b2, Rb1))
   }))
