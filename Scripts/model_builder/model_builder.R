@@ -147,6 +147,9 @@ for(i in unique(group_list$group)){
   group_list$n[group_list$group == i] <- sum(group_list$group == i)
 }
 
+write.table(group_list[!duplicated(group_list$group), c('group','n'), with = F], paste0(opt$out,'.group_list.txt'), col.names=T, row.names=F, quote=F)
+log_add(log_file = log_file, message = paste0('List of groups saved as ',opt$out,'.group_list.txt.'))
+
 ###########
 # Read in the outcome data
 ###########
@@ -182,7 +185,9 @@ log_add(log_file = log_file, message = paste0('Data to be carried foward is ',fo
 ############
 
 if(opt$assoc){
-  log_add(log_file = log_file, message = 'Performing association analysis with each predictor...')
+  # Initialise progress log
+  log_message <- 'Performing association analysis with each predictor... '
+  progress_file <- initialise_progress(log_message = log_message, log_file = log_file)
 
 	outcome_predictors_y <- outcome_predictors$outcome_var
 	outcome_predictors_x <- outcome_predictors[, -1:-2]
@@ -211,6 +216,8 @@ if(opt$assoc){
 	  )
 
 	}
+
+	update_log_file(log_file = log_file, message = paste0(log_message, 'Done!'))
 
 	if(family == 'binomial'){
   	assoc_res$N_case <- sum(outcome_predictors_y == 'CASE')
