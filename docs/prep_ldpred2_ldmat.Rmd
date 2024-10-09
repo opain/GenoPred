@@ -3,9 +3,6 @@ title: Preparing LDpred2 LD matrices
 output: 
   html_document:
     theme: cosmo
-    toc: true
-    toc_float: true
-    toc_depth: 2
     css: styles/styles.css
     includes:
       in_header: header.html
@@ -80,10 +77,9 @@ for(pop in c('EUR', 'EAS', 'AFR')){
       )
     )
   G <- ref$genotypes
-  NCORES <- nb_cores()
-  
+
   #### Impute missing values (bigsnpr can't handle missing data in most functions)
-  G_imp <- snp_fastImputeSimple(G, method = "mean2", ncores = NCORES)
+  G_imp <- snp_fastImputeSimple(G, method = "mean2", ncores = nb_cores())
 
   # Save imputed reference
   ref$genotypes<-G_imp
@@ -102,8 +98,10 @@ for(pop in c('EUR', 'EAS', 'AFR')){
 library(dplyr)
 library(bigreadr)
 library(bigsnpr)
+library(future.batchtools)
+library(furrr)
 
-for(pop in c('EAS', 'AFR')){
+for(pop in c('EUR', 'EAS', 'AFR')){
   obj.1000G <- snp_attach(paste0(
           '/scratch/prj/oliverpainfel/Data/1KG/ldpred2/',
           pop,
@@ -114,12 +112,18 @@ for(pop in c('EAS', 'AFR')){
   G <- obj.1000G$genotypes
   CHR <- obj.1000G$map$chromosome
   POS <- obj.1000G$map$physical.pos
-  POS2 <- snp_asGeneticPos(CHR, POS, dir ='/users/k1806347/oliverpainfel/Data/Genetic_Map/CEU', ncores = NCORES) # Note this is not appropriate but I think Florian did the same as used distance from UKB
-  MAF <- snp_MAF(G, ncores = NCORES)
+  POS2 <- snp_asGeneticPos(CHR, POS, dir ='/users/k1806347/oliverpainfel/Data/Genetic_Map/CEU', ncores = nb_cores()) # Note this is not appropriate but I think Florian did the same as used distance from UKB
+  MAF <- snp_MAF(G, ncores = nb_cores())
   keep <- (MAF > 0.02)
 
-  all_final_grp <- NULL
-  for(chr in 1:22){
+  plan(batchtools_slurm(resources = list(
+    time = "12:00:00",
+    ntasks = 5,
+    mem = "20g",
+    partition = "neurohack_cpu"
+  )))
+  
+  all_final_grp <- furrr::future_map_dfr(1:22, function(chr) {
     ind.chr2 <- which(CHR == chr & keep)
 
     corr0 <- runonce::save_run({
@@ -128,7 +132,7 @@ for(pop in c('EAS', 'AFR')){
         ind.col = ind.chr2,
         infos.pos = POS2[ind.chr2],
         size = 3 / 1000,
-        ncores = NCORES
+        ncores = nb_cores()
       )
     }, file = paste0(
       '/scratch/prj/oliverpainfel/Data/1KG/ldpred2/',
@@ -139,9 +143,13 @@ for(pop in c('EAS', 'AFR')){
     ))
     
     # find nearly independent LD blocks
+    # Playing around with the snp_ldsplit function, the max_r2 needs to be increased to 0.2 for AFR populations.
+    # This might be because we are using an inappropriate recombination map (EUR)?
+    # Use max_r2 = 0.15 for EUR and EAS as in Florian's code, but increase to 0.2 for AFR. Note. this is still lower than the default of 0.3.
+    max_r2 <- ifelse(pop %in% c('EUR','EAS'), 0.15, 0.25)
     m <- length(ind.chr2)
     (SEQ <- round(seq_log(m / 30, m / 5, length.out = 20)))
-    splits <- snp_ldsplit(corr0, thr_r2 = 0.05, min_size = 50, max_size = SEQ, max_r2 = 0.15)
+    splits <- snp_ldsplit(corr0, thr_r2 = 0.05, min_size = 50, max_size = SEQ, max_r2 = max_r2)
     splits$cost2 <- sapply(splits$all_size, function(sizes) sum(sizes^2))
   
     best_split <- splits %>%
@@ -167,8 +175,9 @@ for(pop in c('EAS', 'AFR')){
     ))
   
     # return
-    all_final_grp <- rbind(all_final_grp, tibble(best_split, ind = list(ind.chr2)))
-  }
+    tibble(best_split, ind = list(ind.chr2))
+  })
+  
   saveRDS(
     all_final_grp,
     paste0(
@@ -184,7 +193,7 @@ for(pop in c('EAS', 'AFR')){
   map <- obj.1000G$map[keep,]
 
   # Compute allele frequency
-  map$af<-big_colstats(G, ind.col = which(keep), ncores = NCORES)$sum / (2 * nrow(G))
+  map$af<-big_colstats(G, ind.col = which(keep), ncores = nb_cores())$sum / (2 * nrow(G))
   
   # Compute LD scores
   map$ld <- do.call('c', lapply(1:22, function(chr) {
