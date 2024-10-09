@@ -119,6 +119,11 @@ if 'gwas_list' in config and config["gwas_list"] != 'NA':
 else:
   gwas_list_df = pd.DataFrame(columns = ["name", "path", "population", "n", "sampling", "prevalence", "mean", "sd", "label"])
 
+# Check for duplicate values in the 'name' column
+duplicate_names = gwas_list_df[gwas_list_df['name'].duplicated(keep=False)]
+if not duplicate_names.empty:
+    raise ValueError(f"Duplicate values found in 'name' column of the gwas_list: {', '.join(duplicate_names['name'].unique())}")
+
 # Check whether gwas_list paths exist
 check_list_paths(gwas_list_df)
 
@@ -160,6 +165,29 @@ if 'ldpred2' in config['pgs_methods']:
       if not os.path.exists(ld_file):
         print(f"File not found: {ld_file}")
         raise FileNotFoundError(f"Required file not found: {ld_file}. LDpred2 reference data must include files for all chromosomes.")
+
+# Set sbayesr reference path
+if config['sbayesr_ldref'] == 'NA':
+  sbayesr_ldref=f"{resdir}/data/ldpred2_ref"
+else:
+  sbayesr_ldref=config['sbayesr_ldref']
+
+# Check the sbayesr ldref data is present for the required populations in the gwas_list
+if 'sbayesr' in config['pgs_methods']:
+  for pop in gwas_list_df['population'].unique():
+    path = f"{sbayesr_ldref}/{pop}"
+    # Check if map.rds file exists
+    map_file = os.path.join(path, "map.rds")
+    if not os.path.exists(map_file):
+      print(f"File not found: {map_file}")
+      raise FileNotFoundError(f"Required file not found: {map_file}. SBayesR reference data must include map.rds for all populations.")
+
+    # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
+    for chr in range(1, 23):
+      ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
+      if not os.path.exists(ld_file):
+        print(f"File not found: {ld_file}")
+        raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
 
 # Set refdir parameter
 # If refdir is NA, set refdir to '${resdir}/data/ref'

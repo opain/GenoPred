@@ -387,7 +387,12 @@ else:
   pgs_methods = config['pgs_methods']
   pgs_methods_all = config['pgs_methods']
 
-# Check whether gwas_list paths exist
+# Check for duplicate values in the 'name' column
+duplicate_names = score_list_df[score_list_df['name'].duplicated(keep=False)]
+if not duplicate_names.empty:
+    raise ValueError(f"Duplicate values found in 'name' column of the score_list: {', '.join(duplicate_names['name'].unique())}")
+
+# Check whether score_list paths exist
 check_list_paths(score_list_df)
 
 # Download PGS score files for PGSC if path is NA
@@ -476,6 +481,11 @@ if 'gwas_groups' in config and config["gwas_groups"] != 'NA':
   gwas_groups_df = pd.read_table(config["gwas_groups"], sep=r'\s+')
 else:
   gwas_groups_df = pd.DataFrame(columns = ["name", "gwas", "label"])
+
+# Check for duplicate values in the 'name' column
+duplicate_names = gwas_groups_df[gwas_groups_df['name'].duplicated(keep=False)]
+if not duplicate_names.empty:
+    raise ValueError(f"Duplicate values found in 'name' column of the gwas_groups file: {', '.join(duplicate_names['name'].unique())}")
 
 # Function to get the list of GWAS names for a given group
 def get_gwas_names(gwas_group):

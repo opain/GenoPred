@@ -16,6 +16,11 @@ else:
   target_list_df_samp = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
   target_list_df_indiv_report = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
 
+# Check for duplicate values in the 'name' column
+duplicate_names = target_list_df[target_list_df['name'].duplicated(keep=False)]
+if not duplicate_names.empty:
+    raise ValueError(f"Duplicate values found in 'name' column of the target_list: {', '.join(duplicate_names['name'].unique())}")
+
 ####
 # Format target data
 ####
