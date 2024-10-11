@@ -638,10 +638,12 @@ rule prep_pgs_tlprs_i:
     sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
     scores= lambda w: ",".join(expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method=w.method)),
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
-    testing=config["testing"]
+    testing=config["testing"],
+    config_file = config["config_file"]
   shell:
     """
     Rscript ../Scripts/pgs_methods/tlprs.R \
+      --config {params.config_file} \
       --ref_plink_chr {refdir}/ref.chr \
       --sumstats {params.sumstats} \
       --scores {params.scores} \
