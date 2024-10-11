@@ -55,7 +55,7 @@ system(paste0('mkdir -p ',opt$output_dir))
 tmp_dir<-tempdir()
 
 # Initiate log file
-log_file <- paste0(opt$output,'.log')
+log_file <- paste0(opt$output, '_', format(Sys.time(), "%Y-%m-%d_%H-%M-%S"), '.log')
 log_header(log_file = log_file, opt = opt, script = 'target_scoring_pipeline.R', start.time = start.time)
 
 # If testing, change CHROMS to chr value
@@ -69,8 +69,31 @@ if(!is.na(opt$test)){
 # Identify score files to be combined
 score_files<-list_score_files(opt$config)
 
-if(is.null(score_files)){
-  log_add(log_file = log_file, message = paste0('No score files specified.'))
+# Check whether score files or target genetic data are newer than target pgs
+if(!is.null(score_files)){
+  ancestry_reporter_file<-paste0(outdir, '/reference/target_checks/', opt$name, '/ancestry_reporter.done')
+  ancestry_reporter_file_time <- file.info(ancestry_reporter_file)$mtime
+  score_files_to_do <- data.table()
+  for(i in 1:nrow(score_files)){
+    pgs_i <- paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.profiles')
+    score_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '.score.gz')
+    if(!file.exists(pgs_i)){
+      score_files_to_do <- rbind(score_files_to_do, score_files[i,])
+    } else {
+      score_i_time <- file.info(score_i)$mtime
+      pgs_i_time <- file.info(pgs_i)$mtime
+      if (score_i_time > pgs_i_time | ancestry_reporter_file_time > pgs_i_time) {
+        score_files_to_do <- rbind(score_files_to_do, score_files[i,])
+        system(paste0('rm ', pgs_i))
+      }
+    }
+  }
+  log_add(log_file = log_file, message = paste0('After checking timestamps, ', nrow(score_files_to_do), '/', nrow(score_files), ' score files will be used for target scoring.'))
+  score_files <- score_files_to_do
+}
+
+if(is.null(score_files) || nrow(score_files) == 0){
+  log_add(log_file = log_file, message = paste0('No score files to be used for target scoring.'))
   end.time <- Sys.time()
   time.taken <- end.time - start.time
   sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -208,7 +231,7 @@ log_add(log_file = log_file, message = paste0('Saved polygenic scores.'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
-sink(file = paste(opt$output,'.log',sep=''), append = T)
+sink(file = log_file, append = T)
 cat('Analysis finished at',as.character(end.time),'\n')
 cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
 sink()

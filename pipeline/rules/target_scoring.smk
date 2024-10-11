@@ -71,8 +71,7 @@ rule target_pgs_i:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "rm -r -f {outdir}/{wildcards.name}/pgs/{wildcards.population} && \
-     Rscript ../Scripts/target_scoring/target_scoring_pipeline.R \
+    "Rscript ../Scripts/target_scoring/target_scoring_pipeline.R \
       --config {params.config_file} \
       --name {wildcards.name} \
       --population {wildcards.population} \
