@@ -4,6 +4,8 @@ start.time <- Sys.time()
 library("optparse")
 
 option_list = list(
+  make_option("--config", action="store", default=NULL, type='character',
+      help="Pipeline configuration file. Required when pseudo_only is TRUE [optional]"),
   make_option("--ref_plink_chr", action="store", default=NULL, type='character',
       help="Path to per chromosome reference PLINK files [required]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
@@ -30,6 +32,8 @@ option_list = list(
       help="Number of cores for parallel computing [optional]"),
   make_option("--test", action="store", default=NA, type='character',
       help="Specify number of SNPs to include [optional]"),
+  make_option("--pseudo_only", action="store", default=T, type='character',
+      help="Apply TLPRS to model selected by pseudovalidation only [optional]"),
   make_option("--seed", action="store", default=1, type='numeric',
       help="Seed number for PRScs [optional]")
 )
@@ -49,6 +53,9 @@ library(doMC)
 registerDoMC(opt$n_cores)
 
 # Check required inputs
+if(is.null(opt$config) && opt$pseudo_only){
+  stop('--config must be specified when --pseudo_only is TRUE.\n')
+}
 if(is.null(opt$ref_plink_chr)){
   stop('--ref_plink_chr must be specified.\n')
 }
@@ -152,6 +159,20 @@ for(i in 1:length(populations)){
 
   # Read in PGS score file (set up for pairs of GWAS/populations only)
   score_file <- fread(scores[-i])
+
+  if(opt$pseudo_only){
+    method <- sub('/.*','',gsub('.*pgs_score_files/','', scores[-i]))
+    gwas <- sub('/.*','',gsub(paste0('.*/',method,'/'),'', scores[-i]))
+    param <- find_pseudo(
+      config = opt$config,
+      gwas = gwas,
+      pgs_method = method,
+      target_pop = populations[i]
+    )
+    score_file <- score_file[, c('SNP', 'A1', 'A2', paste0('SCORE_', param)), with = F]
+    log_add(log_file = log_file, message = 'Using pseudovalidated PGS only.')
+  }
+
   names(score_file)<-gsub('^SCORE','Beta', names(score_file))
 
   target_gwas_j=merge(score_file, target_gwas, by="SNP",sort=F)
