@@ -175,6 +175,7 @@ log_add(log_file = log_file, message = paste0('Estimated SNP-based heritability 
 
 if(ldsc[["h2"]] < 0.05){
   ldsc[["h2"]] <- 0.05
+  log_add(log_file = log_file, message = 'SNP-based heritability was set to 0.05.')
 }
 
 log_add(log_file = log_file, message = 'Creating genome-wide sparse matrix.')
