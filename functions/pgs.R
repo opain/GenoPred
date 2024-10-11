@@ -406,6 +406,8 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
   }
 
 	if(any(names(score) == 'CHR')){
+	  # Remove for 'chr' string in CHR column
+	  score$CHR <- gsub('chr', '', score$CHR)
 	  score <- score[score$CHR %in% chr,]
 	}
 
