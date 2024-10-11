@@ -142,6 +142,27 @@ if(nrow(group_list) > 1 & opt$all_model){
 
 log_add(log_file = log_file, message = paste0(length(unique(group_list$group)), ' groups of predictors present.'))
 
+# Remove identical predictors within each group
+group_list_non_identical <- NULL
+for(i in unique(group_list$group)){
+  if(sum(group_list$group == i) > 1){
+    ident <- group_list$predictor[group_list$group == i][
+      duplicated(
+        as.list(
+          predictors[, group_list$predictor[group_list$group == i], with = F]))]
+
+    group_list_non_identical <- rbind(
+      group_list_non_identical,
+      group_list[group_list$group == i & !(group_list$predictor %in% ident),]
+    )
+
+    if(length(ident) > 0){
+      log_add(log_file = log_file, message = paste0(length(ident), ' duplicate predictors removed from group ', i))
+    }
+  }
+}
+group_list <- group_list_non_identical
+
 # Calculate the number of predictors in each group
 for(i in unique(group_list$group)){
   group_list$n[group_list$group == i] <- sum(group_list$group == i)
