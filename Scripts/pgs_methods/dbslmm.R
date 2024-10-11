@@ -149,6 +149,11 @@ opt$sumstats<-paste0(tmp_dir,'/sumstats.gz')
 
 ldsc_h2 <- ldsc(sumstats = opt$sumstats, ldsc = opt$ldsc, hm3_snplist = opt$hm3_snplist, munge_sumstats = opt$munge_sumstats, ld_scores = opt$ld_scores, pop_prev = opt$pop_prev, sample_prev = opt$sample_prev, log_file = log_file)
 
+if(ldsc_h2 < 0.05){
+  ldsc_h2 <- 0.05
+  log_add(log_file = log_file, message = 'SNP-h2 was set to 0.05.')
+}
+
 if(any(ldsc_h2*opt$h2f > 1)){
   ldsc_h2 <- ldsc_h2*(1/max(opt$h2f*ldsc_h2))
   log_add(log_file = log_file, message = paste0('SNP-h2 was set to ',ldsc_h2,' to avoid SNP-h2*h2f > 1.'))
