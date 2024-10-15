@@ -113,6 +113,48 @@ check_config_parameters(config)
 # Set outdir parameter
 outdir=config['outdir']
 
+#######
+# Check config files
+#######
+
+# Function to check for duplicate names in a dataframe
+def check_for_duplicates(df, name_col, list_name):
+    duplicate_names = df[df[name_col].duplicated(keep=False)]
+    if not duplicate_names.empty:
+        raise ValueError(f"Duplicate values found in '{name_col}' column of {list_name}: {', '.join(duplicate_names[name_col].unique())}")
+
+
+###
+# target_list
+###
+
+if 'target_list' in config and config["target_list"] != 'NA':
+  target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
+  if 'unrel' not in target_list_df.columns:
+    target_list_df['unrel'] = 'NA'  # Adding a column with string 'NA' values
+  target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
+  samp_types = ['plink1', 'plink2', 'bgen', 'vcf']
+  target_list_df_samp = target_list_df[target_list_df['type'].isin(samp_types)]
+  target_list_df_indiv_report = target_list_df.loc[(target_list_df['indiv_report'].isin(['T', 'TRUE', True]))]
+else:
+  target_list_df = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
+  target_list_df_23andMe = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
+  target_list_df_samp = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
+  target_list_df_indiv_report = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
+
+# Check for duplicate values in the 'name' column
+check_for_duplicates(target_list_df, 'name', 'target_list')
+
+# Check specific target paths exist
+check_target_type(df = target_list_df)
+
+# Check specific target paths exist
+check_target_paths(df = target_list_df, chr = str(get_chr_range(config['testing'])[0]))
+
+###
+# gwas_list
+###
+
 # Read in the gwas_list or make an empty version
 if 'gwas_list' in config and config["gwas_list"] != 'NA':
   gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
@@ -120,9 +162,7 @@ else:
   gwas_list_df = pd.DataFrame(columns = ["name", "path", "population", "n", "sampling", "prevalence", "mean", "sd", "label"])
 
 # Check for duplicate values in the 'name' column
-duplicate_names = gwas_list_df[gwas_list_df['name'].duplicated(keep=False)]
-if not duplicate_names.empty:
-    raise ValueError(f"Duplicate values found in 'name' column of the gwas_list: {', '.join(duplicate_names['name'].unique())}")
+check_for_duplicates(gwas_list_df, 'name', 'gwas_list')
 
 # Check whether gwas_list paths exist
 check_list_paths(gwas_list_df)
@@ -130,6 +170,84 @@ check_list_paths(gwas_list_df)
 # Identify gwas_list with population == 'EUR'
 gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
 
+###
+# score_list
+###
+
+# Read in score_list or create empty score_list
+if 'score_list' in config and config["score_list"] != 'NA':
+  score_list_df = pd.read_table(config["score_list"], sep=r'\s+')
+  pgs_methods = config['pgs_methods']
+  pgs_methods_all = list(config['pgs_methods'])
+  pgs_methods_all.append('external')
+
+  # Check whether score_list paths exist
+  check_list_paths(score_list_df)
+else:
+  score_list_df = pd.DataFrame(columns = ["name", "path", "label"])
+  pgs_methods = config['pgs_methods']
+  pgs_methods_all = config['pgs_methods']
+
+# Check for duplicate values in the 'name' column
+check_for_duplicates(score_list_df, 'name', 'score_list')
+
+# Check whether score_list paths exist
+check_list_paths(score_list_df)
+
+###
+# gwas_groups
+###
+
+# Read in the gwas_groups or make an empty version
+if 'gwas_groups' in config and config["gwas_groups"] != 'NA':
+  gwas_groups_df = pd.read_table(config["gwas_groups"], sep=r'\s+')
+else:
+  gwas_groups_df = pd.DataFrame(columns = ["name", "gwas", "label"])
+
+# Check for duplicate values in the 'name' column
+check_for_duplicates(gwas_groups_df, 'name', 'gwas_groups')
+
+# Function to get the list of GWAS names for a given group
+def get_gwas_names(gwas_group):
+    gwas_names_str = gwas_groups_df[gwas_groups_df['name'] == gwas_group]['gwas'].iloc[0]
+    return gwas_names_str.split(',')
+
+# Function to generate comma-separated list of populations for each name
+def get_populations(gwas_group):
+    gwas_names = get_gwas_names(gwas_group)
+    sumstats_populations = []
+    for gwas in gwas_names:
+        gwas_info = gwas_list_df[gwas_list_df['name'] == gwas].iloc[0]
+        sumstats_populations.append(gwas_info['population'])
+    return sumstats_populations
+
+# Check whether gwas_groups contains gwas that are not in the gwas_list
+gwas_groups_gwas = gwas_groups_df['gwas'].str.split(',', expand=True).stack().unique()
+gwas_list_names = gwas_list_df['name'].unique()
+missing_gwas = set(gwas_groups_gwas) - set(gwas_list_names)
+if missing_gwas:
+    raise ValueError(f"The following GWAS are in gwas_groups but missing in gwas_list: {', '.join(missing_gwas)}")
+
+###
+# Check there are no duplicate values in name columns of gwas_list, score_list, gwas_groups
+###
+
+def check_for_duplicates_across_lists(df_list, name_col, list_names):
+    combined_names = pd.concat([df[name_col] for df in df_list])
+
+    # Find duplicates across all lists
+    duplicate_names = combined_names[combined_names.duplicated(keep=False)]
+
+    if not duplicate_names.empty:
+        raise ValueError(f"Duplicate values found across {', '.join(list_names)}: {', '.join(duplicate_names.unique())}")
+
+check_for_duplicates_across_lists(
+    df_list=[gwas_list_df, score_list_df, gwas_groups_df],
+    name_col='name',
+    list_names=['gwas_list', 'score_list', 'gwas_groups']
+)
+
+#########
 # Set PRS-CS ld reference path
 if config['prscs_ldref'] == 'ukb':
     prscs_ldref='ukbb'
@@ -149,7 +267,7 @@ if config['ldpred2_ldref'] == 'NA':
 else:
   ldpred2_ldref=config['ldpred2_ldref']
 
-# Check the ldpred2 ldref data is present for the required populations in the gwas_list
+# Check the ldpred2 ldref data is present for the required populations in the pgwas_list
 if 'ldpred2' in config['pgs_methods']:
   for pop in gwas_list_df['population'].unique():
     path = f"{ldpred2_ldref}/{pop}"

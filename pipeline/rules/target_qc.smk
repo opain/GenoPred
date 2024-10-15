@@ -2,34 +2,9 @@
 # Read target_list
 #######
 
-if 'target_list' in config and config["target_list"] != 'NA':
-  target_list_df = pd.read_table(config["target_list"], sep=r'\s+')
-  if 'unrel' not in target_list_df.columns:
-    target_list_df['unrel'] = 'NA'  # Adding a column with string 'NA' values
-  target_list_df_23andMe = target_list_df.loc[target_list_df['type'] == '23andMe']
-  samp_types = ['plink1', 'plink2', 'bgen', 'vcf']
-  target_list_df_samp = target_list_df[target_list_df['type'].isin(samp_types)]
-  target_list_df_indiv_report = target_list_df.loc[(target_list_df['indiv_report'].isin(['T', 'TRUE', True]))]
-else:
-  target_list_df = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
-  target_list_df_23andMe = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
-  target_list_df_samp = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
-  target_list_df_indiv_report = pd.DataFrame(columns = ["name", "path" "type", "indiv_report","unrel"])
-
-# Check for duplicate values in the 'name' column
-duplicate_names = target_list_df[target_list_df['name'].duplicated(keep=False)]
-if not duplicate_names.empty:
-    raise ValueError(f"Duplicate values found in 'name' column of the target_list: {', '.join(duplicate_names['name'].unique())}")
-
 ####
 # Format target data
 ####
-
-# Check specific target paths exist
-check_target_type(df = target_list_df)
-
-# Check specific target paths exist
-check_target_paths(df = target_list_df, chr = str(get_chr_range(config['testing'])[0]))
 
 ##
 # 23andMe

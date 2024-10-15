@@ -373,28 +373,6 @@ rule prep_pgs_megaprs:
 # Process externally created score files
 ##
 
-# Read in score_list or create empty score_list
-if 'score_list' in config and config["score_list"] != 'NA':
-  score_list_df = pd.read_table(config["score_list"], sep=r'\s+')
-  pgs_methods = config['pgs_methods']
-  pgs_methods_all = list(config['pgs_methods'])
-  pgs_methods_all.append('external')
-
-  # Check whether score_list paths exist
-  check_list_paths(score_list_df)
-else:
-  score_list_df = pd.DataFrame(columns = ["name", "path", "label"])
-  pgs_methods = config['pgs_methods']
-  pgs_methods_all = config['pgs_methods']
-
-# Check for duplicate values in the 'name' column
-duplicate_names = score_list_df[score_list_df['name'].duplicated(keep=False)]
-if not duplicate_names.empty:
-    raise ValueError(f"Duplicate values found in 'name' column of the score_list: {', '.join(duplicate_names['name'].unique())}")
-
-# Check whether score_list paths exist
-check_list_paths(score_list_df)
-
 # Download PGS score files for PGSC if path is NA
 rule download_pgs_external:
   input:
@@ -475,38 +453,6 @@ checkpoint score_reporter:
 ###########
 # Multi-ancestry methods
 ###########
-
-# Read in the gwas_groups or make an empty version
-if 'gwas_groups' in config and config["gwas_groups"] != 'NA':
-  gwas_groups_df = pd.read_table(config["gwas_groups"], sep=r'\s+')
-else:
-  gwas_groups_df = pd.DataFrame(columns = ["name", "gwas", "label"])
-
-# Check for duplicate values in the 'name' column
-duplicate_names = gwas_groups_df[gwas_groups_df['name'].duplicated(keep=False)]
-if not duplicate_names.empty:
-    raise ValueError(f"Duplicate values found in 'name' column of the gwas_groups file: {', '.join(duplicate_names['name'].unique())}")
-
-# Function to get the list of GWAS names for a given group
-def get_gwas_names(gwas_group):
-    gwas_names_str = gwas_groups_df[gwas_groups_df['name'] == gwas_group]['gwas'].iloc[0]
-    return gwas_names_str.split(',')
-
-# Function to generate comma-separated list of populations for each name
-def get_populations(gwas_group):
-    gwas_names = get_gwas_names(gwas_group)
-    sumstats_populations = []
-    for gwas in gwas_names:
-        gwas_info = gwas_list_df[gwas_list_df['name'] == gwas].iloc[0]
-        sumstats_populations.append(gwas_info['population'])
-    return sumstats_populations
-
-# Check whether gwas_groups contains gwas that are not in the gwas_list
-gwas_groups_gwas = gwas_groups_df['gwas'].str.split(',', expand=True).stack().unique()
-gwas_list_names = gwas_list_df['name'].unique()
-missing_gwas = set(gwas_groups_gwas) - set(gwas_list_names)
-if missing_gwas:
-    raise ValueError(f"The following GWAS are in gwas_groups but missing in gwas_list: {', '.join(missing_gwas)}")
 
 ####
 # PRS-CSx
