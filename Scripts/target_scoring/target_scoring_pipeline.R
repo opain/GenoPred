@@ -144,7 +144,7 @@ for(chr_i in CHROMS){
       'zcat ', outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],".score.gz | ",
       'awk \'NR==FNR {rows[$1]; next} FNR==1 || FNR in rows\' ', paste0(tmp_dir,'/row_index.txt'), ' - | ',  # Corrected to retain the header and process indexed rows
       "cut -d' ' --complement -f1-3 | ",  # Keep relevant columns, remove first 3
-      "sed '1 s/SCORE/", paste0(score_files$method[i], '.', score_files$name[i]), "/g' > ",  # Replace SCORE in the header
+      "sed '1 s/SCORE_/", paste0('score_file_', i,'.'), "/g' > ",  # Replace SCORE in the header
       tmp_dir, '/tmp_score.', paste0(score_files$method[i], '.', score_files$name[i]), '.txt'
     ))
   }
@@ -206,8 +206,8 @@ scores<-data.table(scores_ids,
 log_add(log_file = log_file, message = paste0('Reading in scale files.'))
 scale_files<-list()
 for(i in 1:nrow(score_files)){
-  scale_files[[paste0(score_files$method[i],'-',score_files$name[i])]]<-fread(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-', opt$population,'.scale'))
-  scale_files[[paste0(score_files$method[i],'-',score_files$name[i])]]$Param<-gsub('SCORE', paste0(score_files$method[i],'.',score_files$name[i]), scale_files[[paste0(score_files$method[i],'-',score_files$name[i])]]$Param)
+  scale_files[[paste0('score_file_', i)]]<-fread(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-', opt$population,'.scale'))
+  scale_files[[paste0('score_file_', i)]]$Param<-gsub('SCORE_', paste0('score_file_', i, '.'), scale_files[[paste0('score_file_', i)]]$Param)
 }
 
 # Concatenate scale files
@@ -221,8 +221,8 @@ scores<-score_scale(score=scores, ref_scale=all_scale)
 ###
 
 for(i in 1:nrow(score_files)){
-  scores_i <- scores[, c('FID','IID', names(scores)[grepl(paste0(score_files$method[i],'.',score_files$name[i]), names(scores))]), with=F]
-  names(scores_i) <- gsub(paste0('^', score_files$method[i],'\\.'),'', names(scores_i))
+  scores_i <- scores[, c('FID','IID', names(scores)[grepl(paste0('^score_file_', i, '\\.'), names(scores))]), with=F]
+  names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), paste0(score_files$name[i], '_'), names(scores_i))
   dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T)
   fwrite(scores_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.profiles'), sep=' ', na='NA', quote=F)
 }
