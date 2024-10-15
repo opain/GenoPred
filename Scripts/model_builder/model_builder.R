@@ -159,6 +159,11 @@ for(i in unique(group_list$group)){
     if(length(ident) > 0){
       log_add(log_file = log_file, message = paste0(length(ident), ' duplicate predictors removed from group ', i))
     }
+  } else {
+    group_list_non_identical <- rbind(
+      group_list_non_identical,
+      group_list[group_list$group == i,]
+    )
   }
 }
 group_list <- group_list_non_identical
