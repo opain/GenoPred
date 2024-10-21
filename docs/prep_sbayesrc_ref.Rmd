@@ -1,0 +1,120 @@
+---
+title: Preparing SBayesRC LD matrices
+output: 
+  html_document:
+    theme: cosmo
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+# 1KG+HGDP
+
+Here we will prepare reference data for SBayesRC using HapMap3 SNPs in the 1KG+HGDP super populations. This is to allow fair comparison across methods for a cross-population polygenic scoring study. 
+
+```{bash}
+conda activate sbayesrc
+module add parallel/20220522-gcc-13.2.0
+
+for pop in EUR EAS AFR; do
+
+# Set up directories and variables
+mkdir -p "/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}"
+outDir="/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/${pop}.hm3"
+rm -f /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/mergelist.txt
+
+# Create the merge list for PLINK
+for chr in $(seq 1 22); do
+  echo /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/ref.chr${chr} >> /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/mergelist.txt
+done
+
+# Run PLINK to merge chromosomes and filter for the population
+/users/k1806347/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pmerge-list /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/mergelist.txt \
+  --make-bed \
+  --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/keep_files/${pop}.keep \
+  --maf 0.01 \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/ref.${pop}.GW
+
+# Create ma_file.txt
+echo -e "SNP\tA1\tA2" > /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/ma_file.txt
+cut -f 2,5,6 /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/ref.${pop}.GW.bim >> /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/ma_file.txt
+
+# Define variables for R scripts
+ma_file="/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/ma_file.txt"
+genotype="/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/ref.${pop}.GW"
+threads=1
+tool="/users/k1806347/oliverpainfel/Software/gctb_2.5.2_Linux/gctb"
+
+# Step 1: Generate the LD block information
+# Note. Updated script to use the tool parameter in this command
+Rscript -e "SBayesRC::LDstep1(mafile='$ma_file', genoPrefix='$genotype', outDir='$outDir', genoCHR='', blockRef='', log2file=TRUE, tool='$tool')"
+
+# Step 2: Submit the parallel jobs for LDstep2
+# Note. I tried to submit this as batch jobs in parallel, but the job kept completing halfway through. Very odd.
+seq 1 591 | parallel -j 10 'Rscript -e "SBayesRC::LDstep2(outDir=\"'$outDir'\", blockIndex={}, log2file=TRUE)"'
+
+# Step 3: Eigen decomposition for each LD block (submit and wait for Step 2 to complete)
+jobid_step3=$(sbatch --array=1-591 --parsable <<EOT
+#!/bin/bash
+#SBATCH --job-name=sbayesrc_eigen
+#SBATCH --partition=neurohack_cpu
+#SBATCH --cpus-per-task=${threads}
+#SBATCH --mem=2G
+#SBATCH --output=sbayesrc_eigen_%A_%a.out
+#SBATCH --error=sbayesrc_eigen_%A_%a.err
+export OMP_NUM_THREADS=$threads
+Rscript -e "SBayesRC::LDstep3(outDir='$outDir', blockIndex=\${SLURM_ARRAY_TASK_ID}, log2file=TRUE)"
+EOT
+)
+
+# Step 4: Merge LD information after Step 3 finishes
+sbatch --dependency=afterok:$jobid_step3 <<EOT
+#!/bin/bash
+#SBATCH --job-name=sbayesrc_merge
+#SBATCH --partition=neurohack_cpu
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=2G
+#SBATCH --output=sbayesrc_merge_%j.out
+#SBATCH --error=sbayesrc_merge_%j.err
+Rscript -e "SBayesRC::LDstep4(outDir='$outDir', log2file=TRUE)"
+EOT
+
+# Step5: clean if necessary
+# Essential for analysis: $outDir/ldm.info, $outDir/snp.info, $outDir/block*.eigen.bin 
+# Other files could be removed
+# Note: before removing, check all blocks were finished.
+
+# Add a delay or wait here if you want to ensure each population's processing finishes before starting the next.
+sleep 10
+done
+
+for pop in EUR EAS AFR; do
+  rm $outDir/b*.ldm.*
+  rm $outDir/*.log
+  rm $outDir/ld.sh
+  rm -r $outDir/snplist
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/ref.${pop}.GW*
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/${pop}.hm3.log
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/ma_file.txt
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/${pop}/mergelist.txt
+done
+
+```

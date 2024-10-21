@@ -286,7 +286,7 @@ if 'ldpred2' in config['pgs_methods']:
 
 # Set sbayesr reference path
 if config['sbayesr_ldref'] == 'NA':
-  sbayesr_ldref=f"{resdir}/data/ldpred2_ref"
+  sbayesr_ldref=f"{resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr"
 else:
   sbayesr_ldref=config['sbayesr_ldref']
 
@@ -307,6 +307,39 @@ if 'sbayesr' in config['pgs_methods']:
         print(f"File not found: {ld_file}")
         raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
 
+# Set quickprs reference path
+if config['quickprs_ldref'] == 'NA':
+  quickprs_ldref=f"{resdir}/data/quickprs_ref"
+else:
+  quickprs_ldref=config['quickprs_ldref']
+
+# Check the quickprs ldref data is present for the required populations in the gwas_list
+if 'quickprs' in config['pgs_methods']:
+  for pop in gwas_list_df['population'].unique():
+    path = f"{quickprs_ldref}/{pop}.hm3"
+    # Check if required files exists
+    cors_file = os.path.join(path, f"{pop}.hm3.cors.bin")
+    if not os.path.exists(cors_file):
+      print(f"File not found: {cors_file}")
+      raise FileNotFoundError(f"Required file not found: {cors_file}. quickprs reference data must include .cors.bin for all populations.")
+
+
+# Set sbayesrc reference path
+if config['sbayesrc_ldref'] == 'NA':
+  sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
+else:
+  sbayesrc_ldref=config['sbayesrc_ldref']
+
+# Check the sbayesrc ldref data is present for the required populations in the gwas_list
+if 'sbayesrc' in config['pgs_methods']:
+  for pop in gwas_list_df['population'].unique():
+    path = f"{sbayesrc_ldref}/{pop}"
+    # Check if required files exists
+    cors_file = os.path.join(path, f"{pop}.hm3/ldm.info")
+    if not os.path.exists(cors_file):
+      print(f"File not found: {cors_file}")
+      raise FileNotFoundError(f"Required file not found: {cors_file}. sbayesrc reference data must include ldm.info for all populations.")
+
 # Set refdir parameter
 # If refdir is NA, set refdir to '${resdir}/data/ref'
 if config['refdir'] == 'NA':
@@ -323,8 +356,12 @@ else:
 
 # Check valid pgs_methods are specified
 def check_pgs_methods(x):
+    # If pgs_methods is NA (None) or an empty list, return early without error
+    if x is None or x == "NA" or not x:
+        return
+
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr", "lassosum", "ldpred2", "megaprs", "xwing", "prscsx", "tlprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx", "tlprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
@@ -338,7 +375,7 @@ check_pgs_methods(config['pgs_methods'])
 # Check valid tlprs_methods are specified
 def check_tlprs_methods(config):
     valid_tlprs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr", "lassosum", "ldpred2", "megaprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr", "sbayesrc", "lassosum", "ldpred2", "megaprs","quickprs"
     }
 
     # Check if 'tlprs' is in the pgs_methods list
@@ -722,6 +759,83 @@ rule download_gctb_software:
       rm {resdir}/software/gctb/gctb_2.03beta_Linux.zip
     }} > {log} 2>&1
     """
+
+# Download GCTB v2.5.2 for SBayesRC
+rule download_gctb252_software:
+  output:
+    f"{resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux/gctb"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_gctb252_software.txt"
+  log:
+    f"{resdir}/data/logs/download_gctb252_software.log"
+  shell:
+    """
+    {{
+      rm -r -f {resdir}/software/gctb_2.5.2; \
+      mkdir -p {resdir}/software/gctb_2.5.2; \
+      wget --no-check-certificate -O {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux.zip https://cnsgenomics.com/software/gctb/download/gctb_2.5.2_Linux.zip; \
+      unzip {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux.zip -d {resdir}/software/gctb_2.5.2; \
+      rm {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux.zip
+    }} > {log} 2>&1
+    """
+
+# Download annotations for SBayesRC
+rule download_sbayesrc_annot:
+  output:
+    f"{resdir}/data/sbayesrc_annot/annot_baseline2.2.txt"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_sbayesrc_annot.txt"
+  log:
+    f"{resdir}/data/logs/download_sbayesrc_annot.log"
+  shell:
+    """
+    {{
+      rm -r -f {resdir}/data/sbayesrc_annot; \
+      mkdir -p {resdir}/data/sbayesrc_annot; \
+      wget --no-check-certificate -O {resdir}/data/sbayesrc_annot/annot_baseline2.2.zip https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/Annotation/annot_baseline2.2.zip; \
+      unzip {resdir}/data/sbayesrc_annot/annot_baseline2.2.zip -d {resdir}/data/sbayesrc_annot; \
+      rm {resdir}/data/sbayesrc_annot/annot_baseline2.2.zip
+    }} > {log} 2>&1
+    """
+
+# Download SBayesRC R package
+rule install_sbayesrc:
+  input:
+    "envs/sbayesrc.yaml"
+  output:
+    touch("resources/software/install_sbayesrc.done")
+  conda:
+    "../envs/sbayesrc.yaml"
+  benchmark:
+    "resources/data/benchmarks/install_sbayesrc.txt"
+  log:
+    "resources/data/logs/install_sbayesrc.log"
+  shell:
+    """
+    {{
+      Rscript -e 'install.packages(\"https://github.com/zhilizheng/SBayesRC/releases/download/v0.2.6/SBayesRC_0.2.6.tar.gz\", repos=NULL, type=\"source\")'
+    }} > {log} 2>&1
+    """
+
+# Install GenoUtils in SBayesRC environment
+rule install_genoutils_sbayesrc:
+  input:
+    rules.install_sbayesrc.output
+  output:
+    touch("resources/software/install_genoutils_sbayesrc.done")
+  conda:
+    "../envs/sbayesrc.yaml"
+  benchmark:
+    "resources/data/benchmarks/install_genoutils_sbayesrc.txt"
+  log:
+    "resources/data/logs/install_genoutils_sbayesrc.log"
+  shell:
+    """
+    {{
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
+    }} > {log} 2>&1
+    """
+
 # Download LDpred2 reference
 rule download_ldpred2_ref:
   output:
@@ -754,7 +868,7 @@ rule download_ldak:
   shell:
     """
     {{
-      rm -r {resdir}/software/ldak; \
+      rm -r -f {resdir}/software/ldak; \
       mkdir -p {resdir}/software/ldak; \
       wget --no-check-certificate -O {resdir}/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; \
       unzip {resdir}/software/ldak/ldak5.1.linux_.zip -d {resdir}/software/ldak/; \
@@ -814,6 +928,64 @@ rule download_ldak_highld:
     }} > {log} 2>&1
     """
 
+# Download LDAK V5.2 for QuickPRS
+# This is a temporary solution. Only this version works for QuickPRS
+rule download_ldak5_2:
+  output:
+    f"{resdir}/software/ldak5.2/ldak5.2.linux"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_ldak5_2.txt"
+  log:
+    f"{resdir}/data/logs/download_ldak5_2.log"
+  shell:
+    """
+    {{
+      cp /users/k1806347/oliverpainfel/Software/ldak5.2.linux {resdir}/software/ldak5.2/ldak5.2.linux
+    }} > {log} 2>&1
+    """
+
+# Download LDAK V6
+rule download_ldak6:
+  output:
+    f"{resdir}/software/ldak6/ldak6.linux"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_ldak6.txt"
+  log:
+    f"{resdir}/data/logs/download_ldak6.log"
+  shell:
+    """
+    {{
+      rm -r -f {resdir}/software/ldak6; \
+      mkdir -p {resdir}/software/ldak6; \
+      wget --no-check-certificate -O {resdir}/software/ldak6/ldak6.linux https://github.com/dougspeed/LDAK/raw/main/ldak6.linux; \
+      chmod a+x {resdir}/software/ldak6/ldak6.linux
+    }} > {log} 2>&1
+    """
+
+
+# Download LDAK QuickPRS refernce data
+rule download_quickprs_ref:
+  output:
+    f"{resdir}/data/quickprs/{{population}}.hapmap/{{population}}.hapmap.cors.root"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_quickprs_ref-{{population}}.txt"
+  log:
+    f"{resdir}/data/logs/download_quickprs_ref-{{population}}.log"
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data/quickprs; \
+      rm -r -f {resdir}/data/quickprs/{wildcards.population}.hapmap; \
+      wget --no-check-certificate -O {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz https://genetics.ghpc.au.dk/doug/{wildcards.population}.hapmap.tar.gz; \
+      tar -zxvf {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz -C {resdir}/data/quickprs/; \
+      rm {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz
+    }} > {log} 2>&1
+    """
+
+rule download_quickprs_ref_all:
+  input:
+    lambda w: expand(f"{resdir}/data/quickprs/{{population}}.hapmap.cors.root", population=['gbr','sas','eas','afr'])
+
 # Download preprocessed reference data (1KG+HGDP HapMap3)
 rule download_default_ref:
   output:
@@ -853,6 +1025,7 @@ rule install_ggchicklet:
       Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\")'
     }} > {log} 2>&1
     """
+
 # install lassosum
 rule install_lassosum:
   input:

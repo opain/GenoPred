@@ -25,6 +25,8 @@ pre code, pre, code {
 
 ***
 
+# 1KG
+
 Here we will calculate LD matrices for LDpred2 using HapMap3 SNPs in the 1KG super populations. This is to allow fair comparison across methods for a cross-population polygenic scoring study. 
 
 The code will follow that used to generate the LD matrices for EUR, in this paper ([link](https://doi.org/10.1016/j.xhgg.2022.100136)).
@@ -225,6 +227,240 @@ for(pop in c('EUR', 'EAS', 'AFR')){
 
 
 ```
+
+***
+
+# 1KG+HGDP
+
+Here we will calculate LD matrices for LDpred2 using HapMap3 SNPs in the 1KG+HGDP super populations. This is to allow fair comparison across methods for a cross-population polygenic scoring study. 
+
+The code will follow that used to generate the LD matrices for EUR, in this paper ([link](https://doi.org/10.1016/j.xhgg.2022.100136)).
+
+```{bash}
+# Subset 1KG+HGDP into super populations and merge across chromosomes
+for pop in $(echo EUR EAS AFR); do
+  mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/${pop}
+  mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/prscs/ldblk_hgdp_1kg_$(echo ${pop} | tr '[:upper:]' '[:lower:]')
+
+  # Create mergelist
+  rm -f /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/${pop}/mergelist.txt
+  for chr in $(seq 1 22); do
+    echo /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/ref.chr${chr} >> /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/${pop}/mergelist.txt
+  done
+  
+  /users/k1806347/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+    --pmerge-list /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/${pop}/mergelist.txt \
+    --make-bed \
+    --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/keep_files/${pop}.keep \
+    --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/${pop}/ref.${pop}.GW
+done
+```
+
+```{r}
+library(bigsnpr)
+library(bigreadr)
+
+# Create object for genetic data in ldpred2 format, and impute missing values
+for(pop in c('EUR', 'EAS', 'AFR')){
+  # Read in reference data
+  snp_readBed(
+    paste0(
+      '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+      pop,
+      '/ref.',
+      pop,
+      '.GW.bed'
+    )
+  )
+  
+  # Attach the ref object in R session
+  ref <-
+    snp_attach(
+      paste0(
+        '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+        pop,
+        '/ref.',
+        pop,
+        '.GW.rds'
+      )
+    )
+  G <- ref$genotypes
+
+  #### Impute missing values (bigsnpr can't handle missing data in most functions)
+  G_imp <- snp_fastImputeSimple(G, method = "mean2", ncores = nb_cores())
+
+  # Save imputed reference
+  ref$genotypes<-G_imp
+  saveRDS(ref, paste0(
+        '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+        pop,
+        '/ref.',
+        pop,
+        '.GW.rds'
+      ))
+}
+
+################
+# Now calculate LD matrices following code from https://doi.org/10.1016/j.xhgg.2022.100136
+
+library(dplyr)
+library(bigreadr)
+library(bigsnpr)
+library(future.batchtools)
+library(furrr)
+
+for(pop in c('EUR', 'EAS', 'AFR')){
+  obj.hgdp_1kg <- snp_attach(paste0(
+          '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+          pop,
+          '/ref.',
+          pop,
+          '.GW.rds'
+        ))
+  G <- obj.hgdp_1kg$genotypes
+  CHR <- obj.hgdp_1kg$map$chromosome
+  POS <- obj.hgdp_1kg$map$physical.pos
+  POS2 <- snp_asGeneticPos(CHR, POS, dir ='/users/k1806347/oliverpainfel/Data/Genetic_Map/CEU', ncores = nb_cores()) # Note this is not appropriate but I think Florian did the same as used distance from UKB
+  MAF <- snp_MAF(G, ncores = nb_cores())
+  keep <- (MAF > 0.02)
+
+  plan(batchtools_slurm(resources = list(
+    time = "12:00:00",
+    ntasks = 5,
+    mem = "20g",
+    partition = "neurohack_cpu"
+  )))
+  
+  all_final_grp <- furrr::future_map_dfr(1:22, function(chr) {
+    ind.chr2 <- which(CHR == chr & keep)
+
+    corr0 <- runonce::save_run({
+      snp_cor(
+        G,
+        ind.col = ind.chr2,
+        infos.pos = POS2[ind.chr2],
+        size = 3 / 1000,
+        ncores = nb_cores()
+      )
+    }, file = paste0(
+      '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+      pop,
+      '/LD_chr',
+      chr,
+      ".rds"
+    ))
+    
+    # find nearly independent LD blocks
+    # Playing around with the snp_ldsplit function, the max_r2 needs to be increased to 0.2 for AFR populations.
+    # This might be because we are using an inappropriate recombination map (EUR)?
+    # Use max_r2 = 0.15 for EUR and EAS as in Florian's code, but increase to 0.2 for AFR. Note. this is still lower than the default of 0.3.
+    max_r2 <- ifelse(pop %in% c('EUR','EAS'), 0.15, 0.25)
+    m <- length(ind.chr2)
+    (SEQ <- round(seq_log(m / 30, m / 5, length.out = 20)))
+    splits <- snp_ldsplit(corr0, thr_r2 = 0.05, min_size = 50, max_size = SEQ, max_r2 = max_r2)
+    splits$cost2 <- sapply(splits$all_size, function(sizes) sum(sizes^2))
+  
+    best_split <- splits %>%
+      arrange(cost2 * sqrt(5 + cost)) %>%
+      print() %>%
+      slice(1) %>%
+      print()
+  
+    (all_size <- best_split$all_size[[1]])
+    best_grp <- rep(seq_along(all_size), all_size)
+  
+    runonce::save_run({
+      corr0T <- as(corr0, "dgTMatrix")
+      corr0T@x <-
+        ifelse(best_grp[corr0T@i + 1L] == best_grp[corr0T@j + 1L], corr0T@x, 0)
+      as(Matrix::drop0(corr0T), "symmetricMatrix")
+    }, file = paste0(
+      '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+      pop,
+      '/LD_with_blocks_chr',
+      chr,
+      ".rds"
+    ))
+  
+    # LD for PRS-CS (based on the same data and LD blocks)
+    hdf5_file <- paste0("/users/k1806347/oliverpainfel/Data/hgdp_1kg/prscs/ldblk_hgdp_1kg_", tolower(pop)  , "/ldblk_hgdp_1kg_chr", chr, ".hdf5")
+    runonce::skip_run_if({
+      ind_block <- split(ind.chr2, best_grp)
+      bigparallelr::set_blas_ncores(nb_cores())
+      for (ic in seq_along(ind_block)) {
+        ind <- ind_block[[ic]]
+        ld <- big_cor(G, ind.col = ind)[]
+        rhdf5::h5write(list(ldblk = ld, snplist = paste0("snp", ind)),
+                       file = hdf5_file, name = paste0("blk_", ic), level = 9)
+      }
+    }, files = hdf5_file)
+  
+    # return
+    tibble(best_split, ind = list(ind.chr2))
+  })
+  
+  saveRDS(
+    all_final_grp,
+    paste0(
+      '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+      pop,
+      '/all_final_grp.rds'
+    )
+  )
+  
+  ###
+  # Create map.rds
+  ###
+  map <- obj.hgdp_1kg$map[keep,]
+
+  # Compute allele frequency
+  map$af<-big_colstats(G, ind.col = which(keep), ncores = nb_cores())$sum / (2 * nrow(G))
+  
+  # Compute LD scores
+  map$ld <- do.call('c', lapply(1:22, function(chr) {
+    cat(chr, ".. ", sep = "")
+    corr_chr <- readRDS(
+      paste0(
+        '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+        pop,
+        '/LD_chr',
+        chr,
+        ".rds"
+      )
+    )
+    Matrix::colSums(corr_chr ^ 2)
+  }))
+  
+  map <- map[, c('chromosome','physical.pos','allele2','allele1','marker.ID','af','ld')]
+  names(map) <- c('chr','pos','a0','a1','rsid','af','ld')
+  
+  saveRDS(
+    map,
+    paste0(
+      '/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/',
+      pop,
+      '/map.rds'
+    )
+  )
+  
+  # GOT to here
+  
+  # need also some .bim and some snpinfo for PRS-CS
+  ind_keep <- unlist(all_final_grp$ind)
+  snpinfo <- transmute(obj.hgdp_1kg$map, chromosome, marker.ID = paste0("snp", row_number()),
+                       genetic.dist = 0, physical.pos, allele1 = "A", allele2 = "C")[ind_keep, ]
+  bigsnpr:::write.table2(snpinfo, "/users/k1806347/oliverpainfel/Data/hgdp_1kg/prscs/ldblk_hgdp_1kg_", tolower(pop)  , "/for_prscs.bim")
+  
+  snpinfo2 <- transmute(snpinfo, CHR = chromosome, SNP = marker.ID,
+                        BP = physical.pos, A1 = allele1, A2 = allele2)
+  snpinfo2$MAF <- snp_MAF(G, ind.row = ind_EAS, ind.col = ind_keep, ncores = nb_cores())
+  bigreadr::fwrite2(snpinfo2, "/users/k1806347/oliverpainfel/Data/hgdp_1kg/prscs/ldblk_hgdp_1kg_", tolower(pop)  , "/snpinfo_hgdp_1kg_hm3", sep = "\t")
+}
+
+
+```
+
+
 
 
 

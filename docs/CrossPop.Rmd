@@ -564,7 +564,6 @@ for(i in 1:nrow(ugr_data)){
 
 </details>
 
-
 ***
 
 # Run GenoPred
@@ -656,12 +655,14 @@ config<-c(
   "gwas_list: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/gwas_list.txt",
   "target_list: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/basic/target_list.txt",
   "gwas_groups: /scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/gwas_groups.txt",
-  "pgs_methods: ['ptclump','dbslmm','prscsx','xwing','tlprs','prscs','lassosum','ldpred2','megaprs']",
+  "pgs_methods: ['ptclump','dbslmm','prscsx','xwing','tlprs','prscs','lassosum','ldpred2','megaprs','quickprs','sbayesrc']",
   "tlprs_methods: ['dbslmm','prscs','lassosum']",
   "cores_prep_pgs: 20",
   "cores_target_pgs: 50",
   "ldpred2_inference: F",
-  "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/1KG/ldpred2"
+  "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/1KG/ldpred2",
+  "quickprs_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs",
+  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc"
 )
 
 write.table(config, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/config.yaml', col.names = F, row.names = F, quote = F)
@@ -676,6 +677,273 @@ write.table(config, '/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k180
 ```{bash}
 snakemake --profile slurm --use-conda --configfile=/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/config.yaml output_all -n
 ```
+
+***
+
+# Estimate SNP-h2 and rG across populations
+
+We will estimate SNP-h2 using LD-score regression, and the rG using POPCORN.
+POPCORN can estimate the SNP-h2, but it will vary according to the other GWAS included due to SNP overlap.
+
+***
+
+## Prepare sumstats
+
+Use the sumstats QC'd by GenoPred.
+
+<details><summary>Show code</summary>
+```{r}
+library(data.table)
+dir.create('/users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/sumstats', recursive = T)
+gwas_list<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/gwas_list.txt')
+
+for(i in 1:nrow(gwas_list)){
+  gwas_file <-
+    paste0(
+      "/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/output_crosspop/reference/gwas_sumstat/",
+      gwas_list$name[i],
+      "/",
+      gwas_list$name[i],
+      "-cleaned.gz"
+    )
+  
+  gwas_header <- fread(gwas_file, nrows = 1)
+  cols_index <- which(names(gwas_header) %in% c('SNP','A1','A2','BETA','SE','P','N'))
+  
+  system(
+    paste0(
+      "zcat ",
+      gwas_file,
+      " | cut -f ", 
+      paste0(cols_index, collapse = ','),
+      " | sed -e '1s/BETA/beta/'",
+      " | /users/k1806347/oliverpainfel/Software/pigz -f",
+      " > /users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/sumstats/",
+      gwas_list$name[i], 
+      ".sumstats.gz"
+      )
+    )
+}
+```
+
+</details>
+
+***
+
+## Run LDSC
+
+<details><summary>Show code</summary>
+```{bash}
+conda activate ldsc
+
+for pop in $(echo EUR EAS AFR);do
+  if [ "$pop" == "EUR" ]; then
+      samp="UKB"
+  fi
+  if [ "$pop" == "EAS" ]; then
+      samp="BBJ"
+  fi
+  if [ "$pop" == "AFR" ]; then
+      samp="UGR"
+  fi
+  
+  for pheno in $(head -n 5 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt); do
+    mkdir -p /users/k1806347/oliverpainfel/Analyses/crosspop/ldsc/sumstats
+
+    sbatch --mem 10G -n 1 -p neurohack_cpu --wrap="/users/k1806347/oliverpainfel/Software/ldsc/munge_sumstats.py \
+     --sumstats /users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/sumstats/${pheno}_${samp}.sumstats.gz \
+     --out /users/k1806347/oliverpainfel/Analyses/crosspop/ldsc/sumstats/${pheno}_${samp}"
+
+  done
+done
+
+for pop in $(echo EUR EAS AFR);do
+  if [ "$pop" == "EUR" ]; then
+      samp="UKB"
+  fi
+  if [ "$pop" == "EAS" ]; then
+      samp="BBJ"
+  fi
+  if [ "$pop" == "AFR" ]; then
+      samp="UGR"
+  fi
+  
+  for pheno in $(head -n 5 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt); do
+    mkdir -p /users/k1806347/oliverpainfel/Analyses/crosspop/ldsc/results/${pheno}/${pop}
+
+    sbatch --mem 10G -n 1 -p neurohack_cpu --wrap="/users/k1806347/oliverpainfel/Software/ldsc/ldsc.py \
+     --h2 /users/k1806347/oliverpainfel/Analyses/crosspop/ldsc/sumstats/${pheno}_${samp}.sumstats.gz \
+     --ref-ld /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ld_scores/UKBB.${pop}.rsid \
+     --w-ld /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ld_scores/UKBB.${pop}.rsid \
+     --out /users/k1806347/oliverpainfel/Analyses/crosspop/ldsc/results/${pheno}/${pop}/res"
+     
+  done
+done
+
+```
+
+</details>
+
+
+***
+
+## Calculate CSCOREs
+
+```{bash}
+
+# Subset the reference data into relevant populations
+for pop in $(echo EUR EAS AFR); do
+  mkdir -p /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp
+  for chr in $(seq 1 22); do
+    /users/k1806347/oliverpainfel/Software/plink1.9/plink \
+      --bfile /users/k1806347/oliverpainfel/Data/1KG/GenoPred/v2.0.0/ref.chr${chr} \
+      --keep /users/k1806347/oliverpainfel/Data/1KG/GenoPred/v2.0.0/keep_files/${pop}.keep \
+      --make-bed \
+      --out /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp/ref.${pop}.chr${chr}
+    done
+done
+
+conda activate popcorn
+for pop in $(echo EAS AFR); do
+  mkdir -p /users/k1806347/oliverpainfel/Data/POPCORN/1KG/EUR_${pop}_CSCORES
+  for chr in $(seq 1 22); do
+    sbatch --mem 10G -n 1 -p neurohack_cpu --wrap="popcorn \
+      compute \
+      -v 1 \
+      --bfile1 /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp/ref.EUR.chr${chr} \
+      --bfile2 /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp/ref.${pop}.chr${chr} \
+      /users/k1806347/oliverpainfel/Data/POPCORN/1KG/EUR_${pop}_CSCORES/scores_chr${chr}.txt"
+  done
+done
+
+for pop in $(echo EAS AFR); do
+  cat /users/k1806347/oliverpainfel/Data/POPCORN/1KG/EUR_${pop}_CSCORES/scores_chr*.txt > /users/k1806347/oliverpainfel/Data/POPCORN/1KG/EUR_${pop}_CSCORES/scores_all.txt
+done
+
+rm -r /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp
+```
+
+***
+
+## Run POPCORN
+
+<details><summary>Show code</summary>
+```{bash}
+conda activate popcorn
+for pop in $(echo EAS AFR);do
+  if [ "$pop" == "EAS" ]; then
+      samp="BBJ"
+  fi
+  if [ "$pop" == "AFR" ]; then
+      samp="UGR"
+  fi
+  
+  for pheno in $(head -n 5 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt); do
+    mkdir -p /users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/results/${pheno}/EUR_${pop}
+    sbatch --mem 10G -n 1 -p neurohack_cpu --wrap="popcorn \
+       fit -v 3 \
+       --cfile /users/k1806347/oliverpainfel/Data/POPCORN/1KG/EUR_${pop}_CSCORES/scores_all.txt \
+       --sfile1 /users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/sumstats/${pheno}_UKB.sumstats.gz \
+       --sfile2 /users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/sumstats/${pheno}_${samp}.sumstats.gz \
+       --gen_effect \
+       /users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/results/${pheno}/EUR_${pop}/rG_gen_effect"
+  done
+done
+
+```
+
+</details>
+
+***
+
+## Plot the results
+
+<details><summary>Show code</summary>
+
+```{r}
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+# Read in list of outcomes 
+prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
+prscsx_dat<-prscsx_dat[1:5,]
+
+# Plot the heritability estimates
+h2_res <- NULL
+
+for(pop in c('AFR','EAS', 'EUR')){
+  for(pheno in prscsx_dat$labels){
+    log <-
+      readLines(
+        paste0(
+          '/users/k1806347/oliverpainfel/Analyses/crosspop/ldsc/results/',
+          pheno,
+          '/',
+          pop,
+          '/res.log'
+        )
+      )
+    
+    h2 <- log[grepl('Total Observed scale h2:', log)]
+    h2_est <- as.numeric(gsub(' .*','', gsub('Total Observed scale h2: ', '', h2)))
+    h2_se <- as.numeric(gsub("\\)",'', gsub(".* \\(", '', h2)))
+    int <- log[grepl('Intercept:', log)]
+    int_est <- as.numeric(gsub(' .*','', gsub('Intercept: ', '', int)))
+    int_se <- as.numeric(gsub("\\)",'', gsub(".* \\(", '', int)))
+    lambda <- log[grepl('Lambda GC:', log)]
+    lambda <- as.numeric(gsub('.* ','', lambda))
+    
+    h2_res <- rbind(
+      h2_res,
+      data.table(
+        Population = pop,
+        Phenotype = pheno,
+        h2_est = h2_est,
+        h2_se = h2_se,
+        int_est = int_est,
+        int_se = int_se,
+        lambda = lambda
+      )
+    )
+  }
+}
+
+ggplot(h2_res, aes(x = Phenotype, y = h2_est, fill = Population)) +
+  geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+  geom_errorbar(aes(ymin=h2_est-h2_se, ymax=h2_est+h2_se), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+  labs(y="SNP-based Heritability (SE)") +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+# Plot rG estimates
+rg_res <- NULL
+for(pop in c('AFR','EAS')){
+  for(pheno in prscsx_dat$labels){
+    pop_res_i<-fread(paste0('/users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/results/', pheno, '/EUR_', pop, '/rG_gen_effect'))
+    names(pop_res_i) <- c('Test','Estimate','SE','Z','P')
+    pop_res_i <- pop_res_i[pop_res_i$Test == 'pge',]
+    pop_res_i$Population_1 <- 'EUR'
+    pop_res_i$Population_2 <- pop
+    pop_res_i$Phenotype <- pheno
+    rg_res <- rbind(rg_res, pop_res_i)
+  }
+}
+
+rg_res$Comparison <- paste0(rg_res$Population_1, ' vs. ', rg_res$Population_2)
+
+ggplot(rg_res, aes(x = Phenotype, y = Estimate, fill = Comparison)) +
+  geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
+  geom_errorbar(aes(ymin=Estimate-SE, ymax=Estimate+SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+  labs(y="SNP-based\nGenetic Correlation (SE)") +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+```
+</details>
 
 ***
 
@@ -1568,6 +1836,12 @@ for(trait_i in prscsx_dat$labels){
   scores_i <- scores[grepl(trait_i, scores$name),]
   scores_i$group <- scores_i$method
 
+  # Current naming issue in gwas_groups leads to difficult subsetting
+  # In the future, update gwas_groups file to include disc pop in name, e.g. ALT_UKB_BBJ
+  scores_i$name_2 <- scores_i$name
+  scores_i$name_2[!(grepl('UKB|UGR|BBJ', scores_i$name_2, ignore.case = T))] <-
+    paste0(scores_i$name_2[!(grepl('UKB|UGR|BBJ', scores_i$name_2, ignore.case = T))], '_ukb_bbj')
+  
   for(targ_pop_i in targ_pop){
     # Subset GWAS based on EUR and/or targ_pop_i
     if(targ_pop_i == 'EAS'){
@@ -1600,9 +1874,9 @@ for(trait_i in prscsx_dat$labels){
         recursive = T
       )
       
-      scores_i_j <- scores_i[grepl('UKB', scores_i$name, ignore.case = F) |
-                             grepl(disc_pop_j, scores_i$nam, ignore.case = T),]
-      
+      scores_i_j <- scores_i[grepl('UKB', scores_i$name_2, ignore.case = F) |
+                       grepl(disc_pop_j, scores_i$name_2, ignore.case = T),]
+
       scores_i_j_multi <- scores_i_j
       # Insert path to score file
       scores_i_j_multi$predictor <- paste0(
@@ -1713,7 +1987,7 @@ for(trait_i in prscsx_dat$labels){
 cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
 conda activate model_builder
 
-for targ_pop in $(echo EUR EAS AFR); do
+for targ_pop in $(echo EAS AFR EUR); do
   if [ "$targ_pop" == "EUR" ]; then
       targ_pop2="EUR_test"
   else
@@ -1721,7 +1995,7 @@ for targ_pop in $(echo EUR EAS AFR); do
   fi
   
   if [ "$targ_pop" == "EUR" ]; then
-    disc_pop=$(echo AFR EAS)
+    disc_pop=$(echo EAS AFR)
   fi
   
   if [ "$targ_pop" == "EAS" ]; then
@@ -1751,171 +2025,7 @@ done
 
 ***
 
-## Plot results for each phenotype
-
-### Assoc results
-
-Let's see how results vary across parameters. This is a sanity check as well as being informative of how I should structure the models for each method.
-
-<details><summary>Show code</summary>
-
-```{r}
-library(data.table)
-library(ggplot2)
-library(cowplot)
-
-# Read in list of outcomes 
-prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
-prscsx_dat<-prscsx_dat[1:5,]
-
-single_plot_list<-list()
-prscsx_xwing_plot_list<-list()
-tlprs_plot_list<-list()
-pop=c('EUR','EAS','AFR','CSA','AMR')
-for(pheno_i in prscsx_dat$labels){
-  res_i<-NULL
-  for(targ_pop_i in pop){
-      assoc_i <-
-        fread(
-          paste0(
-            '/users/k1806347/oliverpainfel/Analyses/crosspop/multi.',
-            'targ_',
-            targ_pop_i,
-            '/',
-            pheno_i,
-            '/res.assoc.txt'
-          )
-        )
-      
-      # Determine whether single or multi source
-      assoc_i$multi_source <- ifelse(!(grepl(paste(pgs_group_methods, collapse ='|'), assoc_i$Group)), F, T)
-      
-      # Identify GWAS for single source
-      assoc_i$gwas[assoc_i$multi_source == F] <-
-        sub("^(([^.]+\\.){1}[^.]+)\\..*", "\\1",
-            sub("^[^.]*\\.", "",
-                assoc_i$Predictor[assoc_i$multi_source == F]))
-      
-      # Identify discovery sample
-      assoc_i$disc[assoc_i$multi_source == F] <-
-        sub(".*\\.", "",
-            assoc_i$gwas[assoc_i$multi_source == F])
-      
-      assoc_i$disc[assoc_i$disc == 'UKB'] <- 'EUR'
-      assoc_i$disc[assoc_i$disc == 'BBJ'] <- 'EAS'
-      assoc_i$disc[is.na(assoc_i$disc)] <- 'EUR+EAS'
-      
-      assoc_i$pheno <- pheno_i
-      assoc_i$test<-paste0(assoc_i$disc, ' → ', targ_pop_i)
-      
-      assoc_i$tlprs_target<-NA
-      assoc_i$tlprs_target[grepl('tlprs', assoc_i$Group) & grepl('targ.EUR', assoc_i$Predictor)]<-'EUR-tuned'
-      assoc_i$tlprs_target[grepl('tlprs', assoc_i$Group) & grepl('targ.EAS', assoc_i$Predictor)]<-'EAS-tuned'
-      
-      res_i<-rbind(res_i, assoc_i)
-  }
-
-  res_i$test<-factor(res_i$test, levels = unique(res_i$test))
-  res_i$disc<-factor(res_i$disc, levels = unique(res_i$disc))
-  res_i$pheno<-factor(res_i$pheno, levels = unique(res_i$pheno))
-  res_i$tlprs_target<-factor(res_i$tlprs_target, levels = unique(res_i$tlprs_target))
-
-  tmp<-res_i[!(res_i$multi_source),]
-  tmp<-tmp[!(grepl('pseudo', tmp$Group))]
-  tmp$param<-gsub('.*UKB.','',tmp$Predictor)
-  tmp$param<-gsub('.*BBJ.','',tmp$param)
-  tmp$param<-factor(tmp$param, levels=unique(tmp$param))
-
-  single_plot_list[[pheno_i]] <-  ggplot(tmp, aes(x=param, y=BETA, colour = Group)) +
-  geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
-                width = .2,
-                position = position_dodge(width = 0.7)) +
-  geom_point() +
-  geom_line() +
-  geom_hline(yintercept = 0) +
-  facet_grid(~ test, scales = 'free', space = 'free_x') +
-  theme_half_open() +
-  background_grid() + 
-  panel_border() + 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-  tmp<-res_i[(res_i$Group %in% c('prscsx','xwing')),]
-  tmp<-tmp[!(grepl('pseudo', tmp$Group))]
-  tmp$param<-gsub(paste0('.*',pheno_i,'\\.'),'',tmp$Predictor)
-  tmp$param<-factor(tmp$param, levels=unique(tmp$param))
-
-  prscsx_xwing_plot_list[[pheno_i]] <- ggplot(tmp, aes(x=param, y=BETA, colour = Group)) +
-  geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
-                width = .2,
-                position = position_dodge(width = 0.7)) +
-  geom_point() +
-  geom_line() +
-  geom_hline(yintercept = 0) +
-  facet_grid(.~ test, scales = 'free', space = 'free_x') +
-  theme_half_open() +
-  background_grid() + 
-  panel_border() + 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-  tmp<-res_i[(grepl('tlprs', res_i$Group)),]
-  tmp<-tmp[(grepl('SBayesR|phi.auto|DBSLMM.1.TLPRS', tmp$Predictor)),]
-  tmp<-tmp[!(grepl('pseudo', tmp$Group))]
-  tmp$param <- as.numeric(gsub('.*\\.','',tmp$Predictor))
-
-  tlprs_plot_list[[pheno_i]] <-  ggplot(tmp, aes(x=param, y=BETA, fill = Group, colour = Group)) +
-  geom_line() +
-  geom_errorbar(aes(ymin = BETA - SE, ymax = BETA + SE),
-                width = .2,
-                position = position_dodge(width = 0.7)) +
-  geom_point(stat="identity", position=position_dodge(0.7), size=2, shape=23) +
-  geom_hline(yintercept = 0) +
-  facet_grid(test ~ tlprs_target, scales = 'free', space = 'free_x') +
-  theme_half_open() +
-  background_grid() + 
-  panel_border() + 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-}
-
-png(
-  '/users/k1806347/oliverpainfel/Analyses/crosspop/single.assoc.png',
-  res = 300,
-  height = 1000*nrow(prscsx_dat),
-  width = 8000,
-  units = 'px'
-)
-plot_grid(plotlist = single_plot_list, labels = names(single_plot_list), ncol=1)
-dev.off()
-
-png(
-  '/users/k1806347/oliverpainfel/Analyses/crosspop/multi.prscsx_xwing.assoc.png',
-  res = 300,
-  height = 1000*nrow(prscsx_dat),
-  width = 8000,
-  units = 'px'
-)
-plot_grid(plotlist = prscsx_xwing_plot_list, labels = names(prscsx_xwing_plot_list), ncol=1)
-dev.off()
-
-png(
-  '/users/k1806347/oliverpainfel/Analyses/crosspop/multi.tlprs.assoc.png',
-  res = 300,
-  height = 3500*nrow(prscsx_dat),
-  width = 4000,
-  units = 'px'
-)
-plot_grid(plotlist = tlprs_plot_list, labels = names(tlprs_plot_list), ncol=1)
-dev.off()
-
-```
-</details>
-
-- PRS-CSx say to model the EUR, EAS and META output (for each phi)
-- x-wing produce output for each target population
-- TLPRS produce output for each target population
-
-***
-
-### Prediction modelling results
+### Plot results
 
 <details><summary>Show code</summary>
 
@@ -1931,18 +2041,7 @@ source_all('../functions')
 
 # Read in list of outcomes 
 prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
-prscsx_dat<-prscsx_dat[1:5,]
-
-config<-'/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/config.yaml'
-  
-# Define pgs_methods used
-pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
-
-# Define gwas_list used
-gwas_list<-read_param(config = config, param = 'gwas_list')
-
-# Define gwas_groups used
-gwas_groups<-read_param(config = config, param = 'gwas_groups')
+prscsx_dat<-prscsx_dat[1:4,]
 
 # Calculate corelation between all phenotypes in each target population
 cors <- list()
@@ -2017,13 +2116,9 @@ for(pheno_i in prscsx_dat$labels){
   res_i$Model<-factor(res_i$Model, levels=c('Top1','Pseudo','Multi'))
   res_i$Discovery<-factor(res_i$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
-  # Remove pseudo model for methods that don't really have one (single source combo, tlprs)
+  # Remove pseudo model for methods that don't really have one (single source combo)
   res_i <- res_i[!which(res_i$Model == 'Pseudo' & res_i$Method == 'ptclump'),]
-  res_i <- res_i[!which(
-    res_i$Model == 'Pseudo' & 
-    res_i$Method %in% c('tlprs_dbslmm', 'tlprs_prscs', 'tlprs_sbayesr') & 
-    res_i$Source == 'Multi'),]
-  
+
   res[[pheno_i]]<-res_i
   
 }
@@ -2312,15 +2407,8 @@ for(model_i in c('Top1','Pseudo','Multi')){
         tmp$Model_2, 
         levels=unique(tmp$Model_1))
       
-      diagonal_data <- data.frame(
-        Model_1 = unique(tmp$Model_1),
-        Model_2 = unique(tmp$Model_1),
-        R_diff_catagory = NA
-      )
-      
       heatmap_list[[model_i]][[targ_pop_i]][[disc_pop_i]] <-
         ggplot(data = tmp, aes(Model_2, Model_1, fill = R_diff_catagory)) +
-        geom_tile(data = diagonal_data, aes(Model_2, Model_1), fill = "grey", color = "white") +  
         geom_tile(color = "white") +
         labs(y = 'Test', x = 'Comparison', fill = 'R difference', title = paste0('Target: ', targ_pop_i, ', Model = ', model_i)) +
         facet_grid(Discovery ~ Discovery2, scales = 'free', space = 'free', switch="both") +
@@ -2354,5 +2442,277 @@ for(model_i in c('Top1','Pseudo','Multi')){
 ```
 </details>
 
+***
 
+## Check PGS association direction
+
+This is a sanity check to see whether the PGS are correlated with the outcome in the expected direction (positive). We will do this using the ptclump PGS and within population for simplicity (i.e. EUR -> EUR, etc)
+
+### Create predictor lists
+
+<details><summary>Show code</summary>
+
+```{r}
+
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+library(data.table)
+
+# Get some key variables from config
+config<-'/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/config.yaml'
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Read in list of outcomes 
+prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
+prscsx_dat<-prscsx_dat[1:5,]
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+# Restrict to ptclump
+scores<-scores[grepl('ptclump', scores$method),]
+
+# Create files for EAS and AFR targets
+pop <- c('EUR','EAS','AFR')
+for(trait_i in prscsx_dat$labels){
+  # Make a group containing both GWAS for each single source method
+  # Make a group for each multisource method
+  scores_i <- scores[grepl(trait_i, scores$name),]
+  scores_i$group <- scores_i$method
+  
+  for(pop_i in pop){
+    # Subset GWAS based on EUR and/or targ_pop_i
+    if(pop_i == 'EAS'){
+      samp_i <- 'BBJ'
+    }
+    if(pop_i == 'AFR'){
+      samp_i <- 'UGR'
+    }
+    if(pop_i == 'EUR'){
+      samp_i <- c('UKB')
+    }
+
+    dir.create(
+      paste0(
+        '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
+        pop_i,
+        '.disc_',
+        pop_i,
+        '/',
+        trait_i
+      ),
+      recursive = T
+    )
+    
+    scores_i_j <- scores_i[grepl(samp_i, scores_i$name, ignore.case = T),]
+    scores_i_j$predictor <- paste0(
+      outdir,
+      '/ukb/pgs/',
+      pop_i,
+      '/',
+      scores_i_j$method,
+      '/',
+      scores_i_j$name,
+      '/ukb-',
+      scores_i_j$name,
+      '-',
+      pop_i,
+      '.profiles'
+    )
+    
+    predictors_i <- scores_i_j[, c('predictor', 'group'), with=F]
+    
+    write.table(
+      predictors_i,
+      paste0(
+        '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
+        pop_i,
+        '.disc_',
+        pop_i,
+        '/',
+        trait_i,
+        '/predictor_list.ptclump.txt'
+      ),
+      col.names = T,
+      row.names = F,
+      quote = F
+    )
+  }
+}
+
+```
+</details>
+
+***
+
+### Run model_builder
+
+<details><summary>Show code</summary>
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate model_builder
+
+for pop in $(echo EUR EAS AFR); do
+  if [ "$pop" == "EUR" ]; then
+      pop2="EUR_test"
+  else
+      pop2=$pop
+  fi
+  
+  for pheno in $(head -n 5 /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_labels.txt); do
+    sbatch --mem 5G -n 5 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
+      --outcome /scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/${pheno}.unrel.${pop2}.row_number.txt \
+      --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${pop}.disc_${pop}/${pheno}/predictor_list.ptclump.txt \
+      --out /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${pop}.disc_${pop}/${pheno}/res.ptclump \
+      --n_core 5 \
+      --all_model F \
+      --assoc T"
+  done
+done
+
+```
+</details>
+
+***
+
+### Plot results
+
+<details><summary>Show code</summary>
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in list of outcomes 
+prscsx_dat<-fread('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/prscsx_data.csv')
+prscsx_dat<-prscsx_dat[1:4,]
+
+# Read in results
+pop = c('EUR','EAS','AFR')
+res_all <- NULL
+for(pheno_i in prscsx_dat$labels){
+  res_i<-NULL
+  for(pop_i in pop){
+    assoc_i <-
+      fread(
+        paste0(
+          '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
+          pop_i,
+          '.disc_',
+          pop_i,
+          '/',
+          pheno_i,
+          '/res.ptclump.assoc.txt'
+        )
+      )
+      assoc_i$Population <- pop_i
+      res_i<-rbind(res_i, assoc_i)
+  }
+  
+  res_i$Phenotype <- pheno_i
+  res_all<-rbind(res_all, res_i)
+}
+
+# Extract pT variable from Predictor
+res_all$pT <- gsub('e.','e-', gsub('.*UKB\\.0\\.|.*BBJ\\.0\\.|.*UGR\\.0\\.', '', res_all$Predictor))
+res_all$pT <- factor(res_all$pT, levels = unique(res_all$pT))
+
+ggplot(res_all, aes(x = Phenotype, y = BETA, fill = pT)) +
+  geom_hline(yintercept = 0, colour = 'darkgrey') +
+  geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7, colour = 'black') +
+  geom_errorbar(aes(ymin=BETA-SE, ymax=BETA+SE), width=0, position=position_dodge(width = 0.7, preserve = "single")) +
+  labs(y="BETA (SE)") +
+  theme_half_open() +
+  background_grid() +
+  panel_border() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y') +
+  scale_fill_manual(values = colorRampPalette(c("lightblue", "darkblue"))(length(unique(res_all$pT)))) +
+  facet_grid(Population ~.)
+
+```
+</details>
+
+***
+
+# Computational resoures
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(ggrepel)
+library(dplyr)
+library(plotly)
+
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+
+# Get some key variables from config
+config<-'/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/crosspop/config.yaml'
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Read in configuration specific benchmark files
+bm_files_i <- list.files(paste0(outdir, '/reference/benchmarks/'), full.names = T)
+
+# Subset benchmarks for pgs_methods
+bm_files_i <- bm_files_i[grepl('prep_pgs_', bm_files_i)]
+
+# Read in benchmark files
+bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
+  tmp <- fread(file)
+  tmp$file <- basename(file)
+  return(tmp)
+}))
+
+# Create rule column
+bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
+
+# Create method column
+bm_dat_all$method <-
+  gsub('_i', '', gsub('prep_pgs_', '', bm_dat_all$rule))
+
+# Calculate average time taken for each method
+method_avg <- NULL
+for(i in unique(bm_dat_all$method)){
+  method_avg <- rbind(
+    method_avg,
+    data.frame(
+      Method = i,
+      Time = mean(bm_dat_all$s[bm_dat_all$method == i])
+    )
+  )
+}
+
+# Format the time taken nicely
+method_avg$Time_clean[method_avg$Time < 60] <-
+  paste0(round(method_avg$Time[method_avg$Time < 60], 1), ' sec')
+method_avg$Time_clean[method_avg$Time > 60] <-
+  paste0(round(method_avg$Time[method_avg$Time > 60] / 60, 1), ' min')
+method_avg$Time_clean[method_avg$Time > 3600] <-
+  paste0(round(method_avg$Time[method_avg$Time > 3600] / 60 / 60, 1), ' hr')
+
+ggplot(method_avg, aes(x=Method, y = Time, fill = Method)) +
+  geom_bar()
+
+ggplot(method_avg, aes(x = Method, y = Time, fill = Method)) +
+  geom_bar(stat = "identity", position="dodge") +
+  geom_text(aes(label = Time_clean), vjust = -0.5, position = position_dodge(width = 0.9)) +
+  labs(x = "PGS Method", y = "Time (s)") +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+
+```
 

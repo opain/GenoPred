@@ -530,59 +530,62 @@ log_add(log_file = log_file, message = paste0('Model evaluation results saved as
 # Compare predictive utiliy of the different models
 ###################
 
-# Initialise progress log
-log_message <- 'Comparing model performance... '
-progress_file <- initialise_progress(log_message = log_message, log_file = log_file)
+if(length(pred_eval_all$Group) > 1){
 
-# Identify number of pairwise comparisons
-models <- pred_eval_all$Group
-model_comps <- data.table(t(combn(models, 2)))
+  # Initialise progress log
+  log_message <- 'Comparing model performance... '
+  progress_file <- initialise_progress(log_message = log_message, log_file = log_file)
 
-comp_res_all <- foreach(i = 1:length(models), .combine=rbind) %dopar% {
-  group1 <- models[i]
-  comp_res_i <- NULL
-  for(group2 in model_comps$V2[model_comps$V1 == group1]){
+  # Identify number of pairwise comparisons
+  models <- pred_eval_all$Group
+  model_comps <- data.table(t(combn(models, 2)))
 
-  	group1_r <- cor(scale(as.numeric(indep_pred_list[[group1]]$obs)), scale(indep_pred_list[[group1]]$pred))[1]
-    group2_r <- cor(scale(as.numeric(indep_pred_list[[group2]]$obs)), scale(indep_pred_list[[group2]]$pred))[1]
+  comp_res_all <- foreach(i = 1:length(models), .combine=rbind) %dopar% {
+    group1 <- models[i]
+    comp_res_i <- NULL
+    for(group2 in model_comps$V2[model_comps$V1 == group1]){
 
-    r_diff <- group1_r - group2_r
+    	group1_r <- cor(scale(as.numeric(indep_pred_list[[group1]]$obs)), scale(indep_pred_list[[group1]]$pred))[1]
+      group2_r <- cor(scale(as.numeric(indep_pred_list[[group2]]$obs)), scale(indep_pred_list[[group2]]$pred))[1]
 
-    group1_group2_r <- cor(scale(indep_pred_list[[group1]]$pred), scale(indep_pred_list[[group2]]$pred))
+      r_diff <- group1_r - group2_r
 
-    r_diff_p <-
-      paired.r(
-        xy = group1_r,
-        xz = group2_r,
-        yz = group1_group2_r,
-        n = length(scale(indep_pred_list[[group1]]$pred)),
-        twotailed = T
-      )$p[1]
+      group1_group2_r <- cor(scale(indep_pred_list[[group1]]$pred), scale(indep_pred_list[[group2]]$pred))
 
-    comp_res <- data.table(
-      Model_1 = group1,
-      Model_2 = group2,
-      Model_1_R = group1_r,
-      Model_2_R = group2_r,
-      R_diff = r_diff,
-      R_diff_pval = r_diff_p
-    )
+      r_diff_p <-
+        paired.r(
+          xy = group1_r,
+          xz = group2_r,
+          yz = group1_group2_r,
+          n = length(scale(indep_pred_list[[group1]]$pred)),
+          twotailed = T
+        )$p[1]
 
-    comp_res_i <- rbind(comp_res_i, comp_res)
+      comp_res <- data.table(
+        Model_1 = group1,
+        Model_2 = group2,
+        Model_1_R = group1_r,
+        Model_2_R = group2_r,
+        R_diff = r_diff,
+        R_diff_pval = r_diff_p
+      )
+
+      comp_res_i <- rbind(comp_res_i, comp_res)
+    }
+
+    # Update progress log
+    progress <- update_progress_file(progress_file)
+    update_log_file(log_file = log_file, message = paste0(log_message, floor(progress/length(models)*100),'%'))
+
+    comp_res_i
   }
 
-  # Update progress log
-  progress <- update_progress_file(progress_file)
-  update_log_file(log_file = log_file, message = paste0(log_message, floor(progress/length(models)*100),'%'))
+  update_log_file(log_file = log_file, message = paste0(log_message, 'Done!'))
 
-  comp_res_i
+  # Write out the results
+  write.table(comp_res_all, paste0(opt$out,'.pred_comp.txt'), col.names=T, row.names=F, quote=F)
+  log_add(log_file = log_file, message = paste0('Model comparison results saved as ',opt$out,'.pred_comp.txt.'))
 }
-
-update_log_file(log_file = log_file, message = paste0(log_message, 'Done!'))
-
-# Write out the results
-write.table(comp_res_all, paste0(opt$out,'.pred_comp.txt'), col.names=T, row.names=F, quote=F)
-log_add(log_file = log_file, message = paste0('Model evaluation results saved as ',opt$out,'.pred_comp.txt.'))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
