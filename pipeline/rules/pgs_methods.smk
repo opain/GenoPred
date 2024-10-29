@@ -37,6 +37,9 @@ if 'gwas_list' in config and config["gwas_list"] != 'NA':
 else:
   gwas_list_df = pd.DataFrame(columns = ["name", "path", "population", "n", "sampling", "prevalence", "mean", "sd", "label"])
 
+# Remove commas in the 'n' column and convert to numeric
+gwas_list_df['n'] = gwas_list_df['n'].replace({',': ''}, regex=True)
+
 # Check whether gwas_list paths exist
 check_list_paths(gwas_list_df)
 
