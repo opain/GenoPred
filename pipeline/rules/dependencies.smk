@@ -461,6 +461,7 @@ rule download_ldak:
       mkdir -p {resdir}/software/ldak; \
       wget --no-check-certificate -O {resdir}/software/ldak/ldak5.1.linux_.zip https://dougspeed.com/wp-content/uploads/ldak5.1.linux_.zip; \
       unzip {resdir}/software/ldak/ldak5.1.linux_.zip -d {resdir}/software/ldak/; \
+      chmod a+x {resdir}/software/ldak/ldak5.1.linux; \
       rm {resdir}/software/ldak/ldak5.1.linux_.zip
     }} > {log} 2>&1
     """
