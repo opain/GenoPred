@@ -1,0 +1,361 @@
+---
+title: Rethinking the reference standardisation process
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+# Background
+
+In some scenarios, PGS produced by GenoPred are shifted on the reference-standardised distribution. This has motivated a rethink of the reference standardisation process in GenoPred.
+
+The shift appears to be caused by missing data, though I do not understand why, since we are using reference frequency imputation during scoring. I have explored whether a shift in ancestry relative to the reference population could also cause a shift in the PGS, but projected PC correction of the PGS does not resolve the issue. Missingness seems to be a part of the issue, so we will need to simulate some data to explore causes and solutions further.
+
+Though, it makes me wonder whether our current approach for reference standardisation is suboptimal. We originally thought that reference frequency imputation is good as it allows simple PGS calculation, and missingness will lead to gravitation to the mean, but perhaps a more individual specific solution is available. Here is a summary of thoughts on this:
+
+- Impact of Imputing Missing Variants Using Reference MAF: When missing variants in the target sample are imputed using reference population allele frequencies, the resulting PGS tends to gravitate toward the reference mean. This approach also narrows the score’s distribution, reducing its variance and thus diminishing the variance explained (R²) within the target sample.
+
+- Interpretable Score Generation in GenoPred: GenoPred aims to create interpretable polygenic scores that are robust and transferrable across samples. A key element is the use of reference-based standardization, allowing score calculations to be independent of target sample variations and supporting consistent interpretations across studies and populations.
+
+- Adjustment for Missing Data in Interpretation: To account for missing variants in the target, scaling and standardizing the PGS as done by tools like Impute.me can improve interpretability. This approach provides z-scores that adjust for missing data, yielding a more accurate standardization. However, individual-level R² values will vary among participants due to differences in missing SNPs and their contributions.
+
+- Estimating Individual-Level R² Using GWAS Summary Statistics: With well-calibrated SNP weights, it is feasible to estimate individual-level R² by leveraging GWAS summary statistics and accounting for missing variants. This enables a calculation of R² per individual that reflects their specific missing data profile, although these estimates are influenced by the covariates used in the GWAS.
+
+- Adjusting Reported R² for Missing Data Impact: Alternatively, a global R² adjustment can be applied by using a correction factor that reflects the variance lost due to missing variants. This could involve calculating the ratio of summary statistic-based R² with missing data to R² assuming no missing data, providing a more accurate interpretation of the score’s predictive power for each individual.
+
+# Action point
+
+Create example target data with degrees of missingness that can used to see impact of missingness in the output of GenoPred. Try to recreate shift in PGS for anorexia nervosa, as it seems to be highly correlated with PC1, which seems to highlight the issue. If there are no bugs causing the shift, we may need to consider alternative, target sample specific solutions discuss above.
+
+# Simulation
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+
+# Set up parameters for simulation
+set.seed(1)
+num_individuals <- 1000
+num_snps <- 1000
+impute <- F
+
+# 1. Generate SNP effects and reference allele frequencies
+snp_effects <- data.frame(
+  SNP = paste0("rs", 1:num_snps),
+  effect_size = rnorm(num_snps, mean = 0.1, sd = 0.02)
+)
+
+# Reference population allele frequencies
+ref_allele_freq <- data.frame(
+  SNP = paste0("rs", 1:num_snps),
+  ref_freq = runif(num_snps, 0.1, 0.9)
+)
+
+# 2. Generate Target Genotypes based on Reference Allele Frequencies
+# Each individual's genotype is sampled from a binomial distribution with probability equal to ref_freq
+# This will give genotypes with frequencies matching the reference population
+target_genotypes <- data.frame(ID = 1:num_individuals)
+for (snp in snp_effects$SNP) {
+  ref_freq <- ref_allele_freq$ref_freq[ref_allele_freq$SNP == snp]
+  target_genotypes[[snp]] <- rbinom(num_individuals, 2, ref_freq)  # Generates 0, 1, or 2 with matching frequency
+}
+
+# Introduce some missing data randomly (optional, if you want missingness to remain)
+# Let's assume a 10% missing rate
+for (snp in snp_effects$SNP) {
+  missing_indices <- sample(1:num_individuals, size = round(0.9 * num_individuals))
+  target_genotypes[missing_indices, snp] <- NA
+}
+
+if(impute){
+  # Impute Missing Genotypes Using Reference Allele Frequency
+  for (snp in snp_effects$SNP) {
+    ref_freq <- ref_allele_freq$ref_freq[ref_allele_freq$SNP == snp]
+    target_genotypes[[snp]][is.na(target_genotypes[[snp]])] <- round(2 * ref_freq)
+  }
+}
+
+# 2. Calculate Population-Score Mean for each SNP
+snp_effects$population_score <- 2 * ref_allele_freq$ref_freq * snp_effects$effect_size
+population_mean_pgs <- sum(snp_effects$population_score)
+
+# 3. Calculate Raw PGS for each individual
+# Ensure genotypes are a matrix (num_individuals x num_snps)
+# Rows are individuals, columns are SNPs
+genotype_matrix <- as.matrix(target_genotypes[, snp_effects$SNP])
+genotype_matrix[is.na(genotype_matrix)] <- 0
+
+# Multiply the genotype matrix by the effect vector
+raw_pgs_vector <- genotype_matrix %*% snp_effects$effect_size
+
+pgs_data <- data.frame(ID = target_genotypes$ID, Raw_PGS = genotype_matrix %*% snp_effects$effect_size)
+
+# 4. Adjust Population Standardization Based on Missing Variants
+# Calculate individual-specific mean and standard deviation based on observed variants only
+# Convert target genotypes to a matrix, excluding the first column (ID column)
+genotype_matrix <- as.matrix(target_genotypes[, -1])
+
+# Create a mask to identify observed SNPs (1 for observed, 0 for NA)
+observed_mask <- !is.na(genotype_matrix)
+
+# Replace NAs with 0 for easier calculation
+genotype_matrix[is.na(genotype_matrix)] <- 0
+
+# Calculate population mean for each SNP (this is a constant for each SNP across individuals)
+population_means <- snp_effects$population_score
+
+# Calculate population standard deviation per SNP based on allele frequencies and effect sizes
+snp_variances <- 2 * ref_allele_freq$ref_freq * (1 - ref_allele_freq$ref_freq) * (snp_effects$effect_size^2)
+snp_std_devs <- sqrt(snp_variances)
+
+# Calculate observed population mean and standard deviation for each individual
+# Expand population_means to match observed_mask dimensions
+population_means_matrix <- matrix(population_means, nrow = nrow(observed_mask), ncol = ncol(observed_mask), byrow = TRUE)
+# Expand snp_variances to match observed_mask dimensions
+snp_variances_matrix <- matrix(snp_variances, nrow = nrow(observed_mask), ncol = ncol(observed_mask), byrow = TRUE)
+
+observed_means <- rowSums(observed_mask * population_means_matrix)
+observed_sds <- sqrt(rowSums(observed_mask * snp_variances_matrix))
+
+# Calculate Zero-Centered Score and Z-score in a vectorized way
+pgs_data$ZeroCenteredScore <- pgs_data$Raw_PGS - observed_means
+pgs_data$Z_score <- pgs_data$ZeroCenteredScore / observed_sds
+
+# 5. Estimate Overall R^2 based on GWAS Summary Statistics
+# Sum variance explained by each SNP based on allele frequencies and effect sizes
+total_r2 <- sum(2 * ref_allele_freq$ref_freq * (1 - ref_allele_freq$ref_freq) * 
+                (snp_effects$effect_size^2))
+
+# Precompute the constant part of the R² formula for each SNP
+snp_r2_contrib <- 2 * ref_allele_freq$ref_freq * (1 - ref_allele_freq$ref_freq) * (snp_effects$effect_size^2)
+
+# Convert target genotypes to a matrix, skipping the first column (ID column)
+genotype_matrix <- as.matrix(target_genotypes[, -1])
+
+# Create a mask matrix to identify observed SNPs (1 for observed, 0 for NA)
+observed_mask <- !is.na(genotype_matrix)
+
+# Replace NA values in the genotype matrix with 0 for calculations
+genotype_matrix[is.na(genotype_matrix)] <- 0
+
+# Calculate R² for each individual by summing observed SNP contributions
+pgs_data$Individual_R2 <- rowSums(observed_mask * snp_r2_contrib)
+
+# Plotting
+
+# 1. Plot Raw PGS Distribution
+ggplot(pgs_data, aes(x = Raw_PGS)) +
+  geom_histogram(fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Raw Polygenic Scores",
+       x = "Raw PGS",
+       y = "Count") +
+  theme_minimal()
+
+# 2. Plot Zscore Distribution
+ggplot(pgs_data, aes(x = Z_score)) +
+  geom_histogram(fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Polygenic Z Scores",
+       x = "PGS Z_score",
+       y = "Count") +
+  theme_minimal()
+
+# 3. Plot Individual-Level R^2 Distribution
+ggplot(pgs_data, aes(x = Individual_R2)) +
+  geom_histogram(fill = "skyblue", color = "black") +
+  labs(x = "Proportion of PGS R2",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+```{r}
+# Function to simulate genotypes, polygenic scores, and perform optional imputation and standardization
+simulate_genotypes_pgs <- function(num_individuals = 500, num_snps = 500, impute = FALSE, missing_rate = 0.1, seed = 1) {
+  # Set up parameters for simulation
+  set.seed(seed)
+  
+  # 1. Generate SNP effects and reference allele frequencies
+  snp_effects <- data.frame(
+    SNP = paste0("rs", 1:num_snps),
+    effect_size = rnorm(num_snps, mean = 0.1, sd = 0.02)
+  )
+  
+  # Reference population allele frequencies
+  ref_allele_freq <- data.frame(
+    SNP = paste0("rs", 1:num_snps),
+    ref_freq = runif(num_snps, 0.1, 0.9)
+  )
+  
+  # 2. Generate Target Genotypes based on Reference Allele Frequencies
+  target_genotypes <- data.frame(ID = 1:num_individuals)
+  for (snp in snp_effects$SNP) {
+    ref_freq <- ref_allele_freq$ref_freq[ref_allele_freq$SNP == snp]
+    target_genotypes[[snp]] <- rbinom(num_individuals, 2, ref_freq)
+  }
+  
+  # Introduce missing data randomly
+  for (snp in snp_effects$SNP) {
+    missing_indices <- sample(1:num_individuals, size = round(missing_rate * num_individuals))
+    target_genotypes[missing_indices, snp] <- NA
+  }
+  
+  # Impute missing genotypes if specified
+  if (impute) {
+    for (snp in snp_effects$SNP) {
+      ref_freq <- ref_allele_freq$ref_freq[ref_allele_freq$SNP == snp]
+      target_genotypes[[snp]][is.na(target_genotypes[[snp]])] <- 2 * ref_freq
+    }
+  }
+  
+  # 3. Calculate Population-Score Mean for each SNP
+  snp_effects$population_score <- 2 * ref_allele_freq$ref_freq * snp_effects$effect_size
+  population_mean_pgs <- sum(snp_effects$population_score)
+  
+  # 4. Calculate Raw PGS for each individual
+  genotype_matrix <- as.matrix(target_genotypes[, snp_effects$SNP])
+  observed_mask <- !is.na(genotype_matrix)
+  genotype_matrix[is.na(genotype_matrix)] <- 0
+  raw_pgs_vector <- genotype_matrix %*% snp_effects$effect_size
+  pgs_data <- data.frame(ID = target_genotypes$ID, Raw_PGS = raw_pgs_vector)
+  
+  # 5. Adjust Population Standardization Based on Missing Variants
+  # Expand population_means and snp_variances as matrices to match observed_mask dimensions
+  population_means <- snp_effects$population_score
+  snp_variances <- 2 * ref_allele_freq$ref_freq * (1 - ref_allele_freq$ref_freq) * (snp_effects$effect_size^2)
+  
+  population_means_matrix <- matrix(population_means, nrow = nrow(observed_mask), ncol = ncol(observed_mask), byrow = TRUE)
+  snp_variances_matrix <- matrix(snp_variances, nrow = nrow(observed_mask), ncol = ncol(observed_mask), byrow = TRUE)
+  
+  # Calculate observed means and standard deviations without unintended recycling
+  observed_means <- rowSums(observed_mask * population_means_matrix)
+  observed_sds <- sqrt(rowSums(observed_mask * snp_variances_matrix))
+  
+  # Calculate Zero-Centered Score and Z-score
+  pgs_data$ZeroCenteredScore <- pgs_data$Raw_PGS - observed_means
+  pgs_data$Z_score <- pgs_data$ZeroCenteredScore / observed_sds
+  
+  # 6. Estimate Overall R^2
+  total_r2 <- sum(snp_variances)
+  
+  # Calculate individual R² values
+  pgs_data$Individual_R2 <- rowSums(observed_mask * snp_variances_matrix)
+  
+  # Return the results
+  list(
+    snp_effects = snp_effects,
+    ref_allele_freq = ref_allele_freq,
+    target_genotypes = target_genotypes,
+    pgs_data = pgs_data,
+    total_r2 = total_r2
+  )
+}
+
+pgs_z_all <- NULL
+r2_all <- NULL
+for(n_snp in c(100, 500)){
+  for(missingness in c(0, 0.1, 0.2, 0.3, 0.4, 0.8)){
+    for(imp in c(T, F)){
+      tmp <- simulate_genotypes_pgs(
+        impute = imp,
+        num_individuals = 1000,
+        num_snps = n_snp,
+        missing_rate = missingness
+      )
+      tmp2 <- tmp$pgs_data
+      tmp2$impute<-imp
+      tmp2$missing_rate<-missingness
+      tmp2$num_snps<-n_snp
+      tmp2$total_r2<-tmp$total_r2
+      pgs_z_all <- rbind(pgs_z_all, tmp2)
+    }
+  }
+}
+
+library(ggplot2)
+library(cowplot)
+
+pgs_z_all$missing_rate_lab <- paste0('Missing = ', pgs_z_all$missing_rate)
+pgs_z_all$num_snps_lab <- paste0('N SNP = ', pgs_z_all$num_snps)
+
+pgs_z_all$missing_rate_lab <- factor(pgs_z_all$missing_rate_lab, levels = unique(pgs_z_all$missing_rate_lab))
+pgs_z_all$num_snps_lab <- factor(pgs_z_all$num_snps_lab, levels = unique(pgs_z_all$num_snps_lab))
+
+###
+# Show the mean and SD on the plot
+###
+
+# N SNP doesn't change anything, so just plot missing rate with NSNP 500
+pgs_z_all_nsnp500 <- pgs_z_all[pgs_z_all$num_snps == 500,]
+
+# Calculate mean and SD without dplyr
+mean_z <- tapply(pgs_z_all_nsnp500$Z_score, 
+                 list(pgs_z_all_nsnp500$impute, pgs_z_all_nsnp500$missing_rate_lab), 
+                 mean, na.rm = TRUE)
+sd_z <- tapply(pgs_z_all_nsnp500$Z_score, 
+               list(pgs_z_all_nsnp500$impute, pgs_z_all_nsnp500$missing_rate_lab), 
+               sd, na.rm = TRUE)
+
+# Convert the results to a data frame for ggplot
+mean_z_df <- as.data.frame(as.table(mean_z))
+sd_z_df <- as.data.frame(as.table(sd_z))
+mean_r2_df <- as.data.frame(as.table(mean_z))
+colnames(mean_z_df) <- c("impute", "missing_rate_lab", "mean_z")
+colnames(sd_z_df) <- c("impute", "missing_rate_lab", "sd_z")
+stats <- merge(mean_z_df, sd_z_df, by = c("impute", "missing_rate_lab"))
+
+# Plot with density and annotated mean/SD values
+ggplot(pgs_z_all_nsnp500, aes(x = Z_score, fill = impute)) +
+  geom_vline(xintercept = 0) +
+  geom_density(alpha = 0.5, position = "identity") +
+  labs(x = "PGS Z_score", y = "Density", fill = 'Impute', colour = 'Impute') +
+  facet_grid(. ~ missing_rate_lab) +
+  theme_half_open() +
+  panel_border() +
+  geom_text(
+    data = stats,
+    aes(
+      x = ifelse(impute == "TRUE", -Inf, Inf),  # Place one group on left, other on right
+      y = Inf, 
+      label = paste0("Mean: ", round(mean_z, 2), "\nSD: ", round(sd_z, 2)),
+      color = impute
+    ),
+    hjust = ifelse(stats$impute == "TRUE", -0.1, 1.1),  # Adjust horizontal justification
+    vjust = 1.5, size = 3, inherit.aes = FALSE, show.legend = FALSE
+  )
+
+# Plot quantiles to see normality
+ggplot(pgs_z_all_nsnp500, aes(sample = Z_score, color = impute)) +
+  geom_qq() +
+  geom_qq_line() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +  # Add y = x line
+  labs(x = "Theoretical Quantiles", y = "Observed Quantiles", color = 'Impute') +
+  facet_grid(. ~ missing_rate_lab) +
+  theme_half_open() +
+  panel_border()
+
+```
+
+

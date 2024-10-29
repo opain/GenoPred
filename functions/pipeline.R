@@ -237,7 +237,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   if(pgs_method == 'sbayesr'){
     pseudo_val <- 'SBayesR'
   }
-  if(pgs_method == 'sbayesr'){
+  if(pgs_method == 'sbayesrc'){
     pseudo_val <- 'SBayesRC'
   }
   if(pgs_method == 'quickprs'){
