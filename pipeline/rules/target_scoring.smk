@@ -54,7 +54,7 @@ rule pc_projection:
 rule target_pgs_i:
   resources:
     mem_mb=config['mem_target_pgs'],
-    time_min=800
+    time_min=1600
   threads: config['cores_target_pgs']
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
@@ -71,8 +71,7 @@ rule target_pgs_i:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "rm -r -f {outdir}/{wildcards.name}/pgs/{wildcards.population} && \
-     Rscript ../Scripts/target_scoring/target_scoring_pipeline.R \
+    "Rscript ../Scripts/target_scoring/target_scoring_pipeline.R \
       --config {params.config_file} \
       --name {wildcards.name} \
       --population {wildcards.population} \

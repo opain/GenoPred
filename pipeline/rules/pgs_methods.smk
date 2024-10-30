@@ -31,21 +31,6 @@ rule ref_pca:
 # QC and format GWAS summary statistics
 ##
 
-# Read in the gwas_list or make an empty version
-if 'gwas_list' in config and config["gwas_list"] != 'NA':
-  gwas_list_df = pd.read_table(config["gwas_list"], sep=r'\s+')
-else:
-  gwas_list_df = pd.DataFrame(columns = ["name", "path", "population", "n", "sampling", "prevalence", "mean", "sd", "label"])
-
-# Remove commas in the 'n' column and convert to numeric
-gwas_list_df['n'] = gwas_list_df['n'].replace({',': ''}, regex=True)
-
-# Check whether gwas_list paths exist
-check_list_paths(gwas_list_df)
-
-# Identify gwas_list with population == 'EUR'
-gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
-
 if 'gwas_list' in config:
   rule sumstat_prep_i:
     input:
@@ -184,12 +169,12 @@ rule prep_pgs_dbslmm:
 rule prep_pgs_prscs_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
-    lambda w: f"{resdir}/data/prscs_ref/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
+    lambda w: f"{resdir}/data/prscs_ref/" + prscs_ldref + "/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
   output:
     f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -214,7 +199,7 @@ rule prep_pgs_prscs_i:
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
     --PRScs_path {resdir}/software/prscs/PRScs.py \
-    --PRScs_ref_path {resdir}/data/prscs_ref/ldblk_{prscs_ldref}_{params.population} \
+    --PRScs_ref_path {resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{params.population} \
     --n_cores {threads} \
     --phi_param {params.phi} \
     --test {params.testing} > {log} 2>&1
@@ -233,6 +218,7 @@ rule prep_pgs_sbayesr_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    lambda w: f"{sbayesr_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
     rules.download_gctb_ref.output,
     rules.download_gctb_software.output
   output:
@@ -250,7 +236,7 @@ rule prep_pgs_sbayesr_i:
       --ref_plink_chr {refdir}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb/gctb_2.03beta_Linux/gctb \
-      --ld_matrix_chr {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr \
+      --ld_matrix_chr {sbayesr_ldref} \
       --robust T \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -289,7 +275,7 @@ rule prep_pgs_lassosum_i:
      --gwas_pop {params.population} \
      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --n_cores {threads} \
+     --n_cores {threads} \
      --pop_data {refdir}/ref.pop.txt \
      --test {params.testing} > {log} 2>&1"
 
@@ -303,11 +289,11 @@ rule prep_pgs_lassosum:
 rule prep_pgs_ldpred2_i:
   resources:
     mem_mb=30000,
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    rules.download_ldpred2_ref.output
+    lambda w: f"{ldpred2_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds"
   output:
     f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -318,6 +304,7 @@ rule prep_pgs_ldpred2_i:
     "../envs/analysis.yaml"
   params:
     model=",".join(map(str, config["ldpred2_model"])),
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     inference=",".join(map(str, config["ldpred2_inference"])),
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
@@ -326,8 +313,7 @@ rule prep_pgs_ldpred2_i:
     "export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/ldpred2.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_keep {refdir}/keep_files/EUR.keep \
-      --ldpred2_ref_dir {resdir}/data/ldpred2_ref \
+      --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -339,7 +325,7 @@ rule prep_pgs_ldpred2_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:
-  input: expand(f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df_eur['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # LDAK MegaPRS
@@ -348,7 +334,7 @@ rule prep_pgs_ldpred2:
 rule prep_pgs_megaprs_i:
   resources:
     mem_mb=20000,
-    time_min=800
+    time_min=5000
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -385,25 +371,101 @@ rule prep_pgs_megaprs:
   input: expand(f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
-# Process externally created score files
+# LDAK QuickPRS
 ##
 
-# Read in score_list or create empty score_list
-if 'score_list' in config and config["score_list"] != 'NA':
-  score_list_df = pd.read_table(config["score_list"], sep=r'\s+')
-  pgs_methods = config['pgs_methods']
-  pgs_methods_all = list(config['pgs_methods'])
-  pgs_methods_all.append('external')
+def get_quickprs_reference_path(w, gwas_list_df, resdir):
+  # Get the population from the GWAS list
+  population = gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]
 
-  # Check whether score_list paths exist
-  check_list_paths(score_list_df)
-else:
-  score_list_df = pd.DataFrame(columns = ["name", "path", "label"])
-  pgs_methods = config['pgs_methods']
-  pgs_methods_all = config['pgs_methods']
+  # Return the full path string
+  return f"{quickprs_ldref}/{population}.hm3/{population}.hm3.cors.bin"
 
-# Check whether gwas_list paths exist
-check_list_paths(score_list_df)
+rule prep_pgs_quickprs_i:
+  resources:
+    mem_mb=20000,
+    time_min=5000
+  threads: config['cores_prep_pgs']
+  input:
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    lambda w: get_quickprs_reference_path(w, gwas_list_df, resdir),
+    rules.download_ldak_highld.output,
+    rules.download_ldak5_2.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output
+  output:
+    f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_quickprs_i-{{gwas}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_quickprs_i-{{gwas}}.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    quick_prs_ref= lambda w: f"{quickprs_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}.hm3",
+    testing=config["testing"]
+  shell:
+    "Rscript ../Scripts/pgs_methods/quickprs.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+      --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
+      --quick_prs_ref {params.quick_prs_ref} \
+      --n_cores {threads} \
+      --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \
+      --pop_data {refdir}/ref.pop.txt \
+      --test {params.testing} > {log} 2>&1"
+
+rule prep_pgs_quickprs:
+  input: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+
+##
+# LDAK SBayesRC
+##
+
+rule prep_pgs_sbayesrc_i:
+  resources:
+    mem_mb=20000,
+    time_min=5000
+  threads: config['cores_prep_pgs']
+  input:
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}.hm3/ldm.info",
+    rules.download_gctb252_software.output,
+    rules.download_sbayesrc_annot.output,
+    rules.install_genoutils_sbayesrc.output,
+    rules.install_sbayesrc.output
+  output:
+    f"{outdir}/reference/pgs_score_files/sbayesrc/{{gwas}}/ref-{{gwas}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_sbayesrc_i-{{gwas}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_sbayesrc_i-{{gwas}}.log"
+  conda:
+    "../envs/sbayesrc.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    sbayesrc_ldref= lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}.hm3",
+    testing=config["testing"]
+  shell:
+    "export OMP_NUM_THREADS={threads}; \
+    Rscript ../Scripts/pgs_methods/sbayesrc.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+      --gctb {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux/gctb \
+      --sbayesrc_ldref {params.sbayesrc_ldref} \
+      --sbayesrc_annot {resdir}/data/sbayesrc_annot/annot_baseline2.2.txt \
+      --n_cores {threads} \
+      --output {outdir}/reference/pgs_score_files/sbayesrc/{wildcards.gwas}/ref-{wildcards.gwas} \
+      --pop_data {refdir}/ref.pop.txt \
+      --test {params.testing} > {log} 2>&1"
+
+rule prep_pgs_sbayesrc:
+  input: expand(f"{outdir}/reference/pgs_score_files/sbayesrc/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+
+##
+# Process externally created score files
+##
 
 # Download PGS score files for PGSC if path is NA
 rule download_pgs_external:
@@ -482,6 +544,202 @@ checkpoint score_reporter:
   shell:
     "Rscript ../Scripts/pipeline_misc/score_reporter.R {params.config_file} > {log} 2>&1"
 
+###########
+# Multi-ancestry methods
+###########
+
+####
+# PRS-CSx
+####
+
+# Note. Threads are set to 1, and phi and chr are run in parallel. Increasing number of threads shows no improvement in speed.
+
+rule prep_pgs_prscsx_i:
+  resources:
+    mem_mb=2000*config['cores_prep_pgs'],
+    time_min=5000
+  threads: config['cores_prep_pgs']
+  input:
+    rules.download_prscsx_software.output,
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{{population}}/ldblk_{prscs_ldref}_chr1.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
+    f"{resdir}/data/prscs_ref/{prscs_ldref}/snpinfo_mult_{prscs_ldref}_hm3"
+  output:
+    f"{outdir}/reference/pgs_score_files/prscsx/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_prscsx_i-{{gwas_group}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_prscsx_i-{{gwas_group}}.log"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    phi= ",".join(map(str, config["prscs_phi"])),
+    testing=config["testing"]
+  shell:
+    """
+    export MKL_NUM_THREADS=1; \
+    export NUMEXPR_NUM_THREADS=1; \
+    export OMP_NUM_THREADS=1; \
+    export OPENBLAS_NUM_THREADS=1; \
+    Rscript ../Scripts/pgs_methods/prscsx.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --populations {params.populations} \
+      --prscsx_ref_path {resdir}/data/prscs_ref/{prscs_ldref} \
+      --phi_param {params.phi} \
+      --pop_data {refdir}/ref.pop.txt \
+      --prscsx_path {resdir}/software/prscsx/PRScsx.py \
+      --output {outdir}/reference/pgs_score_files/prscsx/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1
+    """
+
+rule prep_pgs_prscsx:
+  input: expand(f"{outdir}/reference/pgs_score_files/prscsx/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+
+####
+# X-WING
+####
+
+rule prep_pgs_xwing_i:
+  resources:
+    mem_mb=2000*config['cores_prep_pgs'],
+    time_min=10000
+  threads: config['cores_prep_pgs']
+  input:
+    rules.download_xwing_software.output,
+    rules.download_leopard_panther_snp_data.output,
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{{population}}/ldblk_{prscs_ldref}_chr1.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
+    f"{resdir}/data/prscs_ref/{prscs_ldref}/snpinfo_mult_{prscs_ldref}_hm3",
+    lambda w: expand(f"{resdir}/data/PANTHER_LEOPARD_1kg_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr13.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
+    lambda w: expand(f"{resdir}/data/LEOPARD_1kg_ref/{{population}}/{{population}}_part1.bed", population=get_populations(w.gwas_group)),
+    lambda w: expand(f"{resdir}/data/LOGODetect_1kg_ref/{{population}}/1000G_{{population}}_QC.bim", population=get_populations(w.gwas_group))
+  output:
+    f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  conda:
+    "../envs/xwing.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_xwing_i-{{gwas_group}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_xwing_i-{{gwas_group}}.log"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"]
+  shell:
+    """
+    export MKL_NUM_THREADS=1; \
+    export NUMEXPR_NUM_THREADS=1; \
+    export OMP_NUM_THREADS=1; \
+    export OPENBLAS_NUM_THREADS=1; \
+    Rscript ../Scripts/pgs_methods/xwing.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --populations {params.populations} \
+      --logodetect_ref {resdir}/data/LOGODetect_1kg_ref \
+      --panther_ref {resdir}/data/prscs_ref/{prscs_ldref} \
+      --leopard_ref {resdir}/data/LEOPARD_1kg_ref \
+      --panther_leopard_ref {resdir}/data/PANTHER_LEOPARD_1kg_ref \
+      --xwing_repo {resdir}/software/xwing \
+      --pop_data {refdir}/ref.pop.txt \
+      --output {outdir}/reference/pgs_score_files/xwing/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1
+    """
+
+rule prep_pgs_xwing:
+  input: expand(f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+
+####
+# TL-PRS
+####
+
+rule prep_pgs_tlprs_i:
+  resources:
+    mem_mb=10000,
+    time_min=5000
+  threads: config['cores_prep_pgs']
+  input:
+    rules.install_tlprs.output,
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method=w.method)
+  output:
+    f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_tlprs_i-{{gwas_group}}-{{method}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_tlprs_i-{{gwas_group}}-{{method}}.log"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    scores= lambda w: ",".join(expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method=w.method)),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"],
+    config_file = config["config_file"]
+  shell:
+    """
+    Rscript ../Scripts/pgs_methods/tlprs.R \
+      --config {params.config_file} \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --scores {params.scores} \
+      --populations {params.populations} \
+      --pop_data {refdir}/ref.pop.txt \
+      --ref_keep_dir {refdir}/keep_files \
+      --output {outdir}/reference/pgs_score_files/tlprs_{wildcards.method}/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1
+    """
+
+rule prep_pgs_tlprs:
+  input: expand(f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method=config["tlprs_methods"])
+
+####
+# BridgePRS
+####
+
+rule prep_pgs_bridgeprs_i:
+  resources:
+    mem_mb=2000*config['cores_prep_pgs'],
+    time_min=5000
+  threads: config['cores_prep_pgs']
+  input:
+    rules.download_bridgeprs_software.output,
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))
+  output:
+    f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_bridgeprs_i-{{gwas_group}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_bridgeprs_i-{{gwas_group}}.log"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"]
+  shell:
+    """
+    Rscript ../Scripts/pgs_methods/bridgeprs.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --populations {params.populations} \
+      --pop_data {refdir}/ref.pop.txt \
+      --output {outdir}/reference/pgs_score_files/bridgeprs/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} \
+      --bridgeprs_repo {resdir}/software/bridgeprs \
+      --n_cores {threads} > {log} 2>&1
+    """
+
+rule prep_pgs_bridgeprs:
+  input: expand(f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+
+###############################################
+
 ##
 # Use a rule to check requested PGS methods have been run for all GWAS
 ##
@@ -502,8 +760,20 @@ if 'ldpred2' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_ldpred2.input)
 if 'megaprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_megaprs.input)
+if 'quickprs' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_quickprs.input)
+if 'sbayesrc' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_sbayesrc.input)
 if 'external' in pgs_methods_all:
   pgs_methods_input.append(rules.score_reporter.output)
+if 'prscsx' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_prscsx.input)
+if 'xwing' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_xwing.input)
+if 'tlprs' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_tlprs.input)
+if 'bridgeprs' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_bridgeprs.input)
 
 rule prep_pgs:
   input:

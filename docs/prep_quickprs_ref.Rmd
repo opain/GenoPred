@@ -1,0 +1,116 @@
+---
+title: Preparing LDpred2 LD matrices
+output: 
+  html_document:
+    theme: cosmo
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+# 1KG+HGDP
+
+Here we will prepare reference data for QuickPRS using HapMap3 SNPs in the 1KG+HGDP super populations. This is to allow fair comparison across methods for a cross-population polygenic scoring study. 
+
+QuickPRS only seems to work for v5.2, so let make the reference data using this version.
+
+```{r}
+
+# Load dependencies
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+# Create temp directory
+tmp_dir<-tempdir()
+
+opt<-list()
+opt$ref_plink_chr<-'resources/data/ref/ref.chr'
+opt$plink<-'plink'
+opt$plink2<-'plink2'
+opt$ldak_map<-'resources/data/ldak_map/genetic_map_b37'
+opt$ldak_tag<-'resources/data/ldak_bld'
+opt$ldak_highld<-'resources/data/ldak_highld/highld.txt'
+opt$ldak<-'/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/software/ldak5.2/ldak5.2.linux'
+opt$n_cores<-20
+
+for(pop in c('EUR','EAS','AFR')){
+  opt$output <- paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/', pop, '.hm3/', pop, '.hm3')
+  opt$output_dir <- paste0(dirname(opt$output),'/')
+  system(paste0('mkdir -p ',opt$output_dir))
+
+  opt$ref_keep<-paste0('resources/data/ref/keep_files/', pop, '.keep')
+  
+  ###
+  # Merge the per chromosome reference genetic data and subset opt$ref_keep
+  ###
+  
+  # Save in plink1 format for MegaPRS
+  plink_merge(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
+  
+  ############
+  # Format reference for LDAK
+  ############
+  
+  # Insert CHR:BP IDs
+  system(paste0("awk < ", tmp_dir, "/ref_merge.bim '{$2=$1\":\"$4;print $0}' > ", tmp_dir, '/tmp.bim; mv ', tmp_dir, '/tmp.bim ', tmp_dir, '/ref_merge.bim'))
+  
+  # Insert genetic distances
+  system(paste0(opt$plink, ' --bfile ', tmp_dir, '/ref_merge --cm-map ', opt$ldak_map,'/genetic_map_chr@_combined_b37.txt --make-bed --out ', tmp_dir, '/map'))
+  system(paste0("cat ", tmp_dir, "/map.bim | awk '{print $2, $3}' > ", tmp_dir, '/map.all'))
+  system(paste0("awk '(NR==FNR){arr[$1]=$2;next}{print $1, $2, arr[$2], $4, $5, $6}' ", tmp_dir, '/map.all ', tmp_dir, '/ref_merge.bim > ', tmp_dir, '/tmp.bim; mv ', tmp_dir, '/tmp.bim ', tmp_dir, '/ref_merge.bim'))
+  system(paste0('rm ', tmp_dir, '/map*'))
+  
+  ############
+  # Estimate Per-Predictor Heritabilities
+  ############
+  # We will use the BLD-LDAK Model, as recommended for human SNP data
+  
+  # Calculate LDAK weights
+  system(paste0(opt$ldak, ' --cut-weights ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
+  system(paste0(opt$ldak, ' --calc-weights-all ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
+  system(paste0('mkdir ', tmp_dir, '/bld'))
+  system(paste0('cp ', opt$ldak_tag, '/* ', tmp_dir, '/bld/'))
+  system(paste0('mv ', tmp_dir, '/sections/weights.short ', tmp_dir,'/bld/bld65'))
+  
+  # Calculate taggings
+    system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --save-matrix YES --max-threads ', opt$n_cores))
+    
+  # Calculate predictor-predictor correlations
+  system(paste0(opt$ldak,' --calc-cors ', tmp_dir, '/tmp --bfile ', tmp_dir, '/ref_merge --window-cm 3 --max-threads ', opt$n_cores))
+    
+  # Identify SNPs in high LD regions
+  system(paste0(opt$ldak, ' --cut-genes ', tmp_dir, '/highld --bfile ', tmp_dir, '/ref_merge --genefile ', opt$ldak_highld, ' --max-threads ', opt$n_cores))
+
+  # Export the files required for QuickPRS
+  for (i in c('bim', 'bin', 'noise', 'root')) {
+    system(paste0('cp ', tmp_dir, '/tmp.cors.', i, ' ', opt$output, '.cors.', i))
+  }
+  for (i in c('matrix', 'tagging')) {
+    system(paste0('cp ', tmp_dir, '/bld.ldak.', i, ' ', opt$output, '.bld.ldak.quickprs.', i))
+  }
+  system(paste0('cp ', tmp_dir, '/highld/genes.predictors.used ', opt$output_dir, '/highld.snps'))
+
+  system(paste0('rm -r ', tmp_dir, '/*'))
+}
+
+```
+

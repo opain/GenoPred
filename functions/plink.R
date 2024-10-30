@@ -455,7 +455,7 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
     cmd<-paste0(plink_opt,'--chr ',chr_i,' --out ',tmp_folder,'/profiles.chr',chr_i,' --threads ',threads)
     cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
     exit_status <- system(cmd, intern=FALSE)
-    if (exit_status == 2) {
+    if (exit_status != 0) {
       stop()
     }
 
