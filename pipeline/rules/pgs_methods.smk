@@ -420,7 +420,7 @@ rule prep_pgs_quickprs:
   input: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
-# LDAK SBayesRC
+# SBayesRC
 ##
 
 rule prep_pgs_sbayesrc_i:
