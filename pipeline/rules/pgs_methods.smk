@@ -698,6 +698,50 @@ rule prep_pgs_tlprs_i:
 rule prep_pgs_tlprs:
   input: expand(f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method=config["tlprs_methods"])
 
+##
+# LDAK QuickPRS Multi
+##
+
+rule prep_pgs_quickprs_multi_i:
+  resources:
+    mem_mb=20000,
+    time_min=5000
+  threads: config['cores_prep_pgs']
+  input:
+    lambda w: expand(f"{quickprs_ldref}/{{population}}.hm3/{{population}}.hm3.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    rules.download_ldak_highld.output,
+    rules.download_ldak5_2.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output
+  output:
+    f"{outdir}/reference/pgs_score_files/quickprs_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_quickprs_multi_i-{{gwas_group}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_quickprs_multi_i-{{gwas_group}}.log"
+  conda:
+    "../envs/xwing.yaml"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"]
+  shell:
+    "Rscript ../Scripts/pgs_methods/quickprs_multi.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {params.sumstats} \
+      --populations {params.populations} \
+      --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
+      --quick_prs_ref {quickprs_ldref} \
+      --xwing_repo {resdir}/software/xwing \
+      --n_cores {threads} \
+      --output {outdir}/reference/pgs_score_files/quickprs_multi/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --pop_data {refdir}/ref.pop.txt \
+      --test {params.testing} > {log} 2>&1"
+
+rule prep_pgs_quickprs_multi:
+  input: expand(f"{outdir}/reference/pgs_score_files/quickprs_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+
 ####
 # BridgePRS
 ####
@@ -709,7 +753,7 @@ rule prep_pgs_bridgeprs_i:
   threads: config['cores_prep_pgs']
   input:
     rules.download_bridgeprs_software.output,
-    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas_group}}/{{gwas_group}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))
   output:
     f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -719,7 +763,7 @@ rule prep_pgs_bridgeprs_i:
   log:
     f"{outdir}/reference/logs/prep_pgs_bridgeprs_i-{{gwas_group}}.log"
   params:
-    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas_group}}/{{gwas_group}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
     testing=config["testing"]
   shell:
@@ -772,6 +816,8 @@ if 'xwing' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_xwing.input)
 if 'tlprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_tlprs.input)
+if 'quickprs_multi' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_quickprs_multi.input)
 if 'bridgeprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_bridgeprs.input)
 

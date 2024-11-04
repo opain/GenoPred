@@ -291,6 +291,18 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
     }
     pseudo_val <- paste0('targ_', target_pop, '_weighted')
   }
+  if(pgs_method == 'quickprs_multi'){
+    if(!is.null(target_pop) && target_pop == 'TRANS'){
+      cat('No pseudovalidation for TRANS target population available for xwing.\n')
+      cat(paste0('Returning result for ', gwas_list$population[1],' target population.\n'))
+      target_pop <- gwas_list$population[1]
+    } else if(!is.null(target_pop) && !(target_pop %in% gwas_list$population)){
+      cat(paste0('target_pop ', target_pop,' is not present in gwas_group ', gwas, '.\n'))
+      cat(paste0('Returning result for ', gwas_list$population[1],' target population.\n'))
+      target_pop <- gwas_list$population[1]
+    }
+    pseudo_val <- paste0('targ_', target_pop, '_weighted')
+  }
 
   if(tlprs){
     if(!is.null(target_pop) && target_pop == 'TRANS'){

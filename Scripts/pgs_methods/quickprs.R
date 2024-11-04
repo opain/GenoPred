@@ -97,7 +97,7 @@ names(gwas)<-c('Predictor','A1','A2','n','Z')
 
 # Check overlap between GWAS and LDAK reference
 ldak_hm3_file <- list.files(opt$quick_prs_ref)
-ldak_hm3_file <- ldak_hm3_file[grepl('.cors.bim', ldak_hm3_file)]
+ldak_hm3_file <- ldak_hm3_file[grepl('.cors.bim', ldak_hm3_file)][1]
 ldak_hm3 <- fread(paste0(opt$quick_prs_ref, '/', ldak_hm3_file))
 ldak_hm3 <- ldak_hm3[ldak_hm3$V1 %in% CHROMS,]
 ref_overlap <- sum(gwas$Predictor %in% ldak_hm3$V2) / nrow(ldak_hm3)
@@ -139,7 +139,7 @@ log_add(log_file = log_file, message = paste0('SNP-based heritability estimated 
 # Estimate effect sizes for training and full prediction models.
 ######
 
-cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files)])
+cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files) & !grepl('subset', ref_files)])
 
 log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
 

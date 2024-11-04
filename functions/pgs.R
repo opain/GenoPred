@@ -414,3 +414,53 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 	return(score)
 }
 
+
+quick_prs<-function(sumstats, ref_dir, genomic_control, prs_model, n_cores = 1, ref_subset = NULL){
+  tmp_dir<-tempfile()
+  dir.create(tmp_dir)
+
+  ######
+  # Estimate Per-Predictor Heritabilities
+  ######
+
+  # Calculate Per-Predictor Heritabilities.
+  ref_files<-list.files(ref_dir)
+
+  tagging_file<-ref_files[grepl('quickprs.tagging',ref_files)]
+  matrix_file<-ref_files[grepl('quickprs.matrix',ref_files)]
+
+  if(opt$genomic_control == F){
+    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', ref_dir, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', ref_dir, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
+  } else{
+    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --genomic-control YES --tagfile ', ref_dir, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', ref_dir, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
+  }
+
+  ldak_res_her<-fread(paste0(tmp_dir,'/bld.ldak.hers'))
+
+  ######
+  # Estimate effect sizes for training and full prediction models.
+  ######
+
+  if(!is.null(ref_subset)){
+    cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl(paste0('subset_', ref_subset, '.cors.bin'),ref_files)])
+  } else {
+    cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files) & !grepl('subset', ref_files)])
+  }
+
+  system(paste0(opt$ldak,' --mega-prs ',tmp_dir,'/mega_full --model ', prs_model,' --cors ', ref_dir, '/', cor_file_prefix, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', sumstats, ' --high-LD ', ref_dir, '/highld.snps --cv-proportion 0.1 --window-cm 1 --max-threads ', n_cores,' --extract ', sumstats))
+
+  # Identify the best fitting model
+  ldak_res_cors <- fread(paste0(tmp_dir, '/mega_full.cors'), nThread = n_cores)
+  best_score <- ldak_res_cors[which.max(ldak_res_cors$Correlation),]
+
+  ######
+  # Format final score file
+  ######
+
+  # Read in the scores
+  score <- fread(paste0(tmp_dir,'/mega_full.effects'), nThread = n_cores)
+  score <- score[, c(1, 2, 3, 5), with = F]
+  names(score) <- c('SNP','A1','A2','BETA')
+
+  return(score)
+}
