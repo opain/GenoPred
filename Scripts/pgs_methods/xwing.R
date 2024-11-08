@@ -166,19 +166,41 @@ gc()
 
 combinations <- expand.grid(targ_pop = populations, pst_pop = populations, chr = CHROMS)
 
+file.remove(paste0(tmp_dir, '/checker.txt'))
 log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  if(!file.exists(paste0(tmp_dir, '/checker.txt'))) {
+    targ_pop <- combinations$targ_pop[i]
+    pst_pop <- combinations$pst_pop[i]
+    chr <- combinations$chr[i]
 
-  targ_pop <- combinations$targ_pop[i]
-  pst_pop <- combinations$pst_pop[i]
-  chr <- combinations$chr[i]
+    # Create directories
+    dir.create(paste0(tmp_dir, '/PANTHER/post_targ_', targ_pop), recursive = TRUE)
+    dir.create(paste0(tmp_dir, '/PANTHER/post_collect_targ_', targ_pop), recursive = TRUE)
 
-  # Create directories
-  dir.create(paste0(tmp_dir, '/PANTHER/post_targ_', targ_pop), recursive = TRUE)
-  dir.create(paste0(tmp_dir, '/PANTHER/post_collect_targ_', targ_pop), recursive = TRUE)
+    command <- paste0(
+      'python ', opt$xwing_repo, '/PANTHER.py ',
+      '--ref_dir ', opt$panther_ref, ' ',
+      '--bim_prefix ', tmp_dir,'/ref.chr',chr,' ',
+      '--sumstats ', paste0(paste0(tmp_dir, '/GWAS_sumstats_', 1:length(sumstats),'_temp.txt'), collapse=','), ' ',
+      '--n_gwas ', paste(gwas_N, collapse=','), ' ',
+      '--anno_file ', paste0(paste0(tmp_dir, '/LOGODetect/targ_', targ_pop, '_annot_', populations, '.txt'), collapse=','), ' ',
+      '--chrom ', chr, ' ',
+      '--pop ', opt$populations ,' ',
+      '--target_pop ', targ_pop,' ',
+      '--pst_pop ', pst_pop, ' ',
+      '--out_name output ',
+      '--seed 1 ',
+      '--out_dir ', tmp_dir, '/PANTHER/post_targ_', targ_pop
+    )
 
-  system(paste0(
-    'python ', opt$xwing_repo, '/PANTHER.py --ref_dir ', opt$panther_ref, ' --bim_prefix ', tmp_dir,'/ref.chr',chr,' --sumstats ', paste0(paste0(tmp_dir, '/GWAS_sumstats_', 1:length(sumstats),'_temp.txt'), collapse=','), ' --n_gwas ', paste(gwas_N, collapse=','), ' --anno_file ', paste0(paste0(tmp_dir, '/LOGODetect/targ_', targ_pop, '_annot_', populations, '.txt'), collapse=','), ' --chrom ', chr, ' --pop ', opt$populations ,' --target_pop ', targ_pop,' --pst_pop ', pst_pop, ' --out_name output --seed 1 --out_dir ', tmp_dir, '/PANTHER/post_targ_', targ_pop
-  ))
+    # Run command
+    log_i <- system(command)
+
+    # Check for an error
+    if(log_i != 0){
+      write("", paste0(tmp_dir, '/checker.txt'))
+    }
+  }
 }
 
 ##
@@ -188,7 +210,14 @@ dir.create(paste0(tmp_dir,'/LEOPARD/sampled_sumstats'), recursive = T)
 
 for(i in 1:length(sumstats)){
   system(paste0(
-    'Rscript ', opt$xwing_repo, '/LEOPARD_Sim.R --sumstats ', tmp_dir, '/GWAS_sumstats_', i,'_temp.txt --n_gwas ', gwas_N[i], ' --train_prop 0.75 --ref_prefix ', opt$leopard_ref,'/', populations[i], '/', populations[i], '_part1 --seed ', opt$seed, ' --rep 4 --out_prefix ', tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', i
+    'Rscript ', opt$xwing_repo, '/LEOPARD_Sim.R ',
+    '--sumstats ', tmp_dir, '/GWAS_sumstats_', i,'_temp.txt ',
+    '--n_gwas ', gwas_N[i], ' ',
+    '--train_prop 0.75 ',
+    '--ref_prefix ', opt$leopard_ref,'/', populations[i], '/', populations[i], '_part1 ',
+    '--seed ', opt$seed, ' ',
+    '--rep 4 ',
+    '--out_prefix ', tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', i
   ))
 }
 
@@ -198,26 +227,49 @@ for(i in 1:length(sumstats)){
 
 combinations <- expand.grid(targ_pop = populations, pst_pop = populations, chr = CHROMS, index = 1:4)
 
+file.remove(paste0(tmp_dir, '/checker.txt'))
 log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  targ_pop <- combinations$targ_pop[i]
-  pst_pop <- combinations$pst_pop[i]
-  chr <- combinations$chr[i]
-  index <- combinations$index[i]
+  if(!file.exists(paste0(tmp_dir, '/checker.txt'))) {
+    targ_pop <- combinations$targ_pop[i]
+    pst_pop <- combinations$pst_pop[i]
+    chr <- combinations$chr[i]
+    index <- combinations$index[i]
 
-  dir.create(paste0(tmp_dir,'/LEOPARD/post_targ_', targ_pop), recursive = T)
-  dir.create(paste0(tmp_dir,'/LEOPARD/post_collect_targ_', targ_pop), recursive = T)
+    dir.create(paste0(tmp_dir,'/LEOPARD/post_targ_', targ_pop), recursive = T)
+    dir.create(paste0(tmp_dir,'/LEOPARD/post_collect_targ_', targ_pop), recursive = T)
 
-  sumstats_i <- paste0(tmp_dir, '/GWAS_sumstats_', 1:length(sumstats),'_temp.txt')
-  sumstats_i[populations == targ_pop] <- paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', index, '_train.txt')
+    sumstats_i <- paste0(tmp_dir, '/GWAS_sumstats_', 1:length(sumstats),'_temp.txt')
+    sumstats_i[populations == targ_pop] <- paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', index, '_train.txt')
 
-  targ_gwas_train_n<-fread(paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', index, '_train_valid_N.txt'))$N_train
+    targ_gwas_train_n<-fread(paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', index, '_train_valid_N.txt'))$N_train
 
-  gwas_N_i<-gwas_N
-  gwas_N_i[populations == targ_pop] <- targ_gwas_train_n
+    gwas_N_i<-gwas_N
+    gwas_N_i[populations == targ_pop] <- targ_gwas_train_n
 
-  system(paste0(
-    'python ', opt$xwing_repo, '/PANTHER.py --ref_dir ', opt$panther_leopard_ref, ' --bim_prefix ', tmp_dir,'/ref.chr',chr,' --sumstats ', paste0(sumstats_i, collapse=','), ' --n_gwas ', paste(gwas_N_i, collapse=','), ' --anno_file ', paste0(paste0(tmp_dir, '/LOGODetect/targ_', targ_pop, '_annot_', populations, '.txt'), collapse=','), ' --chrom ', chr, ' --pop ', opt$populations ,' --target_pop ', targ_pop,' --pst_pop ', pst_pop, ' --out_name output_', index, ' --seed 1 --out_dir ', tmp_dir, '/LEOPARD/post_targ_', targ_pop
-  ))
+    command<-paste0(
+      'python ', opt$xwing_repo, '/PANTHER.py ',
+      '--ref_dir ', opt$panther_leopard_ref, ' ',
+      '--bim_prefix ', tmp_dir,'/ref.chr',chr,' ',
+      '--sumstats ', paste0(sumstats_i, collapse=','), ' ',
+      '--n_gwas ', paste(gwas_N_i, collapse=','), ' ',
+      '--anno_file ', paste0(paste0(tmp_dir, '/LOGODetect/targ_', targ_pop, '_annot_', populations, '.txt'), collapse=','), ' ',
+      '--chrom ', chr, ' ',
+      '--pop ', opt$populations ,' ',
+      '--target_pop ', targ_pop,' ',
+      '--pst_pop ', pst_pop, ' ',
+      '--out_name output_', index, ' ',
+      '--seed 1 ',
+      '--out_dir ', tmp_dir, '/LEOPARD/post_targ_', targ_pop
+    )
+
+    # Run command
+    log_i <- system(command)
+
+    # Check for an error
+    if(log_i != 0){
+      write("", paste0(tmp_dir, '/checker.txt'))
+    }
+  }
 }
 
 for(targ_pop in populations){

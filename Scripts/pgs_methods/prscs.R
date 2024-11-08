@@ -126,19 +126,35 @@ gc()
 
 # Make a data.frame listing chromosome and phi combinations
 jobs<-NULL
-for(i in rev(CHROMS)){
+for(i in CHROMS){
   jobs<-rbind(jobs, data.frame(CHR=i, phi=phi_param))
 }
 
 # Run using PRScs auto, and specifying a range of global shrinkage parameters
+file.remove(paste0(tmp_dir, '/checker.txt'))
 log <- foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  if(jobs$phi[i] == 'auto'){
-    system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', tmp_dir,'/ref.chr', jobs$CHR[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed))
-  } else {
-    system(paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path, ' --bim_prefix=', tmp_dir,'/ref.chr', jobs$CHR[i], ' --phi=', jobs$phi[i], ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=', gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=', jobs$CHR[i], ' --seed=', opt$seed))
+  if(!file.exists(paste0(tmp_dir, '/checker.txt'))) {
+    # Base command
+    command <- paste0(opt$PRScs_path, ' --ref_dir=', opt$PRScs_ref_path,
+                      ' --bim_prefix=', tmp_dir, '/ref.chr', jobs$CHR[i],
+                      ' --sst_file=', tmp_dir, '/GWAS_sumstats_temp.txt --n_gwas=',
+                      gwas_N, ' --out_dir=', tmp_dir, '/ --chrom=',
+                      jobs$CHR[i], ' --seed=', opt$seed)
+
+    # Add --phi parameter if not 'auto'
+    if (jobs$phi[i] != 'auto') {
+      command <- paste0(command, ' --phi=', jobs$phi[i])
+    }
+
+    # Run command
+    log_i <- system(command)
+
+    # Check for an error
+    if(log_i != 0){
+      write("", paste0(tmp_dir, '/checker.txt'))
+    }
   }
 }
-
 
 ####
 # Combine score files
