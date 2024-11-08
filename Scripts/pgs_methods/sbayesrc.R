@@ -172,8 +172,20 @@ tryCatch(
         bTune = FALSE,
         log2file = FALSE
       )
-    } else {
-      # For any other error, rethrow the error and stop the script
+    } else if (grepl("An unexpected error occurred: Warning, the best parameter is the minimumn threshold, we suggest to expand the tuning grid by specify lower tuning value", e$message)) {
+        message("Specific error encountered. Retrying with tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6)...")
+        log_add(log_file = log_file, message = 'Specific error encountered. Retrying with btune = FALSE...')
+        # Retry with the tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6)
+        SBayesRC::sbayesrc(
+          mafile = paste0(tmp_dir, '/tidy.imp.ma'),
+          LDdir = opt$sbayesrc_ldref,
+          outPrefix = paste0(tmp_dir, '/sbrc'),
+          annot = opt$sbayesrc_annot,
+          tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6),
+          log2file = FALSE
+        )
+      } else {
+        # For any other error, rethrow the error and stop the script
       stop("An unexpected error occurred: ", e$message)
     }
   },
