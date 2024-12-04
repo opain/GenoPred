@@ -58,6 +58,11 @@ tmp_dir<-tempdir()
 log_file <- paste(opt$output,'.log',sep='')
 log_header(log_file = log_file, opt = opt, script = 'ref_pca.R', start.time = start.time)
 
+# Set ref_keep to NULL if NA
+if(!is.null(opt$ref_keep) && opt$ref_keep == 'NA'){
+  opt$ref_keep<-NULL
+}
+
 # If testing, change CHROMS to chr value
 if(!is.na(opt$test) && opt$test == 'NA'){
   opt$test<-NA
@@ -126,6 +131,12 @@ log_add(log_file = log_file, message = 'Computing reference PCs.')
 
 # Calculate PCs in the full reference
 ref_pcs<-plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
+
+# Scale reference scores across all individuals and save a scale file
+ref_pcs_scale_TRANS <- score_mean_sd(scores = ref_pcs)
+fwrite(ref_pcs_scale_TRANS, paste0(opt$output, '.TRANS.scale'), row.names = F, quote=F, sep=' ', na='NA')
+scores_scaled<-score_scale(score=ref_pcs, ref_scale=ref_pcs_scale_TRANS)
+fwrite(scores_scaled, paste0(opt$output, '.profiles'), row.names = F, quote=F, sep=' ', na='NA')
 
 # Calculate scale within each reference population
 pop_data <- read_pop_data(opt$pop_data)

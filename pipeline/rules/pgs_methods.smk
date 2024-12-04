@@ -3,13 +3,15 @@ rule ref_pca_i:
   input:
     ref_input,
     rules.install_genoutils.output,
-    f"{resdir}/last_version.txt"
+    f"{resdir}/last_version.txt",
+    "../Scripts/ref_pca/ref_pca.R"
   output:
     f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
   conda:
     "../envs/analysis.yaml",
   params:
-    testing=config["testing"]
+    testing=config["testing"],
+    ref_keep=lambda wildcards: "NA" if wildcards.population == "TRANS" else f"{refdir}/keep_files/{wildcards.population}.keep"
   benchmark:
     f"{resdir}/data/benchmarks/ref_pca_i-{{population}}.txt"
   log:
@@ -17,12 +19,12 @@ rule ref_pca_i:
   shell:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_keep {refdir}/keep_files/{wildcards.population}.keep \
+      --ref_keep {params.ref_keep} \
       --pop_data {refdir}/ref.pop.txt \
       --output {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
       --test {params.testing} > {log} 2>&1"
 
-populations=["AFR","AMR","EAS","EUR","SAS"]
+populations=["AFR","AMR","CSA","EAS","EUR","MID","TRANS"]
 
 rule ref_pca:
   input: expand(f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale", population=populations)
@@ -75,7 +77,8 @@ rule sumstat_prep:
 
 rule prep_pgs_ptclump_i:
   input:
-    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz"
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -92,6 +95,7 @@ rule prep_pgs_ptclump_i:
     "Rscript ../Scripts/pgs_methods/ptclump.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
+      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --output {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
@@ -121,7 +125,8 @@ rule prep_pgs_dbslmm_i:
     rules.download_ldsc.output,
     rules.download_hm3_snplist.output,
     rules.download_dbslmm.output,
-    rules.download_ld_blocks.output
+    rules.download_ld_blocks.output,
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -174,7 +179,8 @@ rule prep_pgs_prscs_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
-    lambda w: f"{resdir}/data/prscs_ref/" + prscs_ldref + "/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5"
+    lambda w: f"{resdir}/data/prscs_ref/" + prscs_ldref + "/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5",
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -220,7 +226,8 @@ rule prep_pgs_sbayesr_i:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     lambda w: f"{sbayesr_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
     rules.download_gctb_ref.output,
-    rules.download_gctb_software.output
+    rules.download_gctb_software.output,
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -256,7 +263,8 @@ rule prep_pgs_lassosum_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    rules.install_lassosum.output
+    rules.install_lassosum.output,
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -293,7 +301,8 @@ rule prep_pgs_ldpred2_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    lambda w: f"{ldpred2_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds"
+    lambda w: f"{ldpred2_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -341,7 +350,8 @@ rule prep_pgs_megaprs_i:
     rules.download_ldak_highld.output,
     rules.download_ldak.output,
     rules.download_ldak_map.output,
-    rules.download_ldak_bld.output
+    rules.download_ldak_bld.output,
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -392,7 +402,8 @@ rule prep_pgs_quickprs_i:
     rules.download_ldak_highld.output,
     rules.download_ldak5_2.output,
     rules.download_ldak_map.output,
-    rules.download_ldak_bld.output
+    rules.download_ldak_bld.output,
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -434,7 +445,8 @@ rule prep_pgs_sbayesrc_i:
     rules.download_gctb252_software.output,
     rules.download_sbayesrc_annot.output,
     rules.install_genoutils_sbayesrc.output,
-    rules.install_sbayesrc.output
+    rules.install_sbayesrc.output,
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/sbayesrc/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -501,7 +513,8 @@ rule prep_pgs_external_i:
   input:
     lambda w: score_path(w),
     ref_input,
-    rules.install_genoutils.output
+    rules.install_genoutils.output,
+    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     touch(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done")
   params:
