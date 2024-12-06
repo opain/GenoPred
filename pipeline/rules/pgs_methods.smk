@@ -146,6 +146,7 @@ rule prep_pgs_dbslmm_i:
     "Rscript ../Scripts/pgs_methods/dbslmm.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
+      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ld_blocks {resdir}/data/ld_blocks/{params.ld_block_pop} \
       --plink {resdir}/software/plink/plink \
@@ -201,6 +202,7 @@ rule prep_pgs_prscs_i:
     export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/prscs.R \
     --ref_plink_chr {refdir}/ref.chr \
+    --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
@@ -241,6 +243,7 @@ rule prep_pgs_sbayesr_i:
   shell:
     "Rscript ../Scripts/pgs_methods/sbayesr.R \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb/gctb_2.03beta_Linux/gctb \
       --ld_matrix_chr {sbayesr_ldref} \
@@ -281,6 +284,7 @@ rule prep_pgs_lassosum_i:
      --ref_plink_chr {refdir}/ref.chr \
      --ref_keep {refdir}/keep_files/{params.population}.keep \
      --gwas_pop {params.population} \
+     --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
      --n_cores {threads} \
@@ -323,6 +327,7 @@ rule prep_pgs_ldpred2_i:
     Rscript ../Scripts/pgs_methods/ldpred2.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
+      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -367,6 +372,7 @@ rule prep_pgs_megaprs_i:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
+      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak/ldak5.1.linux \
       --ldak_map {resdir}/data/ldak_map/genetic_map_b37 \
@@ -419,6 +425,7 @@ rule prep_pgs_quickprs_i:
   shell:
     "Rscript ../Scripts/pgs_methods/quickprs.R \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
       --quick_prs_ref {params.quick_prs_ref} \
@@ -463,6 +470,7 @@ rule prep_pgs_sbayesrc_i:
     "export OMP_NUM_THREADS={threads}; \
     Rscript ../Scripts/pgs_methods/sbayesrc.R \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux/gctb \
       --sbayesrc_ldref {params.sbayesrc_ldref} \
@@ -533,6 +541,7 @@ rule prep_pgs_external_i:
     "Rscript ../Scripts/external_score_processor/external_score_processor.R \
       --ref_plink_chr {refdir}/ref.chr \
       --score {params.score} \
+      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
       --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
