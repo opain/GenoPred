@@ -43,16 +43,17 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   for (name_i in target_list$name) {
     # Read in keep_list to determine populations available
     keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
-
+    pops <- c('TRANS', keep_list_i$POP)
+    
     if(!is.null(pop)){
-      if(any(!(pop %in% keep_list_i$POP))){
+      if(any(!(pop %in% pops))){
         stop(paste0('Requested pop are not present in ',name_i,' sample.'))
       }
-      keep_list_i <- keep_list_i[keep_list_i$POP %in% pop,]
+      pops <- pops[pops %in% pop]
     }
 
     pgs[[name_i]] <- list()
-    for (pop_i in keep_list_i$POP) {
+    for (pop_i in pops) {
       pgs[[name_i]][[pop_i]] <- list()
       for(score_i in 1:nrow(score_file_list)){
         gwas_i <- score_file_list$name[score_i]
