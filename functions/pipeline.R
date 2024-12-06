@@ -337,3 +337,33 @@ read_pseudo_r <- function(config, gwas){
   return(r)
 }
 
+# Read in reference PGS
+# Read in TRANS scores (adjusted for ancestry), and restrict to pseudovalidated models
+read_reference_pgs <- function(config){
+  
+  # Identify score files
+  score_file_list <- list_score_files(config)
+  
+  # Identify outdir parameter
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+  
+  pgs <- list()
+  for(score_i in 1:nrow(score_file_list)){
+    gwas_i <- score_file_list$name[score_i]
+    pgs_method_i <- score_file_list$method[score_i]
+    if (is.null(pgs[[gwas_i]])) {
+      pgs[[gwas_i]] <- list()
+    }
+    pgs[[gwas_i]][[pgs_method_i]] <-
+      fread(
+        paste0(
+          outdir, '/reference/pgs_score_files/', pgs_method_i, '/',  gwas_i, '/ref-', gwas_i, '-TRANS.profiles'
+        )
+      )
+    pseudo_param <- find_pseudo(config = config, gwas = gwas_i, pgs_method = pgs_method_i)
+    pgs[[gwas_i]][[pgs_method_i]]<-pgs[[gwas_i]][[pgs_method_i]][,c('FID','IID',paste0('SCORE_',pseudo_param)), with=F]
+  }
+  
+  return(pgs)
+}
+

@@ -521,6 +521,9 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
   
   # Save PGS ~ PC models
   saveRDS(mod_list, file = paste0(output,'-TRANS.model.rds'))
+  
+  # Save TRANS PGS in reference
+  fwrite(scores_pcs_resid, paste0(output,'-TRANS.profiles'), sep=' ', na='NA', quote=F)
 }
 
 # Adjust PGS for ancestry using reference PC models

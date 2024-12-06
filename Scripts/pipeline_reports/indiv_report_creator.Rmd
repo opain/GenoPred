@@ -295,6 +295,7 @@ cat0("## GWAS summary statistics \n\n")
 
 # Create a summary table for GWAS sumstats
 sumstat_qc <- NULL
+column_interp <- list()
 for(gwas in gwas_list$name) {
     log <- readLines(paste0(outdir,'/reference/gwas_sumstat/', gwas, '/', gwas, '-cleaned.log'))
     
@@ -307,6 +308,26 @@ for(gwas in gwas_list$name) {
       population = gwas_list$population[gwas_list$name == gwas],
       orig_n = orig_n,
       final_n = final_n))
+    
+    column_interp_i <-
+      log[
+        seq(
+          which(grepl("---------------", log))[3], 
+          which(grepl("---------------", log))[4])]
+
+    column_interp_i <- column_interp_i[c(-1, -length(column_interp_i))]
+    column_interp_i <- gsub('^ ', '', column_interp_i)
+    header<-column_interp_i[1]
+    data<-column_interp_i[-1]
+    data<-data[grepl('TRUE', data)]
+    original<-sub(' .*','', data)
+    interp<-gsub('  | $','',sub('.*NA     ','', data))
+    column_interp_i <- data.table(
+      original = original,
+      interp = interp)
+    names(column_interp_i)<-c('Header','Interpretation')
+
+    column_interp[[gwas]] <- column_interp_i
 }
 
 names(sumstat_qc) <- c('Name', 'Label', 'Population', 'NSNP Original', 'NSNP Final')
@@ -323,6 +344,36 @@ datatable(sumstat_qc,
           ),
           width = '100%',
           selection = 'none')
+
+cat0("***\n\n")
+
+cat0("<details><summary>Show GWAS header interpretations</summary>\n\n")
+for(i in 1:length(column_interp)){
+  cat0("**",names(column_interp)[i], "** \n\n")
+  cat0("\n\n")
+  
+  # Print the datatable
+  print(htmltools::tagList(
+    datatable(
+    column_interp[[i]], 
+    rownames = FALSE,
+    options = list(
+      dom = 't',
+      ordering = FALSE,
+      columnDefs = list(
+        list(className = "dt-center", targets = '_all')
+      ),
+      scrollX = TRUE
+    ),
+    width = '50%',
+    selection = 'none'
+  )))
+  
+  cat0("***\n\n")
+
+}
+cat0("**Note.** Columns that were dropped are not shown here.\n\n")
+cat0("</details> \n\n")
 
 cat0("***\n\n")
 
@@ -368,6 +419,64 @@ datatable(score_qc,
 
 cat0("**Note.** The `Pass` column indicates whether a sufficient number of variants within the score file were present in the reference data.\n\n")
 
+cat0("***\n\n")
+
+```
+
+```{r, results='asis', eval = pgs_incl}
+
+cat0("## PGS correlation \n\n")
+cat0("This section shows the correlation between PGS in the reference sample. This is intended as a sanity check that the PGS correlations are in the expected direction, thereby confirming the GWAS alleles are being interpreted correctly.\n\n")
+
+```
+
+```{r, eval = pgs_incl, include = F}
+
+# Read in the reference pgs
+ref_pgs <- read_reference_pgs(config = params$config)
+
+# Merge all PGS into single data.frame
+for(gwas_i in names(ref_pgs)){
+  for(method_i in names(ref_pgs[[gwas_i]])){
+    names(ref_pgs[[gwas_i]][[method_i]])[3] <- paste(gwas_i,method_i, sep=':')
+  }
+}
+
+ref_pgs <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('FID','IID'), all.x = TRUE), unlist(ref_pgs, recursive=F))
+ref_pgs$FID<-NULL
+ref_pgs$IID<-NULL
+
+# Calculate correlations
+cormat<-cor(ref_pgs)
+                
+# Melt for plotting
+melted_cormat <- melt(cormat, na.rm = TRUE)
+
+plot_obj<-ggplot(melted_cormat, aes(x = Var1, y = Var2, fill = value)) +
+    geom_tile() +
+    scale_fill_gradient2(low = "blue", mid = "white", high = "red",
+                          midpoint = 0, limits = c(-1, 1),
+                          name = "Pearson\nCorrelation\n") +
+    geom_text(aes(label = round(value, 2)), color = "black", size = 4) +
+    theme_minimal() +
+    labs(x = "", y = "") +
+    theme(text = element_text(size = 16), axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+    coord_fixed()
+
+plot_file<-paste0(tempfile(),'.png')
+png(plot_file, units = 'px', res = 100, width = 400+(70*ncol(ref_pgs)), height = 100+(70*ncol(ref_pgs)))
+plot_obj
+dev.off()
+
+```
+
+
+```{r, results='asis', eval = pgs_incl}
+
+cat0("<details><summary>Show reference PGS correlation matrix</summary>\n\n")
+cat0(paste0("![](", plot_file,")"))
+cat0("**Note.** Plot shows correlation between pseudovalidated PGS across all populations, adjusted for ancestry.\n\n")
+cat0("</details> \n\n")
 cat0("***\n\n")
 
 ```
