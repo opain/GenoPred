@@ -1,0 +1,141 @@
+---
+title: HapNest Benchmark
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+***
+
+Here will use simulated genetic data to benchmark GenoPred. We will simulate the genetic data using [HAPNEST](https://github.com/intervene-EU-H2020/synthetic_data).
+
+***
+
+# Set up HAPNEST
+
+```{bash}
+mkdir -p /users/k1806347/oliverpainfel/HAPNEST
+cd /users/k1806347/oliverpainfel/HAPNEST
+
+# Step 1: Download container
+singularity pull docker://sophiewharrie/intervene-synthetic-data
+
+# Step 2: Set up workspace
+mkdir -p /users/k1806347/oliverpainfel/HAPNEST/containers
+mv intervene-synthetic-data_latest.sif /users/k1806347/oliverpainfel/HAPNEST/containers/
+mkdir -p /users/k1806347/oliverpainfel/HAPNEST/data
+
+# Step 3: Initiate HAPNEST (download dependencies)
+export TMPDIR=/tmp
+singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.sif init
+
+# Step 4: Download reference data
+singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.sif fetch
+
+```
+
+***
+
+# Test run using default config
+
+Generates data for chromosome 1, for 6 populations, HapMap3 SNPs, and 1 phenotype.
+
+```{bash}
+# Step 5: Generate genotype and phenotype data
+singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.sif generate_geno 1 data/config.yaml
+singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.sif generate_pheno data/config.yaml
+
+# Step 6: Evaluate simulation (optional and slow)
+singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.sif validate data/config.yaml
+```
+
+The data simulation took about 1 minute. Evaluation takes >2 hours.
+
+***
+
+# HAPNEST released genotype and phenotype data
+
+It would probably be easier, and more reproducible to use the released version of simulated data from the HAPNEST paper. The files are very large as they are for 6.8M variants and 1M individuals. Let's start with chromosome 22 to testing things out. We can subset the files to HapMap3 variants as we download them to avoid storing so much data in first instance.
+
+***
+
+## Download genotype and phenotype
+
+```{bash}
+mkdir -p /users/k1806347/oliverpainfel/HAPNEST/released/full
+mkdir -p /users/k1806347/oliverpainfel/HAPNEST/released/subset
+module load plink2
+cd /users/k1806347/oliverpainfel/HAPNEST/released/full
+
+# Download genotype data
+# Subset the data to HapMap3 variants to save storage space
+# Might as well convert to plink2 format for efficiency
+for chr in $(seq 22 22); do
+  for file in $(echo bed bim fam); do
+    wget https://ftp.ebi.ac.uk/biostudies/fire/S-BSST/936/S-BSST936/Files/genotypes/synthetic_v1_chr-${chr}.${file}
+  done
+  
+  wget https://ftp.ebi.ac.uk/biostudies/fire/S-BSST/936/S-BSST936/Files/rsids/rsid_variant_map_list_chr22.txt
+  wget https://ftp.ebi.ac.uk/biostudies/fire/S-BSST/936/S-BSST936/Files/example/synthetic_small_v1_chr-22.bim
+  
+  awk 'NR==FNR {snp[$1]; next} $2 in snp' /users/k1806347/oliverpainfel/GenoPred/pipeline/resources/data/hm3_snplist/w_hm3.snplist rsid_variant_map_list_chr22.txt > matched_rows.txt
+
+  plink2 \
+    --bfile synthetic_v1_chr-${chr} \
+    --make-pgen \
+    --extract matched_rows.txt \
+    --out /users/k1806347/oliverpainfel/HAPNEST/released/subset/synthetic_v1_hm3_chr${chr}
+
+  rm synthetic_v1_chr-${chr}.*
+  rm matched_rows.txt
+  rm rsid_variant_map_list_chr${chr}.txt
+done
+
+# Download phenotype data
+mkdir -p /users/k1806347/oliverpainfel/HAPNEST/released/phenotype
+cd /users/k1806347/oliverpainfel/HAPNEST/released/phenotype
+wget https://ftp.ebi.ac.uk/biostudies/fire/S-BSST/936/S-BSST936/Files/synthetic_v1.sample
+for i in $(seq 1 9); do
+  wget https://ftp.ebi.ac.uk/biostudies/fire/S-BSST/936/S-BSST936/Files/phenotypes/synthetic_v1.pheno${i}
+done
+
+```
+
+Note. For some reason there only about 65% of HapMap3 variants available in the synthetic data. This will cause an error when using GenoPred as it requires a certain overlap with the default reference data. Given we are going to generate the GWAS using this data, this wouldn't actually cause any issues of SNP overlap, but there would be poor coverage of the genome which will decrease the PGS R2 values. This is not a big issue, but given it is so fast to simulate data, it is making me think we should simulate our own so we can make it exactly what we want (sample size, genetic architecture, snplist).
+
+***
+
+# Full simulation
+
+Lets modify the quickstart config.yaml to simulate data for chromosome 22, 40k individuals, EUR, EAS and AFR population, 9 phenotypes with same genetic architecture as HAPNEST paper.
+
+```{bash}
+cd /users/k1806347/oliverpainfel/HAPNEST
+
+# Generate genotype and phenotype data
+singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.sif generate_geno 8 data/config.synth_1.yaml
+singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.sif generate_pheno data/config.synth_1.yaml
+
+```
+
+
+
+***
+
+Lets split the data into training and testing subsets, as we did for UKB EUR in the CrossPop analysis. Perform a GWAS of each phenotype using 
+
+
+
+
