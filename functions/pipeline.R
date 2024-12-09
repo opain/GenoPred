@@ -5,8 +5,7 @@ if (!require("data.table", quietly = TRUE)) {
 }
 
 # Read in PGS
-read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL){
-
+read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL, pseudo_only = F){
   # Read in target_list
   target_list <- read_param(config = config, param = 'target_list')
   if(!is.null(name)){
@@ -38,14 +37,25 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
 
   # Identify outdir parameter
   outdir <- read_param(config = config, param = 'outdir', return_obj = F)
-
+  
+  # Identify pgs_scaling parameter
+  pgs_scaling <- read_param(config = config, param = 'pgs_scaling', return_obj = F)
+  
   pgs <- list()
   for (name_i in target_list$name) {
-    # Read in keep_list to determine populations available
-    keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
-    pops <- c('TRANS', keep_list_i$POP)
-    
+    pops<-NULL
+    if('continuous' %in% pgs_scaling){
+      pops <- c('TRANS', pops)
+    }
+    if('discrete' %in% pgs_scaling){
+      # Read in keep_list to determine populations available
+      keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
+      pops <- c(pops, keep_list_i$POP)
+    }
     if(!is.null(pop)){
+      if(!any('discrete' %in% pgs_scaling) & any(pop != 'TRANS')){
+        stop(paste0('Requested pop are not present in ',name_i,' sample. Only PGS adjusted using continuous ancestry correction are available due to pgs_scaling parameter in configfile.'))
+      }
       if(any(!(pop %in% pops))){
         stop(paste0('Requested pop are not present in ',name_i,' sample.'))
       }
@@ -61,12 +71,20 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
         if (is.null(pgs[[name_i]][[pop_i]][[gwas_i]])) {
           pgs[[name_i]][[pop_i]][[gwas_i]] <- list()
         }
-        pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <-
-            fread(
-              paste0(
-                outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, '.profiles'
-              )
-            )
+        file_i<-paste0(outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, '.profiles')
+        if(pseudo_only){
+          pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i)
+
+          score_header <-
+            fread(file_i, nrows = 1)
+          score_cols <-
+            which(names(score_header) %in% c('FID', 'IID', paste0(gwas_i, '_',pseudo_param)))
+          
+          pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <-
+            fread(cmd = paste0("cut -d' ' -f ", paste0(score_cols, collapse=','), " ", file_i))
+        } else {
+          pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <- fread(file_i)
+        }
       }
     }
   }
