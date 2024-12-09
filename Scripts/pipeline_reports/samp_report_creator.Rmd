@@ -390,40 +390,37 @@ cat0("***\n\n")
 ```{r, include = F, eval = all(pgs_incl, targ_incl)}
 
 # Read in prs
-pgs <- read_pgs(config = params$config, name = params$name)[[1]]
+pgs <- read_pgs(config = params$config, name = params$name, pseudo_only=T)[[1]]
 
-# Subset pseudovalidated PGS
-pgs_pseudo <- NULL
+# Structure PGS for plotting
+pgs_melt <- NULL
 for(gwas in names(pgs[[1]])){
   for(pgs_method in names(pgs[[1]][[gwas]])){
-    pseudo_param <- find_pseudo(config = params$config, gwas = gwas, pgs_method = pgs_method, target_pop = 'TRANS')
     for(pop in names(pgs)){
       tmp <- pgs[[pop]][[gwas]][[pgs_method]]
-      names(tmp) <- gsub(paste0(gwas, '_'), '', names(tmp))
-
-      pgs_pseudo <- rbind(pgs_pseudo, data.table(
-        FID = tmp$FID,
-        IID = tmp$IID,
-        score = tmp[[pseudo_param[1]]],
-        pop = pop,
-        gwas = gwas,
-        pgs_method = pgs_method))
+      names(tmp)<-c('FID','IID','score')
+      tmp$pop = pop
+      tmp$gwas = gwas
+      tmp$pgs_method = pgs_method
+      pgs_melt <- rbind(pgs_melt, tmp)
     }
   }
 }
+pgs<-pgs_melt
+rm(pgs_melt)
 
 ancestry_log <- read_ancestry(config = params$config,  name = params$name)
 for(i in names(ancestry_log$keep_files)){
-  pgs_pseudo$assigned_pop[paste0(pgs_pseudo$FID, '.', pgs_pseudo$IID) %in% paste0(ancestry_log$keep_files[[i]]$V1, '.',  ancestry_log$keep_files[[i]]$V2)] <- i
+  pgs$assigned_pop[paste0(pgs$FID, '.', pgs$IID) %in% paste0(ancestry_log$keep_files[[i]]$V1, '.',  ancestry_log$keep_files[[i]]$V2)] <- i
 }
-pgs_pseudo$assigned_pop[is.na(pgs_pseudo$assigned_pop)]<-'Unassigned'
+pgs$assigned_pop[is.na(pgs$assigned_pop)]<-'Unassigned'
 
 # Plot the distribution of polygenic scores
 pgs_dist_plots <- list()
-for(pgs_method_i in unique(pgs_pseudo$pgs_method)){
-  pgs_pseudo_i <- pgs_pseudo[pgs_pseudo$pgs_method %in% pgs_method_i,]
+for(pgs_method_i in unique(pgs$pgs_method)){
+  pgs_i <- pgs[pgs$pgs_method %in% pgs_method_i,]
   pgs_dist_plots[[pgs_method_i]] <- 
-    ggplot(pgs_pseudo_i, aes(x=score, fill=assigned_pop)) + 
+    ggplot(pgs_i, aes(x=score, fill=assigned_pop)) + 
       geom_density(alpha=0.5) +
       labs(x='Polygenic Z-Score', y='Density', fill = 'Population') +
       theme_half_open() +
@@ -437,7 +434,7 @@ for(pgs_method_i in unique(pgs_pseudo$pgs_method)){
       ) +
       guides(fill = guide_legend(nrow = 1)) 
 
-  png(paste0(tmp_folder,'/plot_', pgs_method_i,'.png'), height = 150 + (300*length(unique(pgs_pseudo_i$gwas))), width = 2000, res = 170)
+  png(paste0(tmp_folder,'/plot_', pgs_method_i,'.png'), height = 150 + (300*length(unique(pgs_i$gwas))), width = 2000, res = 170)
     print(pgs_dist_plots[[pgs_method_i]])
   dev.off()
 }
@@ -449,7 +446,7 @@ for(pgs_method_i in unique(pgs_pseudo$pgs_method)){
 cat0("## PGS Distribution {.tabset .tabset-fade} \n\n")
 cat0("This section shows the distribution of PGS in the target sample. PGS are shown scaled according to each ancestry-match reference population. TRANS includes PGS across all populations after continuous adjustment for ancestry.\n\n")
 
-for(pgs_method_i in unique(pgs_pseudo$pgs_method)){
+for(pgs_method_i in unique(pgs$pgs_method)){
   # Create a new tab for each method
   cat0("### ", pgs_method_i, "\n")
   
