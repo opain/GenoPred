@@ -24,6 +24,7 @@ Here will use simulated genetic data to benchmark GenoPred. We will simulate the
 ***
 
 # Set up HAPNEST
+<details><summary>Show code</summary>
 
 ```{bash}
 mkdir -p /users/k1806347/oliverpainfel/HAPNEST
@@ -46,11 +47,15 @@ singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.
 
 ```
 
+</details>
+
 ***
 
 # Test run using default config
 
 Generates data for chromosome 1, for 6 populations, HapMap3 SNPs, and 1 phenotype.
+
+<details><summary>Show code</summary>
 
 ```{bash}
 # Step 5: Generate genotype and phenotype data
@@ -60,6 +65,8 @@ singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.
 # Step 6: Evaluate simulation (optional and slow)
 singularity exec --bind data/:/data/ containers/intervene-synthetic-data_latest.sif validate data/config.yaml
 ```
+
+</details>
 
 The data simulation took about 1 minute. Evaluation takes >2 hours.
 
@@ -72,6 +79,8 @@ It would probably be easier, and more reproducible to use the released version o
 ***
 
 ## Download genotype and phenotype
+
+<details><summary>Show code</summary>
 
 ```{bash}
 mkdir -p /users/k1806347/oliverpainfel/HAPNEST/released/full
@@ -113,6 +122,8 @@ done
 
 ```
 
+</details>
+
 Note. For some reason there only about 65% of HapMap3 variants available in the synthetic data. This will cause an error when using GenoPred as it requires a certain overlap with the default reference data. Given we are going to generate the GWAS using this data, this wouldn't actually cause any issues of SNP overlap, but there would be poor coverage of the genome which will decrease the PGS R2 values. This is not a big issue, but given it is so fast to simulate data, it is making me think we should simulate our own so we can make it exactly what we want (sample size, genetic architecture, snplist).
 
 ***
@@ -120,6 +131,8 @@ Note. For some reason there only about 65% of HapMap3 variants available in the 
 # Full simulation
 
 Lets modify the quickstart config.yaml to simulate data for chromosome 22, 40k individuals, EUR, EAS and AFR population, 9 phenotypes with same genetic architecture as HAPNEST paper.
+
+<details><summary>Show code</summary>
 
 ```{bash}
 cd /users/k1806347/oliverpainfel/HAPNEST
@@ -144,13 +157,18 @@ singularity exec \
   
 ```
 
+</details>
+
 ***
 
-# Subsample and GWAS
+# Identify unrelated individuals
 
-## Subsample
+We need to identify a group of unrelated individuals, to avoid bias in the GWAS and sample overlap between GWAS and target sample when evaluating PGS. Idenitfy unrelated individuals within each population.
+
+<details><summary>Show code</summary>
 
 ```{r}
+# Subset simulated data by population
 library(data.table)
 sample <-
   fread(
@@ -162,11 +180,113 @@ pops<-unique(sample)
 fam <- fread('/users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr-22.fam')
 fam$pop <- sample
 
+for(i in c('EUR','EAS','AFR')){
+  fam_i <- fam[fam$pop == i,]
+  fam_i <- fam_i[, c('V1','V2'), with=F]
+  
+  write.table(
+    fam_i,
+    paste0(
+      '~/oliverpainfel/Analysis/HAPNEST/synth_1/', i,'.keep'),
+    col.names = F,
+    row.names = F,
+    quote = F
+  )
+}
+
+```
+
+```{r}
+# Identify unrelated individuals
+# conda activate .snakemake/conda/ea13b6c549c70695534894feeeecf0b3_
+setwd('~/oliverpainfel/GenoPred/pipeline/')
 dir.create('~/oliverpainfel/Analysis/HAPNEST/synth_1', recursive = T)
 
+library("optparse")
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+# Create temp directory
+tmp_dir<-tempdir()
+
+option_list = list(
+  make_option("--target_plink_chr", action="store", default=NULL, type='character',
+              help="Path to per chromosome target PLINK files [required]"),
+  make_option("--maf", action="store", default=0.05, type='numeric',
+              help="Minor allele frequency threshold [optional]"),
+  make_option("--geno", action="store", default=0.02, type='numeric',
+              help="Variant missingness threshold [optional]"),
+  make_option("--hwe", action="store", default=1e-6, type='numeric',
+              help="Hardy Weinberg p-value threshold. [optional]"),
+  make_option("--n_pcs", action="store", default=10, type='numeric',
+              help="Number of PCs (min=4) [optional]"),
+  make_option("--plink2", action="store", default='plink2', type='character',
+              help="Path PLINK2 software binary [required]"),
+  make_option("--keep_list", action="store", default=NULL, type='character',
+              help="File containing list of keep files and corresponding population code [optional]"),
+  make_option("--unrel", action="store", default=NA, type='character',
+              help="File containing list of unrelated individuals [optional]"),
+  make_option("--n_cores", action="store", default=1, type='numeric',
+              help="Number of cores for parallel computing [optional]"),
+  make_option("--test", action="store", default=NA, type='character',
+              help="Specify test mode [optional]"),
+  make_option("--output", action="store", default=NULL, type='character',
+              help="Path for output files [required]")
+)
+
+opt = parse_args(OptionParser(option_list=option_list))
+
+opt$test<-'chr22'
+opt$target_plink_chr<-'/users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr-'
+opt$output<-'~/oliverpainfel/Analysis/HAPNEST/synth_1/relatedness/synth_1'
+opt$n_cores<-20
+
+# Create output directory
+opt$output_dir <- paste0(dirname(opt$output),'/')
+system(paste0('mkdir -p ',opt$output_dir))
+
+if(!is.na(opt$test)){
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
+}
+
+for(i in c('EUR','EAS','AFR')){
+
+  # Identify high quality variants
+  target_qc_snplist<-plink_qc_snplist(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, geno = opt$geno, maf = opt$maf, hwe = opt$hwe, keep = paste0('~/oliverpainfel/Analysis/HAPNEST/synth_1/', i,'.keep'))
+  
+  # Generate kinship matrix and list of unrelated individuals
+  plink_king(bfile = opt$target_plink_chr, chr = CHROMS, extract = target_qc_snplist, plink2 = opt$plink2, out = paste0(opt$output, '.', i), threads = opt$n_cores, keep = paste0('~/oliverpainfel/Analysis/HAPNEST/synth_1/', i,'.keep'))
+  
+}
+
+```
+
+</details>
+
+***
+
+# Subsample and GWAS
+
+## Subsample
+
+<details><summary>Show code</summary>
+
+```{r}
+library(data.table)
+
+fam <- NULL
+for(i in c('EUR','EAS','AFR')){
+  tmp <- fread(paste0('~/oliverpainfel/Analysis/HAPNEST/synth_1/relatedness/synth_1.',i,'.unrelated.keep'), header = F)
+  tmp$pop <- i
+  fam <- rbind(fam, tmp)
+}
+
 set.seed(1)
-for(pop_i in pops){
+for(pop_i in c('EUR','EAS','AFR')){
   fam_pop_i <- fam[fam$pop == pop_i,]
+  print(nrow(fam_pop_i))
   train_size <- floor(0.9 * nrow(fam_pop_i))
   train_indices <- sample(seq_len(nrow(fam_pop_i)), size = train_size)
   
@@ -197,11 +317,15 @@ for(pop_i in pops){
 
 ```
 
+</details>
+
 ***
 
 ## GWAS
 
 ### Perform PCA
+
+<details><summary>Show code</summary>
 
 ```{r}
 # conda activate .snakemake/conda/ea13b6c549c70695534894feeeecf0b3_
@@ -310,9 +434,13 @@ for(pop in keep_list$POP){
 
 ```
 
+</details>
+
 ***
 
 ### Perform GWAS
+
+<details><summary>Show code</summary>
 
 ```{bash}
 
@@ -353,8 +481,9 @@ for pheno in $(seq 1 1); do
   done
 done
 
-# Issue, all the cases are african! How can we get some cases in each population
 ```
+
+</details>
 
 ***
 
@@ -362,18 +491,27 @@ done
 
 ## Subset HAPNEST testing data
 
+<details><summary>Show code</summary>
+
 ```{bash}
 mkdir -p ~/oliverpainfel/Analysis/HAPNEST/synth_1/testing_subset
+
+cat ~/oliverpainfel/Analysis/HAPNEST/synth_1/testing.*.txt > ~/oliverpainfel/Analysis/HAPNEST/synth_1/testing.txt
+
 for chr in $(seq 22 22); do
     plink2 \
       --bfile /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr-${chr} \
-      --keep /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.pheno${pheno}.plink \
+      --keep ~/oliverpainfel/Analysis/HAPNEST/synth_1/testing.txt \
       --make-bed \
       --out ~/oliverpainfel/Analysis/HAPNEST/synth_1/testing_subset/synth_1.chr${chr}
 done
 ```
 
+</details>
+
 ## Prepare config
+
+<details><summary>Show code</summary>
 
 ```{r}
 
@@ -432,19 +570,25 @@ write.table(config, '/users/k1806347/oliverpainfel/Analysis/HAPNEST/genopred/con
 
 ```
 
+</details>
+
 ***
 
 ## Run pipeline
+
+<details><summary>Show code</summary>
 
 ```{bash}
 snakemake --profile slurm --use-conda --configfile=/users/k1806347/oliverpainfel/Analysis/HAPNEST/genopred/config/config.yaml output_all -n
 ```
 
+</details>
+
 ***
 
 # Evaluate PGS
 
-## Create predictor lists
+Evaluate PGS R2 within each population.
 
 <details><summary>Show code</summary>
 
@@ -463,160 +607,140 @@ outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 # Get a list of score files
 scores <- list_score_files(config)
 
-# Create files for EAS and AFR targets
+# Read in PGS for each population
 pop <- c('EUR','EAS','AFR')
-for(trait_i in paste0('pheno', 1:1)){
-  # Make a group containing both GWAS for each single source method
-  # Make a group for each multisource method
-  scores_i <- scores[grepl(paste0('^', trait_i, '_'), scores$name),]
-  scores_i$group <- scores_i$method
-  
-  for(pop_i in pop){
-    dir.create(
-      paste0(
-        '/users/k1806347/oliverpainfel/Analysis/HAPNEST/genopred/assoc_',
-        pop_i,
-        '.disc_',
-        pop_i,
-        '/',
-        trait_i
-      ),
-      recursive = T
-    )
+pgs <- read_pgs(config = config)
+
+# Read in phenotype data
+pheno <- fread('/users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.pheno1.plink')
+
+# Evaluate PGS (without adjustment for reference PCs)
+assoc<-NULL
+for(i in pop){
+  for(j in 1:nrow(scores)){
+    tmp <- pgs$hapnest[[i]][[scores$name[j]]][[scores$method[j]]]
+    tmp <- merge(tmp, pheno, by = c('FID','IID'))
+    tmp_pheno <- tmp$pheno
+    tmp_pgs <- tmp[, !(names(tmp) %in% c('FID','IID','pheno')), with = F]
     
-    scores_i_j <- scores_i[grepl(pop_i, scores_i$name, ignore.case = T),]
-    scores_i_j$predictor <- paste0(
-      outdir,
-      '/hapnest/pgs/',
-      'TRANS',
-      '/',
-      scores_i_j$method,
-      '/',
-      scores_i_j$name,
-      '/hapnest-',
-      scores_i_j$name,
-      '-',
-      'TRANS',
-      '.profiles'
-    )
-    
-    predictors_i <- scores_i_j[, c('predictor', 'group'), with=F]
-    
-    write.table(
-      predictors_i,
-      paste0(
-        '/users/k1806347/oliverpainfel/Analysis/HAPNEST/genopred/assoc_',
-        pop_i,
-        '.disc_',
-        pop_i,
-        '/',
-        trait_i,
-        '/predictor_list.ptclump.txt'
-      ),
-      col.names = T,
-      row.names = F,
-      quote = F
-    )
+    for(k in names(tmp_pgs)){
+  	  mod <- glm(tmp_pheno ~ scale(tmp_pgs[[k]]), family='binomial')
+  		obs_r2 <- cor(predict(mod), as.numeric(tmp_pheno))^2
+  	  sum_mod <- summary(mod)
+
+  	  assoc <- rbind(
+  	    assoc, 
+  	    data.table(
+    	    Predictor = k,
+    	    BETA = coef(sum_mod)[2, 1],
+    	    SE = coef(sum_mod)[2, 2],
+    	    P = coef(sum_mod)[2, 4],
+    	    Obs_R2 = obs_r2,
+      		N = length(tmp_pheno),
+      		gwas = scores$name[j],
+      		method = scores$method[j],
+      		pop = i,
+      		trans = F
+  	    )
+  	  )
+	  }
   }
 }
 
-```
-</details>
+# Evaluate PGS (without adjustment for reference PCs)
+assoc_trans<-NULL
+for(i in pop){
+  for(j in 1:nrow(scores)){
+    tmp <- pgs$hapnest[[i]][[scores$name[j]]][[scores$method[j]]]
+    tmp2 <- pgs$hapnest[['TRANS']][[scores$name[j]]][[scores$method[j]]]
+    tmp2 <- tmp2[tmp2$FID %in% tmp$FID,]
+    tmp <- merge(tmp2, pheno, by = c('FID','IID'))
+    tmp_pheno <- tmp$pheno
+    tmp_pgs <- tmp[, !(names(tmp) %in% c('FID','IID','pheno')), with = F]
+    
+    for(k in names(tmp_pgs)){
+  	  mod <- glm(tmp_pheno ~ scale(tmp_pgs[[k]]), family='binomial')
+  		obs_r2 <- cor(predict(mod), as.numeric(tmp_pheno))^2
+  	  sum_mod <- summary(mod)
 
-***
+  	  assoc_trans <- rbind(
+  	    assoc_trans, 
+  	    data.table(
+    	    Predictor = k,
+    	    BETA = coef(sum_mod)[2, 1],
+    	    SE = coef(sum_mod)[2, 2],
+    	    P = coef(sum_mod)[2, 4],
+    	    Obs_R2 = obs_r2,
+      		N = length(tmp_pheno),
+      		gwas = scores$name[j],
+      		method = scores$method[j],
+      		pop = i,
+      		trans = T
+  	    )
+  	  )
+	  }
+  }
+}
 
-## Run model_builder
+# Check the correlation between pheno and PGS, with and without adjustments for reference PCs
+cor(assoc_trans$BETA, assoc$BETA) # 0.9996044
 
-<details><summary>Show code</summary>
+plot(assoc_trans$BETA, assoc$BETA)
+abline(a = 0, b = 1, col = "red", lwd = 2, lty = 2)
+# The results are almost identical. This will vary depending on whether the phenotype varies according to ancestry. This simulation confirms that the PGS R2 is not impacted when there is no correlation between ancestry and the phenotype.
 
-```{bash}
-cd /users/k1806347/oliverpainfel/GenoPred/pipeline
-conda activate model_builder
-
-for pop in $(echo EUR EAS AFR); do
-  for pheno in $(echo pheno$(seq 1 1)); do
-    sbatch --mem 5G -n 5 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
-      --outcome /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.${pheno}.plink \
-      --predictors /users/k1806347/oliverpainfel/Analysis/HAPNEST/genopred/assoc_${pop}.disc_${pop}/${pheno}/predictor_list.ptclump.txt \
-      --out /users/k1806347/oliverpainfel/Analysis/HAPNEST/genopred/assoc_${pop}.disc_${pop}/${pheno}/res.ptclump \
-      --n_core 5 \
-      --all_model F \
-      --assoc T"
-  done
-done
-
-```
-</details>
-
-***
-
-## Plot assoc results
-
-<details><summary>Show code</summary>
-
-```{r}
-setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
-
-library(data.table)
+# Plot the results
+assoc_both <- rbind(assoc, assoc_trans)
 library(ggplot2)
 library(cowplot)
 
-source('../functions/misc.R')
-source_all('../functions')
-
-# Read in phenotypes
-pheno_intersect <- read.table('/scratch/prj/ukbiobank/usr/ollie_pain/phenotypes/prscsx/pheno_eur_eas_afr.txt', header=F)$V1
-
-# Read in results
-pop = c('EUR','EAS','AFR')
-res_all <- NULL
-for(pheno_i in pheno_intersect){
-  res_i<-NULL
-  for(pop_i in pop){
-    assoc_i <-
-      fread(
-        paste0(
-          '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
-          pop_i,
-          '.disc_',
-          pop_i,
-          '/',
-          pheno_i,
-          '/res.ptclump.assoc.txt'
-        )
-      )
-      assoc_i$Population <- pop_i
-      res_i<-rbind(res_i, assoc_i)
-  }
-  
-  res_i$Phenotype <- pheno_i
-  res_all<-rbind(res_all, res_i)
-}
-
 # Extract pT variable from Predictor
-res_all$pT <- gsub('e.','e-', gsub('.*UKB\\.0\\.|.*BBJ\\.0\\.|.*UGR\\.0\\.', '', res_all$Predictor))
-res_all$pT <- factor(res_all$pT, levels = unique(res_all$pT))
+assoc_both$pT <- gsub('e.','e-', gsub('.*0_', '', assoc_both$Predictor))
+assoc_both$pT <- factor(assoc_both$pT, levels = unique(assoc_both$pT))
 
-ggplot(res_all, aes(x = Phenotype, y = BETA, fill = pT)) +
+# Improve labelling for plot
+assoc_both$pop <- paste0('Target = ', assoc_both$pop)
+assoc_both$pop <- factor(assoc_both$pop, levels = unique(assoc_both$pop))
+
+assoc_both$gwas <- gsub('.*_', '', assoc_both$gwas)
+assoc_both$gwas <- paste0('Discovery = ', assoc_both$gwas)
+assoc_both$gwas <- factor(assoc_both$gwas, levels = unique(assoc_both$gwas))
+
+assoc_both$trans <- ifelse(assoc_both$trans, 'Unadjusted', 'Adjusted')
+
+setwd('/scratch_tmp/prj/oliverpainfel/GenoPred')
+dir.create('docs/Images/hapnest')
+png('docs/Images/hapnest/pgs_eval.png', res = 100, height = 700, width = 1000, units = 'px')
+
+ggplot(assoc_both, aes(x = trans, y = BETA, fill = pT)) +
   geom_hline(yintercept = 0, colour = 'darkgrey') +
   geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.8) +
   geom_errorbar(aes(ymin=BETA-SE, ymax=BETA+SE), width=0, position=position_dodge(width = 0.8, preserve = "single")) +
-  labs(y="BETA (SE)") +
+  labs(y="BETA (SE)", x=NULL) +
   theme_half_open() +
   background_grid() +
   panel_border() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   background_grid(major = 'y', minor = 'y') +
-  scale_fill_manual(values = colorRampPalette(c("lightblue", "darkblue"))(length(unique(res_all$pT)))) +
-  facet_grid(Population ~.)
+  scale_fill_manual(values = colorRampPalette(c("lightblue", "darkblue"))(length(unique(assoc_both$pT)))) +
+  facet_grid(pop ~ gwas)
+
+dev.off()
 
 ```
+
 </details>
 
-pheno_list could be three columns: pheno scores covar. pheno describes outcome, scores is comma separated list of score names (gwas_list and score_list names, plus option of projected pcs), and covar is a covariate file to be included in association analyses.
+</br>
 
-**Note.** The performance of methods that take into account functional annotations (MegaPRS, SBayesRC) could be relatively downward biased due to the phenotype simulations not simulating functional enrichments. This benchmark is really to evaluate the impact of covarying for ancestry. In future research would could also simulate functional enrichments by specifying causal variants.
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+![Performance of PGS when adjusted for ancestry](Images/hapnest/pgs_eval.png)
+</div>
+</div>
 
+</br>
 
+The results with and without reference-based correction for ancestry are almost identical. This will vary depending on whether the phenotype varies according to ancestry. This simulation confirms that the PGS R2 is not impacted when there is no correlation between ancestry and the phenotype.
 
-
+As expected the PGS derived using target-matched ancestry GWAS, perform slightly better. The difference isn't huge, due to same GWAS sample size, and cross population rG of 1.
