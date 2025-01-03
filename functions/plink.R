@@ -200,14 +200,14 @@ plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, 
 
   # Subset data prior to merging
   if(!is.null(bfile)){
-    plink_subset(bfile = bfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, memory = memory, out = paste0(tmp_dir,'/ref_subset_chr'), threads=threads)
+    plink_subset(bfile = bfile, chr = chr, plink2 = plink2, make_bed = T, keep = keep, extract = extract, memory = memory, out = paste0(tmp_dir,'/ref_subset_chr'), threads=threads)
   } else {
     plink_subset(pfile = pfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, memory = memory, out = paste0(tmp_dir,'/ref_subset_chr'), threads=threads)
   }
 
   # Merge subset reference
   if(!is.null(bfile)){
-    plink_merge(bfile = paste0(tmp_dir,'/ref_subset_chr'), chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'), threads=threads)
+    plink_merge(bfile = paste0(tmp_dir,'/ref_subset_chr'), make_bed = T, chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'), threads=threads)
   } else {
     plink_merge(pfile = paste0(tmp_dir,'/ref_subset_chr'), chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'), threads=threads)
   }
