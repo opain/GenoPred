@@ -383,9 +383,9 @@ plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2=
 
   # Merge per chromosome files extracting selected variants
   if(!is.null(bfile)){
-    plink_merge(bfile = bfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads)
+    plink_merge(bfile = bfile, chr = chr, plink2 = plink2, make_bed = T, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads, keep = keep)
   } else {
-    plink_merge(pfile = pfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads)
+    plink_merge(pfile = pfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads, keep = keep)
   }
 
   # Run KING estimator
