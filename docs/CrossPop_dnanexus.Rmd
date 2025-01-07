@@ -38,60 +38,37 @@ We will need to mount the dispensed UKB genetic data, so it can be used as an in
 
 ```{bash}
 # Mount the project with the dispensed UKB data
-FUSE_MOUNT=/home/dnanexus/projects2
+mkdir ~/software
+cd software
+wget https://github.com/dnanexus/dxfuse/releases/download/v1.4.0/dxfuse-linux
+chmod a+x dxfuse-linux
+
+cd ~
+FUSE_MOUNT=~/projects
 mkdir -p $FUSE_MOUNT
-./dxfuse-linux -uid $(id -u) -gid $(id -g) -verbose 2 $FUSE_MOUNT project-GP0ZBqQJ5vK5kxJF3KyxgZg1
+~/software/dxfuse-linux -uid $(id -u) -gid $(id -g) -verbose 2 $FUSE_MOUNT project-GP0ZBqQJ5vK5kxJF3KyxgZg1
 
 # Create symlinks to the dispensed imputed genetic data
-mkdir -p /home/dnanexus/ukb/ukb_symlinks
+mkdir -p ~/ukb/ukb_symlinks
 
 # pgen and pvar files
 for chr in $(seq 1 22);do
   for file in $(echo bgen bgen.bgi);do
-    ln -s /home/dnanexus/projects/UKB_82087//Bulk/Imputation/Imputation\ from\ genotype\ \(TOPmed\)/ukb21007_c${chr}_b0_v1.${file} /home/dnanexus/ukb/ukb_symlinks/ukb_imp.chr${chr}.${file}
+    ln -s ~/projects/UKB_82087//Bulk/Imputation/Imputation\ from\ genotype\ \(TOPmed\)/ukb21007_c${chr}_b0_v1.${file} ~/ukb/ukb_symlinks/ukb_imp.chr${chr}.${file}
   done
 done
 
 # Make a copy of the sample file, and set the sex column to dichotomous (otherwise plink throws an error)
-cp /home/dnanexus/projects/UKB_82087//Bulk/Imputation/Imputation\ from\ genotype\ \(TOPmed\)/ukb21007_c1_b0_v1.sample /home/dnanexus/ukb/ukb_symlinks/ukb_imp.sample
-sed -i '2s/0/D/4' /home/dnanexus/ukb/ukb_symlinks/ukb_imp.sample
+cp ~/projects/UKB_82087//Bulk/Imputation/Imputation\ from\ genotype\ \(TOPmed\)/ukb21007_c1_b0_v1.sample ~/ukb/ukb_symlinks/ukb_imp.sample
+sed -i '2s/0/D/4' ~/ukb/ukb_symlinks/ukb_imp.sample
 
-# Subset the files to contain variants with MAF > 0.005 and INFO 0.4
-```
-
-```{r}
-install.packages('data.table')
-install.packages('R.utils')
-library(data.table)
-for(i in 22:22){
-    snp_dat<-fread(paste0("/home/dnanexus/projects2/UKB_82087//Bulk/Imputation/Imputation from genotype (TOPmed)/helper_files/ukb21007_c",i,'_b0_v1.sites.vcf.gz'), nrows = 100000)
-    snp_dat<-snp_dat[nchar(snp_dat$REF) == 1 & nchar(snp_dat$ALT) == 1,]
-    snp_dat$ID<-paste0(snp_dat$`#CHROM`, ':', snp_dat$POS)
-    snp_dat<-snp_dat[, c('ID','INFO'), with=F]
-    snp_dat <- data.table(ID = snp_dat$ID, do.call(rbind, lapply(strsplit(snp_dat$INFO, ';'), function(x) x[1:2])))
-    names(snp_dat)<-c('ID','FREQ','R2')
-    snp_dat$FREQ<-as.numeric(gsub('AF=','', snp_dat$FREQ))
-    snp_dat$R2<-as.numeric(gsub('R2=','', snp_dat$R2))
-    snp_dat<-snp_dat[(snp_dat$FREQ > 0.005 | snp_dat$FREQ < 0.995) & snp_dat$R2 > 0.4,]
-    fwrite(snp_dat[,'ID', with=F], paste0('/home/dnanexus/ukb/maf_005.r2_4.chr',i,'.snplist'), quote=F, col.names=F)
-}
-```
-
-```{bash}
-# decompress qctool_v2.2.0-CentOS_Linux7.8.2003-x86_64.tgz
-
-
-/home/dnanexus/software/qctool_v2.0.8-CentOS\ Linux7.6.1810-x86_64/qctool \
-    -g /home/dnanexus/projects2/UKB_82087//Bulk/Imputation/Imputation\ from\ genotype\ \(TOPmed\)/ukb21007_c22_b0_v1.bgen \
-    -og /home/dnanexus/ukb/ukb.filtered.chr22.bgen \
-    -incl-positions /home/dnanexus/ukb/maf_005.r2_4.chr22.snplist
 ```
 
 Create the require configuration files. 
 
 ```{bash}
-mkdir -p /home/dnanexus/ukb/configs/basic
-mkdir -p /home/dnanexus/ukb/GenoPred/output
+mkdir -p ~/ukb/configs/basic
+mkdir -p ~/ukb/GenoPred/output
 ```
 
 ```{r}
@@ -120,12 +97,17 @@ write.table(conf, '/home/dnanexus/ukb/configs/basic/config.yaml', col.names = F,
 Run pipeline
 
 ```{bash}
-cd /home/dnanexus/GenoPred/pipeline
+conda activate genopred
+cd ~/GenoPred/pipeline
 git describe --tags
-# v2.2.2-178-ge7cceca
+# v2.2.2-179-gfa4ccec
 
-snakemake -j 4 --use-conda --configfile=/home/dnanexus/ukb/configs/basic/config.yaml ancestry_inference -n 
+snakemake -j 1 --use-conda --configfile=/home/dnanexus/ukb/configs/basic/config.yaml ancestry_inference -n 
 ```
+
+I run into an issue where the mount breaks. I get error 'Transport endpoint is not connected.'.
+
+
 
 
 
