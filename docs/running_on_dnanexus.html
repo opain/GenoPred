@@ -659,6 +659,18 @@ for performing a dry run before launching the full analysis.</p>
 <div id="start-an-interactive-session-in-the-container"
 class="section level3">
 <h3>Start an Interactive Session in the Container</h3>
+<p>To ensure that your analysis persists even when the RStudio server
+tab is closed, it is recommended to start the container within a tmux
+session. This will allow you to detach and reattach to the session as
+needed.</p>
+<p>Start a tmux session within the terminal by running:</p>
+<pre class="bash"><code>tmux</code></pre>
+<p>This will take you into a <code>tmux</code> session. You can ‘detach’
+from the <code>tmux</code> session by pressing <code>Ctrl+b d</code>,
+and reattach to the session in the future by typing:</p>
+<pre class="bash"><code>tmux attach</code></pre>
+<p>Further instructions on using <code>tmux</code> can be found <a
+href="https://www.redhat.com/en/blog/introduction-tmux-linux">here</a>.</p>
 <p>To begin, start an interactive session within the Singularity
 container. Make sure to mount the home directory within the RStudio
 session to store the outputs:</p>
@@ -686,6 +698,13 @@ snakemake -n --use-conda --configfile=/home/rstudio-server/genopred/config/confi
 # Run the Pipeline: 
 # Once satisfied with the dry run, execute the pipeline:
 snakemake -j1 --use-conda --configfile=/home/rstudio-server/genopred/config/config.yaml output_all</code></pre>
+<p>While this analysis is running, you can detach from the
+<code>tmux</code> session, close the RStudio tab, and close your
+browser. When you reopen the RStudio app, you may see that your session
+appears suspended. Do not worry—your analysis will continue running in
+the background.</p>
+<p>By using <code>tmux</code>, your analysis will continue to run even
+if the terminal session or RStudio server tab is closed.</p>
 <p>After the analysis is complete, you can leave the container by
 typing:</p>
 <pre class="bash"><code>exit</code></pre>
@@ -706,13 +725,13 @@ pipeline configurations), you may choose to store them in separate tar
 files.</p>
 <pre class="bash"><code># Compress the GenoPred working directory
 cd /home/rstudio-server
-tar -cvf test_run_genopred.tar.gz genopred
+tar -cvf test_run_genopred.tar genopred
 
 # Upload the GenoPred container
 dx upload genopred_pipeline_latest.sif
 
 # Upload the tar file containing pipeline resources and outputs
-dx upload test_run_genopred.tar.gz</code></pre>
+dx upload test_run_genopred.tar</code></pre>
 <p>Once the files are uploaded, you can safely terminate the RStudio
 session. Ensure the session is fully terminated by checking the Monitor
 tab in your DNAnexus project folder.</p>
@@ -727,8 +746,8 @@ outputs from a previous run, and resume the pipeline from within the
 container. Note that you will also need to import the input data used in
 the previous analysis.</p>
 <pre class="bash"><code># Download the Outputs from the Previous Run:
-dx download test_run_genopred.tar.gz
-tar -xvf test_run_genopred.tar.gz
+dx download test_run_genopred.tar
+tar -xvf test_run_genopred.tar
 
 # Download the Singularity Container:
 dx download genopred_pipeline_latest.sif
@@ -767,6 +786,247 @@ snakemake -n --use-conda --configfile=/home/rstudio-server/genopred/config/confi
 <p>This dry run will show which steps need to be re-executed due to the
 update.</p>
 <hr />
+</div>
+<div id="running-genopred-with-uk-biobank" class="section level1">
+<h1>Running GenoPred with UK Biobank</h1>
+<p>The UKB imputed genetic data is provided without post-imputation QC,
+resulting in large files. The <code>format_target</code> step of
+GenoPred, which reformats the target genetic data, is time-intensive but
+reduces file size to ~86GB, making future analyses faster and cheaper.
+Storing this output for reuse is highly recommended. Additionally,
+selecting instances with appropriate resources for each pipeline stage
+ensures cost efficiency, as some steps utilize multiple cores while
+others do not.</p>
+<hr />
+<div id="key-adjustments-for-ukb-data" class="section level2">
+<h2>Key Adjustments for UKB Data</h2>
+<ul>
+<li>Mounted UKB Data: Avoid duplicating the large UKB data files by
+using a mounted version to save time and disk space.</li>
+<li>File Naming with Symbolic Links: Update file names as required by
+GenoPred using symbolic links to avoid duplicating data.</li>
+<li>High-Resource Instance for <code>format_target</code>: Use a
+<code>mem3_ssd2_v2_x8</code> instance, which supports 8 processes and
+provides sufficient RAM and disk space for processing the large UKB
+files efficiently. Other steps of the pipeline will have other resources
+requirements.</li>
+</ul>
+<hr />
+</div>
+<div id="workflow" class="section level2">
+<h2>Workflow</h2>
+<ul>
+<li>Run <code>format_target</code> on a High-Resource Instance: Use the
+<code>mem3_ssd2_v2_x8</code> instance to efficiently complete the
+<code>format_target</code> step.</li>
+<li>Export and Store Processed Data: Save the reformatted data for
+future use, avoiding repeated processing.</li>
+<li>Terminate the High-Resource Instance: After completing
+<code>format_target</code>, terminate the instance to minimize
+costs.</li>
+<li>Continue Analysis on Cost-Effective Instances: For downstream steps,
+switch to an instance with resources tailored to those stages.</li>
+<li>This approach balances efficiency and cost when working with
+large-scale UKB genetic data in the GenoPred pipeline.</li>
+</ul>
+<hr />
+</div>
+<div id="step-1.-install-singularity" class="section level2">
+<h2>Step 1. Install Singularity</h2>
+<p>Once your RStudio session has started, install Singularity via the
+terminal. Follow the commands below to set up Singularity, along with
+other essential tools:</p>
+<pre class="bash"><code># Configure keyboard layout (optional step to avoid prompts)
+echo &#39;keyboard-configuration keyboard-configuration/layout select us&#39; | sudo debconf-set-selections
+echo &#39;keyboard-configuration keyboard-configuration/variant select English (US)&#39; | sudo debconf-set-selections
+
+# Install required dependencies (e.g., tmux, build tools, and libraries for Singularity)
+sudo DEBIAN_FRONTEND=noninteractive apt update &amp;&amp; \
+sudo DEBIAN_FRONTEND=noninteractive apt install -y build-essential libseccomp-dev pkg-config squashfs-tools cryptsetup golang tmux
+
+# Set the Singularity version to install
+export VERSION=3.11.0
+
+# Download and extract the Singularity source code
+wget https://github.com/sylabs/singularity/releases/download/v${VERSION}/singularity-ce-${VERSION}.tar.gz
+tar -xvzf singularity-ce-${VERSION}.tar.gz
+cd singularity-ce-${VERSION}
+
+# Configure and build Singularity without SUID
+./mconfig --without-suid
+make -C builddir
+
+# Install Singularity system-wide
+sudo make -C builddir install
+
+# Return to the home directory
+cd ~</code></pre>
+<hr />
+</div>
+<div id="step-2-prepare-input-data" class="section level2">
+<h2>Step 2: Prepare input data</h2>
+<p>We will use a mounted version of the UKB genetic data to save time
+and disk space. To meet GenoPred’s file name requirements without
+duplicating data, we will create symbolic links. Given the size of the
+UKB genetic data, we will also request an instance with sufficient
+resources.</p>
+<pre class="bash"><code># Create symlinks to the dispensed imputed genetic data
+mkdir -p /home/rstudio-server/ukb/ukb_symlinks
+
+# Link bgen and bgen.bgi files for all chromosomes
+for chr in $(seq 1 22); do
+  for file in $(echo bgen bgen.bgi); do
+    ln -s /mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype/ukb22828_c${chr}_b0_v3.${file} /home/rstudio-server/ukb/ukb_symlinks/ukb_imp.chr${chr}.${file}
+  done
+done
+
+# Link the sample file (same for all chromosomes)
+ln -s /mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype/ukb22828_c1_b0_v3.sample /home/rstudio-server/ukb/ukb_symlinks/ukb_imp.sample</code></pre>
+<hr />
+</div>
+<div id="step-3.-set-up-pipeline-configuration-1"
+class="section level2">
+<h2>Step 3. Set up pipeline configuration</h2>
+<p>Next, create the configuration files required to run the GenoPred
+pipeline. Ensure that <code>outdir</code> and <code>resdir</code> are
+set to directories outside the container for proper access and
+storage.</p>
+<pre class="r"><code># Create directories for configuration and output files
+dir.create(&#39;/home/rstudio-server/genopred/config/ukb/basic&#39;, recursive = T)
+dir.create(&#39;/home/rstudio-server/genopred/output&#39;, recursive = T)
+
+# Create target list
+# We are specifying the symbolic links we made for the UKB data
+target_list &lt;- data.frame(
+  name=&#39;ukb&#39;,
+  path=&#39;/home/rstudio-server/ukb/ukb_symlinks/ukb_imp&#39;,
+  type=&#39;bgen&#39;,
+  indiv_report=F
+)
+
+write.table(
+  target_list,
+  &#39;/home/rstudio-server/genopred/config/ukb/basic/target_list.txt&#39;,
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+
+# Create config file
+conf &lt;- c(
+  &#39;outdir: /home/rstudio-server/genopred/output&#39;,
+  &#39;config_file: /home/rstudio-server/genopred/config/ukb/basic/config.yaml&#39;,
+  &#39;resdir: /home/rstudio-server/genopred/resources&#39;,
+  &#39;target_list: /home/rstudio-server/genopred/config/ukb/basic/target_list.txt&#39;
+)
+
+write.table(
+  conf,
+  &#39;/home/rstudio-server/genopred/config/ukb/basic/config.yaml&#39;,
+  col.names = F,
+  row.names = F,
+  quote = F
+)</code></pre>
+<hr />
+</div>
+<div id="step-4.-run-the-pipeline-in-the-container-1"
+class="section level2">
+<h2>Step 4. Run the pipeline in the container</h2>
+<p>Now we can run the GenoPred pipeline. This can be done either
+interactively within the container or by executing the desired commands
+directly. Running the pipeline interactively is often more convenient
+for performing a dry run before launching the full analysis.</p>
+<hr />
+<div id="start-an-interactive-session-in-the-container-1"
+class="section level3">
+<h3>Start an Interactive Session in the Container</h3>
+<p>To ensure that your analysis persists even when the RStudio server
+tab is closed, it is recommended to start the container within a tmux
+session. This will allow you to detach and reattach to the session as
+needed.</p>
+<p>Start a tmux session within the terminal by running:</p>
+<pre class="bash"><code>tmux</code></pre>
+<p>This will take you into a <code>tmux</code> session. You can ‘detach’
+from the <code>tmux</code> session by pressing <code>Ctrl+b d</code>,
+and reattach to the session in the future by typing:</p>
+<pre class="bash"><code>tmux attach</code></pre>
+<p>Further instructions on using <code>tmux</code> can be found <a
+href="https://www.redhat.com/en/blog/introduction-tmux-linux">here</a>.</p>
+<p>To begin, start an interactive session within the Singularity
+container. Make sure to mount the home directory within the RStudio
+session and the directory that the symbolic links point to, to store the
+pipeline outputs and access the input data within the container.</p>
+<pre class="bash"><code>singularity shell \
+  --bind /home/rstudio-server:/home/rstudio-server \
+  --bind /mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype:/mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype \
+  --writable-tmpfs \
+  /mnt/project/genopred_pipeline_latest.sif</code></pre>
+<hr />
+</div>
+<div id="run-genopred-inside-the-container-1" class="section level3">
+<h3>Run GenoPred Inside the Container</h3>
+<p>Once inside the container, you can use the GenoPred pipeline as
+usual. The resources provided by this instance
+(<code>mem3_ssd2_v2_x8</code>) will not be required for all steps in the
+GenoPred workflow, so to be cost efficient, I am just carrying out the
+<code>format_target</code> step within this instance. I will then export
+the data, terminate this instance, continue my analysis using a new
+instance with appropriate resources for downstream steps.</p>
+<pre class="bash"><code># Activate the GenoPred Environment:
+source /opt/mambaforge/etc/profile.d/conda.sh
+conda activate genopred
+
+# Navigate to the Pipeline Folder:
+cd /tools/GenoPred/pipeline
+
+# Perform a Dry Run: 
+# A dry run checks the pipeline&#39;s steps without executing them, helping you identify any missing dependencies or issues:
+snakemake -n --use-conda --configfile=/home/rstudio-server/genopred/config/ukb/basic/config.yaml format_target
+
+# Run the Pipeline: 
+# Once satisfied with the dry run, execute the pipeline:
+snakemake -j8 --use-conda --configfile=/home/rstudio-server/genopred/config/ukb/basic/config.yaml format_target</code></pre>
+<div class="note-box">
+<p><strong>Note:</strong> Since the instance has 8 cores available, I
+use the <code>-j8</code> parameter when running <code>snakemake</code>
+to ensure it utilizes all 8 cores efficiently.</p>
+</div>
+<p>After the analysis is complete, you can leave the container by
+typing:</p>
+<pre class="bash"><code>exit</code></pre>
+<p>In total, this analysis took ~18 hours, costing ~£6.</p>
+<hr />
+</div>
+</div>
+<div id="step-5.-export-ouputs-to-the-project-folder-1"
+class="section level2">
+<h2>Step 5. Export ouputs to the project folder</h2>
+<p>To avoid losing the outputs of your analysis when the RStudio session
+is terminated, you need to export the results to your DNAnexus project
+folder. Both the resdir (resources) and outdir (outputs) should be saved
+for future analyses.</p>
+<p>For simplicity and efficiency, we will compress the outputs and
+resources into a single tar file and then upload it to the DNAnexus
+project. If you plan to reuse the resources (e.g., for different
+pipeline configurations), you may choose to store them in separate tar
+files.</p>
+<pre class="bash"><code># Compress and upload the GenoPred working directory
+cd /home/rstudio-server
+tar -cvf ukb_genopred.tar genopred
+dx upload ukb_genopred.tar</code></pre>
+<p>I will also tar and upload the symlinks created for the UKB data.
+While these could be recreated, this approach conveniently preserves the
+timestamps, making it easier to resume the analysis seamlessly when
+extending it in the future.</p>
+<pre class="bash"><code># Compress and upload the ukb directory containing symlinks
+cd /home/rstudio-server
+tar -cvf ukb_symlinks.tar ukb
+dx upload ukb_symlinks.tar</code></pre>
+<p>Once the files are uploaded, you can safely terminate the RStudio
+session. Ensure the session is fully terminated by checking the Monitor
+tab in your DNAnexus project folder.</p>
+<hr />
+</div>
 </div>
 <div id="troubleshooting" class="section level1">
 <h1>Troubleshooting</h1>
