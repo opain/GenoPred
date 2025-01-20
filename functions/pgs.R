@@ -464,3 +464,97 @@ quick_prs<-function(sumstats, ref_dir, genomic_control, prs_model, n_cores = 1, 
 
   return(score)
 }
+
+# Derive trans-ancestry PGS models and estimate PGS residual scale
+model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
+  if(any(is.null(c(scores, pcs, output)))){
+    stop('Error: All parameters must be specified.')
+  }
+  
+  if(is.character(pcs)){
+    # Read in the reference PCs, extract PC columns, and update headers
+    pcs_dat<-fread(pcs)
+    names(pcs_dat)[1]<-'FID'
+    pcs_dat<-pcs_dat[,grepl('FID|IID|^PC', names(pcs_dat)), with=F]
+  } else {
+    pcs_dat<-pcs
+  }
+  
+  # Merge PGS and PCs
+  scores_pcs<-merge(scores, pcs_dat, by=c('FID','IID'))
+  
+  # Calculate PGS residuals
+  pcs_noid<-scores_pcs[,grepl('^PC', names(scores_pcs)), with=F]
+  
+  mod_list<-NULL
+  scores_pcs_resid<-scores_pcs
+  for(i in names(scores)[-1:-2]){
+    mod_list[[i]]<-list()
+    
+    tmp<-data.table(y=scores_pcs[[i]], pcs_noid)
+    
+    # Model differences in mean
+    pgs_pc_mean_mod<-lm(y ~ ., data=tmp)
+    
+    # Model differences in variance of residuals
+    # Use gamma distribution to constrain predicted variance to be non-negative
+    predicted_pgs <- predict(pgs_pc_mean_mod, newdata = tmp)
+    residual_pgs <- tmp$y - predicted_pgs
+    squared_residuals <- residual_pgs^2
+    squared_residuals <- pmax(squared_residuals, 1e-6)
+    
+    pgs_pc_var_mod <- glm(squared_residuals ~ ., data = tmp[, names(tmp) != 'y', with=F], family = Gamma(link = "log"))
+    predicted_pgs_var <- exp(predict(pgs_pc_var_mod, newdata = tmp))
+    
+    scores_pcs_resid[[i]]<-residual_pgs/sqrt(predicted_pgs_var)
+    
+    mod_list[[i]]$mean_model <- pgs_pc_mean_mod
+    mod_list[[i]]$var_model <- pgs_pc_var_mod
+  }
+  
+  scores_pcs_resid<-scores_pcs_resid[,grepl('FID|IID|^SCORE', names(scores_pcs_resid)), with=F]
+  
+  # Save mean and SD of PGS residuals in 'trans' population
+  # This should be approximately mean = 0 and SD = 1, but save as a sanity check
+  scores_pcs_resid_scale<-score_mean_sd(scores=scores_pcs_resid)
+  fwrite(scores_pcs_resid_scale, paste0(output,'-TRANS.scale'), sep=' ', col.names=T, quote=F)
+  
+  # Save PGS ~ PC models
+  saveRDS(mod_list, file = paste0(output,'-TRANS.model.rds'))
+  
+  # Save TRANS PGS in reference
+  fwrite(scores_pcs_resid, paste0(output,'-TRANS.profiles'), sep=' ', na='NA', quote=F)
+}
+
+# Adjust PGS for ancestry using reference PC models
+score_adjust <- function(score, pcs, ref_model) {
+  # Convert score and pcs to data.table if not already
+  setDT(score)
+  setDT(pcs)
+  
+  # Ensure pcs is keyed on FID and IID for efficient joins
+  setkey(pcs, FID, IID)
+  
+  # Loop through each score column (skipping FID and IID)
+  for (col_name in names(score)[-1:-2]) {
+    # Retrieve models for the current score
+    mean_model <- ref_model[[col_name]]$mean_model
+    var_model <- ref_model[[col_name]]$var_model
+    
+    # Calculate residuals directly in `score`
+    score[, (col_name) := {
+      # Get corresponding rows from pcs by FID and IID
+      pc_data <- pcs[.SD, on = .(FID, IID)]
+      
+      # Predict mean and variance
+      predicted_pgs <- predict(mean_model, newdata = pc_data)
+      predicted_pgs_var <- exp(predict(var_model, newdata = pc_data))
+      
+      # Compute residuals
+      round((get(col_name) - predicted_pgs) / sqrt(predicted_pgs_var), 3)
+    }, .SDcols = c("FID", "IID", col_name)]
+  }
+  
+  # Return only relevant columns (FID, IID, and adjusted scores)
+  return(score)
+}

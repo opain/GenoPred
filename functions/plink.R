@@ -200,14 +200,14 @@ plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, 
 
   # Subset data prior to merging
   if(!is.null(bfile)){
-    plink_subset(bfile = bfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, memory = memory, out = paste0(tmp_dir,'/ref_subset_chr'), threads=threads)
+    plink_subset(bfile = bfile, chr = chr, plink2 = plink2, make_bed = T, keep = keep, extract = extract, memory = memory, out = paste0(tmp_dir,'/ref_subset_chr'), threads=threads)
   } else {
     plink_subset(pfile = pfile, chr = chr, plink2 = plink2, keep = keep, extract = extract, memory = memory, out = paste0(tmp_dir,'/ref_subset_chr'), threads=threads)
   }
 
   # Merge subset reference
   if(!is.null(bfile)){
-    plink_merge(bfile = paste0(tmp_dir,'/ref_subset_chr'), chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'), threads=threads)
+    plink_merge(bfile = paste0(tmp_dir,'/ref_subset_chr'), make_bed = T, chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'), threads=threads)
   } else {
     plink_merge(pfile = paste0(tmp_dir,'/ref_subset_chr'), chr = chr, plink2 = plink2, keep = keep, extract = extract, flip = flip, memory = memory, out = paste0(tmp_dir,'/ref_merge'), threads=threads)
   }
@@ -356,7 +356,7 @@ plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
 }
 
 # Generate kinship matrix and identify unrelated individuals (>2nd degree)
-plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2='plink2', out, keep=NA, threads = 1){
+plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2='plink2', out, keep=NULL, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -383,9 +383,9 @@ plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2=
 
   # Merge per chromosome files extracting selected variants
   if(!is.null(bfile)){
-    plink_merge(bfile = bfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads)
+    plink_merge(bfile = bfile, chr = chr, plink2 = plink2, make_bed = T, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads, keep = keep)
   } else {
-    plink_merge(pfile = pfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads)
+    plink_merge(pfile = pfile, chr = chr, plink2 = plink2, extract = extract_snplist, out = paste0(tmp_dir,'/merged'), threads=threads, keep = keep)
   }
 
   # Run KING estimator

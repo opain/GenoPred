@@ -116,7 +116,11 @@ target_list <- read_param(config = opt$config, param = 'target_list', return_obj
 
 # Set params for plink_score
 opt$target_plink_chr <- paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr')
-opt$target_keep <- paste0(outdir, '/', opt$name, '/ancestry/keep_files/model_based/', opt$population, '.keep')
+if(opt$population == 'TRANS'){
+  opt$target_keep<-NULL
+} else {
+  opt$target_keep <- paste0(outdir, '/', opt$name, '/ancestry/keep_files/model_based/', opt$population, '.keep')
+}
 refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
 opt$ref_freq_chr <- paste0(refdir, '/freq_files/', opt$population,'/ref.', opt$population,'.chr')
 
@@ -202,19 +206,40 @@ scores<-data.table(scores_ids,
 # Scale the polygenic scores based on the reference
 ###
 
-# Read in scale file and update Param
-log_add(log_file = log_file, message = paste0('Reading in scale files.'))
-scale_files<-list()
-for(i in 1:nrow(score_files)){
-  scale_files[[paste0('score_file_', i)]]<-fread(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-', opt$population,'.scale'))
-  scale_files[[paste0('score_file_', i)]]$Param<-gsub('SCORE_', paste0('score_file_', i, '.'), scale_files[[paste0('score_file_', i)]]$Param)
+if(opt$population == 'TRANS'){
+  log_add(log_file = log_file, message = paste0('Reading in ancestry adjustment models.'))
+
+  models<-list()
+  for(i in 1:nrow(score_files)){
+    models[[paste0('score_file_', i)]]<-readRDS(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-TRANS.model.rds'))
+    names(models[[paste0('score_file_', i)]])<-gsub('SCORE_', paste0('score_file_', i, '.'), names(models[[paste0('score_file_', i)]]))
+  }
+  
+  models <- do.call(c, unname(models))
+  
+  # Read in target projected PCs
+  target_pcs<-fread(paste0(outdir,'/',opt$name,'/pcs/projected/TRANS/',opt$name,'-TRANS.profiles'))
+  log_add(log_file = log_file, message = paste0('Reading in target reference-projected PCs.'))
+  
+  # Adjust scores
+  log_add(log_file = log_file, message = 'Adjusting target PGS for ancestry.')
+  scores <- score_adjust(score = scores, pcs = target_pcs, ref_model = models)
+} else {
+  # Read in scale file and update Param
+  log_add(log_file = log_file, message = paste0('Reading in scale files.'))
+  scale_files<-list()
+  for(i in 1:nrow(score_files)){
+    scale_files[[paste0('score_file_', i)]]<-fread(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-', opt$population,'.scale'))
+    scale_files[[paste0('score_file_', i)]]$Param<-gsub('SCORE_', paste0('score_file_', i, '.'), scale_files[[paste0('score_file_', i)]]$Param)
+  }
+  
+  # Concatenate scale files
+  all_scale<-do.call(rbind, scale_files)
+  
+  # Scale scores
+  log_add(log_file = log_file, message = 'Scaling target polygenic scores to the reference.')
+  scores<-score_scale(score=scores, ref_scale=all_scale)
 }
-
-# Concatenate scale files
-all_scale<-do.call(rbind, scale_files)
-
-log_add(log_file = log_file, message = 'Scaling target polygenic scores to the reference.')
-scores<-score_scale(score=scores, ref_scale=all_scale)
 
 ###
 # Write out the target sample scores
