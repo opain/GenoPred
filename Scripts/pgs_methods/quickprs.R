@@ -6,6 +6,8 @@ suppressMessages(library("optparse"))
 option_list = list(
   make_option("--ref_plink_chr", action="store", default=NA, type='character',
               help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_pcs", action="store", default=NULL, type='character',
+              help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
               help="File containing the population code and location of the keep file [required]"),
   make_option("--plink", action="store", default='plink', type='character',
@@ -97,7 +99,7 @@ names(gwas)<-c('Predictor','A1','A2','n','Z')
 
 # Check overlap between GWAS and LDAK reference
 ldak_hm3_file <- list.files(opt$quick_prs_ref)
-ldak_hm3_file <- ldak_hm3_file[grepl('.cors.bim', ldak_hm3_file)]
+ldak_hm3_file <- ldak_hm3_file[grepl('.cors.bim', ldak_hm3_file)][1]
 ldak_hm3 <- fread(paste0(opt$quick_prs_ref, '/', ldak_hm3_file))
 ldak_hm3 <- ldak_hm3[ldak_hm3$V1 %in% CHROMS,]
 ref_overlap <- sum(gwas$Predictor %in% ldak_hm3$V2) / nrow(ldak_hm3)
@@ -139,7 +141,7 @@ log_add(log_file = log_file, message = paste0('SNP-based heritability estimated 
 # Estimate effect sizes for training and full prediction models.
 ######
 
-cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files)])
+cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files) & !grepl('subset', ref_files)])
 
 log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
 
@@ -196,6 +198,12 @@ log_add(log_file = log_file, message = 'Calculating polygenic scores in referenc
 
 # Calculate scores in the full reference
 ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
+
+if(!is.null(opt$ref_pcs)){
+  log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
+  # Derive trans-ancestry PGS models and estimate PGS residual scale
+  model_trans_pgs(scores=ref_pgs, pcs=opt$ref_pcs, output=opt$output)
+}
 
 # Calculate scale within each reference population
 pop_data <- read_pop_data(opt$pop_data)

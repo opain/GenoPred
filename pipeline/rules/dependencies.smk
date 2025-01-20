@@ -161,6 +161,9 @@ if 'gwas_list' in config and config["gwas_list"] != 'NA':
 else:
   gwas_list_df = pd.DataFrame(columns = ["name", "path", "population", "n", "sampling", "prevalence", "mean", "sd", "label"])
 
+# Remove commas in the 'n' column and convert to numeric
+gwas_list_df['n'] = gwas_list_df['n'].replace({',': ''}, regex=True)
+
 # Check for duplicate values in the 'name' column
 check_for_duplicates(gwas_list_df, 'name', 'gwas_list')
 
@@ -361,7 +364,7 @@ def check_pgs_methods(x):
         return
 
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx", "tlprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx", "tlprs","quickprs_multi"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]

@@ -6,7 +6,7 @@ library("optparse")
 option_list = list(
 make_option("--target_plink_chr", action="store", default=NULL, type='character',
 		help="Path to per chromosome target PLINK2 files [required]"),
-make_option("--target_keep", action="store", default=NULL, type='character',
+make_option("--target_keep", action="store", default=NA, type='character',
 		help="Path to keep file for target [optional]"),
 make_option("--ref_score", action="store", default=NULL, type='character',
 		help="Path to reference scoring files [required]"),
@@ -66,6 +66,11 @@ tmp_dir<-tempdir()
 # Initiate log file
 log_file <- paste0(opt$output,'.log')
 log_header(log_file = log_file, opt = opt, script = 'target_scoring.R', start.time = start.time)
+
+# Set ref_keep to NULL if NA
+if(!is.null(opt$target_keep) && opt$target_keep == 'NA'){
+  opt$target_keep<-NULL
+}
 
 # If testing, change CHROMS to chr value
 if(!is.na(opt$test) && opt$test == 'NA'){

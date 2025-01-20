@@ -6,6 +6,8 @@ library("optparse")
 option_list = list(
   make_option("--ref_plink_chr", action="store", default=NULL, type='character',
       help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_pcs", action="store", default=NULL, type='character',
+      help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
       help="File containing the population code and location of the keep file [required]"),
   make_option("--plink2", action="store", default='plink2', type='character',
@@ -172,8 +174,20 @@ tryCatch(
         bTune = FALSE,
         log2file = FALSE
       )
-    } else {
-      # For any other error, rethrow the error and stop the script
+    } else if (grepl("An unexpected error occurred: Warning, the best parameter is the minimumn threshold, we suggest to expand the tuning grid by specify lower tuning value", e$message)) {
+        message("Specific error encountered. Retrying with tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6)...")
+        log_add(log_file = log_file, message = 'Specific error encountered. Retrying with btune = FALSE...')
+        # Retry with the tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6)
+        SBayesRC::sbayesrc(
+          mafile = paste0(tmp_dir, '/tidy.imp.ma'),
+          LDdir = opt$sbayesrc_ldref,
+          outPrefix = paste0(tmp_dir, '/sbrc'),
+          annot = opt$sbayesrc_annot,
+          tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6),
+          log2file = FALSE
+        )
+      } else {
+        # For any other error, rethrow the error and stop the script
       stop("An unexpected error occurred: ", e$message)
     }
   },
@@ -227,6 +241,12 @@ log_add(log_file = log_file, message = 'Calculating polygenic scores in referenc
 
 # Calculate scores in the full reference
 ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
+
+if(!is.null(opt$ref_pcs)){
+  log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
+  # Derive trans-ancestry PGS models and estimate PGS residual scale
+  model_trans_pgs(scores=ref_pgs, pcs=opt$ref_pcs, output=opt$output)
+}
 
 # Calculate scale within each reference population
 pop_data <- read_pop_data(opt$pop_data)
