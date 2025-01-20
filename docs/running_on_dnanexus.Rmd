@@ -125,6 +125,12 @@ sudo make -C builddir install
 cd ~
 ```
 
+<div class="note-box">
+
+**Note:** This will need to be done for every new instance of Rstudio that you want to run GenoPred. For convenience, you can store the code in a shell script.
+
+</div>
+
 After installing Singularity, download the GenoPred container using the following command:
 
 ```{bash}
@@ -399,39 +405,18 @@ The UKB imputed genetic data is provided without post-imputation QC, resulting i
 
 ## Step 1. Install Singularity
 
-Once your RStudio session has started, install Singularity via the terminal. Follow the commands below to set up Singularity, along with other essential tools:
+Once your RStudio session has started, install Singularity via the terminal. We will use the shell script we created [here](#step-1-install-singularity-and-download-the-genopred-container):
 
 ```{bash}
-# Configure keyboard layout (optional step to avoid prompts)
-echo 'keyboard-configuration keyboard-configuration/layout select us' | sudo debconf-set-selections
-echo 'keyboard-configuration keyboard-configuration/variant select English (US)' | sudo debconf-set-selections
-
-# Install required dependencies (e.g., tmux, build tools, and libraries for Singularity)
-sudo DEBIAN_FRONTEND=noninteractive apt update && \
-sudo DEBIAN_FRONTEND=noninteractive apt install -y build-essential libseccomp-dev pkg-config squashfs-tools cryptsetup golang tmux
-
-# Set the Singularity version to install
-export VERSION=3.11.0
-
-# Download and extract the Singularity source code
-wget https://github.com/sylabs/singularity/releases/download/v${VERSION}/singularity-ce-${VERSION}.tar.gz
-tar -xvzf singularity-ce-${VERSION}.tar.gz
-cd singularity-ce-${VERSION}
-
-# Configure and build Singularity without SUID
-./mconfig --without-suid
-make -C builddir
-
-# Install Singularity system-wide
-sudo make -C builddir install
-
-# Return to the home directory
-cd ~
+# Download, update permissions and run script to install singularity
+dx download install_singularity.sh
+chmod a+x install_singularity.sh
+./install_singularity
 ```
 
 ***
 
-## Step 2: Prepare input data
+## Step 2. Prepare input data
 
 We will use a mounted version of the UKB genetic data to save time and disk space. To meet GenoPred's file name requirements without duplicating data, we will create symbolic links. Given the size of the UKB genetic data, we will also request an instance with sufficient resources.
 
@@ -593,6 +578,326 @@ dx upload ukb_symlinks.tar
 ```
 
 Once the files are uploaded, you can safely terminate the RStudio session. Ensure the session is fully terminated by checking the Monitor tab in your DNAnexus project folder.
+
+***
+
+## Step 6. Ancestry Inference and Within Target QC
+
+The ancestry inference step is required prior to polygenic scoring, so we will do this now. In the same session, we will also perform the within-sample QC and project reference principal components, which generate other useful outputs.
+
+***
+
+### Start an Rstudio session
+
+Neither of the these steps require much RAM. The within-sample QC can leverage multiple cores, but ancestry inference doesn't. We need enough disk space to import the output from the previous run, but not much more. In this demonstration I am using a `mem2_ssd1_v2_x8` instance, which seemed to work well.
+
+***
+
+### Install Singularity
+
+Once your RStudio session has started, install Singularity via the terminal. We will use the shell script we created [here](#step-1-install-singularity-and-download-the-genopred-container):
+
+```{bash}
+# Download, update permissions and run script to install singularity
+dx download install_singularity.sh
+chmod a+x install_singularity.sh
+./install_singularity
+```
+
+***
+
+### Import the data from previous session
+
+We are going to extend our previous analysis UKB using GenoPred. We need to recreate the environment we had before.
+
+```{bash}
+# Download and decompress the symlinks previous run of GenoPred
+# Decompressing the mounted data save time and disk space
+tar -xvf /mnt/project/ukb_symlinks.tar -C ~/
+tar -xvf /mnt/project/ukb_genopred.tar -C ~/
+```
+
+***
+
+### Estimate relatedness
+
+Although GenoPred can estimate relatedness from scratch, UKB is very large and it will be time consuming. Instead, we will use the kinship matrix released by UKBto identify a list of unrelated individuals, using the software [GreedyRelated](https://gitlab.com/choishingwan/GreedyRelated), a script I have written previously [ukb_relative_remover.R](https://github.com/opain/GenoPred/tree/master/Scripts/ukb_relative_remover/ukb_relative_remover.R). 
+
+```{bash}
+# Install optparse in R
+Rscript -e "install.packages('optparse', repos='https://cloud.r-project.org/')"
+
+# Download and give permission to GreedyRelated binary for linux
+wget https://gitlab.com/-/project/14754196/uploads/6fdc44072a8a866cb77c2cf91f68d662/GreedyRelated_linux
+chmod a+x GreedyRelated_linux
+
+# Identify list of related individuals (using threshold of 0.044)
+Rscript ukb_relative_remover.R \
+  --rel_file /mnt/project/Bulk/Genotype\ Results/Genotype\ calls/ukb_rel.dat \
+  --rel_thresh 0.044 \
+  --seed 1 \
+  --GreedyRelated ./GreedyRelated_linux \
+  --output ukb/ukb82087
+```
+
+```{r}
+# Identify a list of unrelated individuals by removing this list of related indivduals from the full list of individuals in the UKB .fam file
+library(data.table)
+related <- fread('ukb/ukb82087.related')$V1
+fam<-fread('/mnt/project/Bulk/Genotype Results/Genotype calls/ukb22418_c1_b0_v2.fam')$V1
+
+unrelated<-fam[!(fam %in% related)]
+write.table(unrelated, 'ukb/ukb82087.unrelated', col.names=F, row.names = F, quote = F)
+```
+
+***
+
+### Update configuration for relatedness
+
+We must update the target_list configuration file for GenoPred to indicate the location of the file indicating unrelated individuals.
+
+```{r}
+target_list <- data.frame(
+  name='ukb',
+  path='/home/rstudio-server/ukb/ukb_symlinks/ukb_imp',
+  type='bgen',
+  indiv_report=F,
+  unrel='/home/rstudio-server/ukb/ukb82087.unrelated'
+)
+
+write.table(
+  target_list,
+  '/home/rstudio-server/genopred/config/ukb/basic/target_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+```
+
+***
+
+### Run pipeline
+
+```{bash}
+# Start a tmux session to ensure the analysis persists even the connection is lost
+tmux
+
+# Start an interactive session inside the GenoPred container
+singularity shell \
+  --bind /home/rstudio-server:/home/rstudio-server \
+  --bind /mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype:/mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype \
+  --writable-tmpfs \
+  /mnt/project/genopred_pipeline_latest.sif
+
+# Activate the GenoPred Environment:
+source /opt/mambaforge/etc/profile.d/conda.sh
+conda activate genopred
+
+# Navigate to the Pipeline Folder:
+cd /tools/GenoPred/pipeline
+
+# Perform a Dry Run: 
+# A dry run checks the pipeline's steps without executing them, helping you identify any missing dependencies or issues
+# We can see that GenoPred will pick up where it left off, and won't rerun steps it ran before.
+snakemake -n --use-conda --configfile=/home/rstudio-server/genopred/config/ukb/basic/config.yaml ancestry_inference outlier_detection pc_projection
+
+# Run the analysis. Here I am using 8 cores since I am using an instance with 8 cores available (mem2_ssd1_v2_x8).
+snakemake -j8 --use-conda --configfile=/home/rstudio-server/genopred/config/ukb/basic/config.yaml ancestry_inference outlier_detection pc_projection
+
+```
+
+***
+
+### Package and export outputs
+
+Once the analysis is complete, we will compress and `dx upload` the output. The `genopred` output folder will contain the contents of the previous run as well (the reformatted UKB data), so we can delete the old version of the `ukb_genopred.tar` file in our project folder after the upload of the new version is complete. The same goes for the `ukb`/`ukb_symlinks.tar` folder - We need to reupload this since we are now storing the list of unrelated individuals in there.
+
+```{bash}
+# Compress and upload the GenoPred working directory
+cd /home/rstudio-server
+tar -cvf ukb_genopred.tar genopred
+dx upload ukb_genopred.tar
+
+# Compress and upload the ukb directory containing symlinks and list of unrelated individuals
+tar -cvf ukb_symlinks.tar ukb
+dx upload ukb_symlinks.tar
+```
+
+***
+
+## Step 7. Generating score files
+
+Score files can be generated using GenoPred either on DNAnexus or on other platforms, as this step does not require access to UK Biobank (UKB) data.
+
+Notably, score files generated in one instance of GenoPred (or with other software) can be reused as input for another instance of GenoPred. For example, you can:
+
+1. Generate score files using GenoPred on an institutional server (e.g., for free or with existing resources).
+
+2. Copy these score files to DNAnexus and use them to perform target sample scoring in the UKB dataset on DNAnexus.
+
+There are already several demonstrations of running GenoPred on DNAnexus in this document. The same setup can be used to generate score files. So, I will focus on demonstrating the more common scenario of importing PGS score files from a previous run of GenoPred, to be used for target sample scoring in UKB on DNAnexus.
+
+There are two approaches for using scores files from a different run of GenoPred. The score file can be reformated to the PGS catalogue format, and included in the `score_list`, but this requires one set of weights per file, which is inefficient, and looses some functionality downstream such as the function to return the pseudovalidated score (`find_pseudo()`). An alternative solution, is to copy the input GWAS sumstats, QC'd sumstats, and the PGS score files, which provides full downstream functionality.
+
+The most convenient solution will depend on your needs. If you just want to use a relatively fast PGS method, then you might as well run on DNAnexus as it won't cost much. If you want to use computationally intensive methods, then you may want to save money by running on your institutional server, and then importing the output to DNAnexus. If you only want to use a single score from the computationally intensive method, then exporting that score alone and specifying it using the `score_list` will be most convenient. However, if you want full functionality of GenoPred, whilst running PGS methods on a different server, then copying the entire GWAS and score file directories from a previous run onto DNAnexus is needed. I will demonstrate only the final scenario as it is the most convoluted.
+
+***
+
+## Step 8. Target sampling scoring
+
+Here I will use a score file generated using GenoPred previously. The score file was generated using the an coronary artery disease GWAS and the `ptclump` method. I have uploaded it to my DNAnexus project from my institutional server using the dx upload function (similar to I did in [this section]((#step-0-prepare-test-data))).
+
+```{bash}
+# Package and upload the required sumstats and score files to the DNAnexus project folder.
+mkdir -p genopred_scores/gwas_sumstat
+mkdir -p genopred_scores/pgs_score_files/sbayesr
+
+cp ~/oliverpainfel/GenoPred/pipeline/example_input/gwas_list.txt genopred_scores/
+cp -r ~/oliverpainfel/GenoPred/pipeline/test_data/output/test1/reference/gwas_sumstat/COAD01 genopred_scores/gwas_sumstat/
+cp -r ~/oliverpainfel/GenoPred/pipeline/test_data/output/test1/reference/pgs_score_files/ptclump/COAD01 genopred_scores/pgs_score_files/ptclump/
+
+tar -cvf genopred_scores.tar genopred_scores
+dx upload genopred_scores.tar
+```
+
+Now I will spin up a new instance in Rstudio to perform target sample scoring in UKB.
+Using `mem2_ssd1_v2_x4` instance.
+
+- Install Singularity (same as before - I put it in a shell script to make it easier to run)
+
+```{bash}
+dx download install_singularity.sh
+chmod a+x install_singularity.sh
+./install_singularity.sh
+```
+
+- Import the data from previous session (Decompress from the mounted version to save disk space and time)
+
+```{bash}
+# Import GenoPred inputs relating to UKB
+tar -xvf /mnt/project/ukb_symlinks.tar -C ~/
+tar -xvf /mnt/project/ukb_genopred.tar -C ~/
+
+# Import GenoPred outputs from PGS methods, and move into the apropriate genopred folder 
+tar -xvf /mnt/project/genopred_scores.tar -C ~/
+mv genopred_scores/gwas_sumstat ~/genopred/output/reference/
+mv genopred_scores/pgs_score_files ~/genopred/output/reference/
+```
+
+- Update configuration to specify the GWAS, score files and PGS methods to use.
+
+The gwas_list and pgs_methods should match the configuration used to generate the score files. However, we will need to create empty files to represent the original raw GWAS summary statistics, which we did not copy over to DNAnexus.
+
+```{r}
+# Make an empty file to represent the unQC'd sumstats
+library(data.table)
+gwas_list<-fread('~/genopred_scores/gwas_list.txt')
+gwas_list<-gwas_list[gwas_list$name == 'COAD01',]
+dir.create('/home/rstudio-server/raw_sumstats')
+for(i in 1:nrow(gwas_list)){
+  path <- paste0('/home/rstudio-server/raw_sumstats/', gwas_list$name[i],'.txt')
+  file.create(path)
+  gwas_list$path[i] <- path
+}
+
+gwas_list$label<-paste0("\"", gwas_list$label, "\"")
+
+dir.create('/home/rstudio-server/genopred/config/ukb/demo')
+
+write.table(
+  gwas_list,
+  '/home/rstudio-server/genopred/config/ukb/demo/gwas_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+
+# Create config file
+conf <- c(
+  'outdir: /home/rstudio-server/genopred/output',
+  'config_file: /home/rstudio-server/genopred/config/ukb/demo/config.yaml',
+  'resdir: /home/rstudio-server/genopred/resources',
+  'gwas_list: /home/rstudio-server/genopred/config/ukb/demo/gwas_list.txt',
+  "pgs_methods: ['ptclump']",
+  'target_list: /home/rstudio-server/genopred/config/ukb/basic/target_list.txt',
+  'cores_target_pgs: 1'
+)
+
+write.table(
+  conf,
+  '/home/rstudio-server/genopred/config/ukb/demo/config.yaml',
+  col.names = F,
+  row.names = F,
+  quote = F
+)
+
+```
+
+- Run pipeline
+
+```{bash}
+# Start a tmux session
+tmux
+
+# Start interactive session in container
+singularity shell \
+  --bind /home/rstudio-server:/home/rstudio-server \
+  --bind /mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype:/mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype \
+  --writable-tmpfs \
+  /mnt/project/genopred_pipeline_latest.sif
+
+# Activate the GenoPred Environment:
+source /opt/mambaforge/etc/profile.d/conda.sh
+conda activate genopred
+
+# Navigate to the Pipeline Folder:
+cd /tools/GenoPred/pipeline
+
+# It will think the score files need to be recreated due to the sumstat paths changing. So touch the outputs of prep_pgs
+# This just updates the file timestamps for step prior to prep_pgs so the pipeline doesn't think it needs to recreate them due to the raw sumstats being newer than the score files.
+snakemake -t -j1 --use-conda --configfile=/home/rstudio-server/genopred/config/ukb/demo/config.yaml prep_pgs
+
+# Perform a Dry Run: 
+# A dry run checks the pipeline's steps without executing them, helping you identify any missing dependencies or issues.
+snakemake -n --use-conda --configfile=/home/rstudio-server/genopred/config/ukb/demo/config.yaml output_all
+
+# We can see it will only run target scoring and downstream steps, as it should.
+# Now we can run using four cores, matching the resources available in our instance (mem2_ssd1_v2_x4)
+snakemake -j4 --use-conda --configfile=/home/rstudio-server/genopred/config/ukb/demo/config.yaml output_all
+```
+
+- Package and export PGS
+
+You could tar and export the entire `genopred` folder again, or you could export just the files you need, such as the score files and the report.
+
+```{bash}
+# Upload report
+dx upload genopred/output/ukb/reports/ukb-report.html
+```
+
+It could also be convenient to store the PGS in an .RDS file, and then export that file.
+
+```{bash}
+export LC_ALL=C
+export LANG=C
+```
+
+```{r}
+setwd('/tools/GenoPred/pipeline')
+library(data.table)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in PGS
+pgs <- read_pgs(config = '/home/rstudio-server/genopred/config/ukb/demo/config.yaml')
+
+saveRDS(pgs, file = "/home/rstudio-server/ukb_pgs_COAD01.rds")
+```
+
+```{bash}
+dx upload ukb_pgs_COAD01.rds
+```
 
 ***
 
