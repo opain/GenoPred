@@ -311,22 +311,22 @@ if 'sbayesr' in config['pgs_methods']:
         raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
 
 # Set quickprs reference path
-if config['quickprs_ldref'] == 'NA':
-  quickprs_ldref=f"{resdir}/data/quickprs"
+if any(method in config['pgs_methods'] for method in ['quickprs', 'quickprs_multi']):
+  if config['quickprs_ldref'] == 'NA':
+    quickprs_ldref=f"{resdir}/data/quickprs"
+    
+    # Check if gwas_list contains invalid populations
+    valid_pops = {'EUR', 'EAS', 'AFR', 'SAS'}
+    invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
   
-  # Check if gwas_list contains invalid populations
-  valid_pops = {'EUR', 'EAS', 'AFR', 'SAS'}
-  invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
-
-  if invalid_pops:
-    raise ValueError(
-      f"Default quickprs reference data is only available for EUR, EAS, AFR and SAS populations. For other populations, please provide your own quickprs reference data using the quickprs_ldref parameter."
-    )
-else:
-  quickprs_ldref=config['quickprs_ldref']
-
-  # Check the quickprs ldref data is present for the required populations in the gwas_list
-  if 'quickprs' in config['pgs_methods']:
+    if invalid_pops:
+      raise ValueError(
+        f"Default quickprs reference data is only available for EUR, EAS, AFR and SAS populations. For other populations, please provide your own quickprs reference data using the quickprs_ldref parameter."
+      )
+  else:
+    quickprs_ldref=config['quickprs_ldref']
+  
+    # Check the quickprs ldref data is present for the required populations in the gwas_list
     for pop in gwas_list_df['population'].unique():
       path = f"{quickprs_ldref}/{pop}"
       # Check if required files exists
@@ -334,6 +334,22 @@ else:
       if not os.path.exists(cors_file):
         print(f"File not found: {cors_file}")
         raise FileNotFoundError(f"Required file not found: {cors_file}. quickprs reference data must include .cors.bin for all populations when quickprs_ldref is specified.")
+
+# Set quickprs_multi reference path
+quickprs_multi_ldref=config['quickprs_multi_ldref']
+if 'quickprs_multi' in config['pgs_methods']:
+  missing_files = []
+  for pop in gwas_list_df['population'].unique():
+    path = f"{quickprs_multi_ldref}/{pop}"
+    # Check if required files exists
+    if not os.path.exists(f"{path}/{pop}.subset_1.bed"):
+      missing_files.append(f"{path}/{pop}.subset_1.bed")
+    if not os.path.exists(f"{path}/{pop}.subset_2.bed"):
+      missing_files.append(f"{path}/{pop}.subset_2.bed")
+    if not os.path.exists(f"{path}/{pop}.subset_3.bed"):
+      missing_files.append(f"{path}/{pop}.subset_3.bed")
+    if missing_files:
+      raise FileNotFoundError(f"The following quickprs_multi reference data are missing: {', '.join(missing_files)}")
 
 # Set sbayesrc reference path
 if config['sbayesrc_ldref'] == 'NA':

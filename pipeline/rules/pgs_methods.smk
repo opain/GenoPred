@@ -737,7 +737,7 @@ rule prep_pgs_quickprs_multi_i:
     time_min=5000
   threads: config['cores_prep_pgs']
   input:
-    lambda w: expand(f"{quickprs_ldref}/{{population}}.hm3/{{population}}.hm3.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
+    #lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
     rules.download_ldak_highld.output,
     rules.download_ldak5_2.output,
