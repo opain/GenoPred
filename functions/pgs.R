@@ -183,6 +183,22 @@ read_pvar<-function(dat, chr = 1:22){
   return(pvar)
 }
 
+# Read in the .freq file for target population
+read_frq<-function(freq_dir, population, chr){
+  freq_data<-NULL
+  for(i in chr){
+    tmp<-fread(paste0(freq_dir,'/',population,'/ref.',population,'.chr',i,'.afreq'))
+    tmp<-data.table(
+      SNP = tmp$ID,
+      A1 = tmp$ALT,
+      A2 = tmp$REF,
+      FREQ = tmp$ALT_FREQS
+    )
+    freq_data<-rbind(freq_data, tmp)
+  }
+  return(freq_data)
+}
+
 # Remove variants within genomic regions (REF: PMC2443852)
 remove_regions<-function(dat, regions){
   exclude<-NULL
@@ -556,5 +572,56 @@ score_adjust <- function(score, pcs, ref_model) {
   }
   
   # Return only relevant columns (FID, IID, and adjusted scores)
+  return(score)
+}
+
+# Helper function to calculate relative weights for a single file from LEOPARD
+cal_avg_rel_weights <- function(path){
+  weights_file <- fread(path)
+  weights_non_0 <-  ifelse(weights_file$Weights < 0, 0, weights_file$Weights)
+  rel_weights <- weights_non_0/(sum(weights_non_0))
+  return(rel_weights)
+}
+
+# Function to calculate average weights across replications from LEOPARD
+calculate_avg_weights <- function(populations, leopard_dir) {
+  avg_weights <- list()
+  
+  # Iterate over populations
+  for (targ_pop in populations) {
+    # Define the file prefix for the population
+    weights_prefix <- paste0(leopard_dir, '/weights_', targ_pop, '/output_LEOPARD_weights_rep')
+    
+    # Calculate relative weights for each replication
+    rel_weights_list <- lapply(1:4, function(i) {
+      cal_avg_rel_weights(paste0(weights_prefix, i, ".txt"))
+    })
+    
+    # Calculate the average weights across replications
+    avg_weights[[targ_pop]] <- as.numeric(colMeans(do.call(rbind, rel_weights_list), na.rm = TRUE))
+  }
+  
+  return(avg_weights)
+}
+
+# Centre SNP-weights
+centre_weights <- function(score, freq){
+  # Sort and flip according to reference data
+  score <- map_score(ref = ref, score = score)
+  
+  # Sort and flip freq according to reference just in case they are different
+  freq <- map_score(ref = ref, score = freq)
+  
+  # Calculate mean genotype dosage and denominator
+  freq$MeanGenotype <- 2 * freq$FREQ
+  denominator <- sum(freq$MeanGenotype^2)
+  
+  for(i in names(score)[!(names(score) %in% c('SNP','A1','A2'))]){
+    # Calculate mean of PGS
+    mean_pgs <- sum(score[[i]] * freq$MeanGenotype)
+    
+    # Adjust the SNP-weights so PGS is centered
+    score[[i]] <- score[[i]] - (mean_pgs / denominator) * freq$MeanGenotype
+  }
   return(score)
 }

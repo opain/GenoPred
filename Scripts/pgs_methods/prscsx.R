@@ -4,32 +4,34 @@ start.time <- Sys.time()
 library("optparse")
 
 option_list = list(
-  make_option("--ref_plink_chr", action="store", default=NULL, type='character',
-      help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_plink_chr", action="store", default=NA, type='character',
+              help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_pcs", action="store", default=NULL, type='character',
+              help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
-      help="File containing the population code and location of the keep file [required]"),
+              help="File containing the population code and location of the keep file [required]"),
   make_option("--plink2", action="store", default='plink2', type='character',
-      help="Path PLINK v2 software binary [optional]"),
+              help="Path PLINK v2 software binary [optional]"),
   make_option("--output", action="store", default=NULL, type='character',
-      help="Path for output files [required]"),
+              help="Path for output files [required]"),
   make_option("--memory", action="store", default=5000, type='numeric',
-      help="Memory limit [optional]"),
+              help="Memory limit [optional]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
-      help="Comma-seperated list of GWAS summary statistics [required]"),
+              help="Comma-seperated list of GWAS summary statistics [required]"),
   make_option("--populations", action="store", default=NULL, type='character',
-      help="Comma-seperated list of population codes matching GWAS [required]"),
+              help="Comma-seperated list of population codes matching GWAS [required]"),
   make_option("--prscsx_path", action="store", default=NULL, type='character',
-      help="Path to PRS-CSx executable [required]"),
+              help="Path to PRS-CSx executable [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
-      help="Number of cores for parallel computing [optional]"),
+              help="Number of cores for parallel computing [optional]"),
   make_option("--prscsx_ref_path", action="store", default=NULL, type='character',
-      help="Comma-seperated list of PRS-CSx reference data [required]"),
+              help="Comma-seperated list of PRS-CSx reference data [required]"),
   make_option("--test", action="store", default=NA, type='character',
-      help="Specify number of SNPs to include [optional]"),
+              help="Specify number of SNPs to include [optional]"),
   make_option("--phi_param", action="store", default='auto', type='character',
-      help="Path to PRScs reference [optional]"),
+              help="Path to PRScs reference [optional]"),
   make_option("--seed", action="store", default=1, type='numeric',
-      help="Seed number for PRScs [optional]")
+              help="Seed number for PRScs [optional]")
 )
 
 opt = parse_args(OptionParser(option_list = option_list))
@@ -232,6 +234,12 @@ log_add(log_file = log_file, message = 'Calculating polygenic scores in referenc
 
 # Calculate scores in the full reference
 ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
+
+if(!is.null(opt$ref_pcs)){
+  log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
+  # Derive trans-ancestry PGS models and estimate PGS residual scale
+  model_trans_pgs(scores=ref_pgs, pcs=opt$ref_pcs, output=opt$output)
+}
 
 # Calculate scale within each reference population
 pop_data <- read_pop_data(opt$pop_data)

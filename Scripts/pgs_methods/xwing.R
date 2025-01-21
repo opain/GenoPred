@@ -4,8 +4,12 @@ start.time <- Sys.time()
 library("optparse")
 
 option_list = list(
-  make_option("--ref_plink_chr", action="store", default=NULL, type='character',
+  make_option("--ref_plink_chr", action="store", default=NA, type='character',
       help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_freq_chr", action="store", default=NULL, type='character',
+      help="Path to per chromosome reference PLINK2 .afreq files [required]"),
+  make_option("--ref_pcs", action="store", default=NULL, type='character',
+      help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--xwing_repo", action="store", default=NULL, type='character',
       help="Path to X-WING repo [required]"),
   make_option("--logodetect_ref", action="store", default=NULL, type='character',
@@ -50,6 +54,9 @@ registerDoMC(opt$n_cores)
 # Check required inputs
 if(is.null(opt$ref_plink_chr)){
   stop('--ref_plink_chr must be specified.\n')
+}
+if(is.null(opt$ref_freq_chr)){
+  stop('--ref_freq_chr must be specified.\n')
 }
 if(is.null(opt$sumstats)){
   stop('--sumstats must be specified.\n')
@@ -116,7 +123,8 @@ for(i in 1:length(sumstats)){
 
   # Read in, check and format GWAS summary statistics
   gwas <- read_sumstats(sumstats = sumstats[i], chr = CHROMS, log_file = log_file, req_cols = c('CHR', 'SNP', 'BP', 'A1', 'A2', 'BETA', 'P', 'N'))
-
+  # TESTING subset!!!!
+  gwas <- gwas[1:1000,]
   # Store average sample size
   gwas_N <- c(gwas_N, round(mean(gwas$N), 0))
   gwas$N<-NULL
@@ -190,6 +198,9 @@ log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list
       '--pst_pop ', pst_pop, ' ',
       '--out_name output ',
       '--seed 1 ',
+      # TESTING !!!
+      '--n_iter 200 ',
+      '--n_burnin 100 ',
       '--out_dir ', tmp_dir, '/PANTHER/post_targ_', targ_pop
     )
 
@@ -259,6 +270,9 @@ log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list
       '--pst_pop ', pst_pop, ' ',
       '--out_name output_', index, ' ',
       '--seed 1 ',
+      # TESTING !!!
+      '--n_iter 200 ',
+      '--n_burnin 100 ',
       '--out_dir ', tmp_dir, '/LEOPARD/post_targ_', targ_pop
     )
 
@@ -290,9 +304,7 @@ for(targ_pop in populations){
   dir.create(paste0(tmp_dir,'/LEOPARD/weights_', targ_pop), recursive = T)
 
   for(i in 1:4){
-
     targ_gwas_valid_n<-fread(paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', i, '_train_valid_N.txt'))$N_valid
-
     system(paste0(
       'Rscript ', opt$xwing_repo, '/LEOPARD_Weights.R --beta_file ', paste0(paste0(tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i, '_', populations, '_Post.txt'), collapse=','), ' --valid_file ', tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', i, '_valid.txt --n_valid ', targ_gwas_valid_n ,' --ref_prefix ', opt$leopard_ref,'/', targ_pop, '/', targ_pop, '_part3 --out ', tmp_dir,'/LEOPARD/weights_', targ_pop,'/output_LEOPARD_weights_rep', i, '.txt'
     ))
@@ -300,33 +312,43 @@ for(targ_pop in populations){
 }
 
 # Average weights across repeats
-for(targ_pop in populations){
-  system(paste0(
-    'Rscript ', opt$xwing_repo, '/LEOPARD_Avg.R --weights_prefix ', tmp_dir,'/LEOPARD/weights_', targ_pop,'/output_LEOPARD_weights_rep --rep 4 --out ', tmp_dir,'/LEOPARD/weights_', targ_pop,'/output_LEOPARD_weights_avg.txt'
-  ))
-}
+mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'))
 
 ####
 # Combine score files
 ####
 
+# Read in reference population data
+pop_data <- read_pop_data(opt$pop_data)
+
+# Read in reference SNP data
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+
 # We should combine the raw PANTHER score files for each population,
 # and then combine using mixing weights for each population
 score_all<-NULL
 for(targ_pop in populations){
-  mix_weights<-fread(paste0(tmp_dir,'/LEOPARD/weights_', targ_pop,'/output_LEOPARD_weights_avg.txt'))
+  # Read in the .freq file for target population
+  freq_data <- read_frq(freq_dir = opt$ref_freq_chr, population = targ_pop, chr = CHROMS)
+
   score_pop <- NULL
   for(pst_pop in populations){
+    
+    # Read in SNP-weights
     score_i<-NULL
     for(chr in CHROMS){
       score_i_chr<-fread(paste0(tmp_dir, '/PANTHER/post_targ_', targ_pop, '/output_', pst_pop, '_pst_eff_phiauto_chr', chr,'.txt'), header=F)
       score_i<-rbind(score_i, score_i_chr)
     }
-
-    score_i$V6 <- score_i$V6 * mix_weights$Weights[grepl(paste0(pst_pop,'_Post.txt'), mix_weights$Path)]
-
-    names(score_i)<-c('CHR','SNP', 'BP', 'A1', 'A2', paste0('SCORE_targ_', targ_pop, '_pst_', pst_pop))
-    score_i<-score_i[, c('SNP', 'A1', 'A2', paste0('SCORE_targ_', targ_pop, '_pst_', pst_pop)), with=F]
+    names(score_i) <- c('CHR','SNP','BP','A1','A2','BETA')
+    score_i <- score_i[, c('SNP','A1','A2','BETA'), with = F]
+    
+    # Centre SNP-weights for target population
+    score_i <- centre_weights(score = score_i, freq = freq_data)
+    
+    # Adjust SNP-weights according to mixing weights
+    score_i$BETA <- score_i$BETA * mix_weights[[targ_pop]][which(populations == pst_pop)]
+    names(score_i)<-c('SNP', 'A1', 'A2', paste0('SCORE_targ_', targ_pop, '_pst_', pst_pop))
 
     if(is.null(score_pop)){
       score_pop<-score_i
@@ -334,10 +356,10 @@ for(targ_pop in populations){
       score_pop<-merge(score_pop, score_i, by=c('SNP','A1','A2'), all=T)
     }
   }
+  
   # Take average of weighted scores
   score_pop[is.na(score_pop)]<-0
   score_pop[[paste0('SCORE_targ_', targ_pop, '_weighted')]] <- rowSums(score_pop[, grepl('SCORE_', names(score_pop)), with = F])
-
   if(is.null(score_all)){
     score_all<-score_pop
   } else {
@@ -373,6 +395,12 @@ log_add(log_file = log_file, message = 'Calculating polygenic scores in referenc
 
 # Calculate scores in the full reference
 ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
+
+if(!is.null(opt$ref_pcs)){
+  log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
+  # Derive trans-ancestry PGS models and estimate PGS residual scale
+  model_trans_pgs(scores=ref_pgs, pcs=opt$ref_pcs, output=opt$output)
+}
 
 # Calculate scale within each reference population
 pop_data <- read_pop_data(opt$pop_data)

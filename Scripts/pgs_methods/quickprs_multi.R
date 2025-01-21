@@ -6,6 +6,8 @@ suppressMessages(library("optparse"))
 option_list = list(
   make_option("--ref_plink_chr", action="store", default=NA, type='character',
               help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_pcs", action="store", default=NULL, type='character',
+              help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
               help="File containing the population code and location of the keep file [required]"),
   make_option("--plink", action="store", default='plink', type='character',
@@ -242,22 +244,7 @@ for(targ_pop in populations){
 }
 
 # Average weights across repeats
-# Not using X-Wing due to bug when weights are 0
-avg_weights <- list()
-for(targ_pop in populations){
-
-  weights_prefix <- paste0(tmp_dir,'/LEOPARD/weights_', targ_pop,'/output_LEOPARD_weights_rep')
-
-  cal_avg_rel_weights <- function(path){
-    weights_file <- fread(path)
-    weights_non_0 <-  ifelse(weights_file$Weights < 0, 0, weights_file$Weights)
-    rel_weights <- weights_non_0/(sum(weights_non_0))
-    return(rel_weights)
-  }
-
-  rel_weights_list <- lapply(c(1:4), function(i) cal_avg_rel_weights(paste0(weights_prefix, i, ".txt")))
-  avg_weights[[targ_pop]] <- as.numeric(colMeans(as.data.frame(do.call(rbind, rel_weights_list)), na.rm=T))
-}
+mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'))
 
 ####
 # Combine score files
@@ -276,7 +263,7 @@ for(targ_pop in populations){
   mix_weights<-avg_weights[[targ_pop]]
   score_all_tmp<-score_all
   for(i in populations){
-    score_all_tmp[[paste0('SCORE_targ_', i)]] <- score_all[[paste0('SCORE_targ_', i)]] * mix_weights[which(populations == targ_pop)]
+    score_all_tmp[[paste0('SCORE_targ_', i)]] <- score_all[[paste0('SCORE_targ_', i)]] * mix_weights[which(populations == i)]
   }
   # Take average of weighted scores
   score_all[[paste0('SCORE_targ_', targ_pop, '_weighted')]] <- rowSums(score_all_tmp[, grepl('SCORE_', names(score_all_tmp)), with = F])
@@ -318,6 +305,12 @@ log_add(log_file = log_file, message = 'Calculating polygenic scores in referenc
 
 # Calculate scores in the full reference
 ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
+
+if(!is.null(opt$ref_pcs)){
+  log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
+  # Derive trans-ancestry PGS models and estimate PGS residual scale
+  model_trans_pgs(scores=ref_pgs, pcs=opt$ref_pcs, output=opt$output)
+}
 
 # Calculate scale within each reference population
 pop_data <- read_pop_data(opt$pop_data)

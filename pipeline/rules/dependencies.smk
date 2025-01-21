@@ -933,7 +933,7 @@ rule download_ldak_highld:
     """
 
 # Download LDAK V5.2 for QuickPRS
-# This is a temporary solution. Only this version works for QuickPRS
+# Only this version works for QuickPRS
 rule download_ldak5_2:
   output:
     f"{resdir}/software/ldak5.2/ldak5.2.linux"
@@ -944,10 +944,13 @@ rule download_ldak5_2:
   shell:
     """
     {{
-      cp /users/k1806347/oliverpainfel/Software/ldak5.2.linux {resdir}/software/ldak5.2/ldak5.2.linux
+      rm -r -f {resdir}/software/ldak5.2; \
+      mkdir -p {resdir}/software/ldak5.2; \
+      wget --no-check-certificate -O {resdir}/software/ldak5.2/ldak5.2.linux "https://drive.google.com/uc?export=download&id=19knXZnbPNDz3J5dBKeVyZZoe6iZnLPEk"; \
+      chmod a+x {resdir}/software/ldak5.2/ldak5.2.linux
     }} > {log} 2>&1
     """
-
+    
 # Download LDAK V6
 rule download_ldak6:
   output:
