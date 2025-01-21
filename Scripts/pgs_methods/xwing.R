@@ -123,8 +123,7 @@ for(i in 1:length(sumstats)){
 
   # Read in, check and format GWAS summary statistics
   gwas <- read_sumstats(sumstats = sumstats[i], chr = CHROMS, log_file = log_file, req_cols = c('CHR', 'SNP', 'BP', 'A1', 'A2', 'BETA', 'P', 'N'))
-  # TESTING subset!!!!
-  gwas <- gwas[1:1000,]
+
   # Store average sample size
   gwas_N <- c(gwas_N, round(mean(gwas$N), 0))
   gwas$N<-NULL
@@ -198,9 +197,6 @@ log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list
       '--pst_pop ', pst_pop, ' ',
       '--out_name output ',
       '--seed 1 ',
-      # TESTING !!!
-      '--n_iter 200 ',
-      '--n_burnin 100 ',
       '--out_dir ', tmp_dir, '/PANTHER/post_targ_', targ_pop
     )
 
@@ -270,9 +266,6 @@ log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list
       '--pst_pop ', pst_pop, ' ',
       '--out_name output_', index, ' ',
       '--seed 1 ',
-      # TESTING !!!
-      '--n_iter 200 ',
-      '--n_burnin 100 ',
       '--out_dir ', tmp_dir, '/LEOPARD/post_targ_', targ_pop
     )
 
@@ -312,7 +305,7 @@ for(targ_pop in populations){
 }
 
 # Average weights across repeats
-mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'))
+mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'), log_file = log_file)
 
 ####
 # Combine score files

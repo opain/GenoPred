@@ -312,20 +312,28 @@ if 'sbayesr' in config['pgs_methods']:
 
 # Set quickprs reference path
 if config['quickprs_ldref'] == 'NA':
-  quickprs_ldref=f"{resdir}/data/quickprs_ref"
+  quickprs_ldref=f"{resdir}/data/quickprs"
+  
+  # Check if gwas_list contains invalid populations
+  valid_pops = {'EUR', 'EAS', 'AFR', 'SAS'}
+  invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
+
+  if invalid_pops:
+    raise ValueError(
+      f"Default quickprs reference data is only available for EUR, EAS, AFR and SAS populations. For other populations, please provide your own quickprs reference data using the quickprs_ldref parameter."
+    )
 else:
   quickprs_ldref=config['quickprs_ldref']
 
-# Check the quickprs ldref data is present for the required populations in the gwas_list
-if 'quickprs' in config['pgs_methods']:
-  for pop in gwas_list_df['population'].unique():
-    path = f"{quickprs_ldref}/{pop}.hm3"
-    # Check if required files exists
-    cors_file = os.path.join(path, f"{pop}.hm3.cors.bin")
-    if not os.path.exists(cors_file):
-      print(f"File not found: {cors_file}")
-      raise FileNotFoundError(f"Required file not found: {cors_file}. quickprs reference data must include .cors.bin for all populations.")
-
+  # Check the quickprs ldref data is present for the required populations in the gwas_list
+  if 'quickprs' in config['pgs_methods']:
+    for pop in gwas_list_df['population'].unique():
+      path = f"{quickprs_ldref}/{pop}"
+      # Check if required files exists
+      cors_file = os.path.join(path, f"{pop}.cors.bin")
+      if not os.path.exists(cors_file):
+        print(f"File not found: {cors_file}")
+        raise FileNotFoundError(f"Required file not found: {cors_file}. quickprs reference data must include .cors.bin for all populations when quickprs_ldref is specified.")
 
 # Set sbayesrc reference path
 if config['sbayesrc_ldref'] == 'NA':
@@ -950,48 +958,35 @@ rule download_ldak5_2:
       chmod a+x {resdir}/software/ldak5.2/ldak5.2.linux
     }} > {log} 2>&1
     """
-    
-# Download LDAK V6
-rule download_ldak6:
-  output:
-    f"{resdir}/software/ldak6/ldak6.linux"
-  benchmark:
-    f"{resdir}/data/benchmarks/download_ldak6.txt"
-  log:
-    f"{resdir}/data/logs/download_ldak6.log"
-  shell:
-    """
-    {{
-      rm -r -f {resdir}/software/ldak6; \
-      mkdir -p {resdir}/software/ldak6; \
-      wget --no-check-certificate -O {resdir}/software/ldak6/ldak6.linux https://github.com/dougspeed/LDAK/raw/main/ldak6.linux; \
-      chmod a+x {resdir}/software/ldak6/ldak6.linux
-    }} > {log} 2>&1
-    """
 
-
-# Download LDAK QuickPRS refernce data
+# NOTE. This doesn't currently work as the reference data on LDAK website isn't in the right format for LDAK 5.1, 5.2, or 6
+# In due course we will update this to download from our own repo. For the timebeing. The user must specify the reference data themselves
 rule download_quickprs_ref:
   output:
-    f"{resdir}/data/quickprs/{{population}}.hapmap/{{population}}.hapmap.cors.root"
+    f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin"
   benchmark:
     f"{resdir}/data/benchmarks/download_quickprs_ref-{{population}}.txt"
   log:
     f"{resdir}/data/logs/download_quickprs_ref-{{population}}.log"
+  params:
+    pop_code=lambda wildcards: {'EUR': 'gbr', 'SAS': 'sas', 'EAS': 'eas', 'AFR': 'afr'}[wildcards.population]
   shell:
     """
     {{
       mkdir -p {resdir}/data/quickprs; \
-      rm -r -f {resdir}/data/quickprs/{wildcards.population}.hapmap; \
-      wget --no-check-certificate -O {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz https://genetics.ghpc.au.dk/doug/{wildcards.population}.hapmap.tar.gz; \
+      rm -r -f {resdir}/data/quickprs/{wildcards.population}; \
+      wget --no-check-certificate -O {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz https://genetics.ghpc.au.dk/doug/{params.pop_code}.hapmap.tar.gz; \
       tar -zxvf {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz -C {resdir}/data/quickprs/; \
+      mv {resdir}/data/quickprs/{params.pop_code}.hapmap {resdir}/data/quickprs/{wildcards.population}; \
+      find {resdir}/data/quickprs/{wildcards.population} -type f -name '*{params.pop_code}*' -exec bash -c 'mv \"$0\" \"${{0//{params.pop_code}/{wildcards.population}}}\"' {{}} \; \
+      find {resdir}/data/quickprs/{wildcards.population} -type f -name '*hapmap*' -exec bash -c 'mv \"$0\" \"${{0//.hapmap./.}}\"' {{}} \; \
       rm {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz
     }} > {log} 2>&1
     """
 
 rule download_quickprs_ref_all:
   input:
-    lambda w: expand(f"{resdir}/data/quickprs/{{population}}.hapmap.cors.root", population=['gbr','sas','eas','afr'])
+    lambda w: expand(f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin", population=['EUR', 'SAS', 'EAS', 'AFR'])
 
 # Download preprocessed reference data (1KG+HGDP HapMap3)
 rule download_default_ref:
@@ -1347,7 +1342,8 @@ rule get_all_resources:
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output,
     rules.download_ldak_highld.output,
-    rules.download_default_ref.output
+    rules.download_default_ref.output,
+    rules.download_quickprs_ref_all.output
   output:
     touch(f"{resdir}/software/get_all_resources.done")
 

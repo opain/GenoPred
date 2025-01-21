@@ -115,7 +115,7 @@ for(i in 1:length(sumstats)){
   gwas_N <- c(gwas_N, round(mean(gwas$n), 0))
 
   # Check overlap between GWAS and LDAK reference
-  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', populations[i], '.hm3')
+  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', populations[i])
   ldak_hm3_file <- list.files(quick_prs_ref_pop_i)
   ldak_hm3_file <- ldak_hm3_file[grepl('.cors.bim', ldak_hm3_file)][1]
   ldak_hm3 <- fread(paste0(quick_prs_ref_pop_i, '/', ldak_hm3_file))
@@ -146,7 +146,7 @@ score_full <- list()
 for(i in 1:length(sumstats)){
   score_full[[populations[i]]] <- quick_prs(
     sumstats = paste0(tmp_dir,'/GWAS_sumstats_temp', i, '.txt'),
-    ref_dir = paste0(opt$quick_prs_ref, '/', populations[i], '.hm3'),
+    ref_dir = paste0(opt$quick_prs_ref, '/', populations[i]),
     genomic_control = opt$genomic_control,
     n_cores = opt$n_cores,
     prs_model = opt$prs_model)
@@ -161,7 +161,7 @@ log_add(log_file = log_file, message = 'Subsampling sumstats.')
 dir.create(paste0(tmp_dir,'/LEOPARD/sampled_sumstats'), recursive = T)
 
 for(i in 1:length(sumstats)){
-  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', populations[i], '.hm3')
+  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', populations[i])
   ref_files <- list.files(quick_prs_ref_pop_i)
   ref_files <- gsub('.bed', '', ref_files[grepl('subset_1.bed', ref_files)])
   system(
@@ -200,7 +200,7 @@ for(i in 1:length(sumstats)){
 
     score_subset[[populations[i]]][[paste0('subset_', j)]] <- quick_prs(
       sumstats = paste0(tmp_dir, '/LEOPARD/sampled_sumstats/GWAS_', i, '_rep', j, '_train.reformat.txt'),
-      ref_dir = paste0(opt$quick_prs_ref, '/', populations[i], '.hm3'),
+      ref_dir = paste0(opt$quick_prs_ref, '/', populations[i]),
       genomic_control = opt$genomic_control,
       n_cores = opt$n_cores,
       ref_subset = '2',
@@ -220,7 +220,7 @@ log_add(log_file = log_file, message = 'Estimating the linear combination weight
 
 for(targ_pop in populations){
   dir.create(paste0(tmp_dir,'/LEOPARD/weights_', targ_pop), recursive = T)
-  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', targ_pop, '.hm3')
+  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', targ_pop)
   ref_files <- list.files(quick_prs_ref_pop_i)
   ref_files <- gsub('.bed', '', ref_files[grepl('subset_3.bed', ref_files)])
 

@@ -584,7 +584,7 @@ cal_avg_rel_weights <- function(path){
 }
 
 # Function to calculate average weights across replications from LEOPARD
-calculate_avg_weights <- function(populations, leopard_dir) {
+calculate_avg_weights <- function(populations, leopard_dir, log_file = NULL) {
   avg_weights <- list()
   
   # Iterate over populations
@@ -599,6 +599,16 @@ calculate_avg_weights <- function(populations, leopard_dir) {
     
     # Calculate the average weights across replications
     avg_weights[[targ_pop]] <- as.numeric(colMeans(do.call(rbind, rel_weights_list), na.rm = TRUE))
+  }
+  
+  log_add(log_file = log_file, message = '------------------------')
+  for(i in names(avg_weights)){
+    for(j in populations){
+      log_add(log_file = log_file, message = paste0("LEOPARD weights - ", i, " target: "))
+      log_add(log_file = log_file, message = paste0(j, ' = ', avg_weights[[i]][which(populations == j)]))
+      mix_weights
+    }
+    log_add(log_file = log_file, message = '------------------------')
   }
   
   return(avg_weights)

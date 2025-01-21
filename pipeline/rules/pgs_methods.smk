@@ -395,8 +395,8 @@ def get_quickprs_reference_path(w, gwas_list_df, resdir):
   population = gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]
 
   # Return the full path string
-  return f"{quickprs_ldref}/{population}.hm3/{population}.hm3.cors.bin"
-
+  return f"{quickprs_ldref}/{population}/{population}.cors.bin"
+  
 rule prep_pgs_quickprs_i:
   resources:
     mem_mb=20000,
@@ -420,7 +420,6 @@ rule prep_pgs_quickprs_i:
     "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    quick_prs_ref= lambda w: f"{quickprs_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}.hm3",
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/quickprs.R \
@@ -428,7 +427,7 @@ rule prep_pgs_quickprs_i:
       --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
-      --quick_prs_ref {params.quick_prs_ref} \
+      --quick_prs_ref {quickprs_ldref}/{params.population} \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
