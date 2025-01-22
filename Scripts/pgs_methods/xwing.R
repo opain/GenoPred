@@ -311,9 +311,6 @@ mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = pa
 # Combine score files
 ####
 
-# Read in reference population data
-pop_data <- read_pop_data(opt$pop_data)
-
 # Read in reference SNP data
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
 
@@ -337,7 +334,7 @@ for(targ_pop in populations){
     score_i <- score_i[, c('SNP','A1','A2','BETA'), with = F]
     
     # Centre SNP-weights for target population
-    score_i <- centre_weights(score = score_i, freq = freq_data)
+    score_i <- centre_weights(score = score_i, freq = freq_data, ref = ref)
     
     # Adjust SNP-weights according to mixing weights
     score_i$BETA <- score_i$BETA * mix_weights[[targ_pop]][which(populations == pst_pop)]

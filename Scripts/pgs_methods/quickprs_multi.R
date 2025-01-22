@@ -6,6 +6,8 @@ suppressMessages(library("optparse"))
 option_list = list(
   make_option("--ref_plink_chr", action="store", default=NA, type='character',
               help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_freq_chr", action="store", default=NULL, type='character',
+              help="Path to per chromosome reference PLINK2 .afreq files [required]"),
   make_option("--ref_pcs", action="store", default=NULL, type='character',
               help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
@@ -24,8 +26,10 @@ option_list = list(
               help="Comma-seperated list of population codes matching GWAS [required]"),
   make_option("--ldak", action="store", default=NA, type='character',
               help="Path to ldak v5.2 executable [required]"),
-  make_option("--quick_prs_ref", action="store", default=NA, type='character',
-              help="Path to folder containing ldak quick prs reference [required]"),
+  make_option("--quickprs_ldref", action="store", default=NA, type='character',
+              help="Path to folder containing ldak quickprs reference [required]"),
+  make_option("--quickprs_multi_ldref", action="store", default=NA, type='character',
+              help="Path to folder containing ldak quickprs_multi reference [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
               help="Number of cores for parallel computing [optional]"),
   make_option("--prs_model", action="store", default='bayesr', type='character',
@@ -50,6 +54,9 @@ source_all('../functions')
 if(is.null(opt$ref_plink_chr)){
   stop('--ref_plink_chr must be specified.\n')
 }
+if(is.null(opt$ref_freq_chr)){
+  stop('--ref_freq_chr must be specified.\n')
+}
 if(is.null(opt$sumstats)){
   stop('--sumstats must be specified.\n')
 }
@@ -62,8 +69,11 @@ if(is.null(opt$output)){
 if(is.null(opt$ldak)){
   stop('--ldak must be specified.\n')
 }
-if(is.null(opt$quick_prs_ref)){
-  stop('--quick_prs_ref must be specified.\n')
+if(is.null(opt$quickprs_ldref)){
+  stop('--quickprs_ldref must be specified.\n')
+}
+if(is.null(opt$quickprs_multi_ldref)){
+  stop('--quickprs_multi_ldref must be specified.\n')
 }
 if(is.null(opt$populations)){
   stop('--populations must be specified.\n')
@@ -115,10 +125,10 @@ for(i in 1:length(sumstats)){
   gwas_N <- c(gwas_N, round(mean(gwas$n), 0))
 
   # Check overlap between GWAS and LDAK reference
-  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', populations[i])
-  ldak_hm3_file <- list.files(quick_prs_ref_pop_i)
+  quickprs_ldref_pop_i <- paste0(opt$quickprs_ldref, '/', populations[i])
+  ldak_hm3_file <- list.files(quickprs_ldref_pop_i)
   ldak_hm3_file <- ldak_hm3_file[grepl('.cors.bim', ldak_hm3_file)][1]
-  ldak_hm3 <- fread(paste0(quick_prs_ref_pop_i, '/', ldak_hm3_file))
+  ldak_hm3 <- fread(paste0(quickprs_ldref_pop_i, '/', ldak_hm3_file))
   ldak_hm3 <- ldak_hm3[ldak_hm3$V1 %in% CHROMS,]
   ref_overlap <- sum(gwas$Predictor %in% ldak_hm3$V2) / nrow(ldak_hm3)
 
@@ -146,7 +156,7 @@ score_full <- list()
 for(i in 1:length(sumstats)){
   score_full[[populations[i]]] <- quick_prs(
     sumstats = paste0(tmp_dir,'/GWAS_sumstats_temp', i, '.txt'),
-    ref_dir = paste0(opt$quick_prs_ref, '/', populations[i]),
+    ref_dir = paste0(opt$quickprs_ldref, '/', populations[i]),
     genomic_control = opt$genomic_control,
     n_cores = opt$n_cores,
     prs_model = opt$prs_model)
@@ -161,8 +171,8 @@ log_add(log_file = log_file, message = 'Subsampling sumstats.')
 dir.create(paste0(tmp_dir,'/LEOPARD/sampled_sumstats'), recursive = T)
 
 for(i in 1:length(sumstats)){
-  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', populations[i])
-  ref_files <- list.files(quick_prs_ref_pop_i)
+  quickprs_multi_ldref_pop_i <- paste0(opt$quickprs_multi_ldref, '/', populations[i])
+  ref_files <- list.files(quickprs_multi_ldref_pop_i)
   ref_files <- gsub('.bed', '', ref_files[grepl('subset_1.bed', ref_files)])
   system(
     paste0(
@@ -172,7 +182,7 @@ for(i in 1:length(sumstats)){
       '--sumstats ', tmp_dir, '/GWAS_sumstats_temp', i, '.txt ',
       '--n_gwas ', gwas_N[i], ' ',
       '--train_prop 0.75 ',
-      '--ref_prefix ', quick_prs_ref_pop_i, '/', ref_files, ' ',
+      '--ref_prefix ', quickprs_multi_ldref_pop_i, '/', ref_files, ' ',
       '--seed 1 ',
       '--rep 4 ',
       '--out_prefix ', tmp_dir, '/LEOPARD/sampled_sumstats/GWAS_', i
@@ -198,9 +208,10 @@ for(i in 1:length(sumstats)){
     sumstats_tmp <- sumstats_tmp[, c('Predictor','A1','A2','n','P','Direction'), with = F]
     fwrite(sumstats_tmp, paste0(tmp_dir, '/LEOPARD/sampled_sumstats/GWAS_', i, '_rep', j, '_train.reformat.txt'), sep=' ')
 
-    score_subset[[populations[i]]][[paste0('subset_', j)]] <- quick_prs(
+    score_subset[[populations[i]]][[paste0('subset_', j)]] <- quickprs(
       sumstats = paste0(tmp_dir, '/LEOPARD/sampled_sumstats/GWAS_', i, '_rep', j, '_train.reformat.txt'),
-      ref_dir = paste0(opt$quick_prs_ref, '/', populations[i]),
+      quickprs_ldref = paste0(opt$quickprs_ldref, '/', populations[i]),
+      quickprs_multi_ldref = paste0(opt$quickprs_multi_ldref, '/', populations[i]),
       genomic_control = opt$genomic_control,
       n_cores = opt$n_cores,
       ref_subset = '2',
@@ -220,8 +231,8 @@ log_add(log_file = log_file, message = 'Estimating the linear combination weight
 
 for(targ_pop in populations){
   dir.create(paste0(tmp_dir,'/LEOPARD/weights_', targ_pop), recursive = T)
-  quick_prs_ref_pop_i <- paste0(opt$quick_prs_ref, '/', targ_pop)
-  ref_files <- list.files(quick_prs_ref_pop_i)
+  quickprs_multi_ldref_pop_i <- paste0(opt$quickprs_multi_ldref, '/', targ_pop)
+  ref_files <- list.files(quickprs_multi_ldref_pop_i)
   ref_files <- gsub('.bed', '', ref_files[grepl('subset_3.bed', ref_files)])
 
   for(j in 1:4){
@@ -237,14 +248,14 @@ for(targ_pop in populations){
       '--beta_file ', tmp_dir, '/LEOPARD/post_targ_', populations[1], '/output_', j, '_', populations[1], '_Post.txt',',',tmp_dir, '/LEOPARD/post_targ_', populations[2], '/output_', j, '_', populations[2], '_Post.txt ',
       '--valid_file ', tmp_dir, '/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', j, '_valid.reformat.txt ',
       '--n_valid ', targ_gwas_valid_n ,' ',
-      '--ref_prefix ', quick_prs_ref_pop_i, '/', ref_files, ' ',
+      '--ref_prefix ', quickprs_multi_ldref_pop_i, '/', ref_files, ' ',
       '--out ', tmp_dir,'/LEOPARD/weights_', targ_pop,'/output_LEOPARD_weights_rep', j, '.txt'
     ))
   }
 }
 
 # Average weights across repeats
-mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'))
+mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'), log_file = log_file)
 
 ####
 # Combine score files
@@ -252,39 +263,43 @@ mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = pa
 
 log_add(log_file = log_file, message = 'Creating score file.')
 
-# We should combine the raw QuickPRS score files for each population,
-# and then combine using mixing weights for each population
+# Combine the scores from each population
 score_all <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1','A2'), all = TRUE), score_full)
 names(score_all)[grepl('BETA', names(score_all))]<-paste0('SCORE_targ_', populations)
 score_all[is.na(score_all)]<-0
 
-for(targ_pop in populations){
-  # Read in weights for target population
-  mix_weights<-avg_weights[[targ_pop]]
-  score_all_tmp<-score_all
-  for(i in populations){
-    score_all_tmp[[paste0('SCORE_targ_', i)]] <- score_all[[paste0('SCORE_targ_', i)]] * mix_weights[which(populations == i)]
-  }
-  # Take average of weighted scores
-  score_all[[paste0('SCORE_targ_', targ_pop, '_weighted')]] <- rowSums(score_all_tmp[, grepl('SCORE_', names(score_all_tmp)), with = F])
-}
-
-names(score_all)[names(score_all) == 'SNP']<-'Predictor'
+# Read in reference SNP data
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
 
 # Change IDs to RSIDs
-ref_pvar <- read_pvar(dat = opt$ref_plink_chr, chr = CHROMS)
-ref_pvar$Predictor<-paste0(ref_pvar$CHR,':',ref_pvar$BP)
-score_all<-merge(score_all, ref_pvar[,c('Predictor','SNP'), with=F], by='Predictor')
+ref$Predictor<-paste0(ref$CHR,':',ref$BP)
+names(score_all)[names(score_all) == 'SNP'] <- 'Predictor'
+score_all<-merge(score_all, ref[,c('Predictor','SNP'), with=F], by='Predictor')
 score_all<-score_all[, c('SNP', 'A1', 'A2', names(score_all)[grepl('SCORE_', names(score_all))]), with=F]
 
 # Flip effects to match reference alleles
-ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
-score_new <- map_score(ref = ref, score = score_all)
+score_all <- map_score(ref = ref, score = score_all)
+
+# Calculate linear combination of scores using mixing weights for each target population
+score_weighted <- score_all
+for(targ_pop in populations){
+  # Read in the .freq file for target population
+  freq_data <- read_frq(freq_dir = opt$ref_freq_chr, population = targ_pop, chr = CHROMS)
+  
+  # Centre SNP-weights for target population
+  score_i <- centre_weights(score = score_all, freq = freq_data, ref = ref)
+  
+  # Linearly combine scores using mixing weights for target population
+  score_weighted[[paste0('SCORE_targ_', targ_pop, '_weighted')]] <-
+    calculate_weighted_scores(score = score_i,
+                              mix_weights = mix_weights,
+                              targ_pop = targ_pop)
+}
 
 # Reduce number of significant figures to save space
-score_new[, (4:ncol(score_new)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_new)]
+score_weighted[, (4:ncol(score_all)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_all)]
 
-fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+fwrite(score_weighted, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))

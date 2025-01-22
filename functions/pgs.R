@@ -72,6 +72,11 @@ list_score_files <- function(config){
 
 # Flip effects in score file to match A1 reference
 map_score<-function(ref, score){
+  if(!all(c('SNP','A1','A2') %in% names(ref)) | !all(c('SNP','A1','A2') %in% names(score))){
+    stop('ref and score must contain SNP, A1 and A2 columns.')
+  }
+  
+  ref <- ref[, c('SNP','A1','A2'), with = F]
   tmp <- merge(ref, score, by = 'SNP', all.x=T, sort = F)
   flip <- which(tmp$A1.x != tmp$A1.y)
   tmp <- as.matrix(tmp[, -1:-5, drop = FALSE])
@@ -431,24 +436,29 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 }
 
 
-quick_prs<-function(sumstats, ref_dir, genomic_control, prs_model, n_cores = 1, ref_subset = NULL){
+quickprs<-function(sumstats, quickprs_ldref, quickprs_multi_ldref = NULL, genomic_control, prs_model, n_cores = 1, ref_subset = NULL){
   tmp_dir<-tempfile()
   dir.create(tmp_dir)
-
+  
+  # Check if quickprs_multi_ldref and ref_subset are both NULL or both non-NULL
+  if (xor(is.null(quickprs_multi_ldref), is.null(ref_subset))) {
+    stop("Both 'quickprs_multi_ldref' and 'ref_subset' must either be NULL or non-NULL.")
+  }
+  
   ######
   # Estimate Per-Predictor Heritabilities
   ######
 
   # Calculate Per-Predictor Heritabilities.
-  ref_files<-list.files(ref_dir)
+  quickprs_ldref_files<-list.files(quickprs_ldref)
 
-  tagging_file<-ref_files[grepl('quickprs.tagging',ref_files)]
-  matrix_file<-ref_files[grepl('quickprs.matrix',ref_files)]
+  tagging_file<-quickprs_ldref_files[grepl('quickprs.tagging',quickprs_ldref_files)]
+  matrix_file<-quickprs_ldref_files[grepl('quickprs.matrix',quickprs_ldref_files)]
 
   if(opt$genomic_control == F){
-    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', ref_dir, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', ref_dir, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
+    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', quickprs_ldref, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', quickprs_ldref, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
   } else{
-    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --genomic-control YES --tagfile ', ref_dir, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', ref_dir, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
+    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --genomic-control YES --tagfile ', quickprs_ldref, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', quickprs_ldref, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
   }
 
   ldak_res_her<-fread(paste0(tmp_dir,'/bld.ldak.hers'))
@@ -458,12 +468,15 @@ quick_prs<-function(sumstats, ref_dir, genomic_control, prs_model, n_cores = 1, 
   ######
 
   if(!is.null(ref_subset)){
-    cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl(paste0('subset_', ref_subset, '.cors.bin'),ref_files)])
+    quickprs_multi_ldref_files<-list.files(quickprs_multi_ldref)
+    ref_dir <- quickprs_multi_ldref
+    cor_file_prefix<-gsub('.cors.bin','',quickprs_multi_ldref_files[grepl(paste0('subset_', ref_subset, '.cors.bin'),quickprs_multi_ldref_files)])
   } else {
-    cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files) & !grepl('subset', ref_files)])
+    cor_file_prefix<-gsub('.cors.bin','',quickprs_ldref_files[grepl('.cors.bin',quickprs_ldref_files) & !grepl('subset', quickprs_ldref_files)])
+    ref_dir <- quickprs_ldref
   }
 
-  system(paste0(opt$ldak,' --mega-prs ',tmp_dir,'/mega_full --model ', prs_model,' --cors ', ref_dir, '/', cor_file_prefix, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', sumstats, ' --high-LD ', ref_dir, '/highld.snps --cv-proportion 0.1 --window-cm 1 --max-threads ', n_cores,' --extract ', sumstats))
+  system(paste0(opt$ldak,' --mega-prs ',tmp_dir,'/mega_full --model ', prs_model,' --cors ', ref_dir, '/', cor_file_prefix, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', sumstats, ' --high-LD ', quickprs_ldref, '/highld.snps --cv-proportion 0.1 --window-cm 1 --max-threads ', n_cores,' --extract ', sumstats))
 
   # Identify the best fitting model
   ldak_res_cors <- fread(paste0(tmp_dir, '/mega_full.cors'), nThread = n_cores)
@@ -603,10 +616,9 @@ calculate_avg_weights <- function(populations, leopard_dir, log_file = NULL) {
   
   log_add(log_file = log_file, message = '------------------------')
   for(i in names(avg_weights)){
+    log_add(log_file = log_file, message = paste0("LEOPARD weights - ", i, " target: "))
     for(j in populations){
-      log_add(log_file = log_file, message = paste0("LEOPARD weights - ", i, " target: "))
       log_add(log_file = log_file, message = paste0(j, ' = ', avg_weights[[i]][which(populations == j)]))
-      mix_weights
     }
     log_add(log_file = log_file, message = '------------------------')
   }
@@ -615,7 +627,7 @@ calculate_avg_weights <- function(populations, leopard_dir, log_file = NULL) {
 }
 
 # Centre SNP-weights
-centre_weights <- function(score, freq){
+centre_weights <- function(score, freq, ref){
   # Sort and flip according to reference data
   score <- map_score(ref = ref, score = score)
   
@@ -634,4 +646,20 @@ centre_weights <- function(score, freq){
     score[[i]] <- score[[i]] - (mean_pgs / denominator) * freq$MeanGenotype
   }
   return(score)
+}
+
+# Linearly combine scores using mixing weights for target population
+calculate_weighted_scores <- function(score, targ_pop, mix_weights) {
+  if(!all((names(score) %in% c('SNP','A1','A2', paste0('SCORE_targ_', names(mix_weights)))))){
+    stop(paste0('score should only contain columns SNP, A1, A2, ', paste(paste0('SCORE_targ_', names(mix_weights)), collapse=', ')))
+  }
+  score_weighted<-score
+  for(disc_pop in names(mix_weights)){
+    score_tmp <- score[[paste0('SCORE_targ_', disc_pop)]]
+    weight_tmp <- mix_weights[[targ_pop]][which(names(mix_weights) == disc_pop)]
+    score_weighted[[paste0('SCORE_targ_', disc_pop)]] <- score_tmp * weight_tmp
+  }
+  score_combined <- rowSums(score_weighted[, grepl('SCORE_', names(score_weighted)), with = FALSE])
+  
+  return(score_combined)
 }

@@ -390,7 +390,7 @@ rule prep_pgs_megaprs:
 # LDAK QuickPRS
 ##
 
-def get_quickprs_reference_path(w, gwas_list_df, resdir):
+def get_quickprs_ldref_path(w, gwas_list_df, resdir):
   # Get the population from the GWAS list
   population = gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]
 
@@ -404,7 +404,7 @@ rule prep_pgs_quickprs_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    lambda w: get_quickprs_reference_path(w, gwas_list_df, resdir),
+    lambda w: get_quickprs_ldref_path(w, gwas_list_df, resdir),
     rules.download_ldak_highld.output,
     rules.download_ldak5_2.output,
     rules.download_ldak_map.output,
@@ -427,7 +427,7 @@ rule prep_pgs_quickprs_i:
       --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
-      --quick_prs_ref {quickprs_ldref}/{params.population} \
+      --quickprs_ldref {quickprs_ldref}/{params.population} \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
@@ -737,7 +737,8 @@ rule prep_pgs_quickprs_multi_i:
     time_min=5000
   threads: config['cores_prep_pgs']
   input:
-    #lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
+    lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
+    lambda w: expand(f"{quickprs_multi_ldref}/{{population}}/{{population}}.subset_1.bed", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
     rules.download_ldak_highld.output,
     rules.download_ldak5_2.output,
@@ -759,11 +760,13 @@ rule prep_pgs_quickprs_multi_i:
   shell:
     "Rscript ../Scripts/pgs_methods/quickprs_multi.R \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_freq_chr {refdir}/freq_files \
       --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
       --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
-      --quick_prs_ref {quickprs_ldref} \
+      --quickprs_ldref {quickprs_ldref} \
+      --quickprs_multi_ldref {quickprs_multi_ldref} \
       --xwing_repo {resdir}/software/xwing \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/quickprs_multi/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
