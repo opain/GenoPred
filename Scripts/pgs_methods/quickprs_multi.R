@@ -154,9 +154,9 @@ log_add(log_file = log_file, message = 'Running QuickPRS using full sumstats.')
 
 score_full <- list()
 for(i in 1:length(sumstats)){
-  score_full[[populations[i]]] <- quick_prs(
+  score_full[[populations[i]]] <- quickprs(
     sumstats = paste0(tmp_dir,'/GWAS_sumstats_temp', i, '.txt'),
-    ref_dir = paste0(opt$quickprs_ldref, '/', populations[i]),
+    quickprs_ldref = paste0(opt$quickprs_ldref, '/', populations[i]),
     genomic_control = opt$genomic_control,
     n_cores = opt$n_cores,
     prs_model = opt$prs_model)

@@ -378,7 +378,7 @@ read_reference_pgs <- function(config){
           outdir, '/reference/pgs_score_files/', pgs_method_i, '/',  gwas_i, '/ref-', gwas_i, '-TRANS.profiles'
         )
       )
-    pseudo_param <- find_pseudo(config = config, gwas = gwas_i, pgs_method = pgs_method_i)
+    pseudo_param <- find_pseudo(config = config, gwas = gwas_i, pgs_method = pgs_method_i, target_pop = 'TRANS')
     pgs[[gwas_i]][[pgs_method_i]]<-pgs[[gwas_i]][[pgs_method_i]][,c('FID','IID',paste0('SCORE_',pseudo_param)), with=F]
   }
   
