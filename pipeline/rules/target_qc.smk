@@ -31,7 +31,6 @@ if 'target_list' in config:
       "../envs/analysis.yaml"
     params:
       outdir=config["outdir"],
-      config_file = config["config_file"],
       name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
       path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
     shell:
@@ -110,7 +109,6 @@ if 'target_list' in config:
     params:
       outdir=config["outdir"],
       refdir=config["refdir"],
-      config_file = config["config_file"],
       testing=config["testing"],
       prefix= lambda w: target_prefix(name = w.name),
       type= lambda w: target_type(name = w.name)

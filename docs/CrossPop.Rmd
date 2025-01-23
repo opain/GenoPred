@@ -166,7 +166,7 @@ snakemake \
   --profile slurm \
   --use-conda \
   --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/config.yaml \
-  outlier_detection
+  outlier_detection -n
 ```
 </details>
 
@@ -490,7 +490,7 @@ for pheno in $(cat /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prsc
 done
 
 # Once complete, merge results across chromosomes
-for pheno in $(tail -n +6 /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_labels.txt); do
+for pheno in $(cat /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_labels.txt); do
   head -n 1 /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}/ukb.eur_train.${pheno}.chr1.outcome.glm.linear > /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}/ukb.eur_train.${pheno}.GW.txt
     for chr in $(seq 1 22); do
       tail -n +2 /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}/ukb.eur_train.${pheno}.chr${chr}.outcome.glm.linear >> /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}/ukb.eur_train.${pheno}.GW.txt
@@ -501,6 +501,9 @@ for pheno in $(tail -n +6 /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prsc
 
     gzip /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}/ukb.eur_train.${pheno}.GW.txt
 done
+
+# Delete per chromosome files
+rm /users/k1806347/oliverpainfel/Data/ukb/gwas/*/*chr*
 
 ```
 </details>
@@ -557,13 +560,17 @@ done
 # Delete X chromosome sumstats and rename files to be consistent with prscsx sumstat info
 for pheno in $(cat /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_labels.txt); do
   wget_label=$(awk -v var="$pheno" '$1 == var {print $3}' ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/bbj_gwas_wget.txt)
-  mv ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/hum0197.v3.BBJ.${wget_label}.v1/GWASsummary_${wget_label}_Japanese_SakaueKanai2020.auto.txt.gz ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/bbj.${pheno}.txt.gz
+if [ "$pheno" == "HT" ]; then
+    mv ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/hum0197.v3.BBJ.${wget_label}.v1/GWASsummary_Height_Japanese_SakaueKanai2020.auto.txt.gz ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/bbj.HT.txt.gz
+  else
+    mv ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/hum0197.v3.BBJ.${wget_label}.v1/GWASsummary_${wget_label}_Japanese_SakaueKanai2020.auto.txt.gz ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/bbj.${pheno}.txt.gz
+  fi
   rm -r ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/hum0197.v3.BBJ.${wget_label}.v1
 done
 
 # Format so BOLT P value is used by GenoPred
 for pheno in $(cat /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_labels.txt); do
-sbatch -p neurohack_cpu --wrap="/users/k1806347/oliverpainfel/Software/pigz -dc ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/bbj.${pheno}.txt.gz | awk 'BEGIN {OFS=\"\t\"} {print \$2, \$3, \$4, \$6, \$7, \$8, \$9, \$12, \$13, \$15}' | sed '1s/P_BOLT_LMM_INF/P/' | /users/k1806347/oliverpainfel/Software/pigz -c > ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/bbj.${pheno}.reformat.txt.gz"
+sbatch -p neurohack_cpu --wrap="/users/k1806347/oliverpainfel/Software/pigz/pigz -dc ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/bbj.${pheno}.txt.gz | awk 'BEGIN {OFS=\"\t\"} {print \$2, \$3, \$4, \$6, \$7, \$8, \$9, \$12, \$13, \$15}' | sed '1s/P_BOLT_LMM_INF/P/' | /users/k1806347/oliverpainfel/Software/pigz/pigz -c > ~/oliverpainfel/Data/GWAS_sumstats/BBJ/prscsx/bbj.${pheno}.reformat.txt.gz"
 done
 
 ```
@@ -616,6 +623,7 @@ prscsx_dat <- merge(ugr_gwas, prscsx_dat, by='trait')
 write.csv(prscsx_dat, '~/oliverpainfel/Data/GWAS_sumstats/UGR/ugr_sumstats_prscsx.csv', row.names = F)
 
 # Create column indicating wget command
+prscsx_dat$wget<-NA
 for(i in 1:nrow(prscsx_dat)){
   if(!grepl('.txt', prscsx_dat$wget[i])){
     print(i)
@@ -626,6 +634,7 @@ for(i in 1:nrow(prscsx_dat)){
     prscsx_dat$wget[i]<-paste0(prscsx_dat$summaryStatistics[i], '/', log)
   }
 }
+# Note this has to be run a few times due to some requests being blocked.
 
 # Write a table showing label matching prscsx info and wget url
 write.table(prscsx_dat[, c('labels', 'wget'), with=F], '~/oliverpainfel/Data/GWAS_sumstats/UGR/ugr_sumstats_wget.txt', col.names = F, row.names = F, quote = F)
@@ -714,6 +723,8 @@ To estimate polygenicity, lets use AVENGEME based on ptclump score association r
 # gwas_list
 ######
 
+dir.create('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop')
+
 prscsx_dat<-fread('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_data.csv')
 
 gwas_list_eur<-data.frame(
@@ -800,7 +811,11 @@ write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/cro
 ## Run pipeline
 
 ```{bash}
-snakemake --profile slurm --use-conda --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_all.yaml target_pgs -n
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_all.yaml \
+  target_pgs -n
 ```
 
 ***

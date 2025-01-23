@@ -51,7 +51,6 @@ if 'gwas_list' in config:
     params:
       outdir=config["outdir"],
       refdir=config["refdir"],
-      config_file = config["config_file"],
       testing = config['testing'],
       population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
       n= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'n'].iloc[0],
