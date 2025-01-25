@@ -857,7 +857,7 @@ for(i in 1:nrow(gwas_list)){
       " | cut -f ", 
       paste0(cols_index, collapse = ','),
       " | sed -e '1s/BETA/beta/'",
-      " | /users/k1806347/oliverpainfel/Software/pigz -f",
+      " | /users/k1806347/oliverpainfel/Software/pigz/pigz -f",
       " > /users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/sumstats/",
       gwas_list$name[i], 
       ".sumstats.gz"
@@ -887,7 +887,7 @@ for pop in $(echo EUR EAS AFR);do
       samp="UGR"
   fi
   
-  for pheno in $(cat /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_labels.txt); do
+  for pheno in $(cat /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/pheno_eur_eas_afr.txt); do
     mkdir -p /users/k1806347/oliverpainfel/Analyses/crosspop/ldsc/sumstats
 
     sbatch --mem 10G -n 1 -p neurohack_cpu --wrap="/users/k1806347/oliverpainfel/Software/ldsc/munge_sumstats.py \
@@ -908,7 +908,7 @@ for pop in $(echo EUR EAS AFR);do
       samp="UGR"
   fi
   
-  for pheno in $(tail -n +6 /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_labels.txt); do
+  for pheno in $(cat /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/pheno_eur_eas_afr.txt); do
     mkdir -p /users/k1806347/oliverpainfel/Analyses/crosspop/ldsc/results/${pheno}/${pop}
 
     sbatch --mem 10G -n 1 -p neurohack_cpu --wrap="/users/k1806347/oliverpainfel/Software/ldsc/ldsc.py \
@@ -934,15 +934,15 @@ done
 for pop in $(echo EUR EAS AFR); do
   mkdir -p /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp
   for chr in $(seq 1 22); do
-    /users/k1806347/oliverpainfel/Software/plink1.9/plink \
-      --bfile /users/k1806347/oliverpainfel/Data/1KG/GenoPred/v2.0.0/ref.chr${chr} \
-      --keep /users/k1806347/oliverpainfel/Data/1KG/GenoPred/v2.0.0/keep_files/${pop}.keep \
+    /users/k1806347/oliverpainfel/Software/plink2 \
+      --pfile /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr${chr} \
+      --keep /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/keep_files/${pop}.keep \
       --make-bed \
       --out /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp/ref.${pop}.chr${chr}
     done
 done
 
-conda activate popcorn
+conda activate /scratch/prj/oliverpainfel/recovered/.conda/envs/popcorn
 for pop in $(echo EAS AFR); do
   mkdir -p /users/k1806347/oliverpainfel/Data/POPCORN/1KG/EUR_${pop}_CSCORES
   for chr in $(seq 1 22); do
@@ -960,6 +960,7 @@ for pop in $(echo EAS AFR); do
 done
 
 rm -r /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp
+rm /users/k1806347/oliverpainfel/Data/POPCORN/1KG/EUR_*_CSCORES/*chr*.txt
 ```
 
 ***
@@ -1061,7 +1062,7 @@ ggplot(h2_res, aes(x = Phenotype, y = h2_est, fill = Population)) +
 # Plot rG estimates
 rg_res <- NULL
 for(pop in c('AFR','EAS')){
-  for(pheno in h2_res_sig$Phenotype){
+  for(pheno in h2_res$Phenotype){
     pop_res_i<-fread(paste0('/users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/results/', pheno, '/EUR_', pop, '/rG_gen_effect'))
     names(pop_res_i) <- c('Test','Estimate','SE','Z','P')
     pop_res_i <- pop_res_i[pop_res_i$Test == 'pge',]
@@ -1077,8 +1078,8 @@ rg_res$Comparison <- paste0(rg_res$Population_1, ' vs. ', rg_res$Population_2)
 write.csv(rg_res, '/users/k1806347/oliverpainfel/Analyses/crosspop/popcorn/results.csv', row.names = F, quote = F)
 
 ggplot(rg_res, aes(x = Phenotype, y = Estimate, fill = Comparison)) +
-  geom_bar(stat="identity", position=position_dodge(preserve = "single"), width = 0.7) +
-  geom_errorbar(aes(ymin=Estimate-SE, ymax=Estimate+SE), width=.2, position=position_dodge(width = 0.7, preserve = "single")) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.7) +
+  geom_errorbar(aes(ymin=Estimate-SE, ymax=Estimate+SE), width=.2, position=position_dodge(width = 0.7)) +
   labs(y="SNP-based\nGenetic Correlation (SE)") +
   theme_half_open() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
@@ -1146,17 +1147,13 @@ for(trait_i in pheno_intersect){
     scores_i_j <- scores_i[grepl(samp_i, scores_i$name, ignore.case = T),]
     scores_i_j$predictor <- paste0(
       outdir,
-      '/ukb/pgs/',
-      pop_i,
-      '/',
+      '/ukb/pgs/TRANS/',
       scores_i_j$method,
       '/',
       scores_i_j$name,
       '/ukb-',
       scores_i_j$name,
-      '-',
-      pop_i,
-      '.profiles'
+      '-TRANS.profiles'
     )
     
     predictors_i <- scores_i_j[, c('predictor', 'group'), with=F]
@@ -1512,14 +1509,16 @@ config<-c(
   "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
   "gwas_groups: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_groups.txt",
 #  "pgs_methods: ['ptclump','dbslmm','prscsx','xwing','tlprs','prscs','lassosum','ldpred2','megaprs','quickprs','sbayesrc']",
-  "pgs_methods: ['ptclump','quickprs','quickprs_multi','dbslmm','lassosum','ldpred2','megaprs','sbayesrc','prscsx','xwing','prscs']",
+#  "pgs_methods: ['ptclump','quickprs','quickprs_multi','dbslmm','lassosum','ldpred2','megaprs','sbayesrc','prscsx','xwing','prscs']",
+  "pgs_methods: ['ptclump','quickprs','quickprs_multi']",
 #  "tlprs_methods: ['dbslmm','prscs','lassosum']",
   "cores_prep_pgs: 10",
   "cores_target_pgs: 50",
   "ldpred2_inference: F",
-  "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2",
-  "quickprs_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs",
-  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc"
+#  "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2",
+  "quickprs_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3",
+  "quickprs_multi_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3_subset"
+#  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc"
 )
 
 write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml', col.names = F, row.names = F, quote = F)
@@ -1532,7 +1531,11 @@ write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/cro
 ## Run pipeline
 
 ```{bash}
-snakemake --profile slurm --use-conda --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml output_all -n
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml \
+  output_all -n
 ```
 
 ***
