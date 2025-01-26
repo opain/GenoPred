@@ -362,7 +362,7 @@ if 'sbayesrc' in config['pgs_methods']:
   for pop in gwas_list_df['population'].unique():
     path = f"{sbayesrc_ldref}/{pop}"
     # Check if required files exists
-    cors_file = os.path.join(path, f"{pop}.hm3/ldm.info")
+    cors_file = os.path.join(path, f"ldm.info")
     if not os.path.exists(cors_file):
       print(f"File not found: {cors_file}")
       raise FileNotFoundError(f"Required file not found: {cors_file}. sbayesrc reference data must include ldm.info for all populations.")
