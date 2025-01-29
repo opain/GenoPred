@@ -37,7 +37,7 @@ ref_pop <- data.frame(
 
 # Make a data.frame giving labels to the 1KG reference populations
 pgs_method_labels <- data.frame(
-  method = c('ptclump','dbslmm','ldpred2','sbayesr','sbayesrc','lassosum','prscs','megaprs','quickprs','external','prscsx','xwing','tlprs','quickprs'),
+  method = c('ptclump','dbslmm','ldpred2','sbayesr','sbayesrc','lassosum','prscs','megaprs','quickprs','external','prscsx','xwing','tlprs','quickprs_multi'),
   label = c('pT+clump','DBSLMM','LDpred2','SBayesR','SBayesRC','lassosum','PRS-CS','MegaPRS','QuickPRS','External','PRS-CSx','X-Wing','TL-PRS','QuickPRS-Multi')
 )
 pgs_method_labels<-pgs_method_labels[order(pgs_method_labels$method),]

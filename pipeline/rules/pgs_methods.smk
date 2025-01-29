@@ -577,7 +577,7 @@ checkpoint score_reporter:
 rule prep_pgs_prscsx_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     rules.download_prscsx_software.output,
@@ -628,7 +628,7 @@ rule prep_pgs_prscsx:
 rule prep_pgs_xwing_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=10000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     rules.download_xwing_software.output,
