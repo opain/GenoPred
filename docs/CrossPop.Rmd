@@ -1582,6 +1582,7 @@ scores <- list_score_files(config)
 
 # Remove tlprs
 scores<-scores[!grepl('tlprs', scores$method),]
+scores<-scores[!grepl('xwing', scores$method),]
 
 # Create files for EAS and AFR targets
 targ_pop <- c('EAS','AFR')
@@ -1728,10 +1729,135 @@ for(trait_i in selected_traits){
       scores_i_j_multi_single_pseudo$top1<-paste0('EUR_', disc_pop_j_2)
 
       ####
+      # Make groups for the Multi-Source methods
+      ####
+      
+      scores_i_j_multi <- scores_i_j[(scores_i_j$method %in% pgs_group_methods) &
+                                           !grepl('_multi$', scores_i_j$method),]
+
+      # Split top1 scores by target population
+      scores_i_j_multi_top1<-NULL
+      for(i in 1:nrow(scores_i_j_multi)){
+        score_header<-fread(scores_i_j_multi$predictor[i], nrow = 1)
+        
+        for(pop in c('EUR', disc_pop_j_2)){
+          
+          if(scores_i_j_multi$method[i] == 'prscsx'){
+            score_cols <-
+              which(grepl(paste0('^FID$|^IID$|_', pop, '_phi'), names(score_header)))
+          }
+          
+          system(
+            paste0(
+              "cut -d' ' -f ", 
+              paste0(score_cols, collapse=','),
+              " ", 
+              scores_i_j_multi$predictor[i], 
+              " > ", 
+              gsub('.profiles',
+                   paste0('.', pop, '_grid.profiles'),
+                   scores_i_j_multi$predictor[i])
+            )
+          )
+          
+          tmp <- scores_i_j_multi[i,]
+          tmp$multi <- paste0(tmp$multi, '.grid')
+          tmp$top1 <- pop
+          tmp$predictor <-
+              gsub('.profiles',
+                   paste0('.', pop, '_grid.profiles'),
+                   scores_i_j_multi$predictor[i])
+          
+          scores_i_j_multi_top1 <- rbind(scores_i_j_multi_top1, tmp)
+        }
+      }
+
+      # Split pop-specific pseudo scores by target population
+      scores_i_j_multi_pop_pseudo<-NULL
+      for(i in 1:nrow(scores_i_j_multi)){
+        score_header<-fread(scores_i_j_multi$predictor[i], nrow = 1)
+        
+        for(pop in c('EUR', disc_pop_j_2)){
+          
+          if(scores_i_j_multi$method[i] == 'prscsx'){
+            score_cols <-
+              which(grepl(paste0('^FID$|^IID$|_', pop, '_phi_auto'), names(score_header)))
+          }
+          
+          system(
+            paste0(
+              "cut -d' ' -f ", 
+              paste0(score_cols, collapse=','),
+              " ", 
+              scores_i_j_multi$predictor[i], 
+              " > ", 
+              gsub('.profiles',
+                   paste0('.', pop, '_pseudo.profiles'),
+                   scores_i_j_multi$predictor[i])
+            )
+          )
+          
+          tmp <- scores_i_j_multi[i,]
+          tmp$multi <- paste0(tmp$multi, '.pop_pseudo')
+          tmp$top1 <- pop
+          tmp$predictor <-
+              gsub('.profiles',
+                   paste0('.', pop, '_pseudo.profiles'),
+                   scores_i_j_multi$predictor[i])
+          
+          scores_i_j_multi_pop_pseudo <- rbind(scores_i_j_multi_pop_pseudo, tmp)
+        }
+      }
+      
+      # Create pseudo score for multi-source methods
+      scores_i_j_multi_pseudo<-NULL
+      for(i in 1:nrow(scores_i_j_multi)) {
+        param <- find_pseudo(
+          config = config,
+          gwas = scores_i_j_multi$name[i],
+          pgs_method = scores_i_j_multi$method[i],
+          target_pop = targ_pop_i
+        )
+        
+        score_header <-
+          fread(scores_i_j_multi$predictor[i], nrows = 1)
+        score_cols <-
+          which(names(score_header) %in% c('FID', 'IID', paste0(scores_i_j_multi$name[i], '_', param)))
+
+        system(
+          paste0(
+            "cut -d' ' -f ", 
+            paste0(score_cols, collapse=','),
+            " ", 
+            scores_i_j_multi$predictor[i], 
+            " > ", 
+            gsub('.profiles',
+                 paste0('.pseudo.profiles'),
+                 scores_i_j_multi$predictor[i])
+          )
+        )
+        
+        tmp <- scores_i_j_multi[i,]
+        tmp$multi <- paste0(tmp$multi, '.pseudo')
+        tmp$top1 <- paste0('EUR_', disc_pop_j_2)
+        tmp$predictor <-
+            gsub('.profiles',
+                 paste0('.pseudo.profiles'),
+                 scores_i_j_multi$predictor[i])
+        
+        scores_i_j_multi_pseudo <- rbind(scores_i_j_multi_pseudo, tmp)
+      }
+
+      ####
       # Combine the different predictor groups
       ####
       predictors_i<- do.call(rbind, list(
-        scores_i_j_single_top1, scores_i_j_single_pseudo, scores_i_j_multi_single_pseudo 
+        scores_i_j_single_top1, 
+        scores_i_j_single_pseudo, 
+        scores_i_j_multi_single_pseudo,
+        scores_i_j_multi_top1,
+        scores_i_j_multi_pop_pseudo,
+        scores_i_j_multi_pseudo
       ))
       
       predictors_i <- predictors_i[, c('predictor', 'multi','top1'), with=F]
