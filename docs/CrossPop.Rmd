@@ -1915,7 +1915,7 @@ for targ_pop in $(echo EAS AFR); do
   
   for disc_pop_i in ${disc_pop}; do
     for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
-      sbatch --mem 10G -n 5 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+      sbatch --mem 10G -n 5 -p interruptible_cpu --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
         --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
         --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/predictor_list.txt \
         --out /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res \
@@ -2013,6 +2013,7 @@ for(pheno_i in selected_traits){
   res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
                    grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTrain'
   res_eval_i$Model[grepl('quickprs_multi', res_eval_i$Group)]<-'SumStatTrain'
+  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTrain'
   
   
   res_eval_i$Source<-ifelse(
@@ -2038,6 +2039,11 @@ for(pheno_i in selected_traits){
     !(res_eval_i$Method %in%  c('ptclump') & 
       res_eval_i$Model %in% c('SumStatTrain','Multi-SumStatTrain')),]
 
+  # Remove top1 models for PRS-CSx
+  res_eval_i <- res_eval_i[
+    !(res_eval_i$Method %in%  c('prscsx') & 
+      grepl('top1', res_eval_i$Group)),]
+  
   # Remove any duplicate models
   res_eval_i <- res_eval_i[!duplicated(res_eval_i[, c(
     "Target", "Method", "Model", "Source", "Discovery"
@@ -2130,9 +2136,11 @@ meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','E
 # Comparison of models across methods, across target and discovery populations
 ####
 
+# Format results for nice plot
 tmp <- meta_res_eval
 tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method')
-tmp$label[grepl('Multi', tmp$Model)] <- paste0(tmp$label[grepl('Multi', tmp$Model)], '-Multi')
+tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods)] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods)], '-Multi')
+tmp$label <- factor(tmp$label, levels = unique(tmp$label[order(!(grepl('Multi', tmp$label)), tmp$label)]))
 tmp$Discovery_clean <- as.character(tmp$Discovery)
 tmp$Discovery_clean[tmp$Discovery == 'EUR'] <- 'EUR GWAS'
 tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Single'] <- 'Target-matched GWAS'
@@ -2153,6 +2161,7 @@ model_palette <- c(
 
 tmp$Model <- factor(tmp$Model, levels = names(model_palette))
 
+# Plot everything
 ggplot(tmp, aes(x=label, y=R , fill = Model)) +
     #geom_hline(yintercept = 0) +
     geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
@@ -2168,36 +2177,7 @@ ggplot(tmp, aes(x=label, y=R , fill = Model)) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
     scale_fill_manual(values = model_palette)
 
-ggplot(tmp[tmp$Discovery_clean == 'Target-matched GWAS',], aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
-    labs(y = "R (SE)", x='Method') +
-    facet_grid(. ~ Target, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    scale_fill_manual(values = model_palette)
-
-ggplot(tmp[tmp$Discovery_clean == 'EUR GWAS',], aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
-    labs(y = "R (SE)", x='Method') +
-    facet_grid(. ~ Target, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    scale_fill_manual(values = model_palette)
-
+# Simplify results showing results only with or without training data
 tmp_multi <- tmp[tmp$Discovery_clean == 'Both',]
 tmp_multi <- tmp
 tmp_multi$Model[tmp_multi$Model != 'SumStatTrain'] <- 'IndivTrain'
@@ -2217,58 +2197,6 @@ ggplot(tmp_multi, aes(x=label, y=R , fill = Model)) +
     background_grid() + 
     panel_border() + 
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    scale_fill_manual(values = model_palette)
-
-tmp_multi_pseudo <- tmp[tmp$Discovery_clean == 'Both',]
-tmp_multi_pseudo <- tmp_multi_pseudo[!duplicated(tmp_multi_pseudo[, c('label','Target'), with=F]),]
-tmp_multi_pseudo$Model <- 'IndivTrain'
-
-ggplot(tmp_multi_pseudo, aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
-    labs(y = "R (SE)", x='Method') +
-    facet_grid(. ~ Target, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    scale_fill_manual(values = model_palette)
-
-tmp_crossval <- tmp[tmp$Model %in% c('IndivTrain','Multi-IndivTrain'),]
-tmp_crossval$Model <- 'IndivTrain'
-
-ggplot(tmp_crossval, aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-    labs(y = "R (SE)", x='Method') +
-    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), legend.position = "none") +
-    scale_fill_manual(values = model_palette)
-
-tmp_pseudoval <- tmp[tmp$Model %in% c('SumStatTrain'),]
-
-ggplot(tmp_pseudoval, aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-    labs(y = "R (SE)", x='Method') +
-    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), legend.position = "none") +
     scale_fill_manual(values = model_palette)
 
 ####
@@ -2295,7 +2223,7 @@ mirror_comp<-function(x){
 }
   
 # Read in results
-targ_pop=c('EUR','EAS','AFR')
+targ_pop=c('EAS','AFR')
 res_comp <- list()
 for(pheno_i in selected_traits){
   res_comp_i<-NULL
@@ -2341,13 +2269,19 @@ res_comp_all <- do.call(rbind, lapply(names(res_comp), function(name) {
 
 # Annotate tests to get order correct
 res_comp_all$Method1<-sub('\\..*','',res_comp_all$Model_1)
+res_comp_all$Method1<-gsub('-.*','', res_comp_all$Method1)
 res_comp_all$Method2<-sub('\\..*','',res_comp_all$Model_2)
+res_comp_all$Method2<-gsub('-.*','', res_comp_all$Method2)
 
 find_model<-function(x){
   mod <- x
-  mod[grepl('top1', x)]<-'Top1'
-  mod[grepl('pseudo', x)]<-'Pseudo'
-  mod[!grepl('top1|pseudo', x)]<-'Multi'
+  mod[grepl('top1$', x) & !grepl('pseudo', x)] <- 'IndivTrain'
+  mod[grepl('top1$', x) & grepl('pseudo', x)] <- 'SumStatTrain'
+  mod[grepl('multi$', x) & !grepl('pseudo', x)] <- 'Multi-IndivTrain'
+  mod[grepl('multi$', x) & grepl('pseudo', x)] <- 'Multi-SumStatTrain'
+  mod[grepl('quickprs_multi', x)] <- 'SumStatTrain'
+  mod[x == 'prscsx.pseudo.multi'] <- 'SumStatTrain'
+  
   return(mod)
 }
 
@@ -2366,25 +2300,37 @@ res_comp_all$Discovery2[res_comp_all$Source2 == 'Multi'] <- res_comp_all$gwas_gr
 
 res_comp_all$Method1<-factor(res_comp_all$Method1, levels=unique(res_comp_all$Method1))
 res_comp_all$Method2<-factor(res_comp_all$Method2, levels=unique(res_comp_all$Method2))
-res_comp_all$Model1<-factor(res_comp_all$Model1, levels=c('Top1','Pseudo','Multi'))
-res_comp_all$Model2<-factor(res_comp_all$Model2, levels=c('Top1','Pseudo','Multi'))
+res_comp_all$Model1<-factor(res_comp_all$Model1, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+res_comp_all$Model2<-factor(res_comp_all$Model2, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
 res_comp_all$Discovery1<-factor(res_comp_all$Discovery1, levels=rev(c('AFR','EAS','EUR','EUR+AFR','EUR+EAS')))
 res_comp_all$Discovery2<-factor(res_comp_all$Discovery2, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
-# Remove Multi model for groups that contain one score (aka QuickPRS and SBayesRC)
+# Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
 res_comp_all <- res_comp_all[
-  !(res_comp_all$Method1 %in%  c('sbayesrc', 'quickprs') & 
-    res_comp_all$Model1 == 'Multi' & 
-    res_comp_all$Source1 == 'Single'),]
-
+!(res_comp_all$Method1 %in%  c('quickprs','sbayesrc') & 
+  res_comp_all$Model1 %in% c('IndivTrain','Multi-IndivTrain')),]
 res_comp_all <- res_comp_all[
-  !(res_comp_all$Method2 %in%  c('sbayesrc', 'quickprs') & 
-    res_comp_all$Model2 == 'Multi' & 
-    res_comp_all$Source2 == 'Single'),]
+!(res_comp_all$Method2 %in%  c('quickprs','sbayesrc') & 
+  res_comp_all$Model2 %in% c('IndivTrain','Multi-IndivTrain')),]
 
-# Remove pseudo model for methods that don't really have one (single source combo)
-res_comp_all <- res_comp_all[!which(res_comp_all$Model1 == 'Pseudo' & res_comp_all$Method1 == 'ptclump'),]
-res_comp_all <- res_comp_all[!which(res_comp_all$Model2 == 'Pseudo' & res_comp_all$Method2 == 'ptclump'),]
+# Remove pseudo model for methods that don't really have one 
+res_comp_all <- res_comp_all[
+!(res_comp_all$Method1 %in%  c('ptclump') & 
+  res_comp_all$Model1 %in% c('SumStatTrain','Multi-SumStatTrain')),]
+res_comp_all <- res_comp_all[
+!(res_comp_all$Method2 %in%  c('ptclump') & 
+  res_comp_all$Model2 %in% c('SumStatTrain','Multi-SumStatTrain')),]
+
+# Remove top1 models for PRS-CSx
+res_comp_all <- res_comp_all[
+!(res_comp_all$Method1 %in%  c('prscsx') & 
+  grepl('top1', res_comp_all$Model_1)),]
+res_comp_all <- res_comp_all[
+!(res_comp_all$Method2 %in%  c('prscsx') & 
+  grepl('top1', res_comp_all$Model_2)),]
+
+# Remove any comparisons
+res_comp_all <- res_comp_all[!duplicated(res_comp_all[, c("Target", "Method1", "Model1", "Source1", "Discovery1", "Method2", "Model2", "Source2", "Discovery2")]),]
 
 library(MAd)
 
@@ -2470,7 +2416,7 @@ meta_res_comp$indep_star[meta_res_comp$R_diff_p < 1e-6]<-'***'
 meta_res_comp<-meta_res_comp[order(meta_res_comp$Discovery1, meta_res_comp$Discovery2, meta_res_comp$Method1),]
 
 heatmap_list<-NULL
-for(model_i in c('Top1','Pseudo','Multi')){
+for(model_i in c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain')){
   heatmap_list[[model_i]]<-list()
   for(targ_pop_i in targ_pop){
     if(targ_pop_i == 'EAS'){
@@ -2532,13 +2478,14 @@ for(model_i in c('Top1','Pseudo','Multi')){
 ####
 # Plot R compared to top1 model where GWAS matches target population
 ####
-meta_res_comp_ptclump_top1<-meta_res_comp[meta_res_comp$Model2 == 'Top1' & meta_res_comp$Method2 == 'ptclump' & meta_res_comp$Discovery2 == meta_res_comp$Target,]
+
+meta_res_comp_ptclump_top1<-meta_res_comp[meta_res_comp$Model2 == 'IndivTrain' & meta_res_comp$Method2 == 'ptclump' & meta_res_comp$Discovery2 == meta_res_comp$Target,]
 meta_res_comp_ptclump_top1$reference_point<-F
-meta_res_comp_ptclump_top1$reference_point[meta_res_comp_ptclump_top1$Model1 == 'Top1' & meta_res_comp_ptclump_top1$Method1 == 'ptclump' & meta_res_comp_ptclump_top1$Discovery1 == meta_res_comp_ptclump_top1$Target]<-T
+meta_res_comp_ptclump_top1$reference_point[meta_res_comp_ptclump_top1$Model1 == 'IndivTrain' & meta_res_comp_ptclump_top1$Method1 == 'ptclump' & meta_res_comp_ptclump_top1$Discovery1 == meta_res_comp_ptclump_top1$Target]<-T
 meta_res_comp_ptclump_top1$R_diff[is.na(meta_res_comp_ptclump_top1$R_diff)]<-0
 meta_res_comp_ptclump_top1$Discovery1 <- factor(meta_res_comp_ptclump_top1$Discovery1, levels=rev(levels(meta_res_comp_ptclump_top1$Discovery1)))
 
-res_comp_all_ptclump_top1<-res_comp_all[res_comp_all$Model2 == 'Top1' & res_comp_all$Method2 == 'ptclump' & res_comp_all$Discovery2 == res_comp_all$Target,]
+res_comp_all_ptclump_top1<-res_comp_all[res_comp_all$Model2 == 'IndivTrain' & res_comp_all$Method2 == 'ptclump' & res_comp_all$Discovery2 == res_comp_all$Target,]
 res_comp_all_ptclump_top1$Discovery1 <-  factor(res_comp_all_ptclump_top1$Discovery1, levels=levels(meta_res_comp_ptclump_top1$Discovery1))
 
 # Create data to plot reference points
