@@ -65,8 +65,9 @@ list_score_files <- function(config){
     combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = pgs_methods_list))
   }
 
-  combos <- data.table(apply(combos, 2, as.character))
-
+  combos <- data.table(combos)
+  combos <- combos[, lapply(.SD, as.character)]
+  
   return(combos)
 }
 
