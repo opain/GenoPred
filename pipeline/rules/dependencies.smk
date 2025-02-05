@@ -372,40 +372,41 @@ if 'sbayesrc' in config['pgs_methods']:
 ####
 if config['refdir'] == 'NA':
     refdir = f"{resdir}/data/ref"
+    ref_input=f"{refdir}/ref.pop.txt"
 else:
     refdir = config['refdir']
 
-ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in get_chr_range(testing=config['testing']) for ext in ['pgen', 'pvar', 'psam', 'rds']]
-ref_input.append(os.path.join(refdir, 'ref.pop.txt'))
-
-# Read populations from ref.pop.txt
-populations = set()
-ref_pop_file = os.path.join(refdir, 'ref.pop.txt')
-if os.path.exists(ref_pop_file):
-    with open(ref_pop_file, 'r') as f:
-        next(f)  # Skip header
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) == 2:
-                populations.add(parts[1])
-
-# Check keep files for populations in ref.pop.txt
-keep_dir = os.path.join(refdir, "keep_files")
-for pop in populations:
-    keep_file = os.path.join(keep_dir, f"{pop}.keep")
-    ref_input.append(keep_file)
-
-# Check frequency files for populations in ref.pop.txt and TRANS
-freq_dir = os.path.join(refdir, "freq_files")
-for pop in list(populations) + ['TRANS']:
-    for i in range(1, 23):  # Chromosomes 1-22
-        freq_file = os.path.join(freq_dir, pop, f"ref.{pop}.chr{i}.afreq")
-        ref_input.append(freq_file)
-
-# Verify that all required files exist
-for full_path in ref_input:
-    if not os.path.exists(full_path):
-        raise FileNotFoundError(f"File not found: {full_path}. Check reference data format.")
+    ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in get_chr_range(testing=config['testing']) for ext in ['pgen', 'pvar', 'psam', 'rds']]
+    ref_input.append(os.path.join(refdir, 'ref.pop.txt'))
+    
+    # Read populations from ref.pop.txt
+    populations = set()
+    ref_pop_file = os.path.join(refdir, 'ref.pop.txt')
+    if os.path.exists(ref_pop_file):
+        with open(ref_pop_file, 'r') as f:
+            next(f)  # Skip header
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) == 2:
+                    populations.add(parts[1])
+    
+    # Check keep files for populations in ref.pop.txt
+    keep_dir = os.path.join(refdir, "keep_files")
+    for pop in populations:
+        keep_file = os.path.join(keep_dir, f"{pop}.keep")
+        ref_input.append(keep_file)
+    
+    # Check frequency files for populations in ref.pop.txt and TRANS
+    freq_dir = os.path.join(refdir, "freq_files")
+    for pop in list(populations) + ['TRANS']:
+        for i in range(1, 23):  # Chromosomes 1-22
+            freq_file = os.path.join(freq_dir, pop, f"ref.{pop}.chr{i}.afreq")
+            ref_input.append(freq_file)
+    
+    # Verify that all required files exist
+    for full_path in ref_input:
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"File not found: {full_path}. Check reference data format.")
 
 #####
 
@@ -1045,7 +1046,7 @@ rule download_default_ref:
     {{
       rm -r {resdir}/data/ref; \
       mkdir -p {resdir}/data/ref; \
-      wget --no-check-certificate -O {resdir}/data/ref/genopred_1kg_hgdp.tar.gz https://zenodo.org/records/10666983/files/genopred_1kg_hgdp.tar.gz?download=1; \
+      gdown --id 1vYH6V-7F68Ji1vy9TaH0ysjmdYJFef-f -O resources/data/ref/genopred_1kg_hgdp.tar.gz; \
       tar -xzvf {resdir}/data/ref/genopred_1kg_hgdp.tar.gz -C {resdir}/data/ref/; \
       mv {resdir}/data/ref/ref/* {resdir}/data/ref/; \
       rm -r {resdir}/data/ref/ref; \
