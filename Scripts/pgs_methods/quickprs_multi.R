@@ -69,9 +69,6 @@ if(is.null(opt$output)){
 if(is.null(opt$ldak)){
   stop('--ldak must be specified.\n')
 }
-if(is.null(opt$quickprs_ldref)){
-  stop('--quickprs_ldref must be specified.\n')
-}
 if(is.null(opt$quickprs_multi_ldref)){
   stop('--quickprs_multi_ldref must be specified.\n')
 }
@@ -104,6 +101,9 @@ log_add(log_file = log_file, message = paste0(length(sumstats), ' sets of GWAS h
 
 # Split opt$populations
 populations<-unlist(strsplit(opt$populations, ','))
+
+# Split opt$scores
+score_files<-unlist(strsplit(opt$scores, ','))
 
 #####
 # Format the sumstats
@@ -154,12 +154,8 @@ log_add(log_file = log_file, message = 'Running QuickPRS using full sumstats.')
 
 score_full <- list()
 for(i in 1:length(sumstats)){
-  score_full[[populations[i]]] <- quickprs(
-    sumstats = paste0(tmp_dir,'/GWAS_sumstats_temp', i, '.txt'),
-    quickprs_ldref = paste0(opt$quickprs_ldref, '/', populations[i]),
-    genomic_control = opt$genomic_control,
-    n_cores = opt$n_cores,
-    prs_model = opt$prs_model)
+  score_full[[populations[i]]] <- fread(paste0(score_files[i]))
+  names(score_full[[populations[i]]])[4] <- paste0('SCORE_targ_', populations[i])
 }
 
 #####
@@ -254,6 +250,7 @@ for(targ_pop in populations){
   }
 }
 
+
 # Average weights across repeats
 mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'), log_file = log_file)
 
@@ -265,17 +262,7 @@ log_add(log_file = log_file, message = 'Creating score file.')
 
 # Combine the scores from each population
 score_all <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1','A2'), all = TRUE), score_full)
-names(score_all)[grepl('BETA', names(score_all))]<-paste0('SCORE_targ_', populations)
 score_all[is.na(score_all)]<-0
-
-# Read in reference SNP data
-ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
-
-# Change IDs to RSIDs
-ref$Predictor<-paste0(ref$CHR,':',ref$BP)
-names(score_all)[names(score_all) == 'SNP'] <- 'Predictor'
-score_all<-merge(score_all, ref[,c('Predictor','SNP'), with=F], by='Predictor')
-score_all<-score_all[, c('SNP', 'A1', 'A2', names(score_all)[grepl('SCORE_', names(score_all))]), with=F]
 
 # Flip effects to match reference alleles
 score_all <- map_score(ref = ref, score = score_all)
@@ -295,6 +282,9 @@ for(targ_pop in populations){
                               mix_weights = mix_weights,
                               targ_pop = targ_pop)
 }
+
+# Only retain weighted score columns
+score_weighted <- score_weighted[, c('SNP','A1','A2', names(score_weighted)[grepl('_weighted$', names(score_weighted))]), with=F]
 
 # Reduce number of significant figures to save space
 score_weighted[, (4:ncol(score_all)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_all)]

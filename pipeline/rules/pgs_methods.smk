@@ -736,6 +736,7 @@ rule prep_pgs_quickprs_multi_i:
     time_min=2800
   threads: config['cores_prep_pgs']
   input:
+    lambda w: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group)),
     lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{quickprs_multi_ldref}/{{population}}/{{population}}.subset_1.bed", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
@@ -754,6 +755,7 @@ rule prep_pgs_quickprs_multi_i:
     "../envs/xwing.yaml"
   params:
     sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    scores= lambda w: ",".join(expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group))),
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
     testing=config["testing"]
   shell:
@@ -762,6 +764,7 @@ rule prep_pgs_quickprs_multi_i:
       --ref_freq_chr {refdir}/freq_files \
       --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
+      --scores {params.scores} \
       --populations {params.populations} \
       --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
       --quickprs_ldref {quickprs_ldref} \
