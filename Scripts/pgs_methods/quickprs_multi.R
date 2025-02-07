@@ -22,6 +22,8 @@ option_list = list(
               help="Memory limit [optional]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
               help="Comma-seperated list of GWAS summary statistics [required]"),
+  make_option("--scores", action="store", default=NULL, type='character',
+              help="Comma-seperated list of score files [required]"),
   make_option("--populations", action="store", default=NULL, type='character',
               help="Comma-seperated list of population codes matching GWAS [required]"),
   make_option("--ldak", action="store", default=NA, type='character',
@@ -264,8 +266,8 @@ log_add(log_file = log_file, message = 'Creating score file.')
 score_all <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1','A2'), all = TRUE), score_full)
 score_all[is.na(score_all)]<-0
 
-# Flip effects to match reference alleles
-score_all <- map_score(ref = ref, score = score_all)
+# Read in reference SNP data
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
 
 # Calculate linear combination of scores using mixing weights for each target population
 score_weighted <- score_all
