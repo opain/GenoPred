@@ -556,34 +556,51 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
   fwrite(scores_pcs_resid, paste0(output,'-TRANS.profiles'), sep=' ', na='NA', quote=F)
 }
 
-# Adjust PGS for ancestry using reference PC models
+# Adjust PGS for ancestry using reference PC models with parallel processing
 score_adjust <- function(score, pcs, ref_model) {
-  # Convert score and pcs to data.table if not already
-  setDT(score)
-  setDT(pcs)
+  # Store original column order
+  original_order <- names(score)
   
   # Ensure pcs is keyed on FID and IID for efficient joins
   setkey(pcs, FID, IID)
+
+  # Get list of score columns (excluding FID and IID)
+  score_cols <- setdiff(names(score), c("FID", "IID"))
   
-  # Loop through each score column (skipping FID and IID)
-  for (col_name in names(score)[-1:-2]) {
-    # Retrieve models for the current score
-    mean_model <- ref_model[[col_name]]$mean_model
-    var_model <- ref_model[[col_name]]$var_model
+  # Process columns in chunks to reduce memory load
+  chunk_size <- 200
+  for (i in seq(1, length(score_cols), by = chunk_size)) {
+    # Get a subset of columns to process in this iteration
+    chunk <- score_cols[i:min(i + chunk_size - 1, length(score_cols))]
     
-    # Calculate residuals directly in `score`
-    score[, (col_name) := {
-      # Get corresponding rows from pcs by FID and IID
-      pc_data <- pcs[.SD, on = .(FID, IID)]
+    # Parallel computation using foreach
+    chunk_results <- foreach(col_name = chunk, .packages = c("data.table")) %dopar% {
+      # Retrieve models for the current score
+      mean_model <- ref_model[[col_name]]$mean_model
+      var_model <- ref_model[[col_name]]$var_model
+      
+      # Get corresponding rows from pcs
+      pc_data <- pcs[score, on = .(FID, IID)]
       
       # Predict mean and variance
       predicted_pgs <- predict(mean_model, newdata = pc_data)
       predicted_pgs_var <- exp(predict(var_model, newdata = pc_data))
       
       # Compute residuals
-      round((get(col_name) - predicted_pgs) / sqrt(predicted_pgs_var), 3)
-    }, .SDcols = c("FID", "IID", col_name)]
+      adjusted_score <- round((score[[col_name]] - predicted_pgs) / sqrt(predicted_pgs_var), 3)
+      
+      # Return results as a list (column name + values)
+      list(col_name = col_name, values = adjusted_score)
+    }
+    
+    # **Write results back to `score` immediately, to avoid holding large objects in memory**
+    for (res in chunk_results) {
+      set(score, j = res$col_name, value = res$values)
+    }
   }
+  
+  # Reorder columns to match original order
+  setcolorder(score, original_order)
   
   # Return only relevant columns (FID, IID, and adjusted scores)
   return(score)
