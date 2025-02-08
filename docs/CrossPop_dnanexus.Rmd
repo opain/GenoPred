@@ -107,6 +107,190 @@ snakemake -j 1 --use-conda --configfile=/home/dnanexus/ukb/configs/basic/config.
 
 I run into an issue where the mount breaks. I get error 'Transport endpoint is not connected.'.
 
+***
+
+# Make a reproducible example of mounting issue
+
+This will help the DNAnexus team fix it.
+
+```{bash}
+dx run cloud_workstation --instance-type mem2_hdd2_v2_x2 -imax_session_length=48h --allow-ssh
+```
+
+```{bash}
+# Start a tmux session
+tmux
+
+mkdir ~/software
+cd ~/software
+
+# Download PLINK2
+wget https://s3.amazonaws.com/plink2-assets/alpha6/plink2_linux_avx2_20250129.zip
+unzip plink2_linux_avx2_20250129.zip
+
+# Download and install dxfuse
+wget https://github.com/dnanexus/dxfuse/releases/download/v1.4.1/dxfuse-linux
+chmod a+x dxfuse-linux
+
+# Mount the UKB genetic data
+mkdir -p ~/projects
+~/software/dxfuse-linux -uid $(id -u) -gid $(id -g) -verbose 2 ~/projects project-Gx7VQQ8JbZj8yPqKFF1bFZxy
+
+# Convert UKB imputed genetic data to plink2 format
+mkdir -p ~/ukb/
+
+~/software/plink2 \
+  --bgen ~/projects/Oliver_Pain_Fellowship/Bulk/Imputation/UKB\ imputation\ from\ genotype/ukb22828_c22_b0_v3.bgen ref-last \
+  --sample ~/projects/Oliver_Pain_Fellowship/Bulk/Imputation/UKB\ imputation\ from\ genotype/ukb22828_c22_b0_v3.sample \
+  --make-pgen 'pvar-cols=' \
+  --threads 1 \
+  --out ~/ukb/ukb22828_c22_b0_v3
+
+# There is no error when running like this.
+# See whether there is an error when running within GenoPred.
+```
+
+```{bash}
+# Start a tmux session
+tmux
+
+mkdir ~/software
+cd ~/software
+
+# Download and install dxfuse
+wget https://github.com/dnanexus/dxfuse/releases/download/v1.4.1/dxfuse-linux
+chmod a+x dxfuse-linux
+
+# Mount the UKB genetic data
+mkdir -p ~/projects
+~/software/dxfuse-linux -uid $(id -u) -gid $(id -g) -verbose 2 ~/projects project-Gx7VQQ8JbZj8yPqKFF1bFZxy
+
+# Create symlinks to imputed UKB data
+mkdir -p ~/ukb/ukb_symlinks
+
+for chr in $(seq 1 22);do
+  for file in $(echo bgen bgen.bgi);do
+    ln -s ~/projects/Oliver_Pain_Fellowship/Bulk/Imputation/UKB\ imputation\ from\ genotype/ukb22828_c${chr}_b0_v3.${file} ~/ukb/ukb_symlinks/ukb_imp.chr${chr}.${file}
+  done
+done
+
+ln -s ~/projects/Oliver_Pain_Fellowship/Bulk/Imputation/UKB\ imputation\ from\ genotype/ukb22828_c22_b0_v3.sample ~/ukb/ukb_symlinks/ukb_imp.sample
+
+# Create the require configuration files. 
+mkdir -p ~/ukb/configs/basic
+mkdir -p ~/ukb/GenoPred/output
+```
+
+```{r}
+# Create target list
+target_list <- data.frame(
+  name='ukb',
+  path='/home/dnanexus/ukb/ukb_symlinks/ukb_imp',
+  type='bgen',
+  indiv_report=F
+)
+
+write.table(target_list, '/home/dnanexus/ukb/configs/basic/target_list.txt', col.names=T, row.names=F, quote=F)
+
+# Create config file
+conf <- c(
+  'outdir: /home/dnanexus/ukb/GenoPred/output',
+  'config_file: /home/dnanexus/ukb/configs/basic/config.yaml',
+  'resdir: /home/dnanexus/ukb/GenoPred/resources',
+  'target_list: /home/dnanexus/ukb/configs/basic/target_list.txt',
+  'testing: chr22'
+)
+
+write.table(conf, '/home/dnanexus/ukb/configs/basic/config.yaml', col.names = F, row.names = F, quote = F)
+```
+
+```{bash}
+cd
+
+# Download GenoPred docker
+docker \
+  pull \
+  opaino/genopred_pipeline:latest
+  
+# Start interactive session inside container
+docker run \
+  --user $(id -u):$(id -g) \
+  --rm \
+  -it \
+  -v /home/dnanexus:/home/dnanexus \
+  -v /tools/GenoPred/pipeline:/tmp \
+  opaino/genopred_pipeline:latest
+
+# Activate GenoPred environment
+source /opt/mambaforge/etc/profile.d/conda.sh
+conda activate genopred
+
+cd /tools/GenoPred/pipeline
+git config --global --add safe.directory /tools/GenoPred
+
+snakemake -j 1 --use-conda --configfile=/home/dnanexus/ukb/configs/basic/config.yaml ancestry_inference -n
+
+# I am struggling to get GenoPred to work inside the docker image due to write permissions in the .snakemake folders. Doing this might help     -v /tmp:/mnt \
+
+```
+
+```{bash}
+# Configure keyboard layout (optional step to avoid prompts)
+echo 'keyboard-configuration keyboard-configuration/layout select us' | sudo debconf-set-selections
+echo 'keyboard-configuration keyboard-configuration/variant select English (US)' | sudo debconf-set-selections
+
+# Install required dependencies (e.g., tmux, build tools, and libraries for Singularity)
+sudo DEBIAN_FRONTEND=noninteractive apt update && \
+sudo DEBIAN_FRONTEND=noninteractive apt install -y build-essential libglib2.0-dev libseccomp-dev pkg-config squashfs-tools cryptsetup golang tmux
+
+# Set the Singularity version to install
+export VERSION=3.11.0
+
+# Download and extract the Singularity source code
+wget https://github.com/sylabs/singularity/releases/download/v${VERSION}/singularity-ce-${VERSION}.tar.gz
+tar -xvzf singularity-ce-${VERSION}.tar.gz
+cd singularity-ce-${VERSION}
+
+# Configure and build Singularity without SUID
+./mconfig --without-suid
+make -C builddir
+
+# Install Singularity system-wide
+sudo make -C builddir install
+
+# Return to the home directory
+cd ~
+```
+
+```{bash}
+# Connect to DNAnexus project   
+unset DX_WORKSPACE_ID
+dx cd $DX_PROJECT_CONTEXT_ID:
+
+# Download, update permissions and run script to install singularity
+dx download install_singularity.sh
+chmod a+x install_singularity.sh
+./install_singularitysh
+```
+
+```{bash}
+# Start interactive session inside singularity
+singularity shell \
+  --bind /home/dnanexus:/home/dnanexus \
+  --bind /tmp:/mnt \
+  --writable-tmpfs \
+  /home/dnanexus/projects/Oliver_Pain_Fellowship/genopred_pipeline_latest.sif
+  
+# Activate GenoPred environment
+source /opt/mambaforge/etc/profile.d/conda.sh
+conda activate genopred
+
+cd /tools/GenoPred/pipeline
+
+snakemake -j 1 --use-conda --configfile=/home/dnanexus/ukb/configs/basic/config.yaml ancestry_inference -n
+
+```
+***
 
 
 
