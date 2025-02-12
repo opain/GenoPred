@@ -1921,11 +1921,13 @@ for targ_pop in $(echo EAS AFR); do
   
   for disc_pop_i in ${disc_pop}; do
     for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
-      sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
-        --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
-        --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/predictor_list.txt \
-        --out /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res \
-        --n_core 5"
+      if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res.pred_comp.txt" ]; then
+        sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+          --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
+          --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/predictor_list.txt \
+          --out /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res \
+          --n_core 5"
+      fi
     done
   done
 done
@@ -2780,6 +2782,8 @@ dev.off()
 
 ### Check LEOPARD weights
 
+Here we will compare the LEOPARD estimated weights for population specific PGS, to the weights estimated using observed data in the UKB target sample.
+
 ```{r}
 setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
 
@@ -2800,84 +2804,48 @@ outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 # Get a list of score files
 scores <- list_score_files(config)
 
-# Read in gwas_groups
-gwas_groups<-read_param(config = config, param = 'gwas_groups', return_obj = T)
-
-# Read in gwas_list
-gwas_list<-read_param(config = config, param = 'gwas_list', return_obj = T)
-
 ###
 # Read in weights estimated by LEOPARD
 ###
-# Read in raw weights from QuickPRS, and standardise them according to the scale of the population specific PGS
+# Currently, we are only using LEOPARD to estimate the weights for QuickPRS PGS.
+# Read in the weights adjusted to account for standardised PGS (SD = 1).
+# Read in the weights for the non-EUR target sample (i.e. either AFR or EAS).
 
-methods<-c('quickprs_multi')
 leopard_weights<-NULL
-for(method_i in methods){
-  scores_method<-scores$name[scores$method == method_i]
-  for(i in selected_traits){
-    scores_i <- scores_method[grepl(paste0('^', i,'_'), scores_method)]
-    for(j in scores_i){
-        log <- readLines(paste0(outdir, '/reference/pgs_score_files/', method_i,'/', j, '/ref-', j, '.log'))
-        populations <- unlist(strsplit(gsub('populations| ','', log[grepl('^ populations', log)]), ','))
-        
-        weight_row <- which(grepl(paste0('LEOPARD weights - ', populations[populations != 'EUR'],' target'), log))
-        weight_row <- weight_row + 1:2
-        log<-log[weight_row]
-        log <- as.numeric(gsub('.* ', '', log))
-        
-        contributing_gwas <- unlist(strsplit(gwas_groups$gwas[gwas_groups$name == j], ','))
-        
-        scale_all <- NULL
-        for(k in contributing_gwas){
-          scale<-fread(paste0(outdir, '/reference/pgs_score_files/quickprs/', k, '/ref-', k, '-', populations[populations != 'EUR'], '.scale'))
-          scale_all <- rbind(
-            scale_all, 
-            data.table(
-              SD = scale$SD,
-              Discovery = gwas_list$population[gwas_list$name == k]
-            )
-          )
-        }
-        
-        weights <-
-          data.table(
-            Target =  populations[populations != 'EUR'],
-            Discovery = populations,
-            Weight = round(log, 3),
-            Trait = i,
-            Method = method_i
-          )
-        
-        weights <- merge(weights, scale_all, by = 'Discovery')
-        
-        # Adjust weights to standardize for PGS SD = 1
-        adjust_weights <- function(weights, pgs_sd) {
-          adjusted_weights <- weights * pgs_sd
-          # Normalize weights so they sum to 1
-          normalized_weights <- adjusted_weights * (1 / sum(adjusted_weights))
-          return(normalized_weights)
-        }
-        
-        weights$Adjusted_Weight <- adjust_weights(
-          weights$Weight,
-          weights$SD)
-
-        leopard_weights <- rbind(leopard_weights, weights)
-    }
+scores_quickprs <- scores$name[scores$method == 'quickprs_multi']
+for(i in selected_traits){
+  scores_i <- scores_quickprs[grepl(paste0('^', i,'_'), scores_quickprs)]
+  for(j in scores_i){
+      log <- readLines(paste0(outdir, '/reference/pgs_score_files/quickprs_multi/', j, '/ref-', j, '.log'))
+      populations <- unlist(strsplit(gsub('populations| ','', log[grepl('^ populations', log)]), ','))
+      
+      weight_row <- which(grepl(paste0('Adjusted LEOPARD weights - ', populations[populations != 'EUR'],' target'), log))
+      weight_row <- weight_row + 1:2
+      log <- log[weight_row]
+      log <- as.numeric(gsub('.* ', '', log))
+      
+      weights <-
+        data.table(
+          Target =  populations[populations != 'EUR'],
+          Discovery = populations,
+          Weight = round(log, 3),
+          Trait = i,
+          Method = 'quickprs_multi'
+        )
+      
+      leopard_weights <- rbind(leopard_weights, weights)
   }
-
 }
 
+#####
+# Read in the PGS weights estimated using UKB data
+#####
+# Read in the final model coefficients for models containing pseudo PGS from single-source methods
 
 obs_weights<-NULL
 for(method_i in unique(scores$method)[!(unique(scores$method) %in% pgs_group_methods)]){
-  
   scores_method<-scores$name[scores$method == method_i]
-  ###
-  # Read in weights when training in UKB
-  ###
-  
+
   for(i in selected_traits){
     for(j in c('EAS','AFR')){
       model <- fread(paste0('~/oliverpainfel/Analyses/crosspop/targ_', j, '.disc_EUR_', j, '/', i, '/final_models/', method_i, '.pseudo.multi.final_model.txt'))
@@ -2896,64 +2864,94 @@ for(method_i in unique(scores$method)[!(unique(scores$method) %in% pgs_group_met
   }
 }
 
-ggplot(obs_weights[obs_weights$Target == obs_weights$Discovery,], aes(x = Trait, y = Weight, fill = Method)) +
-  geom_bar(position="dodge", stat="identity") +
-  facet_grid(. ~ Target)
-
-
 ###
 # Combine and compare
 ###
 
-leopard_weights$SD <- NULL
-leopard_weights_adjusted <- leopard_weights
-leopard_weights_adjusted$Weight <- leopard_weights_adjusted$Adjusted_Weight
-leopard_weights$Adjusted_Weight <- NULL
-leopard_weights_adjusted$Adjusted_Weight <- NULL
-
 leopard_weights$Method <- 'LEOPARD'
-leopard_weights_adjusted$Method <- 'LEOPARD adjusted'
-
-both <- do.call(rbind, list(obs_weights, leopard_weights, leopard_weights_adjusted))
+both <- do.call(rbind, list(obs_weights, leopard_weights))
 both <- both[both$Discovery != 'EUR',]
 both$Target <- paste0('Target = ', both$Target)
 
+# Plot the estimated and observed weights
 ggplot(both, aes(x = Trait, y = Weight, fill = Method)) +
   geom_bar(position="dodge", stat="identity") +
-  facet_grid(. ~ Target)
+  facet_grid(. ~ Target) +
+  theme_half_open() +
+  background_grid(major = 'y', minor = 'y') + 
+  panel_border()
 
-ggplot(both[both$Method %in% c('LEOPARD','LEOPARD adjusted','sbayesrc'),], aes(x = Trait, y = Weight, fill = Method)) +
-  geom_bar(position="dodge", stat="identity") +
-  facet_grid(. ~ Target)
-
+# Calculate correlation between weights from each method
 both$Discovery<-NULL
 both_wide <- reshape(both, 
                      idvar = c("Trait", "Target"), 
                      timevar = "Method", 
                      direction = "wide")
+names(both_wide) <- gsub('Weight.', '', names(both_wide))
 
-cor(both_wide[, -1:-2])
+cor_matrix_EAS <- cor(both_wide[both_wide$Target == 'Target = EAS', -1:-2])
+cor_matrix_AFR <- cor(both_wide[both_wide$Target == 'Target = AFR', -1:-2])
 
-obvs_vs_leopard <- merge(obs_weights, leopard_weights_adjusted, by=c('Target','Discovery','Trait'))
+# Convert correlation matrix to long format for ggplot
+cor_df_EAS <- melt(cor_matrix_EAS)
+cor_df_AFR <- melt(cor_matrix_AFR)
+cor_df_EAS$Target <- 'Target = EAS'
+cor_df_AFR$Target <- 'Target = AFR'
+cor_df <- rbind(cor_df_AFR, cor_df_EAS)
+
+# Create ggplot correlation heatmap with text inside
+ggplot(cor_df, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +  # Tile plot with white borders
+  geom_text(aes(label = round(value, 2)), color = "black") +  # Add correlation values
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +  # Color scale
+  theme_half_open() +
+  panel_border() + 
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank()
+  ) +
+  facet_grid(. ~ Target) +
+  labs(fill = "Correlation")
+
+# Plot comparison between observed and LEOPARD weights
+obvs_vs_leopard <- merge(obs_weights, leopard_weights, by=c('Target','Discovery','Trait'))
 
 ggplot(obvs_vs_leopard, aes(x=Weight.x, y=Weight.y, colour = Method.x)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
   geom_point() +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black")
+  theme_half_open() +
+  panel_border() + 
+  facet_grid(. ~ Target) +
+  labs(y = 'LEOPARD weight', x = 'Observed weight') +
+  xlim(c(0,1)) +
+  ylim(c(0,1))
 
 mean_abs_diff <- aggregate(abs(obvs_vs_leopard$Weight.x - obvs_vs_leopard$Weight.y),
                            by = list(Method = obvs_vs_leopard$Method.x, Population = obvs_vs_leopard$Target),
                            FUN = mean)
 
 # Rename columns
-colnames(mean_abs_diff) <- c("Method", "Mean_Absolute_Difference")
+colnames(mean_abs_diff) <- c("Method", "Target", "Mean_Absolute_Difference")
 
-# It looks like the observed weights are highly correlated across methods, but the LEOPARD weights are not. The LEOPARD weights seem more similar to observed for QuickPRS than LDpred2.
+#    Method                   Target  Mean_Absolute_Difference
+#    dbslmm                      AFR                0.19474126
+#  lassosum                      AFR                0.30388943
+#   ldpred2                      AFR                0.16107677
+#   megaprs                      AFR                0.22283358
+#     prscs                      AFR                0.17876755
+#   ptclump                      AFR                0.17443263
+#  quickprs                      AFR                0.18643385
+#  sbayesrc                      AFR                0.19114802
+#    dbslmm                      EAS                0.09235866
+#  lassosum                      EAS                0.09133249
+#   ldpred2                      EAS                0.09829542
+#   megaprs                      EAS                0.12050745
+#     prscs                      EAS                0.08538271
+#   ptclump                      EAS                0.10710789
+#  quickprs                      EAS                0.11950164
+#  sbayesrc                      EAS                0.10211742
 
-# The correlation and absolute difference between leopard and observed weights is actually quite similar between methods. LEOPARD is slightly better for QuickPRS, but I am not sure it explains the difference in pseudo PGS. I think it is likley due to the difference in PGS variance when applying the LEOPARD weights.
-
-# The LEOPARD weights seem less accurate when the PGS are scaled, but these weights could be used for any PGS method. Lets see how well this works for SBayesRC.I am running quickprs_multi again, without scaling using LEOPARD, but still scaling the quickprs weights. This will indicate whether it is the scaling of the weights or scaling within LEOPARD that is making it worse. 
-
-# Scaling within LEOPARD makes the weights worse for the EAS target, but it is scaling the PGS before applying weights that makes the PGS worse for AFR. This kind of makes sense as the scale of the EAS and EUR PGS are typically similar. 
+# The adjusted LEOPARD weights look good. It is less accurate for the AFR target, probably due to limited GWAS sample size and LD reference mismatch. The correlation between the observed pgs weights is quite consistent across methods as well. Given how fast QuickPRS is, and that preliminary analysis shows other methods might be more sensitive to small reference data, I think we should use the QuickPRS-based LEOPARD weights for other PGS methods as well.
 
 ```
 
