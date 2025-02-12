@@ -681,3 +681,11 @@ calculate_weighted_scores <- function(score, targ_pop, mix_weights) {
   
   return(score_combined)
 }
+
+# Adjust weights to correspond to PGS with SD of 1
+adjust_weights <- function(weights, pgs_sd) {
+  adjusted_weights <- weights * pgs_sd
+  # Normalize weights so they sum to 1
+  normalized_weights <- adjusted_weights * (1 / sum(adjusted_weights))
+  return(normalized_weights)
+}

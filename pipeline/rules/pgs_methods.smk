@@ -732,8 +732,7 @@ rule prep_pgs_tlprs:
 
 rule prep_pgs_quickprs_multi_i:
   resources:
-    mem_mb=20000,
-    time_min=2800
+    mem_mb=10000
   threads: config['cores_prep_pgs']
   input:
     lambda w: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group)),

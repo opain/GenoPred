@@ -149,10 +149,10 @@ if(!is.na(opt$test)){
 }
 
 #####
-# Run QuickPRS using full sumstats
+# Read QuickPRS scores when using full sumstats
 #####
 
-log_add(log_file = log_file, message = 'Running QuickPRS using full sumstats.')
+log_add(log_file = log_file, message = 'Reading in QuickPRS scores when using full sumstats.')
 
 score_full <- list()
 for(i in 1:length(sumstats)){
@@ -252,9 +252,40 @@ for(targ_pop in populations){
   }
 }
 
-
 # Average weights across repeats
 mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'), log_file = log_file)
+
+####
+# Adjust weights to correspond to PGS with SD of 1
+####
+
+# Read in the scale files for the original score files
+scale_all <- NULL
+for(i in 1:length(score_files)){
+  scale_file <- gsub('.score.gz', '', score_files[i])
+  scale_file <- paste0(scale_file, '-', populations[i], '.scale')
+  scale_file <- fread(scale_file)
+  
+  scale_all <- rbind(
+    scale_all, 
+    data.table(
+      SD = scale_file$SD,
+      Discovery = populations[i]
+    )
+  )
+}
+
+# Adjust weights to correspond to PGS with SD of 1
+log_add(log_file = log_file, message = '------------------------')
+for(i in populations){
+  mix_weights[[i]] <- adjust_weights(weights = mix_weights[[i]], pgs_sd = scale_all$SD)
+  
+  log_add(log_file = log_file, message = paste0("Adjusted LEOPARD weights - ", i, " target: "))
+  for(j in populations){
+    log_add(log_file = log_file, message = paste0(j, ' = ', mix_weights[[i]][which(populations == j)]))
+  }
+  log_add(log_file = log_file, message = '------------------------')
+}
 
 ####
 # Combine score files
@@ -266,8 +297,12 @@ log_add(log_file = log_file, message = 'Creating score file.')
 score_all <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1','A2'), all = TRUE), score_full)
 score_all[is.na(score_all)]<-0
 
-# Read in reference SNP data
+# Read in reference SNP and population data
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
+pop_data <- read_pop_data(opt$pop_data)
+
+# Subset PGS to SNPs in ref (useful when testing)
+score_all <- score_all[score_all$SNP %in% ref$SNP,]
 
 # Calculate linear combination of scores using mixing weights for each target population
 score_weighted <- score_all
@@ -277,6 +312,23 @@ for(targ_pop in populations){
   
   # Centre SNP-weights for target population
   score_i <- centre_weights(score = score_all, freq = freq_data, ref = ref)
+  
+  ###
+  # Scale weights to give PGS SD of 1 in target population
+  ###
+  
+  # Calculate scores in reference, and scale weights accordingly
+  fwrite(score_i, paste0(tmp_dir,'/tmp.',targ_pop,'.score'), col.names=T, sep=' ', quote=F)
+  
+  # Calc score in target sample
+  ref_pgs <- plink_score(pfile = opt$ref_plink_chr, keep = pop_data[pop_data$POP == targ_pop, c('FID'), with=F], chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/tmp.',targ_pop,'.score'), threads = opt$n_cores)
+  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs)
+  
+  # Rescale SNP-weights according to PGS SD in target
+  for(i in populations){
+    scaling_factor <- 1 / ref_pgs_scale_i$SD[ref_pgs_scale_i$Param == paste0('SCORE_targ_', i)]
+    score_i[[paste0('SCORE_targ_', i)]] <- score_i[[paste0('SCORE_targ_', i)]] * scaling_factor
+  }
   
   # Linearly combine scores using mixing weights for target population
   score_weighted[[paste0('SCORE_targ_', targ_pop, '_weighted')]] <-

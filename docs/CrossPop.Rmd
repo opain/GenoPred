@@ -1898,6 +1898,8 @@ for(trait_i in selected_traits){
 cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
 conda activate model_builder
 
+rm /users/k1806347/oliverpainfel/Analyses/crosspop/targ_*.disc_EUR*/*/res*
+
 for targ_pop in $(echo EAS AFR); do
   if [ "$targ_pop" == "EUR" ]; then
       targ_pop2="EUR_test"
@@ -2213,6 +2215,8 @@ mirror_comp<-function(x){
   x_sym <- x
   x_sym$Model_1 <- x$Model_2
   x_sym$Model_2 <- x$Model_1
+  x_sym$Model_1_R <- x$Model_2_R
+  x_sym$Model_2_R <- x$Model_1_R
   x_sym$R_diff <- -x_sym$R_diff
   x_mirrored <- rbind(x, x_sym)
   x_diag<-data.frame(
@@ -2493,13 +2497,13 @@ for(model_i in c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTr
 # Plot R compared to top1 model where GWAS matches target population
 ####
 
-meta_res_comp_ptclump_top1<-meta_res_comp[meta_res_comp$Model2 == 'IndivTrain' & meta_res_comp$Method2 == 'ptclump' & meta_res_comp$Discovery2 == meta_res_comp$Target,]
+meta_res_comp_ptclump_top1<-meta_res_comp[meta_res_comp$Model2 == 'IndivTrain' & meta_res_comp$Method2 == 'ptclump' & meta_res_comp$Discovery2 == 'EUR',]
 meta_res_comp_ptclump_top1$reference_point<-F
-meta_res_comp_ptclump_top1$reference_point[meta_res_comp_ptclump_top1$Model1 == 'IndivTrain' & meta_res_comp_ptclump_top1$Method1 == 'ptclump' & meta_res_comp_ptclump_top1$Discovery1 == meta_res_comp_ptclump_top1$Target]<-T
+meta_res_comp_ptclump_top1$reference_point[meta_res_comp_ptclump_top1$Model1 == 'IndivTrain' & meta_res_comp_ptclump_top1$Method1 == 'ptclump' & meta_res_comp_ptclump_top1$Discovery1 == 'EUR']<-T
 meta_res_comp_ptclump_top1$R_diff[is.na(meta_res_comp_ptclump_top1$R_diff)]<-0
 meta_res_comp_ptclump_top1$Discovery1 <- factor(meta_res_comp_ptclump_top1$Discovery1, levels=rev(levels(meta_res_comp_ptclump_top1$Discovery1)))
 
-res_comp_all_ptclump_top1<-res_comp_all[res_comp_all$Model2 == 'IndivTrain' & res_comp_all$Method2 == 'ptclump' & res_comp_all$Discovery2 == res_comp_all$Target,]
+res_comp_all_ptclump_top1<-res_comp_all[res_comp_all$Model2 == 'IndivTrain' & res_comp_all$Method2 == 'ptclump' & res_comp_all$Discovery2 == 'EUR',]
 res_comp_all_ptclump_top1$Discovery1 <-  factor(res_comp_all_ptclump_top1$Discovery1, levels=levels(meta_res_comp_ptclump_top1$Discovery1))
 
 # Create data to plot reference points
@@ -2610,12 +2614,12 @@ tmp$R_diff_perc <- tmp$R_diff / tmp$Model_2_R
 meta_tmp$R_diff_perc_SE <- meta_tmp$R_diff_SE / meta_tmp$Model_2_R
 
 ggplot(meta_tmp, aes(x=label, y=R_diff_perc , fill = Model1)) +
-#    geom_point(
-#        data = tmp,
-#        mapping = aes(x=label, y=R_diff_perc, colour=Model1),
-#        position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.7),
-#        alpha = 0.3
-#      ) +
+    geom_point(
+        data = tmp,
+        mapping = aes(x=label, y=R_diff_perc, colour=Model1),
+        position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.7),
+        alpha = 0.3
+      ) +
     geom_hline(yintercept = 0) +
       geom_errorbar(
         aes(
@@ -2650,8 +2654,308 @@ ggplot(meta_tmp, aes(x=label, y=R_diff_perc , fill = Model1)) +
     panel_border() + 
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
+ggplot(meta_tmp, aes(x=label, y=R_diff_perc , fill = Model1)) +
+    geom_point(
+        data = tmp,
+        mapping = aes(x=label, y=R_diff_perc, colour=Model1),
+        position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.7),
+        alpha = 0.3
+      ) +
+    geom_hline(yintercept = 0) +
+      geom_errorbar(
+        aes(
+          ymin = R_diff_perc - R_diff_perc_SE,
+          ymax = R_diff_perc + R_diff_perc_SE
+        ),
+        width = 0,
+        position = position_dodge(width = 0.7)
+      ) +    
+    geom_point(
+      stat = "identity",
+      position = position_dodge(0.7),
+      size = 3,
+      shape = 23
+    ) +
+    geom_point(
+        data = meta_tmp_ref,
+        aes(x = label, y = R_diff_perc, fill = Model1),
+        stat = "identity",
+        position = position_dodge(0.7), # Ensure same dodge as other points
+        size = 3,    # Increase size for emphasis
+        shape = 22,
+        stroke = 1.5,
+        show.legend=F
+    ) +
+    scale_y_continuous(labels = percent_format()) +
+    geom_vline(xintercept = seq(1.5, length(unique(meta_tmp$label))), linetype="dotted") +
+    labs(y = "R diff. (SE)") +
+    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid() + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+# Simplify results showing results only with or without training data
+meta_tmp_simple <- meta_tmp
+meta_tmp_simple$Model1<-as.character(meta_tmp_simple$Model1)
+meta_tmp_simple$Model1[meta_tmp_simple$Model1 == 'Multi-SumStatTrain'] <- 'IndivTrain of SumStatTrain'
+meta_tmp_simple$Model1[meta_tmp_simple$Model1 == 'Multi-IndivTrain'] <- 'IndivTrain'
+meta_tmp_ref_simple$Model1<-factor(meta_tmp_simple$Model1, levels = c('IndivTrain', 'SumStatTrain', 'IndivTrain of SumStatTrain'))
+meta_tmp_simple$Model2<-as.character(meta_tmp_simple$Model2)
+meta_tmp_simple$Model2[meta_tmp_simple$Model2 == 'Multi-SumStatTrain'] <- 'IndivTrain of SumStatTrain'
+meta_tmp_simple$Model2[meta_tmp_simple$Model2 == 'Multi-IndivTrain'] <- 'IndivTrain'
+meta_tmp_simple$Model2<-factor(meta_tmp_simple$Model2, levels = c('IndivTrain', 'SumStatTrain', 'IndivTrain of SumStatTrain'))
+meta_tmp_simple <- meta_tmp_simple[!duplicated(meta_tmp_simple[, c('label','Target','Discovery_clean','Model1','Model2'), with=F]),]
+
+meta_tmp_ref_simple <- meta_tmp_ref
+meta_tmp_ref_simple$Model1<-as.character(meta_tmp_ref_simple$Model1)
+meta_tmp_ref_simple$Model1[meta_tmp_ref_simple$Model1 == 'Multi-SumStatTrain'] <- 'IndivTrain of SumStatTrain'
+meta_tmp_ref_simple$Model1[meta_tmp_ref_simple$Model1 == 'Multi-IndivTrain'] <- 'IndivTrain'
+meta_tmp_ref_simple$Model1<-factor(meta_tmp_ref_simple$Model1, levels = c('IndivTrain', 'SumStatTrain', 'IndivTrain of SumStatTrain'))
+meta_tmp_ref_simple$Model2<-as.character(meta_tmp_ref_simple$Model2)
+meta_tmp_ref_simple$Model2[meta_tmp_ref_simple$Model2 == 'Multi-SumStatTrain'] <- 'IndivTrain of SumStatTrain'
+meta_tmp_ref_simple$Model2[meta_tmp_ref_simple$Model2 == 'Multi-IndivTrain'] <- 'IndivTrain'
+meta_tmp_ref_simple$Model2<-factor(meta_tmp_ref_simple$Model2, levels = c('IndivTrain', 'SumStatTrain', 'IndivTrain of SumStatTrain'))
+
+meta_tmp_ref_simple <- meta_tmp_ref_simple[!duplicated(meta_tmp_ref_simple[, c('label','Target','Discovery_clean','Model1','Model2'), with=F]),]
+
+# Export plot for poster presentation
+png('poster_plot1.png', width = 54, height = 36, res= 300, units = 'cm')
+ggplot(meta_tmp_simple, aes(x=label, y=R_diff_perc , fill = Model1)) +
+    geom_hline(yintercept = 0) +
+      geom_errorbar(
+        aes(
+          ymin = R_diff_perc - R_diff_perc_SE,
+          ymax = R_diff_perc + R_diff_perc_SE
+        ),
+        width = 0,
+        size = 1,
+        position = position_dodge(width = 0.7)
+      ) +    
+    geom_point(
+      stat = "identity",
+      position = position_dodge(0.7),
+      size = 7,
+      stroke = 1,
+      shape = 23
+    ) +
+    geom_point(
+        data = meta_tmp_ref_simple,
+        aes(x = label, y = R_diff_perc, fill = Model1),
+        stat = "identity",
+        position = position_dodge(0.7), # Ensure same dodge as other points
+        size = 7,    # Increase size for emphasis
+        shape = 22,
+        stroke = 1,
+        show.legend=F
+    ) +
+   scale_fill_manual(values = c(
+        "IndivTrain" = "#F8766D",   # Red
+        "SumStatTrain" = "#00BFC4", # Green
+        "IndivTrain of SumStatTrain" = "#CCFFFF" # Purple
+    )) +
+    geom_vline(xintercept = seq(1.5, length(unique(meta_tmp_simple$label))), linetype="dotted", size = 1) +
+    scale_y_continuous(labels = percent_format()) +
+    labs(y = "Relative Improvement (SE)", fill = NULL, colour = NULL, x = NULL) +
+    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(
+        axis.text.x = element_text(size = 24, angle = 45, vjust = 1, hjust = 1),  # Increase x-axis labels
+        axis.text.y = element_text(size = 24),  # Increase y-axis labels
+        axis.title = element_text(size = 24),  # Increase axis titles
+        strip.text = element_text(size = 24),  # Increase facet labels
+        legend.text = element_text(size = 24, hjust = 0.5),  # Increase legend text
+        legend.position = "top",
+        legend.key.spacing.x = unit(5, "cm"),
+        legend.justification = "center"
+    )
+dev.off()
+
 ```
 </details>
+
+***
+
+### Check LEOPARD weights
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in list of outcomes 
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml'
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+# Read in gwas_groups
+gwas_groups<-read_param(config = config, param = 'gwas_groups', return_obj = T)
+
+# Read in gwas_list
+gwas_list<-read_param(config = config, param = 'gwas_list', return_obj = T)
+
+###
+# Read in weights estimated by LEOPARD
+###
+# Read in raw weights from QuickPRS, and standardise them according to the scale of the population specific PGS
+
+methods<-c('quickprs_multi')
+leopard_weights<-NULL
+for(method_i in methods){
+  scores_method<-scores$name[scores$method == method_i]
+  for(i in selected_traits){
+    scores_i <- scores_method[grepl(paste0('^', i,'_'), scores_method)]
+    for(j in scores_i){
+        log <- readLines(paste0(outdir, '/reference/pgs_score_files/', method_i,'/', j, '/ref-', j, '.log'))
+        populations <- unlist(strsplit(gsub('populations| ','', log[grepl('^ populations', log)]), ','))
+        
+        weight_row <- which(grepl(paste0('LEOPARD weights - ', populations[populations != 'EUR'],' target'), log))
+        weight_row <- weight_row + 1:2
+        log<-log[weight_row]
+        log <- as.numeric(gsub('.* ', '', log))
+        
+        contributing_gwas <- unlist(strsplit(gwas_groups$gwas[gwas_groups$name == j], ','))
+        
+        scale_all <- NULL
+        for(k in contributing_gwas){
+          scale<-fread(paste0(outdir, '/reference/pgs_score_files/quickprs/', k, '/ref-', k, '-', populations[populations != 'EUR'], '.scale'))
+          scale_all <- rbind(
+            scale_all, 
+            data.table(
+              SD = scale$SD,
+              Discovery = gwas_list$population[gwas_list$name == k]
+            )
+          )
+        }
+        
+        weights <-
+          data.table(
+            Target =  populations[populations != 'EUR'],
+            Discovery = populations,
+            Weight = round(log, 3),
+            Trait = i,
+            Method = method_i
+          )
+        
+        weights <- merge(weights, scale_all, by = 'Discovery')
+        
+        # Adjust weights to standardize for PGS SD = 1
+        adjust_weights <- function(weights, pgs_sd) {
+          adjusted_weights <- weights * pgs_sd
+          # Normalize weights so they sum to 1
+          normalized_weights <- adjusted_weights * (1 / sum(adjusted_weights))
+          return(normalized_weights)
+        }
+        
+        weights$Adjusted_Weight <- adjust_weights(
+          weights$Weight,
+          weights$SD)
+
+        leopard_weights <- rbind(leopard_weights, weights)
+    }
+  }
+
+}
+
+
+obs_weights<-NULL
+for(method_i in unique(scores$method)[!(unique(scores$method) %in% pgs_group_methods)]){
+  
+  scores_method<-scores$name[scores$method == method_i]
+  ###
+  # Read in weights when training in UKB
+  ###
+  
+  for(i in selected_traits){
+    for(j in c('EAS','AFR')){
+      model <- fread(paste0('~/oliverpainfel/Analyses/crosspop/targ_', j, '.disc_EUR_', j, '/', i, '/final_models/', method_i, '.pseudo.multi.final_model.txt'))
+      model<-model[-1,]
+      names(model) <- c('x', 'BETA')
+      model$Discovery[grepl('UKB', model$x)]<-'EUR'
+      model$Discovery[grepl('BBJ', model$x)]<-'EAS'
+      model$Discovery[grepl('UGR', model$x)]<-'AFR'
+      model$Target <- j
+      model$Weight <- model$BETA/sum(model$BETA)
+      model$Trait <- i
+      model$Method <- method_i
+      model<-model[,c('Target','Discovery','Weight','Method','Trait'), with=F]
+      obs_weights<-rbind(obs_weights, model)
+    }
+  }
+}
+
+ggplot(obs_weights[obs_weights$Target == obs_weights$Discovery,], aes(x = Trait, y = Weight, fill = Method)) +
+  geom_bar(position="dodge", stat="identity") +
+  facet_grid(. ~ Target)
+
+
+###
+# Combine and compare
+###
+
+leopard_weights$SD <- NULL
+leopard_weights_adjusted <- leopard_weights
+leopard_weights_adjusted$Weight <- leopard_weights_adjusted$Adjusted_Weight
+leopard_weights$Adjusted_Weight <- NULL
+leopard_weights_adjusted$Adjusted_Weight <- NULL
+
+leopard_weights$Method <- 'LEOPARD'
+leopard_weights_adjusted$Method <- 'LEOPARD adjusted'
+
+both <- do.call(rbind, list(obs_weights, leopard_weights, leopard_weights_adjusted))
+both <- both[both$Discovery != 'EUR',]
+both$Target <- paste0('Target = ', both$Target)
+
+ggplot(both, aes(x = Trait, y = Weight, fill = Method)) +
+  geom_bar(position="dodge", stat="identity") +
+  facet_grid(. ~ Target)
+
+ggplot(both[both$Method %in% c('LEOPARD','LEOPARD adjusted','sbayesrc'),], aes(x = Trait, y = Weight, fill = Method)) +
+  geom_bar(position="dodge", stat="identity") +
+  facet_grid(. ~ Target)
+
+both$Discovery<-NULL
+both_wide <- reshape(both, 
+                     idvar = c("Trait", "Target"), 
+                     timevar = "Method", 
+                     direction = "wide")
+
+cor(both_wide[, -1:-2])
+
+obvs_vs_leopard <- merge(obs_weights, leopard_weights_adjusted, by=c('Target','Discovery','Trait'))
+
+ggplot(obvs_vs_leopard, aes(x=Weight.x, y=Weight.y, colour = Method.x)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black")
+
+mean_abs_diff <- aggregate(abs(obvs_vs_leopard$Weight.x - obvs_vs_leopard$Weight.y),
+                           by = list(Method = obvs_vs_leopard$Method.x, Population = obvs_vs_leopard$Target),
+                           FUN = mean)
+
+# Rename columns
+colnames(mean_abs_diff) <- c("Method", "Mean_Absolute_Difference")
+
+# It looks like the observed weights are highly correlated across methods, but the LEOPARD weights are not. The LEOPARD weights seem more similar to observed for QuickPRS than LDpred2.
+
+# The correlation and absolute difference between leopard and observed weights is actually quite similar between methods. LEOPARD is slightly better for QuickPRS, but I am not sure it explains the difference in pseudo PGS. I think it is likley due to the difference in PGS variance when applying the LEOPARD weights.
+
+# The LEOPARD weights seem less accurate when the PGS are scaled, but these weights could be used for any PGS method. Lets see how well this works for SBayesRC.I am running quickprs_multi again, without scaling using LEOPARD, but still scaling the quickprs weights. This will indicate whether it is the scaling of the weights or scaling within LEOPARD that is making it worse. 
+
+# Scaling within LEOPARD makes the weights worse for the EAS target, but it is scaling the PGS before applying weights that makes the PGS worse for AFR. This kind of makes sense as the scale of the EAS and EUR PGS are typically similar. 
+
+```
 
 ***
 
@@ -3536,30 +3840,36 @@ bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
 bm_dat_all$method <-
   gsub('_i', '', gsub('prep_pgs_', '', bm_dat_all$rule))
 
+bm_dat_all <- merge(bm_dat_all, pgs_method_labels, by = 'method')
+
 # Calculate average time taken for each method
 method_avg <- NULL
-for(i in unique(bm_dat_all$method)){
+for(i in unique(bm_dat_all$label)){
   method_avg <- rbind(
     method_avg,
     data.frame(
+      method = pgs_method_labels$method[pgs_method_labels$label == i],
       Method = i,
-      Time = mean(bm_dat_all$s[bm_dat_all$method == i])
+      Time = mean(bm_dat_all$s[bm_dat_all$label == i])
     )
   )
 }
+
+# Times X-Wing time by two since it used 20 cores, but other methods used 10
+method_avg$Time[method_avg$method == 'xwing'] <- method_avg$Time[method_avg$method == 'xwing'] * 2
 
 # Calculate average max_rss for each method
 method_avg_mem <- NULL
-for(i in unique(bm_dat_all$method)){
+for(i in unique(bm_dat_all$label)){
   method_avg_mem <- rbind(
     method_avg_mem,
     data.frame(
+      method = pgs_method_labels$method[pgs_method_labels$label == i],
       Method = i,
-      Memory = mean(bm_dat_all$max_rss[bm_dat_all$method == i])
+      Memory = mean(bm_dat_all$max_rss[bm_dat_all$label == i])
     )
   )
 }
-
 
 # Format the time taken nicely
 method_avg$Time_clean[method_avg$Time < 60] <-
@@ -3568,6 +3878,36 @@ method_avg$Time_clean[method_avg$Time > 60] <-
   paste0(round(method_avg$Time[method_avg$Time > 60] / 60, 1), ' min')
 method_avg$Time_clean[method_avg$Time > 3600] <-
   paste0(round(method_avg$Time[method_avg$Time > 3600] / 60 / 60, 1), ' hr')
+
+# Convert time in seconds to hours
+method_avg$Time_hour <- method_avg$Time / 60/60
+
+# Seperate methods by single or multi source
+method_avg$Type[!(method_avg$method %in% pgs_group_methods)]<-'Single-source'
+method_avg$Type[method_avg$method %in% pgs_group_methods]<-'Multi-source'
+
+method_avg$Type<-factor(method_avg$Type, levels = c('Single-source','Multi-source'))
+method_avg$Method <- factor(method_avg$Method, levels = c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC", "QuickPRS-Multi", "PRS-CSx", "X-Wing"))
+
+
+
+time <- ggplot(method_avg, aes(x = Method, y = Time_hour, fill = Method)) +
+  geom_bar(stat = "identity", position="dodge") +
+  geom_text(aes(label = Time_clean), vjust = 0.5, angle = 90, hjust = -0.2, position = position_dodge(width = 0.9), size = 7) +
+  labs(x = NULL, y = "Time (hours)") +
+  ylim(0, max(method_avg$Time_hour) + (max(method_avg$Time_hour)/5)) +
+  facet_grid(~ Type, scales='free', space = 'free_x') +
+  theme_half_open() +
+  background_grid(major = 'y', minor = 'y') + 
+  panel_border() + 
+  theme(axis.text.x = element_text(size = 24, angle = 45, hjust = 1), legend.position="none",
+        axis.text.y = element_text(size = 24),  # Increase y-axis labels
+        axis.title = element_text(size = 24),  # Increase axis titles
+        strip.text = element_text(size = 24))
+
+png('poster_plot2.png', width = 22, height = 31.5, res= 300, units = 'cm')
+  time
+dev.off()
 
 ggplot(method_avg, aes(x = Method, y = Time, fill = Method)) +
   geom_bar(stat = "identity", position="dodge") +
