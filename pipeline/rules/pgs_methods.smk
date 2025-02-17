@@ -620,8 +620,8 @@ rule leopard_quickprs:
 # Combine single-source PGS using LEOPARD weights
 ####
 
-# Define the single_source methods
-single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesr", "sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs"}
+# Define the single_source methods that can be applied to non-EUR data
+single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs"}
 
 # Find which single source methods have been requested
 requested_single_source_methods = list(single_source_methods.intersection(pgs_methods_all))
@@ -645,7 +645,7 @@ rule prep_pgs_multi_i:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/pgs_methods/quickprs_multi.R \
+    "Rscript ../Scripts/pgs_methods/apply_leopard_weights.R \
       --config {params.config_file} \
       --gwas_group {wildcards.gwas_group} \
       --method {wildcards.method} \
@@ -886,8 +886,8 @@ if 'sbayesrc' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_sbayesrc.input)
 if 'external' in pgs_methods_all:
   pgs_methods_input.append(rules.score_reporter.output)
-if config["leopard"]:
-  pgs_methods_input.append(rules.prep_pgs_multi.output)
+if config["leopard_methods"] and config["leopard_methods"] != "NA":
+  pgs_methods_input.append(rules.prep_pgs_multi.input)
 if 'prscsx' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_prscsx.input)
 if 'xwing' in pgs_methods_all:
@@ -900,3 +900,5 @@ if 'bridgeprs' in pgs_methods_all:
 rule prep_pgs:
   input:
     pgs_methods_input
+    
+  

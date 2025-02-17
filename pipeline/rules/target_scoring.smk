@@ -78,7 +78,7 @@ rule pc_projection:
 rule target_pgs_i:
   resources:
     mem_mb=config['mem_target_pgs'],
-    time_min=4000
+    time_min=1000
   threads: config['cores_target_pgs']
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",

@@ -311,7 +311,7 @@ if 'sbayesr' in config['pgs_methods']:
         raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
 
 # Set quickprs reference path
-if any(method in config['pgs_methods'] for method in ['quickprs', 'quickprs_multi']):
+if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickprs" in config["pgs_methods"]:
   if config['quickprs_ldref'] == 'NA':
     quickprs_ldref=f"{resdir}/data/quickprs"
     
@@ -337,7 +337,7 @@ if any(method in config['pgs_methods'] for method in ['quickprs', 'quickprs_mult
 
 # Set quickprs_multi reference path
 quickprs_multi_ldref=config['quickprs_multi_ldref']
-if 'quickprs_multi' in config['pgs_methods']:
+if config["leopard_methods"] and config["leopard_methods"] != "NA":
   missing_files = []
   for pop in gwas_list_df['population'].unique():
     path = f"{quickprs_multi_ldref}/{pop}"
@@ -417,7 +417,7 @@ def check_pgs_methods(x):
         return
 
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx", "tlprs","quickprs_multi"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx", "tlprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
@@ -431,25 +431,36 @@ check_pgs_methods(config['pgs_methods'])
 # Check valid tlprs_methods are specified
 def check_tlprs_methods(config):
     valid_tlprs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr", "sbayesrc", "lassosum", "ldpred2", "megaprs","quickprs"
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "megaprs","quickprs"
     }
 
-    # Check if 'tlprs' is in the pgs_methods list
-    if 'tlprs' in config.get('pgs_methods', []):
-        # Check if tlprs_methods is defined and not None/NA
-        tlprs_methods = config.get('tlprs_methods')
-
-        if tlprs_methods is None or tlprs_methods == 'NA':
-            raise ValueError("tlprs_methods must be specified when 'tlprs' is included in pgs_methods.")
-
+    # Check if 'tlprs_methods' is empty
+    if config["tlprs_methods"] and config["tlprs_methods"] != "NA":
         # Check for invalid methods
-        invalid_methods = [method for method in tlprs_methods if method not in valid_tlprs_methods]
+        invalid_methods = [method for method in config["tlprs_methods"] if method not in valid_tlprs_methods]
 
         if invalid_methods:
             raise ValueError(f"Invalid tlprs_methods specified: {', '.join(invalid_methods)}. "
                              f"Valid methods are: {', '.join(valid_tlprs_methods)}.")
 
 check_tlprs_methods(config)
+
+# Check valid leopard_methods are specified
+def check_leopard_methods(config):
+    valid_leopard_methods = {
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "megaprs","quickprs"
+    }
+
+    # Check if 'leopard_methods' is empty
+    if config["leopard_methods"] and config["leopard_methods"] != "NA":
+        # Check for invalid methods
+        invalid_methods = [method for method in config["leopard_methods"] if method not in valid_leopard_methods]
+
+        if invalid_methods:
+            raise ValueError(f"Invalid leopard_methods specified: {', '.join(invalid_methods)}. "
+                             f"Valid methods are: {', '.join(valid_leopard_methods)}.")
+
+check_leopard_methods(config)
 
 ########
 # Check for repo version updates

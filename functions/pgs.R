@@ -54,14 +54,20 @@ list_score_files <- function(config){
     # Retain methods that are applied to groups of gwas
     pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% pgs_group_methods)]
 
-    if('tlprs' %in% pgs_methods_list){
-      # For TL-PRS, list combos for tlprs_methods
-      tlprs_methods_list <- read_param(config = config, param = 'tlprs_methods', return_obj = F)
-      combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = paste0('tlprs_', tlprs_methods_list)))
+    # For TL-PRS, list combos for tlprs_methods
+    tlprs_methods<-read_param(config = config, param = 'tlprs_methods', return_obj = F)
+    if(length(tlprs_methods) > 1 || !is.na(tlprs_methods)){
+      combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = paste0('tlprs_', tlprs_methods)))
+    }
+    
+    # For LEOPARD, list combos for leopard_methods
+    leopard_methods<-read_param(config = config, param = 'leopard_methods', return_obj = F)
+    if(length(leopard_methods) > 1 || !is.na(leopard_methods)){
+      combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = paste0(leopard_methods,'_multi')))
     }
 
     # Provide combos for other methods applied to groups of gwas
-    pgs_methods_list <- pgs_methods_list[pgs_methods_list != 'tlprs']
+    pgs_methods_list <- pgs_methods_list[!(pgs_methods_list %in% c('tlprs','leopard'))]
     combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = pgs_methods_list))
   }
 

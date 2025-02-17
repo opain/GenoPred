@@ -310,7 +310,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
     }
     pseudo_val <- paste0('targ_', target_pop, '_weighted')
   }
-  if(pgs_method == 'quickprs_multi'){
+  if(grepl('_multi$', pgs_method)){
     if(!is.null(target_pop) && target_pop == 'TRANS'){
       cat('No pseudovalidation for TRANS target population available for xwing.\n')
       cat(paste0('Returning result for ', gwas_list$population[1],' target population.\n'))

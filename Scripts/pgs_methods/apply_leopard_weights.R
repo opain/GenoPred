@@ -86,15 +86,13 @@ for(i in 1:nrow(gwas_list)){
   score_cols <-
     which(names(score_header) %in% c('SNP','A1','A2', paste0('SCORE_', param)))
   
-  score_full[[populations[i]]] <- fread(cmd = 
+  score_full[[gwas_list$population[i]]] <- fread(cmd = 
     paste0(
-      "cut -d' ' -f ", 
-      paste0(score_cols, collapse=','),
-      " ", 
-      score_files[i])
+      "zcat ", score_files[i], " | cut -d' ' -f ", 
+      paste0(score_cols, collapse=','))
     )
   
-  names(score_full[[populations[i]]])[4] <- paste0('SCORE_targ_', populations[i])
+  names(score_full[[gwas_list$population[i]]])[4] <- paste0('SCORE_targ_', gwas_list$population[i])
 }
 
 ####
@@ -117,16 +115,16 @@ score_all[is.na(score_all)]<-0
 refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
 opt$ref_plink_chr <- paste0(refdir, '/ref.chr')
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
-opt$pop_data <- paste0(refdir, '/ref.pop.txt ')
+opt$pop_data <- paste0(refdir, '/ref.pop.txt')
 pop_data <- read_pop_data(opt$pop_data)
-opt$ref_freq_chr <- paste0(refdir, '/freq_files ')
+opt$ref_freq_chr <- paste0(refdir, '/freq_files')
 
 # Subset PGS to SNPs in ref (useful when testing)
 score_all <- score_all[score_all$SNP %in% ref$SNP,]
 
 # Calculate linear combination of scores using mixing weights for each target population
 score_weighted <- score_all
-for(targ_pop in populations){
+for(targ_pop in gwas_list$population){
   # Read in the .freq file for target population
   freq_data <- read_frq(freq_dir = opt$ref_freq_chr, population = targ_pop, chr = CHROMS)
   
@@ -141,11 +139,11 @@ for(targ_pop in populations){
   fwrite(score_i, paste0(tmp_dir,'/tmp.',targ_pop,'.score'), col.names=T, sep=' ', quote=F)
   
   # Calc score in target sample
-  ref_pgs <- plink_score(pfile = opt$ref_plink_chr, keep = pop_data[pop_data$POP == targ_pop, c('FID'), with=F], chr = CHROMS, score = paste0(tmp_dir,'/tmp.',targ_pop,'.score'))
+  ref_pgs <- plink_score(pfile = opt$ref_plink_chr, plink2 = 'plink2', keep = pop_data[pop_data$POP == targ_pop, c('FID'), with=F], chr = CHROMS, score = paste0(tmp_dir,'/tmp.',targ_pop,'.score'))
   ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs)
   
   # Rescale SNP-weights according to PGS SD in target
-  for(i in populations){
+  for(i in gwas_list$population){
     scaling_factor <- 1 / ref_pgs_scale_i$SD[ref_pgs_scale_i$Param == paste0('SCORE_targ_', i)]
     score_i[[paste0('SCORE_targ_', i)]] <- score_i[[paste0('SCORE_targ_', i)]] * scaling_factor
   }
@@ -183,7 +181,11 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
 
 # Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
+ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = 'plink2', score = paste0(opt$output,'.score.gz'))
+
+resdir <- read_param(config = opt$config, param = 'resdir', return_obj = F)
+
+opt$ref_pcs <- paste0(resdir, '/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles')
 
 if(!is.null(opt$ref_pcs)){
   log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
