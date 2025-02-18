@@ -2067,7 +2067,7 @@ for(trait_i in selected_traits){
 cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
 conda activate model_builder
 
-for targ_pop in $(echo EUR); do
+for targ_pop in $(echo EUR EAS AFR); do
   if [ "$targ_pop" == "EUR" ]; then
       targ_pop2="EUR_test"
   else
@@ -2121,6 +2121,7 @@ source_all('../functions')
 
 # Read in list of outcomes 
 selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+info_all <- fread('~/oliverpainfel/Analyses/crosspop/gwas_descriptives.csv')
 
 # Calculate correlation between all phenotypes in each target population
 cors <- list()
@@ -2230,6 +2231,76 @@ for(pheno_i in selected_traits){
   
 }
 
+res_eval_simp <- NULL
+for(pheno_i in selected_traits){
+  tmp <- res_eval[[pheno_i]]
+  tmp$Trait <- pheno_i
+  
+  # Insert nice PGS method names
+  tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method')
+  tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods)] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods)], '-Multi')
+  tmp$label <- factor(tmp$label, levels = unique(tmp$label[order(!(grepl('Multi', tmp$label)), tmp$label)]))
+  
+  # Simplify result to either SumStatTrain or IndivTrain
+  tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
+  tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+  tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery','Model'), with=F]),]
+  
+  res_eval_simp <- rbind(res_eval_simp, tmp)
+}
+
+# Plot results for each phenotype separately
+dir.create('~/oliverpainfel/Analyses/crosspop/plots')
+
+for(pheno_i in selected_traits){
+  tmp <- res_eval_simp[res_eval_simp$Trait == pheno_i,]
+
+  tmp$Discovery_clean <- as.character(tmp$Discovery)
+  tmp$Discovery_clean <- paste0(tmp$Discovery_clean, ' GWAS')
+  tmp$Target <- paste0(tmp$Target, ' Target')
+
+  png(paste0('~/oliverpainfel/Analyses/crosspop/plots/', pheno_i,'.png'), res=300, width = 3200, height = 2000, units = 'px')
+  plot_tmp<-ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x=NULL, fill = NULL, title = info_all$`Trait Description`[info_all$`Trait Label` == pheno_i]) +
+    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+  print(plot_tmp)
+  dev.off()
+}
+
+# Compare performance of each method in each target population across values of GWAS sample size
+for(targ_pop_i in targ_pop){
+    tmp <- res_eval_simp[res_eval_simp$Target == targ_pop_i,]
+    for(disc_pop_i in unique(tmp$Discovery)){
+      tmp2 <- tmp[tmp$Discovery == disc_pop_i,]
+      
+      ggplot(tmp2, aes(x=label, y=R , fill = Model)) +
+        geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                      width = 0,
+                      position = position_dodge(width = 1)) +
+        geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+        geom_vline(xintercept = seq(1.5, length(unique(tmp2$Trait))), linetype="dotted") +
+        labs(y = "R (SE)", x=NULL, fill = NULL, title = info_all$`Trait Description`[info_all$`Trait Label` == pheno_i]) +
+        facet_grid(. ~ Trait, scales='free', space = 'free_x') +
+        theme_half_open() +
+        background_grid(major = 'y', minor = 'y') + 
+        panel_border() + 
+        theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+      
+    }
+}
+
 ####
 # Average results across phenotypes
 ####
@@ -2309,18 +2380,7 @@ for(targ_pop_i in targ_pop){
 meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
 meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
-####
-# Comparison of models across methods, across target and discovery populations
-####
-
-model_palette <- c(
-  "IndivTrain" = "#F8766D",
-  "SumStatTrain" = "#7CAE00",
-  "Multi-IndivTrain" = "#00BFC4",
-  "Multi-SumStatTrain" = "#C77CFF"
-)
-
-# Format results for nice plot
+# Plot average performance across phenotypes for AFR and EAS targets
 tmp <- meta_res_eval
 tmp <- tmp[tmp$Target != 'EUR',]
 tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method')
@@ -2334,14 +2394,13 @@ tmp$Discovery_clean <- factor(tmp$Discovery_clean,
                               levels = c('Target-matched GWAS',
                                          'EUR GWAS',
                                          'Both'))
-
 tmp$Target <- paste0(tmp$Target, ' Target')
+tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
+tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
 
-tmp$Model <- factor(tmp$Model, levels = names(model_palette))
-
-# Plot everything
+png(paste0('~/oliverpainfel/Analyses/crosspop/plots/average_r.png'), res=300, width = 3200, height = 2000, units = 'px')
 ggplot(tmp, aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
     geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
                   width = 0,
                   position = position_dodge(width = 1)) +
@@ -2350,86 +2409,13 @@ ggplot(tmp, aes(x=label, y=R , fill = Model)) +
     labs(y = "R (SE)", x='Method') +
     facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
     theme_half_open() +
-    background_grid() + 
+    background_grid(major = 'y', minor = 'y') + 
     panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    scale_fill_manual(values = model_palette)
-
-# Simplify results showing results only with or without training data
-tmp_multi <- tmp[tmp$Discovery_clean == 'Both',]
-tmp_multi <- tmp
-tmp_multi$Model[tmp_multi$Model != 'SumStatTrain'] <- 'IndivTrain'
-tmp_multi$Model[tmp_multi$Model == 'SumStatTrain'] <- 'SumStatTrain'
-tmp_multi <- tmp_multi[!duplicated(tmp_multi[, c('label','Target','Discovery_clean','Model'), with=F]),]
-
-ggplot(tmp_multi, aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
-    labs(y = "R (SE)", x='Method') +
-    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    scale_fill_manual(values = model_palette)
-
-
-# Format results for nice plot
-tmp <- meta_res_eval
-tmp <- tmp[tmp$Target == 'EUR',]
-tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method')
-tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods)] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods)], '-Multi')
-tmp$label <- factor(tmp$label, levels = unique(tmp$label[order(!(grepl('Multi', tmp$label)), tmp$label)]))
-tmp$Discovery_clean <- as.character(tmp$Discovery)
-tmp$Discovery_clean[tmp$Discovery == 'EUR'] <- 'EUR GWAS'
-tmp$Discovery_clean[tmp$Discovery == 'EAS'] <- 'EAS GWAS'
-tmp$Discovery_clean[tmp$Discovery == 'AFR'] <- 'AFR GWAS'
-tmp$Discovery_clean[tmp$Source == 'Multi'] <- 'Both'
-tmp$Discovery_clean <- factor(tmp$Discovery_clean, 
-                              levels = c(
-                                         'EUR GWAS',
-                                         'EAS GWAS',
-                                         'AFR GWAS',
-                                         'Both'))
-
-tmp$Target <- paste0(tmp$Target, ' Target')
-
-tmp$Model <- factor(tmp$Model, levels = names(model_palette))
-
-# Plot everything
-ggplot(tmp, aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
-    labs(y = "R (SE)", x='Method') +
-    facet_grid(gwas_group ~ Discovery_clean, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    scale_fill_manual(values = model_palette)
-
-ggplot(tmp[tmp$Discovery_clean %in% c('EUR GWAS','Both'),], aes(x=label, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
-    labs(y = "R (SE)", x='Method') +
-    facet_grid(gwas_group ~ Discovery_clean, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-    scale_fill_manual(values = model_palette)
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
 
 ####
 # Create heatmap showing difference between all methods and models
@@ -2457,7 +2443,7 @@ mirror_comp<-function(x){
 }
   
 # Read in results
-targ_pop=c('EAS','AFR')
+targ_pop=c('EUR','EAS','AFR')
 res_comp <- list()
 for(pheno_i in selected_traits){
   res_comp_i<-NULL
@@ -2654,67 +2640,82 @@ meta_res_comp$R_diff_catagory <- factor(meta_res_comp$R_diff_catagory, levels = 
 meta_res_comp$indep_star<-' '
 meta_res_comp$indep_star[meta_res_comp$R_diff_p < 0.05]<-'*'
 meta_res_comp$indep_star[meta_res_comp$R_diff_p < 1e-3]<-'**'
-meta_res_comp$indep_star[meta_res_comp$R_diff_p < 1e-6]<-'***'
+# meta_res_comp$indep_star[meta_res_comp$R_diff_p < 1e-6]<-'***'
 
 meta_res_comp<-meta_res_comp[order(meta_res_comp$Discovery1, meta_res_comp$Discovery2, meta_res_comp$Method1),]
 
-heatmap_list<-NULL
-for(model_i in c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain')){
-  heatmap_list[[model_i]]<-list()
-  for(targ_pop_i in targ_pop){
-    if(targ_pop_i == 'EAS'){
-      disc_pop <- 'EAS'
-    }
-    if(targ_pop_i == 'AFR'){
-      disc_pop <- 'AFR'
-    }
-    if(targ_pop_i == 'EUR'){
-      disc_pop <- c('EAS','AFR')
-    }
-    heatmap_list[[model_i]][[targ_pop_i]]<-list()
-    for(disc_pop_i in disc_pop){
-  
-      tmp <- meta_res_comp[meta_res_comp$Target == targ_pop_i, ]
-      tmp <- tmp[tmp$gwas_group == paste0('EUR+', disc_pop_i), ]
-      tmp <- tmp[tmp$Model1 == model_i & tmp$Model2 == model_i,]
-      tmp$Model_1<-gsub('\\..*','', tmp$Model_1)
-      tmp$Model_2<-gsub('\\..*','', tmp$Model_2)
-      
-      tmp$Model_1 <- factor(
-        tmp$Model_1, 
-        levels=unique(tmp$Model_1))
-      tmp$Model_2 <- factor(
-        tmp$Model_2, 
-        levels=unique(tmp$Model_1))
-      
-      heatmap_list[[model_i]][[targ_pop_i]][[disc_pop_i]] <-
-        ggplot(data = tmp, aes(Model_2, Model_1, fill = R_diff_catagory)) +
-        geom_tile(color = "white", show.legend = TRUE) +
-        labs(y = 'Test', x = 'Comparison', fill = 'R difference', title = paste0('Target: ', targ_pop_i, ', Model = ', model_i)) +
-        facet_grid(Discovery1 ~ Discovery2, scales = 'free', space = 'free', switch="both") +
-        geom_text(
-          data = tmp,
-          aes(Model_2, Model_1, label = indep_star),
-          color = "black",
-          size = 4,
-          angle = 0,
-          vjust = 0.8
-        ) +
-        scale_fill_brewer(
-          breaks = levels(tmp$R_diff_catagory),
-          palette = "RdBu",
-          drop = F,
-          na.value = 'grey'
-        ) +
-        theme_half_open() +
-        background_grid() +
-        panel_border() +
-        theme(axis.text.x = element_text(
-          angle = 45,
-          vjust = 1,
-          hjust = 1
-        ))
-    }
+for(targ_pop_i in targ_pop){
+  if(targ_pop_i == 'EAS'){
+    disc_pop <- 'EAS'
+  }
+  if(targ_pop_i == 'AFR'){
+    disc_pop <- 'AFR'
+  }
+  if(targ_pop_i == 'EUR'){
+    disc_pop <- c('EAS','AFR')
+  }
+  for(disc_pop_i in disc_pop){
+
+    tmp <- meta_res_comp[meta_res_comp$Target == targ_pop_i, ]
+
+    tmp <- merge(tmp, pgs_method_labels, by.x = 'Method1', by.y = 'method')
+    names(tmp)[names(tmp) == 'label'] <- 'label1'
+    tmp <- merge(tmp, pgs_method_labels, by.x = 'Method2', by.y = 'method')
+    names(tmp)[names(tmp) == 'label'] <- 'label2'
+    
+    tmp$label1[grepl('Multi', tmp$Model1) & !(tmp$Method1 %in% pgs_group_methods)] <- paste0(tmp$label1[grepl('Multi', tmp$Model1) & !(tmp$Method1 %in% pgs_group_methods)], '-Multi')
+    tmp$label2[grepl('Multi', tmp$Model2) & !(tmp$Method2 %in% pgs_group_methods)] <- paste0(tmp$label2[grepl('Multi', tmp$Model2) & !(tmp$Method2 %in% pgs_group_methods)], '-Multi')
+    
+    tmp$Model1[tmp$Model1 != 'SumStatTrain'] <- 'IndivTrain'
+    tmp$Model1[tmp$Model1 == 'SumStatTrain'] <- 'SumStatTrain'
+    tmp$Model2[tmp$Model2 != 'SumStatTrain'] <- 'IndivTrain'
+    tmp$Model2[tmp$Model2 == 'SumStatTrain'] <- 'SumStatTrain'
+    
+    tmp<-tmp[tmp$Model_1 %in% res_eval_simp$Group,]
+    tmp<-tmp[tmp$Model_2 %in% res_eval_simp$Group,]
+
+    tmp$label1 <- paste0(tmp$label1," (", ifelse(tmp$Model1 == 'SumStatTrain', 'ST', 'IT'), ")")
+    tmp$label2 <- paste0(tmp$label2," (", ifelse(tmp$Model2 == 'SumStatTrain', 'ST', 'IT'), ")")
+    
+    tmp <- tmp[tmp$gwas_group == paste0('EUR+', disc_pop_i), ]
+
+    tmp$label1 <- factor(
+      tmp$label1, 
+      levels=unique(tmp$label1))
+    tmp$label2 <- factor(
+      tmp$label2, 
+      levels=unique(tmp$label2))
+    
+    plot_tmp <- ggplot(data = tmp, aes(label2, label1, fill = R_diff_catagory)) +
+      geom_tile(color = "white", show.legend = TRUE) +
+      labs(y = 'Test', x = 'Comparison', fill = 'R difference', title = paste0('Target: ', targ_pop_i)) +
+      facet_grid(Discovery1 ~ Discovery2, scales = 'free', space = 'free', switch="both") +
+      geom_text(
+        data = tmp,
+        aes(label2, label1, label = indep_star),
+        color = "black",
+        size = 4,
+        angle = 0,
+        vjust = 0.8
+      ) +
+      scale_fill_brewer(
+        breaks = levels(tmp$R_diff_catagory),
+        palette = "RdBu",
+        drop = F,
+        na.value = 'grey'
+      ) +
+      theme_half_open() +
+      background_grid() +
+      panel_border() +
+      theme(axis.text.x = element_text(
+        angle = 45,
+        vjust = 1,
+        hjust = 1
+      ))
+    
+    png(paste0('~/oliverpainfel/Analyses/crosspop/plots/average_r_diff.Discovery_EUR_', disc_pop_i,'.Target_', targ_pop_i, '.png'), res=300, width = 4200, height = 3000, units = 'px')
+      print(plot_tmp)
+    dev.off()
   }
 }
 
@@ -4001,7 +4002,7 @@ outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 bm_files_i <- list.files(paste0(outdir, '/reference/benchmarks/'), full.names = T)
 
 # Subset benchmarks for pgs_methods
-bm_files_i <- bm_files_i[grepl('prep_pgs_', bm_files_i)]
+bm_files_i <- bm_files_i[grepl('prep_pgs_|leopard_quickprs_', bm_files_i)]
 
 # Subset to benchmarks for gwas/gwas_groups in config
 scores <- list_score_files(config)
@@ -4021,7 +4022,9 @@ bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
 bm_dat_all$method <-
   gsub('_i', '', gsub('prep_pgs_', '', bm_dat_all$rule))
 
-bm_dat_all <- merge(bm_dat_all, pgs_method_labels, by = 'method')
+bm_dat_all <- merge(bm_dat_all, pgs_method_labels, by = 'method', all.x=T)
+
+bm_dat_all$label[bm_dat_all$method == 'leopard_quickprs']<-"LEOPARD (QuickPRS)"
 
 # Calculate average time taken for each method
 method_avg <- NULL
@@ -4029,7 +4032,7 @@ for(i in unique(bm_dat_all$label)){
   method_avg <- rbind(
     method_avg,
     data.frame(
-      method = pgs_method_labels$method[pgs_method_labels$label == i],
+      method = bm_dat_all$method[bm_dat_all$label == i][1],
       Method = i,
       Time = mean(bm_dat_all$s[bm_dat_all$label == i])
     )
@@ -4052,6 +4055,9 @@ for(i in unique(bm_dat_all$label)){
   )
 }
 
+# Divide X-Wing memory by two, since it used 20 cores, but other methods used 10
+method_avg$Memory[method_avg$method == 'xwing'] <- method_avg$Memory[method_avg$method == 'xwing'] /2
+
 # Format the time taken nicely
 method_avg$Time_clean[method_avg$Time < 60] <-
   paste0(round(method_avg$Time[method_avg$Time < 60], 1), ' sec')
@@ -4066,9 +4072,22 @@ method_avg$Time_hour <- method_avg$Time / 60/60
 # Seperate methods by single or multi source
 method_avg$Type[!(method_avg$method %in% pgs_group_methods)]<-'Single-source'
 method_avg$Type[method_avg$method %in% pgs_group_methods]<-'Multi-source'
+method_avg$Type[method_avg$method == 'leopard_quickprs']<-'Tuning'
 
-method_avg$Type<-factor(method_avg$Type, levels = c('Single-source','Multi-source'))
-method_avg$Method <- factor(method_avg$Method, levels = c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC", "QuickPRS-Multi", "PRS-CSx", "X-Wing"))
+method_avg$Type<-factor(method_avg$Type, levels = c('Single-source','Multi-source','Tuning'))
+method_avg$Method <- factor(method_avg$Method, levels = c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC", "QuickPRS-Multi", "PRS-CSx", "X-Wing","LEOPARD (QuickPRS)"))
+
+ggplot(method_avg, aes(x = Method, y = Time_hour, fill = Method)) +
+  geom_bar(stat = "identity", position="dodge") +
+  geom_text(aes(label = Time_clean), vjust = 0.5, angle = 90, hjust = -0.2, position = position_dodge(width = 0.9)) +
+  labs(x = NULL, y = "Time (hours)") +
+  ylim(0, max(method_avg$Time_hour) + (max(method_avg$Time_hour)/5)) +
+  facet_grid(~ Type, scales='free', space = 'free_x') +
+  theme_half_open() +
+  background_grid(major = 'y', minor = 'y') + 
+  panel_border() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+
 
 
 
