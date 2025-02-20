@@ -38,7 +38,7 @@ ref_pop <- data.frame(
 # Make a data.frame giving labels to the 1KG reference populations
 pgs_method_labels <- data.frame(
   method = c('ptclump','dbslmm','ldpred2','sbayesr','sbayesrc','lassosum','prscs','megaprs','quickprs','external','prscsx','xwing','tlprs','ptclump_multi','dbslmm_multi','ldpred2_multi','sbayesr_multi','sbayesrc_multi','lassosum_multi','prscs_multi','megaprs_multi','quickprs_multi'),
-  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','SBayesRC','lassosum','PRS-CS','MegaPRS','QuickPRS','External','PRS-CSx','X-Wing','TL-PRS','pT+clump-Multi','DBSLMM-Multi','LDpred2-Multi','SBayesR-Multi','SBayesRC-Multi','lassosum-Multi','PRS-CS-Multi','MegaPRS-Multi','QuickPRS-Multi')
+  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','SBayesRC','lassosum','PRS-CS','MegaPRS','QuickPRS','External','PRS-CSx','X-Wing','TL-PRS','pT+clump-multi','DBSLMM-multi','LDpred2-multi','SBayesR-multi','SBayesRC-multi','lassosum-multi','PRS-CS-multi','MegaPRS-multi','QuickPRS-multi')
 )
 pgs_method_labels<-pgs_method_labels[order(pgs_method_labels$method),]
 
