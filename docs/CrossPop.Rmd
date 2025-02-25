@@ -2482,6 +2482,8 @@ for(targ_pop_i in targ_pop){
 meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
 meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
+write.csv(meta_res_eval, '~/oliverpainfel/Analyses/crosspop/r_eval.csv', row.names = F)
+
 # Plot average performance across phenotypes for AFR and EAS targets
 tmp <- meta_res_eval
 tmp <- tmp[tmp$Target != 'EUR',]
@@ -3611,847 +3613,6 @@ dev.off()
 
 ***
 
-## Evaluate TLPRS
-### Create predictor lists
-
-<details><summary>Show code</summary>
-
-```{r}
-
-setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
-source('../functions/misc.R')
-source_all('../functions')
-library(data.table)
-
-# Get some key variables from config
-config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml'
-outdir <- read_param(config = config, param = 'outdir', return_obj = F)
-
-# Read in list of outcomes 
-selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
-
-# Get a list of score files
-scores <- list_score_files(config)
-
-# Subset to TLPRS scores and pseudo scores for corresponding methods
-pgs_methods <- unique(scores$method[grepl('^tlprs', scores$method)])
-pgs_methods <- c(pgs_methods, gsub('tlprs_','',pgs_methods))
-scores <- scores[scores$method %in% pgs_methods,]
-
-# Create files for EAS and AFR targets
-targ_pop <- c('EUR','EAS','AFR')
-for(trait_i in selected_traits){
-  scores_i <- scores[grepl(trait_i, scores$name),]
-  scores_i$group <- scores_i$method
-  
-  for(targ_pop_i in targ_pop){
-    # Subset GWAS based on EUR and/or targ_pop_i
-    if(targ_pop_i == 'EAS'){
-      disc_pop <- 'BBJ'
-    }
-    if(targ_pop_i == 'AFR'){
-      disc_pop <- 'UGR'
-    }
-    if(targ_pop_i == 'EUR'){
-      disc_pop <- c('BBJ','UGR')
-    }
-    
-    for(disc_pop_j in disc_pop){
-      if(disc_pop_j == 'BBJ'){
-        disc_pop_j_2 <- 'EAS'
-      }
-      if(disc_pop_j == 'UGR'){
-        disc_pop_j_2 <- 'AFR'
-      }
-
-      dir.create(
-        paste0(
-          '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
-          targ_pop_i,
-          '.disc_EUR_',
-          disc_pop_j_2,
-          '/',
-          trait_i
-        ),
-        recursive = T
-      )
-      
-      scores_i_j <- scores_i[grepl('UKB', scores_i$name, ignore.case = F) |
-                             grepl(disc_pop_j, scores_i$name, ignore.case = T),]
-      
-      # Insert the pseudo score for the non-TLPRS methods
-      scores_i_j_pseudo <- scores_i_j[which(!grepl('^tlprs', scores_i_j$method)), ]
-      scores_i_j_pseudo$group <- paste0(scores_i_j_pseudo$group,'.pseudo')
-
-      scores_i_j_pseudo$predictor <- paste0(
-        outdir,
-        '/ukb/pgs/',
-        targ_pop_i,
-        '/',
-        scores_i_j_pseudo$method,
-        '/',
-        scores_i_j_pseudo$name,
-        '/ukb-',
-        scores_i_j_pseudo$name,
-        '-',
-        targ_pop_i,
-        '.pseudo.profiles'
-      )
-      
-      for(i in 1:nrow(scores_i_j_pseudo)) {
-        tmp <- scores_i_j_pseudo[i,]
-        param <- find_pseudo(
-          config = config,
-          gwas = tmp$name,
-          pgs_method = tmp$method,
-          target_pop = targ_pop_i
-        )
-        
-        score_header <-
-          fread(gsub('.pseudo', '', tmp$predictor), nrows = 1)
-        score_cols <-
-          which(names(score_header) %in% c('FID', 'IID', paste0(tmp$name, '_', param)))
-        
-        system(
-          paste0(
-            "cut -d' ' -f ", 
-            paste0(score_cols, collapse=','),
-            " ", 
-            gsub('.pseudo', '', tmp$predictor), 
-            " > ", tmp$predictor
-          )
-        )
-      }
-      
-      # Create disc_pop specific groups
-      scores_i_j_pseudo_disc_pop <- scores_i_j_pseudo
-      scores_i_j_pseudo_disc_pop$group[grepl('UKB', scores_i_j_pseudo_disc_pop$name)] <- paste0(scores_i_j_pseudo_disc_pop$group[grepl('UKB', scores_i_j_pseudo_disc_pop$name)], '.EUR')
-      scores_i_j_pseudo_disc_pop$group[!grepl('UKB', scores_i_j_pseudo_disc_pop$name)] <- paste0(scores_i_j_pseudo_disc_pop$group[!grepl('UKB', scores_i_j_pseudo_disc_pop$name)], '.', disc_pop_j_2)
-      
-      # Insert groups for TLPRS scores for both target populations, and target specific
-      scores_i_j_multi <- scores_i_j[which(grepl('^tlprs', scores_i_j$method)), ]
-      
-      # Insert path to score file
-      scores_i_j_multi$predictor <- paste0(
-        outdir,
-        '/ukb/pgs/',
-        targ_pop_i,
-        '/',
-        scores_i_j_multi$method,
-        '/',
-        scores_i_j_multi$name,
-        '/ukb-',
-        scores_i_j_multi$name,
-        '-',
-        targ_pop_i,
-        '.profiles'
-      )
-      
-      scores_i_j_multi_targ_pop <- scores_i_j_multi
-      scores_i_j_multi_targ_pop_both<-NULL
-      for(i in 1:nrow(scores_i_j_multi_targ_pop)){
-        score_header <-
-          fread(gsub('.pseudo', '', scores_i_j_multi_targ_pop$predictor[i]), nrows = 1)
-        score_cols_EUR <-
-          which(names(score_header) %in% c('FID', 'IID', names(score_header)[grepl('targ_EUR', names(score_header))]))
-        score_cols_targ <-
-          which(names(score_header) %in% c('FID', 'IID', names(score_header)[grepl(paste0('targ_', targ_pop_i), names(score_header))]))
-        
-        system(
-          paste0(
-            "cut -d' ' -f ", 
-            paste0(score_cols_EUR, collapse=','),
-            " ", 
-            scores_i_j_multi_targ_pop$predictor[i], 
-            " > ", 
-            paste0(
-              outdir,
-              '/ukb/pgs/',
-              targ_pop_i,
-              '/',
-              scores_i_j_multi_targ_pop$method[i],
-              '/',
-              scores_i_j_multi_targ_pop$name[i],
-              '/ukb-',
-              scores_i_j_multi_targ_pop$name[i],
-              '-',
-              targ_pop_i,
-              '.targ_EUR.profiles'
-            )
-          )
-        )
-        
-        system(
-          paste0(
-            "cut -d' ' -f ", 
-            paste0(score_cols_targ, collapse=','),
-            " ", 
-            scores_i_j_multi_targ_pop$predictor[i], 
-            " > ", 
-            paste0(
-              outdir,
-              '/ukb/pgs/',
-              targ_pop_i,
-              '/',
-              scores_i_j_multi_targ_pop$method[i],
-              '/',
-              scores_i_j_multi_targ_pop$name[i],
-              '/ukb-',
-              scores_i_j_multi_targ_pop$name[i],
-              '-',
-              targ_pop_i,
-              '.targ_',
-              targ_pop_i,
-              '.profiles'
-            )
-          )
-        )
-        
-        tmp<-scores_i_j_multi_targ_pop[i,]
-        tmp <- rbind(tmp, tmp)
-        tmp$predictor[1] <- paste0(
-            outdir,
-            '/ukb/pgs/',
-            targ_pop_i,
-            '/',
-            scores_i_j_multi_targ_pop$method[i],
-            '/',
-            scores_i_j_multi_targ_pop$name[i],
-            '/ukb-',
-            scores_i_j_multi_targ_pop$name[i],
-            '-',
-            targ_pop_i,
-            '.targ_EUR.profiles'
-          )
-        tmp$group[1] <- paste0(tmp$group[1], '.EUR')
-        
-        tmp$predictor[2] <- paste0(
-            outdir,
-            '/ukb/pgs/',
-            targ_pop_i,
-            '/',
-            scores_i_j_multi_targ_pop$method[i],
-            '/',
-            scores_i_j_multi_targ_pop$name[i],
-            '/ukb-',
-            scores_i_j_multi_targ_pop$name[i],
-            '-',
-            targ_pop_i,
-            '.targ_',
-            targ_pop_i,
-            '.profiles'
-          )
-        tmp$group[2] <- paste0(tmp$group[2], '.', targ_pop_i)
-
-        scores_i_j_multi_targ_pop_both <- rbind(
-          scores_i_j_multi_targ_pop_both,
-          tmp)
-      }
-      
-      predictors_i<- do.call(rbind, list(
-        scores_i_j_multi, scores_i_j_multi_targ_pop_both, scores_i_j_pseudo, scores_i_j_pseudo_disc_pop
-      ))
-      
-      predictors_i <- predictors_i[, c('predictor', 'group'), with=F]
-      
-      write.table(
-        predictors_i,
-        paste0(
-          '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
-          targ_pop_i,
-          '.disc_EUR_',
-          disc_pop_j_2,
-          '/',
-          trait_i,
-          '/predictor_list.tlprs.txt'
-        ),
-        col.names = T,
-        row.names = F,
-        quote = F
-      )
-    }
-  }
-}
-
-```
-
-</details>
-
-***
-
-### Run model_builder
-
-<details><summary>Show code</summary>
-
-```{bash}
-cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
-conda activate model_builder
-
-for targ_pop in $(echo EUR EAS AFR); do
-  if [ "$targ_pop" == "EUR" ]; then
-      targ_pop2="EUR_test"
-  else
-      targ_pop2=$targ_pop
-  fi
-  
-  if [ "$targ_pop" == "EUR" ]; then
-    disc_pop=$(echo AFR EAS)
-  fi
-  
-  if [ "$targ_pop" == "EAS" ]; then
-    disc_pop="EAS"
-  fi
-  
-  if [ "$targ_pop" == "AFR" ]; then
-    disc_pop="AFR"
-  fi
-  
-  for disc_pop_i in ${disc_pop}; do
-    for pheno in $(head -n 5 /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_labels.txt); do
-      sbatch --mem 20G -n 10 -p neurohack_cpu --wrap="Rscript ../Scripts/model_builder/model_builder.R \
-        --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
-        --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/predictor_list.tlprs.txt \
-        --out /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res.tlprs \
-        --n_core 10 \
-        --top1 T \
-        --all_model F \
-        --assoc T"
-    done
-  done
-done
-
-```
-</details>
-
-***
-
-### Plot results
-
-<details><summary>Show code</summary>
-
-```{r}
-
-setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
-
-library(data.table)
-library(ggplot2)
-library(cowplot)
-
-source('../functions/misc.R')
-source_all('../functions')
-
-# Read in list of outcomes 
-prscsx_dat<-fread('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/prscsx_data.csv')
-prscsx_dat<-prscsx_dat[1:5,]
-
-config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml'
-  
-# Define pgs_methods used
-pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
-
-# Define gwas_list used
-gwas_list<-read_param(config = config, param = 'gwas_list')
-
-# Define gwas_groups used
-gwas_groups<-read_param(config = config, param = 'gwas_groups')
-
-# Calculate corelation between all phenotypes in each target population
-cors <- list()
-for(pop_i in c('EUR','EAS','AFR','CSA','AMR')){
-  if(pop_i == 'EUR'){
-    pop_i_2 <- 'EUR_test'
-  } else {
-    pop_i_2 <- pop_i
-  }
-  pheno_pop_i <- list()
-  for(pheno_i in prscsx_dat$labels){
-    pheno_pop_i[[pheno_i]] <- fread(paste0('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/', pheno_i, '.unrel.', pop_i_2, '.row_number.txt'))
-    names(pheno_pop_i[[pheno_i]])[3] <- pheno_i
-  }
-  
-  pheno_pop_i_merged <- merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE, by = c('FID','IID')), pheno_pop_i)
-
-  cors_i <- abs(cor(as.matrix(pheno_pop_i_merged[,-1:-2, with=F]), use='p'))
-  cors[[pop_i]] <- cors_i
-}
-
-# Read in results
-targ_pop = c('EUR','EAS','AFR')
-res <- list()
-for(pheno_i in prscsx_dat$labels){
-  res_i<-NULL
-  for(targ_pop_i in targ_pop){
-    if(targ_pop_i == 'EAS'){
-      disc_pop <- 'EAS'
-    }
-    if(targ_pop_i == 'AFR'){
-      disc_pop <- 'AFR'
-    }
-    if(targ_pop_i == 'EUR'){
-      disc_pop <- c('EAS','AFR')
-    }
-    for(disc_pop_i in disc_pop){
-      eval_i <-
-        fread(
-          paste0(
-            '/users/k1806347/oliverpainfel/Analyses/crosspop/',
-            'targ_',
-            targ_pop_i,
-            '.disc_EUR_',
-            disc_pop_i,
-            '/',
-            pheno_i,
-            '/res.tlprs.pred_eval.txt'
-          )
-        )
-      eval_i$Target<-targ_pop_i
-      eval_i$gwas_group<-paste0('EUR+', disc_pop_i)
-      res_i<-rbind(res_i, eval_i)
-    }
-  }
-  
-  res_i$Method<-sub('\\..*','',res_i$Group)
-  res_i$Method_short<-sub('.*_','',res_i$Method)
-  res_i<-res_i[order(res_i$Method_short, res_i$Method),]
-  
-  res_i$Model[grepl('pseudo', res_i$Group)]<-'Pseudo'
-  res_i$Model[grepl('top1', res_i$Group)]<-'Top1'
-  res_i$Model[!grepl('top1|pseudo', res_i$Group)]<-'Multi'
-  res_i$Model[!grepl('tlprs', res_i$Group) & !grepl('EUR|EAS|AFR', res_i$Group) & !grepl('top1', res_i$Group)]<-'Multi'
-  
-  res_i$Source[!grepl('tlprs', res_i$Group)] <- 'Single'
-  res_i$Source[grepl('tlprs', res_i$Group)] <- 'Multi'
-  res_i$Source[!grepl('tlprs', res_i$Group) & !grepl('EUR|EAS|AFR', res_i$Group)] <- 'Multi'
-  
-  res_i$Discovery <- res_i$gwas_group
-  res_i$Discovery[grepl('EUR', res_i$Group) & res_i$Source == 'Single'] <- 'EUR'
-  res_i$Discovery[grepl('EAS', res_i$Group) & res_i$Source == 'Single'] <- 'EAS'
-  res_i$Discovery[grepl('AFR', res_i$Group) & res_i$Source == 'Single'] <- 'AFR'
-
-  res_i$Method <- gsub('tlprs_','tlprs - ', res_i$Method)
-  res_i$Method[grepl('tlprs', res_i$Method) & grepl('EUR', res_i$Group)] <- paste0(res_i$Method[grepl('tlprs', res_i$Method) & grepl('EUR', res_i$Group)], " (EUR)")
-  res_i$Method[grepl('tlprs', res_i$Method) & grepl('EAS', res_i$Group)] <- paste0(res_i$Method[grepl('tlprs', res_i$Method) & grepl('EAS', res_i$Group)], " (EAS)")
-  res_i$Method[grepl('tlprs', res_i$Method) & grepl('AFR', res_i$Group)] <- paste0(res_i$Method[grepl('tlprs', res_i$Method) & grepl('AFR', res_i$Group)], " (AFR)")
-  res_i$Method[grepl('tlprs', res_i$Method) & !grepl('EUR|EAS|AFR', res_i$Group)] <- paste0(res_i$Method[grepl('tlprs', res_i$Method) & !grepl('EUR|EAS|AFR', res_i$Group)], " (Both)")
-
-  res_i$Method<-factor(res_i$Method, levels=unique(res_i$Method))
-  res_i$Model<-factor(res_i$Model, levels=c('Top1','Pseudo','Multi'))
-  res_i$Discovery<-factor(res_i$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
-
-  res[[pheno_i]]<-res_i
-  
-}
-
-####
-# Average results across phenotypes
-####
-
-library(MAd)
-
-# Average R across phenotypes
-meta_res <- NULL
-for(targ_pop_i in targ_pop){
-  if(targ_pop_i == 'EAS'){
-    disc_pop <- 'EAS'
-  }
-  if(targ_pop_i == 'AFR'){
-    disc_pop <- 'AFR'
-  }
-  if(targ_pop_i == 'EUR'){
-    disc_pop <- c('EAS','AFR')
-  }
-  for(disc_pop_i in disc_pop){
-  
-    # Subset res for each scenario
-    res_i <- do.call(rbind, lapply(seq_along(res), function(i) {
-      x <- res[[i]]
-      x$pheno <- names(res)[i]
-      x <- x[x$Target == targ_pop_i]
-      x <- x[x$gwas_group == paste0('EUR+', disc_pop_i)]
-    }))
-    
-    # Average results for each test across phenotypes
-    # Use MAd to account for correlation between them
-    res_i$Sample<-'A'
-  
-    for(group_i in unique(res_i$Group)){
-      res_group_i <- res_i[res_i$Group == group_i,]
-      cors_i <- cors[[targ_pop_i]][unique(res_group_i$pheno), unique(res_group_i$pheno)]
-      
-      meta_res_i <-
-        agg(
-          id = Sample,
-          es = R,
-          var = SE ^ 2,
-          cor = cors_i,
-          method = "BHHR",
-          mod = NULL,
-          data = res_group_i
-        )
-      
-      meta_res <- rbind(meta_res,
-                        data.table(
-                          Group = group_i,
-                          Method = res_group_i$Method[1],
-                          Model = res_group_i$Model[1],
-                          Source = res_group_i$Source[1],
-                          Discovery = res_group_i$Discovery[1],
-                          gwas_group = res_group_i$gwas_group[1],
-                          Target = targ_pop_i,
-                          R = meta_res_i$es,
-                          SE = sqrt(meta_res_i$var)
-                        ))
-    }
-  }
-}
-
-meta_res$Model<-factor(meta_res$Model, levels=c('Top1','Pseudo','Multi'))
-meta_res$Discovery<-factor(meta_res$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
-
-####
-# Compare TLPRS to unadjusted PGS
-####
-
-meta_res_multi_pop <- meta_res[!(meta_res$Discovery %in% c('EUR','EAS','AFR')),]
-meta_res_multi_pop$original_method <- gsub(' .*', '', gsub('tlprs - ', '', meta_res_multi_pop$Method))
-meta_res_multi_pop$test[!grepl('tlprs', meta_res_multi_pop$Method)] <- 'Unadjusted'
-meta_res_multi_pop$test[grepl('tlprs', meta_res_multi_pop$Method)] <- gsub('.* ', 'TLPRS ', meta_res_multi_pop$Method[grepl('tlprs', meta_res_multi_pop$Method)])
-meta_res_multi_pop$test <- factor(meta_res_multi_pop$test, levels=unique(meta_res_multi_pop$test))
-meta_res_multi_pop$test <- gsub('AFR', 'target pop', meta_res_multi_pop$test)
-meta_res_multi_pop$test <- gsub('EAS', 'target pop', meta_res_multi_pop$test)
-
-tmp <- meta_res_multi_pop[meta_res_multi_pop$Target %in% c('EAS', 'AFR'),]
-
-ggplot(tmp, aes(x=test, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=2, shape=23) +
-    geom_vline(xintercept = seq(1.5, length(unique(tmp$Method))), linetype="dotted") +
-    labs(y = "R (SE)") +
-    facet_grid(Target ~ original_method, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-tmp <- meta_res_multi_pop[meta_res_multi_pop$Target %in% c('EAS', 'AFR'),]
-tmp <- tmp[grepl('Unadj|Both', tmp$test),]
-tmp$test <- gsub(' .*', '', tmp$test)
-tmp$test <- factor(tmp$test, levels=c('Unadjusted','TLPRS'))
-
-ggplot(tmp, aes(x=test, y=R , fill = Model)) +
-    #geom_hline(yintercept = 0) +
-    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                  width = 0,
-                  position = position_dodge(width = 1)) +
-    geom_point(stat="identity", position=position_dodge(1), size=2, shape=23) +
-    geom_vline(xintercept = seq(1.5, length(unique(tmp$Method))), linetype="dotted") +
-    labs(y = "R (SE)", x = NULL) +
-    facet_grid(Target ~ original_method, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid() + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-####
-# Create heatmap showing difference between all methods and models
-####
-
-# Read in results
-targ_pop=c('EUR','EAS','AFR')
-res <- list()
-for(pheno_i in prscsx_dat$labels){
-  res_i<-NULL
-  for(targ_pop_i in targ_pop){
-    if(targ_pop_i == 'EAS'){
-      disc_pop <- 'EAS'
-    }
-    if(targ_pop_i == 'AFR'){
-      disc_pop <- 'AFR'
-    }
-    if(targ_pop_i == 'EUR'){
-      disc_pop <- c('EAS','AFR')
-    }
-    for(disc_pop_i in disc_pop){
-      eval_i <-
-        fread(
-          paste0(
-            '/users/k1806347/oliverpainfel/Analyses/crosspop/',
-            'targ_',
-            targ_pop_i,
-            '.disc_EUR_',
-            disc_pop_i,
-            '/',
-            pheno_i,
-            '/res.tlprs.pred_comp.txt'
-          )
-        )
-      eval_i$Target<-targ_pop_i
-      eval_i$gwas_group<-paste0('EUR+', disc_pop_i)
-      res_i<-rbind(res_i, eval_i)
-    }
-  }
-  
-  res[[pheno_i]]<-res_i
-}
-
-#####
-# Create a plot showing relative R from TLPRS vs Unadjusted
-#####
-
-res_all <- do.call(rbind, lapply(names(res), function(name) {
-  x <- res[[name]]
-  x$pheno <- name  # Add a new column with the name of the element
-  x  # Return the updated dataframe
-}))
-
-# Mirror results to fill in gaps
-res_all_symmetric <- res_all
-res_all_mirrored <- res_all
-res_all_mirrored$Model_1 <- res_all$Model_2
-res_all_mirrored$Model_2 <- res_all$Model_1
-res_all_mirrored$Model_1_R <- res_all$Model_2_R
-res_all_mirrored$Model_2_R <- res_all$Model_1_R
-res_all_mirrored$R_diff <- -res_all_mirrored$R_diff
-res_all <- rbind(res_all_symmetric, res_all_mirrored)
-
-# Subset tests where top1 TLPRS is being compared to top1 unadjusted
-res_all$Method_1 <- gsub('.*_', '', gsub('\\..*', '', res_all$Model_1))
-res_all$Method_2 <- gsub('.*_', '', gsub('\\..*', '', res_all$Model_2))
-
-res_all$TLPRS_1 <- grepl('tlprs', res_all$Model_1)
-res_all$TLPRS_2 <- grepl('tlprs', res_all$Model_2)
-
-res_all$Test_1[grepl('pseudo', res_all$Model_1)]<-'Pseudo'
-res_all$Test_1[grepl('top1', res_all$Model_1)]<-'Top1'
-res_all$Test_1[!grepl('top1|pseudo', res_all$Model_1)]<-'Multi'
-res_all$Test_1[!grepl('tlprs', res_all$Model_1) & !grepl('EUR|EAS|AFR', res_all$Model_1) & !grepl('top1', res_all$Model_1)]<-'Multi'
-
-res_all$Test_2[grepl('pseudo', res_all$Model_2)]<-'Pseudo'
-res_all$Test_2[grepl('top1', res_all$Model_2)]<-'Top1'
-res_all$Test_2[!grepl('top1|pseudo', res_all$Model_2)]<-'Multi'
-res_all$Test_2[!grepl('tlprs', res_all$Model_2) & !grepl('EUR|EAS|AFR', res_all$Model_2) & !grepl('top1', res_all$Model_2)]<-'Multi'
-
-res_all$Source_1[!grepl('tlprs', res_all$Model_1)] <- 'Single'
-res_all$Source_1[grepl('tlprs', res_all$Model_1)] <- 'Multi'
-res_all$Source_1[!grepl('tlprs', res_all$Model_1) & !grepl('EUR|EAS|AFR', res_all$Model_1)] <- 'Multi'
-
-res_all$Source_2[!grepl('tlprs', res_all$Model_2)] <- 'Single'
-res_all$Source_2[grepl('tlprs', res_all$Model_2)] <- 'Multi'
-res_all$Source_2[!grepl('tlprs', res_all$Model_2) & !grepl('EUR|EAS|AFR', res_all$Model_2)] <- 'Multi'
-
-res_all$Discovery_1 <- res_all$gwas_group
-res_all$Discovery_1[grepl('EUR', res_all$Model_1) & res_all$Source_1 == 'Single'] <- 'EUR'
-res_all$Discovery_1[grepl('EAS', res_all$Model_1) & res_all$Source_1 == 'Single'] <- 'EAS'
-res_all$Discovery_1[grepl('AFR', res_all$Model_1) & res_all$Source_1 == 'Single'] <- 'AFR'
-
-res_all$Discovery_2 <- res_all$gwas_group
-res_all$Discovery_2[grepl('EUR', res_all$Model_2) & res_all$Source_2 == 'Single'] <- 'EUR'
-res_all$Discovery_2[grepl('EAS', res_all$Model_2) & res_all$Source_2 == 'Single'] <- 'EAS'
-res_all$Discovery_2[grepl('AFR', res_all$Model_2) & res_all$Source_2 == 'Single'] <- 'AFR'
-
-res_all$TLPRS_target_1[grepl('EUR', res_all$Model_1) & res_all$TLPRS_1] <- 'EUR'
-res_all$TLPRS_target_1[grepl('EAS', res_all$Model_1) & res_all$TLPRS_1] <- 'EAS'
-res_all$TLPRS_target_1[grepl('AFR', res_all$Model_1) & res_all$TLPRS_1] <- 'AFR'
-res_all$TLPRS_target_1[!grepl('EUR|AFR|EAS', res_all$Model_1) & res_all$TLPRS_1] <- 'Both'
-res_all$TLPRS_target_1[res_all$TLPRS_target_1 == res_all$Target] <- 'Target Pop.'
-
-res_all$TLPRS_target_2[grepl('EUR', res_all$Model_2) & res_all$TLPRS_2] <- 'EUR'
-res_all$TLPRS_target_2[grepl('EAS', res_all$Model_2) & res_all$TLPRS_2] <- 'EAS'
-res_all$TLPRS_target_2[grepl('AFR', res_all$Model_2) & res_all$TLPRS_2] <- 'AFR'
-res_all$TLPRS_target_2[!grepl('EUR|AFR|EAS', res_all$Model_2) & res_all$TLPRS_2] <- 'Both'
-res_all$TLPRS_target_2[res_all$TLPRS_target_2 == res_all$Target] <- 'Target Pop.'
-
-# Subset to tests comparing to the Unadjusted models
-res_all <- res_all[res_all$Method_1 == res_all$Method_2, ]
-res_all <- res_all[res_all$Source_2 == 'Multi', ]
-res_all <- res_all[res_all$Test_1  == res_all$Test_2, ]
-res_all <- res_all[res_all$TLPRS_2  == F, ]
-res_all <- res_all[res_all$Target %in% c('EAS', 'AFR'),]
-
-ggplot(res_all, aes(x = Method_2, y = R_diff, colour = Test_1)) +
-  geom_point(position=position_jitterdodge(jitter.width = 0.2, dodge.width = 0.7), alpha=0.5) +
-  labs(y = "Difference in\nCorrelations (SE)", x = '') +
-  theme_half_open() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  background_grid(major = 'y', minor = 'y') +
-  facet_grid(Target ~ TLPRS_target_1, scales='free', space = 'free_x')
-
-
-######
-# Average R across phenotypes
-######
-
-library(MAd)
-
-meta_res <- NULL
-for(targ_pop_i in targ_pop){
-  if(targ_pop_i == 'EAS'){
-    disc_pop <- 'EAS'
-  }
-  if(targ_pop_i == 'AFR'){
-    disc_pop <- 'AFR'
-  }
-  if(targ_pop_i == 'EUR'){
-    disc_pop <- c('EAS','AFR')
-  }
-  for(disc_pop_i in disc_pop){
-  
-    # Subset res for each scenario
-    res_i <- res_all[res_all$Target == targ_pop_i & res_all$gwas_group == paste0('EUR+', disc_pop_i), ]
-  
-    # Calculate diff SE based on p-value
-    res_i$R_diff_pval[res_i$R_diff == 0] <- 1-0.001
-    res_i$R_diff_pval[res_i$R_diff_pval == 1]<-1-0.001
-    res_i$R_diff_z<-qnorm(res_i$R_diff_pval/2)
-    res_i$R_diff_SE<-abs(res_i$R_diff/res_i$R_diff_z)
-        
-    # Average results for each test across phenotypes
-    # Use MAd to account for correlation between them
-    res_i$Sample<-'A'
-    res_i$Group <- paste0(res_i$Model_1, '_vs_', res_i$Model_2)
-  
-    for(group_i in unique(res_i$Group)){
-      res_group_i <- res_i[res_i$Group == group_i,]
-      cors_i <- cors[[targ_pop_i]][unique(res_group_i$pheno), unique(res_group_i$pheno)]
-      
-      meta_res_i <-
-        agg(
-          id = Sample,
-          es = R_diff,
-          var = R_diff_SE ^ 2,
-          cor = cors_i,
-          method = "BHHR",
-          mod = NULL,
-          data = res_group_i
-        )
-      
-      group_info <- res_group_i[1, !(names(res_group_i[1,]) %in% c('Model_1_R', 'Model_2_R', 'R_diff', 'R_diff_pval', 'R_diff_z', 'R_diff_SE')), with=F]
-      meta_res <- rbind(meta_res,
-                        data.table(
-                          group_info,
-                          R_diff = meta_res_i$es,
-                          R_diff_SE = sqrt(meta_res_i$var)
-                        ))
-    }
-  }
-}
-meta_res$R_diff_z <- meta_res$R_diff / meta_res$R_diff_SE
-meta_res$R_diff_p <- 2*pnorm(-abs(meta_res$R_diff_z))
-
-# Plot the results
-ggplot(meta_res, aes(x=Method_1, y=R_diff, fill=Test_1)) +
-  geom_hline(yintercept = 0, colour = 'darkgrey') +
-  geom_point(
-    data = res_all,
-    mapping = aes(x=Method_1, y=R_diff, colour=Test_1),
-    position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.7),
-    alpha = 0.3
-  ) +
-  geom_errorbar(
-    aes(
-      ymin = R_diff - R_diff_SE,
-      ymax = R_diff + R_diff_SE
-    ),
-    width = 0,
-    position = position_dodge(width = 0.7)
-  ) +
-  geom_point(
-    stat = "identity",
-    position = position_dodge(0.7),
-    size = 2,
-    shape = 23,
-    colour = 'black'
-  ) +
-  labs(y = "Difference in\nCorrelations (SE)", x = '', fill = 'Model', colour = 'Model') +
-  theme_half_open() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  geom_vline(xintercept = 1.5, linetype = "dotted") +
-  geom_vline(xintercept = 2.5, linetype = "dotted") +
-  geom_vline(xintercept = 3.5, linetype = "dotted") +
-  background_grid(major = 'y', minor = 'y') +
-  facet_grid(Target ~ TLPRS_target_1, scales='free', space = 'free_x') +
-  panel_border()
-
-
-
-# Plot the results
-ggplot(meta_res[meta_res$TLPRS_target_1 == 'Both',], aes(x=Method_1, y=R_diff, fill=Test_1)) +
-  geom_hline(yintercept = 0, colour = 'darkgrey') +
-  geom_point(
-    data = res_all[res_all$TLPRS_target_1 == 'Both',],
-    mapping = aes(x=Method_1, y=R_diff, colour=Test_1),
-    position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.7),
-    alpha = 0.3
-  ) +
-  geom_errorbar(
-    aes(
-      ymin = R_diff - R_diff_SE,
-      ymax = R_diff + R_diff_SE
-    ),
-    width = 0,
-    position = position_dodge(width = 0.7)
-  ) +
-  geom_point(
-    stat = "identity",
-    position = position_dodge(0.7),
-    size = 2,
-    shape = 23,
-    colour = 'black'
-  ) +
-  labs(y = "Difference in\nCorrelations (SE)", x = '', fill = 'Model', colour = 'Model') +
-  theme_half_open() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  geom_vline(xintercept = 1.5, linetype = "dotted") +
-  geom_vline(xintercept = 2.5, linetype = "dotted") +
-  geom_vline(xintercept = 3.5, linetype = "dotted") +
-  background_grid(major = 'y', minor = 'y') +
-  facet_grid(Target ~ ., scales='free', space = 'free_x') +
-  panel_border()
-
-
-# Plot the results
-ggplot(meta_res[meta_res$TLPRS_target_1 == 'Both',], aes(x=Method_1, y=R_diff, fill=Test_1)) +
-  geom_hline(yintercept = 0, colour = 'darkgrey') +
-  geom_point(
-    data = res_all[res_all$TLPRS_target_1 == 'Both',],
-    mapping = aes(x=Method_1, y=R_diff, colour=Test_1),
-    position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.7),
-    alpha = 0.3
-  ) +
-  geom_errorbar(
-    aes(
-      ymin = R_diff - R_diff_SE,
-      ymax = R_diff + R_diff_SE
-    ),
-    width = 0,
-    position = position_dodge(width = 0.7)
-  ) +
-  geom_point(
-    stat = "identity",
-    position = position_dodge(0.7),
-    size = 2,
-    shape = 23,
-    colour = 'black'
-  ) +
-  labs(y = "Difference in\nCorrelations (SE)", x = '', fill = 'Model', colour = 'Model') +
-  theme_half_open() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  geom_vline(xintercept = 1.5, linetype = "dotted") +
-  geom_vline(xintercept = 2.5, linetype = "dotted") +
-  geom_vline(xintercept = 3.5, linetype = "dotted") +
-  background_grid(major = 'y', minor = 'y') +
-  facet_grid(Target ~ ., scales='free', space = 'free_x') +
-  panel_border()
-
-
-```
-</details>
-
-***
-
 # Computational resoures
 
 ```{r}
@@ -4748,9 +3909,1227 @@ snakemake \
   output_all -n
 ```
 
+***
 
+## Evaluate PGS
 
+<details><summary>Show code</summary>
 
+```{r}
 
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+library(data.table)
 
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/eas_afr_only/config.yaml'
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Read in list of outcomes 
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+# Create files for EAS and AFR targets
+targ_pop <- c('EAS','AFR')
+for(trait_i in selected_traits){
+  scores_i <- scores[grepl(trait_i, scores$name),]
+  scores_i$multi <- scores_i$method
+  
+  for(targ_pop_i in targ_pop){
+    if(targ_pop_i == 'EAS'){
+      disc_pop <- 'BBJ'
+    }
+    if(targ_pop_i == 'AFR'){
+      disc_pop <- 'UGR'
+    }
+    if(targ_pop_i == 'EUR'){
+      disc_pop <- c('BBJ','UGR')
+    }
+    
+    for(disc_pop_j in disc_pop){
+      if(disc_pop_j == 'BBJ'){
+        disc_pop_j_2 <- 'EAS'
+      }
+      if(disc_pop_j == 'UGR'){
+        disc_pop_j_2 <- 'AFR'
+      }
+
+      dir.create(
+        paste0(
+          '/users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_1kgref/targ_',
+          targ_pop_i,
+          '.disc_EUR_',
+          disc_pop_j_2,
+          '/',
+          trait_i
+        ),
+        recursive = T
+      )
+      
+      scores_i_j <- scores_i[
+        (grepl('UKB$', scores_i$name, ignore.case = F) | 
+         grepl(paste0(disc_pop_j, '$'), scores_i$name, ignore.case = T)),]
+
+      # Insert path to score file
+      scores_i_j$predictor <- paste0(
+        outdir,
+        '/ukb/pgs/TRANS/',
+        scores_i_j$method,
+        '/',
+        scores_i_j$name,
+        '/ukb-',
+        scores_i_j$name,
+        '-TRANS.profiles'
+      )
+      
+      ####
+      # Make groups single source methods
+      ####
+      
+      scores_i_j_single_top1 <-
+        scores_i_j[!(scores_i_j$method %in% pgs_group_methods) &
+                     !grepl('_multi$', scores_i_j$method), ]
+
+      # Create top1 column indicating which predictors top1 models should be derived
+      scores_i_j_single_top1$top1[grepl('UKB', scores_i_j_single_top1$name, ignore.case = F)] <- 'EUR'
+      scores_i_j_single_top1$top1[grepl(disc_pop_j, scores_i_j_single_top1$name, ignore.case = F)] <- disc_pop_j_2
+      
+      ####
+      # Make groups containing pseudo scores for single source methods
+      ####
+
+      # Extract the pseudo score for each method and specify as a separate group
+      for(i in 1:nrow(scores_i_j_single_top1)) {
+        param <- find_pseudo(
+          config = config,
+          gwas = scores_i_j_single_top1$name[i],
+          pgs_method = scores_i_j_single_top1$method[i],
+          target_pop = targ_pop_i
+        )
+        
+        score_header <-
+          fread(scores_i_j_single_top1$predictor[i], nrows = 1)
+        score_cols <-
+          which(names(score_header) %in% c('FID', 'IID', paste0(scores_i_j_single_top1$name[i], '_', param)))
+        
+        system(
+          paste0(
+            "cut -d' ' -f ", 
+            paste0(score_cols, collapse=','),
+            " ", 
+            scores_i_j_single_top1$predictor[i], 
+            " > ", 
+            gsub('.profiles',
+                 paste0('.', targ_pop_i, '_pseudo.profiles'),
+                 scores_i_j_single_top1$predictor[i])
+          )
+        )
+      }
+      
+      scores_i_j_single_pseudo <- scores_i_j_single_top1
+      scores_i_j_single_pseudo$multi <- paste0(scores_i_j_single_pseudo$multi, '.pseudo')
+
+      scores_i_j_single_pseudo$predictor <- gsub('.profiles', 
+                                    paste0('.', targ_pop_i, '_pseudo.profiles'),
+                                    scores_i_j_single_pseudo$predictor)
+
+#      ####
+#      # Make groups for multi-single-source pseudo scores
+#      ####
+#      
+#      scores_i_j_multi_single_pseudo <- scores_i_j[grepl('_multi$', scores_i_j$method),]
+#
+#      # Extract the pseudo score for each method and specify as a separate group
+#      for(i in 1:nrow(scores_i_j_multi_single_pseudo)) {
+#        param <- find_pseudo(
+#          config = config,
+#          gwas = scores_i_j_multi_single_pseudo$name[i],
+#          pgs_method = scores_i_j_multi_single_pseudo$method[i],
+#          target_pop = targ_pop_i
+#        )
+#        
+#        score_header <-
+#          fread(scores_i_j_multi_single_pseudo$predictor[i], nrows = 1)
+#        score_cols <-
+#          which(names(score_header) %in% c('FID', 'IID', paste0(scores_i_j_multi_single_pseudo$name[i], '_', param)))
+#        
+#        system(
+#          paste0(
+#            "cut -d' ' -f ", 
+#            paste0(score_cols, collapse=','),
+#            " ", 
+#            scores_i_j_multi_single_pseudo$predictor[i], 
+#            " > ", 
+#            gsub('.profiles',
+#                 paste0('.', targ_pop_i, '_pseudo.profiles'),
+#                 scores_i_j_multi_single_pseudo$predictor[i])
+#          )
+#        )
+#      }
+#      
+#      scores_i_j_multi_single_pseudo$multi <- paste0(scores_i_j_multi_single_pseudo$multi, '.pseudo')
+#
+#      scores_i_j_multi_single_pseudo$predictor <- gsub('.profiles', 
+#                                    paste0('.', targ_pop_i, '_pseudo.profiles'),
+#                                    scores_i_j_multi_single_pseudo$predictor)
+#      
+#      scores_i_j_multi_single_pseudo$top1<-paste0('EUR_', disc_pop_j_2)
+#
+#      ####
+#      # Make groups for the Multi-Source methods
+#      ####
+#      
+#      scores_i_j_multi <- scores_i_j[(scores_i_j$method %in% pgs_group_methods),]
+#
+#      # Split top1 scores by target population
+#      # This doesn't apply to xwing because it only has pop-specific pseudo scores
+#      scores_i_j_multi_top1<-NULL
+#      for(i in 1:which(scores_i_j_multi$method %in% c('prscsx'))){
+#        score_header<-fread(scores_i_j_multi$predictor[i], nrow = 1)
+#        
+#        for(pop in c('EUR', disc_pop_j_2)){
+#          
+#          if(scores_i_j_multi$method[i] == 'prscsx'){
+#            score_cols <-
+#              which(grepl(paste0('^FID$|^IID$|_', pop, '_phi'), names(score_header)))
+#          }
+#          if(scores_i_j_multi$method[i] == 'xwing'){
+#            score_cols <-
+#              which(grepl(paste0('^FID$|^IID$|_targ_', pop, '_pst'), names(score_header)))
+#          }
+#          
+#          system(
+#            paste0(
+#              "cut -d' ' -f ", 
+#              paste0(score_cols, collapse=','),
+#              " ", 
+#              scores_i_j_multi$predictor[i], 
+#              " > ", 
+#              gsub('.profiles',
+#                   paste0('.', pop, '_grid.profiles'),
+#                   scores_i_j_multi$predictor[i])
+#            )
+#          )
+#          
+#          tmp <- scores_i_j_multi[i,]
+#          tmp$multi <- paste0(tmp$multi, '.grid')
+#          tmp$top1 <- pop
+#          tmp$predictor <-
+#              gsub('.profiles',
+#                   paste0('.', pop, '_grid.profiles'),
+#                   scores_i_j_multi$predictor[i])
+#          
+#          scores_i_j_multi_top1 <- rbind(scores_i_j_multi_top1, tmp)
+#        }
+#      }
+#
+#      # Split pop-specific pseudo scores by target population
+#      scores_i_j_multi_pop_pseudo<-NULL
+#      for(i in 1:nrow(scores_i_j_multi)){
+#        score_header<-fread(scores_i_j_multi$predictor[i], nrow = 1)
+#        
+#        for(pop in c('EUR', disc_pop_j_2)){
+#          if(scores_i_j_multi$method[i] == 'prscsx'){
+#            score_cols <-
+#              which(grepl(paste0('^FID$|^IID$|_', pop, '_phi_auto'), names(score_header)))
+#          }
+#          if(scores_i_j_multi$method[i] == 'xwing'){
+#            score_cols <-
+#              which(grepl(paste0('^FID$|^IID$|_targ_', pop, '_pst_', pop), names(score_header)))
+#          }
+#          
+#          system(
+#            paste0(
+#              "cut -d' ' -f ", 
+#              paste0(score_cols, collapse=','),
+#              " ", 
+#              scores_i_j_multi$predictor[i], 
+#              " > ", 
+#              gsub('.profiles',
+#                   paste0('.', pop, '_pseudo.profiles'),
+#                   scores_i_j_multi$predictor[i])
+#            )
+#          )
+#          
+#          tmp <- scores_i_j_multi[i,]
+#          tmp$multi <- paste0(tmp$multi, '.pop_pseudo')
+#          tmp$top1 <- pop
+#          tmp$predictor <-
+#              gsub('.profiles',
+#                   paste0('.', pop, '_pseudo.profiles'),
+#                   scores_i_j_multi$predictor[i])
+#          
+#          scores_i_j_multi_pop_pseudo <- rbind(scores_i_j_multi_pop_pseudo, tmp)
+#        }
+#      }
+#      
+#      # Create pseudo score for multi-source methods
+#      scores_i_j_multi_pseudo<-NULL
+#      for(i in 1:nrow(scores_i_j_multi)) {
+#        param <- find_pseudo(
+#          config = config,
+#          gwas = scores_i_j_multi$name[i],
+#          pgs_method = scores_i_j_multi$method[i],
+#          target_pop = targ_pop_i
+#        )
+#        
+#        score_header <-
+#          fread(scores_i_j_multi$predictor[i], nrows = 1)
+#        score_cols <-
+#          which(names(score_header) %in% c('FID', 'IID', paste0(scores_i_j_multi$name[i], '_', param)))
+#
+#        system(
+#          paste0(
+#            "cut -d' ' -f ", 
+#            paste0(score_cols, collapse=','),
+#            " ", 
+#            scores_i_j_multi$predictor[i], 
+#            " > ", 
+#            gsub('.profiles',
+#                 paste0('.pseudo.targ_', targ_pop_i,'.profiles'),
+#                 scores_i_j_multi$predictor[i])
+#          )
+#        )
+#        
+#        tmp <- scores_i_j_multi[i,]
+#        tmp$multi <- paste0(tmp$multi, '.pseudo')
+#        tmp$top1 <- paste0('EUR_', disc_pop_j_2)
+#        tmp$predictor <-
+#            gsub('.profiles',
+#                 paste0('.pseudo.targ_', targ_pop_i,'.profiles'),
+#                 scores_i_j_multi$predictor[i])
+#        
+#        scores_i_j_multi_pseudo <- rbind(scores_i_j_multi_pseudo, tmp)
+#      }
+      
+      ####
+      # Combine the different predictor groups
+      ####
+      predictors_i<- do.call(rbind, list(
+        scores_i_j_single_top1, 
+        scores_i_j_single_pseudo#, 
+#        scores_i_j_multi_single_pseudo,
+#        scores_i_j_multi_top1,
+#        scores_i_j_multi_pop_pseudo,
+#        scores_i_j_multi_pseudo
+      ))
+      
+      predictors_i <- predictors_i[, c('predictor', 'multi','top1'), with=F]
+      
+      write.table(
+        predictors_i,
+        paste0(
+          '/users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_1kgref/targ_',
+          targ_pop_i,
+          '.disc_EUR_',
+          disc_pop_j_2,
+          '/',
+          trait_i,
+          '/predictor_list.txt'
+        ),
+        col.names = T,
+        row.names = F,
+        quote = F
+      )
+    }
+  }
+}
+
+```
+</details>
+
+***
+
+### Run model_builder
+
+<details><summary>Show code</summary>
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate model_builder
+
+#rm /users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_1kgref/targ_*.disc_EUR_*/*/res*
+
+for targ_pop in $(echo EAS AFR); do
+  if [ "$targ_pop" == "EUR" ]; then
+      targ_pop2="EUR_test"
+  else
+      targ_pop2=$targ_pop
+  fi
+  
+  if [ "$targ_pop" == "EUR" ]; then
+    disc_pop=$(echo EAS AFR)
+  fi
+  
+  if [ "$targ_pop" == "EAS" ]; then
+    disc_pop="EAS"
+  fi
+  
+  if [ "$targ_pop" == "AFR" ]; then
+    disc_pop="AFR"
+  fi
+  
+  for disc_pop_i in ${disc_pop}; do
+    for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
+      if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_1kgref/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res.pred_comp.txt" ]; then
+        sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+          --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
+          --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_1kgref/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/predictor_list.txt \
+          --out /users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_1kgref/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res \
+          --n_core 5"
+      fi
+    done
+  done
+done
+
+```
+</details>
+
+***
+
+### Plot results
+
+<details><summary>Show code</summary>
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in list of outcomes 
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+info_all <- fread('~/oliverpainfel/Analyses/crosspop/gwas_descriptives.csv')
+
+# Calculate correlation between all phenotypes in each target population
+cors <- list()
+for(pop_i in c('EUR','EAS','AFR','CSA','AMR')){
+  if(pop_i == 'EUR'){
+    pop_i_2 <- 'EUR_test'
+  } else {
+    pop_i_2 <- pop_i
+  }
+  pheno_pop_i <- list()
+  for(pheno_i in selected_traits){
+    pheno_pop_i[[pheno_i]] <- fread(paste0('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/', pheno_i, '.unrel.', pop_i_2, '.row_number.txt'))
+    names(pheno_pop_i[[pheno_i]])[3] <- pheno_i
+  }
+  
+  pheno_pop_i_merged <- merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE, by = c('FID','IID')), pheno_pop_i)
+
+  cors_i <- abs(cor(as.matrix(pheno_pop_i_merged[,-1:-2, with=F]), use='p'))
+  cors[[pop_i]] <- cors_i
+}
+
+# Read in results
+targ_pop = c('EAS','AFR')
+res_eval <- list()
+for(pheno_i in selected_traits){
+  res_eval_i<-NULL
+  for(targ_pop_i in targ_pop){
+    if(targ_pop_i == 'EAS'){
+      disc_pop <- 'EAS'
+    }
+    if(targ_pop_i == 'AFR'){
+      disc_pop <- 'AFR'
+    }
+    if(targ_pop_i == 'EUR'){
+      disc_pop <- c('EAS','AFR')
+    }
+    for(disc_pop_i in disc_pop){
+      eval_i <-
+        fread(
+          paste0(
+            '/users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_1kgref/',
+            'targ_',
+            targ_pop_i,
+            '.disc_EUR_',
+            disc_pop_i,
+            '/',
+            pheno_i,
+            '/res.pred_eval.txt'
+          )
+        )
+      eval_i$Target<-targ_pop_i
+      eval_i$gwas_group<-paste0('EUR+', disc_pop_i)
+      res_eval_i<-rbind(res_eval_i, eval_i)
+    }
+  }
+  
+  res_eval_i$Method<-sub('\\..*','',res_eval_i$Group)
+  res_eval_i$Method<-gsub('-.*','', res_eval_i$Method)
+  
+  res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
+                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTrain'
+  res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
+                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTrain'
+  res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
+                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTrain'
+  res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
+                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTrain'
+  
+  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTrain'
+  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTrain'
+  res_eval_i$Model[res_eval_i$Group == 'xwing.pseudo.multi']<-'SumStatTrain'
+  
+  res_eval_i$Source<-ifelse(
+    res_eval_i$Method %in% pgs_group_methods | grepl('_multi$', res_eval_i$Method) | 
+    !grepl('EUR|EAS|AFR', res_eval_i$Group), 'Multi', 'Single')
+  
+  res_eval_i$Discovery[grepl('EUR', res_eval_i$Group)] <- 'EUR'
+  res_eval_i$Discovery[grepl('EAS', res_eval_i$Group)] <- 'EAS'
+  res_eval_i$Discovery[grepl('AFR', res_eval_i$Group)] <- 'AFR'
+  res_eval_i$Discovery[res_eval_i$Source == 'Multi'] <- res_eval_i$gwas_group[res_eval_i$Source == 'Multi']
+  
+  res_eval_i$Method<-factor(res_eval_i$Method, levels=unique(res_eval_i$Method))
+  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+  res_eval_i$Discovery<-factor(res_eval_i$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
+
+  # Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
+  res_eval_i <- res_eval_i[
+    !(res_eval_i$Method %in%  c('quickprs','sbayesrc') & 
+      res_eval_i$Model %in% c('IndivTrain','Multi-IndivTrain')),]
+  
+  # Remove pseudo model for methods that don't really have one 
+  res_eval_i <- res_eval_i[
+    !(res_eval_i$Method %in%  c('ptclump','ptclump_multi') & 
+      res_eval_i$Model %in% c('SumStatTrain','Multi-SumStatTrain')),]
+
+  # Remove top1 models for *-Multi, PRS-CSx, X-wing
+  res_eval_i <- res_eval_i[
+    !((res_eval_i$Method %in%  c('prscsx', 'xwing') | grepl('_multi$', res_eval_i$Method)) & 
+      grepl('top1', res_eval_i$Group)),]
+  
+  # Remove any duplicate models
+  res_eval_i <- res_eval_i[!duplicated(res_eval_i[, c(
+    "Target", "Method", "Model", "Source", "Discovery","gwas_group"
+  )]),]
+  
+  res_eval[[pheno_i]]<-res_eval_i
+  
+}
+
+# Create vector defining or of methods in plots
+model_order <- c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC", "DBSLMM-multi", "lassosum-multi", "LDpred2-multi", "MegaPRS-multi", "PRS-CS-multi", "pT+clump-multi", "QuickPRS-multi", "SBayesRC-multi", "PRS-CSx", "X-Wing", "All") 
+
+res_eval_simp <- NULL
+for(pheno_i in selected_traits){
+  tmp <- res_eval[[pheno_i]]
+  tmp$Trait <- pheno_i
+  
+  # Insert nice PGS method names
+  tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+  tmp$label[is.na(tmp$label)] <- 'All'
+  tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
+  tmp$label <- factor(tmp$label, levels = model_order)
+  
+  # Simplify result to either SumStatTrain or IndivTrain
+  tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
+  tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+  tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery','Model'), with=F]),]
+  
+  res_eval_simp <- rbind(res_eval_simp, tmp)
+}
+
+####
+# Average results across phenotypes
+####
+
+library(MAd)
+
+# Average R across phenotypes
+meta_res_eval <- NULL
+for(targ_pop_i in targ_pop){
+  if(targ_pop_i == 'EAS'){
+    disc_pop <- 'EAS'
+  }
+  if(targ_pop_i == 'AFR'){
+    disc_pop <- 'AFR'
+  }
+  if(targ_pop_i == 'EUR'){
+    disc_pop <- c('EAS','AFR')
+  }
+  for(disc_pop_i in disc_pop){
+  
+    # Subset res_eval for each scenario
+    res_eval_i <- do.call(rbind, lapply(seq_along(res_eval), function(i) {
+      x <- res_eval[[i]]
+      x$pheno <- names(res_eval)[i]
+      x <- x[x$Target == targ_pop_i]
+      x <- x[x$gwas_group == paste0('EUR+', disc_pop_i)]
+    }))
+    
+    # Average res_evalults for each test across phenotypes
+    # Use MAd to account for correlation between them
+    res_eval_i$Sample<-'A'
+  
+    for(group_i in unique(res_eval_i$Group)){
+      res_eval_group_i <- res_eval_i[res_eval_i$Group == group_i,]
+      missing_pheno <-
+        colnames(cors[[targ_pop_i]])[!(colnames(cors[[targ_pop_i]]) %in% unique(res_eval_group_i$pheno))]
+      
+      if (!all(colnames(cors[[targ_pop_i]]) %in% unique(res_eval_group_i$pheno))) {
+        print(paste0(
+          'res_evalults missing for ',
+          targ_pop_i,
+          ' ',
+          group_i,
+          ' ',
+          paste0(missing_pheno, collapse = ' ')
+        ))
+      }
+      
+      cors_i <- cors[[targ_pop_i]][unique(res_eval_group_i$pheno), unique(res_eval_group_i$pheno)]
+      
+      meta_res_eval_i <-
+        agg(
+          id = Sample,
+          es = R,
+          var = SE ^ 2,
+          cor = cors_i,
+          method = "BHHR",
+          mod = NULL,
+          data = res_eval_group_i
+        )
+      
+      tmp <- data.table(Group = group_i,
+                        Method = res_eval_group_i$Method[1],
+                        Model = res_eval_group_i$Model[1],
+                        Source = res_eval_group_i$Source[1],
+                        Discovery = res_eval_group_i$Discovery[1],
+                        gwas_group = res_eval_group_i$gwas_group[1],
+                        Target = targ_pop_i,
+                        R = meta_res_eval_i$es,
+                        SE = sqrt(meta_res_eval_i$var))
+      
+      meta_res_eval <- rbind(meta_res_eval, tmp)
+    }
+  }
+}
+
+meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
+
+# Plot average performance across phenotypes for AFR and EAS targets
+tmp <- meta_res_eval
+tmp <- tmp[tmp$Target != 'EUR',]
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$label[is.na(tmp$label)] <- 'All'
+tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
+tmp$label <- factor(tmp$label, levels = model_order)
+tmp$Discovery_clean <- as.character(tmp$Discovery)
+tmp$Discovery_clean[tmp$Discovery == 'EUR'] <- 'EUR GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Single'] <- 'Target-matched GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Multi'] <- 'Both'
+tmp$Discovery_clean <- factor(tmp$Discovery_clean, 
+                              levels = c('Target-matched GWAS',
+                                         'EUR GWAS',
+                                         'Both'))
+tmp$Target <- paste0(tmp$Target, ' Target')
+tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
+tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/sensitivity_1kgrefplots/average_r.png'), res=300, width = 3200, height = 2000, units = 'px')
+ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+
+# The results look very similar to when using 1KG+HGDP. 
+
+###################
+# Plot a comparison between the runs using different references
+
+# Read in results using 1KG+HGDP reference
+main_results<-fread('~/oliverpainfel/Analyses/crosspop/r_eval.csv')
+sens_results<-meta_res_eval
+
+tmp <- main_results
+tmp <- tmp[tmp$Target != 'EUR',]
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$label[is.na(tmp$label)] <- 'All'
+tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
+tmp$label <- factor(tmp$label, levels = model_order)
+tmp$Discovery_clean <- as.character(tmp$Discovery)
+tmp$Discovery_clean[tmp$Discovery == 'EUR'] <- 'EUR GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Single'] <- 'Target-matched GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Multi'] <- 'Both'
+tmp$Discovery_clean <- factor(tmp$Discovery_clean, 
+                              levels = c('Target-matched GWAS',
+                                         'EUR GWAS',
+                                         'Both'))
+tmp$Target <- paste0(tmp$Target, ' Target')
+tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
+tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+main_results <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
+
+tmp <- sens_results
+tmp <- tmp[tmp$Target != 'EUR',]
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$label[is.na(tmp$label)] <- 'All'
+tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
+tmp$label <- factor(tmp$label, levels = model_order)
+tmp$Discovery_clean <- as.character(tmp$Discovery)
+tmp$Discovery_clean[tmp$Discovery == 'EUR'] <- 'EUR GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Single'] <- 'Target-matched GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Multi'] <- 'Both'
+tmp$Discovery_clean <- factor(tmp$Discovery_clean, 
+                              levels = c('Target-matched GWAS',
+                                         'EUR GWAS',
+                                         'Both'))
+tmp$Target <- paste0(tmp$Target, ' Target')
+tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
+tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+sens_results <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
+
+main_results<-main_results[main_results$Method %in% sens_results$Method,]
+main_results<-main_results[main_results$Target %in% sens_results$Target,]
+
+sens_results$Reference <- '1KG'
+main_results$Reference <- '1KG+HGDP'
+
+both_results <- rbind(main_results, sens_results)
+
+png('~/oliverpainfel/Analyses/crosspop/sensitivity_1kgrefplots/comparison_to_main_result.png', units = 'px', res = 300, width=4000, height=2500)
+ggplot(both_results, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    facet_grid(Target ~ Discovery_clean + Reference, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+  
+```
+</details>
+
+***
+
+# TL-PRS
+
+Run using AFR and EAS subset in UKB to make it quicker to run. This is the main interest when running TL-PRS anyway. 
+
+***
+
+## Run pipeline
+
+To save time, run using PGS methods that do not need pre-processed LD matrix data (ptclump, dbslmm, megaprs, lassosum). If the results vary from the 1KG+HGDP results, then expand to other methods (LDpred2, SBayesRC, QuickPRS).
+
+```{r}
+library(data.table)
+
+dir.create('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/tlprs')
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output_tlprs",
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/tlprs/config.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/eas_afr_only/target_list.txt",
+  "gwas_groups: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_groups.txt",
+  "pgs_methods: ['quickprs','dbslmm','ldpred2','sbayesrc']",
+  "tlprs_methods: ['quickprs','dbslmm','ldpred2','sbayesrc']",
+  "cores_prep_pgs: 10",
+  "cores_target_pgs: 50",
+  "prscs_phi: ['auto']",
+  "ldpred2_model: ['auto']",
+  "ldpred2_inference: F",
+  "dbslmm_h2f: ['1']",
+  "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/hm3",
+  "quickprs_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3",
+  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/hm3"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/tlprs/config.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/tlprs/config.yaml \
+  output_all -n
+```
+
+***
+
+## Create predictor lists
+
+<details><summary>Show code</summary>
+
+```{r}
+
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+library(data.table)
+
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/tlprs/config.yaml'
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Read in list of outcomes 
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+# Create files for EAS and AFR targets
+targ_pop <- c('EAS','AFR')
+for(trait_i in selected_traits){
+  scores_i <- scores[grepl(trait_i, scores$name),]
+
+  for(targ_pop_i in targ_pop){
+    # Subset GWAS based on EUR and/or targ_pop_i
+    if(targ_pop_i == 'EAS'){
+      disc_pop <- 'BBJ'
+    }
+    if(targ_pop_i == 'AFR'){
+      disc_pop <- 'UGR'
+    }
+    if(targ_pop_i == 'EUR'){
+      disc_pop <- c('BBJ','UGR')
+    }
+    
+    for(disc_pop_j in disc_pop){
+      if(disc_pop_j == 'BBJ'){
+        disc_pop_j_2 <- 'EAS'
+      }
+      if(disc_pop_j == 'UGR'){
+        disc_pop_j_2 <- 'AFR'
+      }
+
+      dir.create(
+        paste0(
+          '/users/k1806347/oliverpainfel/Analyses/crosspop/tlprs/targ_',
+          targ_pop_i,
+          '.disc_EUR_',
+          disc_pop_j_2,
+          '/',
+          trait_i
+        ),
+        recursive = T
+      )
+      
+      scores_i_j <- scores_i[
+        (grepl('UKB$', scores_i$name, ignore.case = F) | 
+         grepl(paste0(disc_pop_j, '$'), scores_i$name, ignore.case = T)),]
+
+      scores_i_j$predictor <- paste0(
+        outdir,
+        '/ukb/pgs/TRANS/',
+        scores_i_j$method,
+        '/',
+        scores_i_j$name,
+        '/ukb-',
+        scores_i_j$name,
+        '-TRANS.profiles'
+      )
+      
+      #####
+      # List single-source PGS
+      #####
+      # These are actually pseudoval scores (as per the config)
+      scores_i_j_single <- scores_i_j[!grepl('tlprs', scores_i_j$method),]
+      
+      scores_i_j_single$top1[grepl('UKB', scores_i_j_single$name, ignore.case = F)] <- 'EUR'
+      scores_i_j_single$top1[grepl(disc_pop_j, scores_i_j_single$name, ignore.case = F)] <- disc_pop_j_2
+      scores_i_j_single$multi <- paste0(scores_i_j_single$method,'.pseudo')
+      
+      #####
+      # List tlprs scores (split by target population)
+      #####
+      scores_i_j_tlprs <- scores_i_j[grepl('tlprs', scores_i_j$method),]
+      scores_i_j_tlprs$multi <- scores_i_j_tlprs$method
+      
+      scores_i_j_tlprs_pop<-NULL
+      for(i in 1:nrow(scores_i_j_tlprs)){
+        score_header<-fread(scores_i_j_tlprs$predictor[i], nrow = 1)
+        
+        for(pop in c('EUR', disc_pop_j_2)){
+          score_cols <- which(grepl(paste0('^FID$|^IID$|_targ_', pop, '_'), names(score_header)))
+
+          system(
+            paste0(
+              "cut -d' ' -f ", 
+              paste0(score_cols, collapse=','),
+              " ", 
+              scores_i_j_tlprs$predictor[i], 
+              " > ", 
+              gsub('.profiles',
+                   paste0('.targ_', pop, '.profiles'),
+                   scores_i_j_tlprs$predictor[i])
+            )
+          )
+          
+          tmp <- scores_i_j_tlprs[i,]
+          tmp$multi <- paste0(tmp$multi, '.pop')
+          tmp$top1 <- pop
+          tmp$predictor <-
+              gsub('.profiles',
+                   paste0('.targ_', pop, '.profiles'),
+                   scores_i_j_tlprs$predictor[i])
+          
+          scores_i_j_tlprs_pop <- rbind(scores_i_j_tlprs_pop, tmp)
+        }
+      }
+
+      predictors_i<- do.call(rbind, list(
+        scores_i_j_single, scores_i_j_tlprs_pop
+      ))
+      
+      predictors_i <- predictors_i[, c('predictor', 'top1','multi'), with=F]
+      
+      write.table(
+        predictors_i,
+        paste0(
+          '/users/k1806347/oliverpainfel/Analyses/crosspop/tlprs/targ_',
+          targ_pop_i,
+          '.disc_EUR_',
+          disc_pop_j_2,
+          '/',
+          trait_i,
+          '/predictor_list.tlprs.txt'
+        ),
+        col.names = T,
+        row.names = F,
+        quote = F
+      )
+    }
+  }
+}
+
+```
+
+</details>
+
+***
+
+## Run model_builder
+
+<details><summary>Show code</summary>
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate model_builder
+
+#rm /users/k1806347/oliverpainfel/Analyses/crosspop/tlprs/targ_*.disc_EUR_*/*/res*
+
+for targ_pop in $(echo EAS AFR); do
+  if [ "$targ_pop" == "EUR" ]; then
+      targ_pop2="EUR_test"
+  else
+      targ_pop2=$targ_pop
+  fi
+  
+  if [ "$targ_pop" == "EUR" ]; then
+    disc_pop=$(echo AFR EAS)
+  fi
+  
+  if [ "$targ_pop" == "EAS" ]; then
+    disc_pop="EAS"
+  fi
+  
+  if [ "$targ_pop" == "AFR" ]; then
+    disc_pop="AFR"
+  fi
+  
+  for disc_pop_i in ${disc_pop}; do
+    for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
+      if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/tlprs/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res.tlprs.pred_comp.txt" ]; then
+        sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+          --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
+          --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/tlprs/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/predictor_list.tlprs.txt \
+          --out /users/k1806347/oliverpainfel/Analyses/crosspop/tlprs/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res.tlprs \
+          --n_core 5"
+      fi
+    done
+  done
+done
+```
+</details>
+
+***
+
+## Plot results
+
+<details><summary>Show code</summary>
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in list of outcomes 
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+info_all <- fread('~/oliverpainfel/Analyses/crosspop/gwas_descriptives.csv')
+
+# Calculate correlation between all phenotypes in each target population
+cors <- list()
+for(pop_i in c('EUR','EAS','AFR','CSA','AMR')){
+  if(pop_i == 'EUR'){
+    pop_i_2 <- 'EUR_test'
+  } else {
+    pop_i_2 <- pop_i
+  }
+  pheno_pop_i <- list()
+  for(pheno_i in selected_traits){
+    pheno_pop_i[[pheno_i]] <- fread(paste0('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/', pheno_i, '.unrel.', pop_i_2, '.row_number.txt'))
+    names(pheno_pop_i[[pheno_i]])[3] <- pheno_i
+  }
+  
+  pheno_pop_i_merged <- merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE, by = c('FID','IID')), pheno_pop_i)
+
+  cors_i <- abs(cor(as.matrix(pheno_pop_i_merged[,-1:-2, with=F]), use='p'))
+  cors[[pop_i]] <- cors_i
+}
+
+# Read in results
+targ_pop = c('EAS','AFR')
+res_eval <- list()
+for(pheno_i in selected_traits){
+  res_eval_i<-NULL
+  for(targ_pop_i in targ_pop){
+    if(targ_pop_i == 'EAS'){
+      disc_pop <- 'EAS'
+    }
+    if(targ_pop_i == 'AFR'){
+      disc_pop <- 'AFR'
+    }
+    if(targ_pop_i == 'EUR'){
+      disc_pop <- c('EAS','AFR')
+    }
+    for(disc_pop_i in disc_pop){
+      eval_i <-
+        fread(
+          paste0(
+            '/users/k1806347/oliverpainfel/Analyses/crosspop/tlprs/',
+            'targ_',
+            targ_pop_i,
+            '.disc_EUR_',
+            disc_pop_i,
+            '/',
+            pheno_i,
+            '/res.tlprs.pred_eval.txt'
+          )
+        )
+      eval_i$Target<-targ_pop_i
+      eval_i$gwas_group<-paste0('EUR+', disc_pop_i)
+      res_eval_i<-rbind(res_eval_i, eval_i)
+    }
+  }
+  
+  res_eval_i$Method<-sub('\\..*','',res_eval_i$Group)
+  res_eval_i$Method<-gsub('-.*','', res_eval_i$Method)
+  
+  res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
+                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTrain'
+  res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
+                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTrain'
+  res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
+                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTrain'
+  res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
+                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTrain'
+  
+  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTrain'
+  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTrain'
+  res_eval_i$Model[res_eval_i$Group == 'xwing.pseudo.multi']<-'SumStatTrain'
+  
+  res_eval_i$Source<-ifelse(
+    res_eval_i$Method %in% pgs_group_methods | grepl('_multi$', res_eval_i$Method) | 
+    !grepl('EUR|EAS|AFR', res_eval_i$Group), 'Multi', 'Single')
+  
+  res_eval_i$Discovery[grepl('EUR', res_eval_i$Group)] <- 'EUR'
+  res_eval_i$Discovery[grepl('EAS', res_eval_i$Group)] <- 'EAS'
+  res_eval_i$Discovery[grepl('AFR', res_eval_i$Group)] <- 'AFR'
+  res_eval_i$Discovery[res_eval_i$Source == 'Multi'] <- res_eval_i$gwas_group[res_eval_i$Source == 'Multi']
+  
+  res_eval_i$Method<-factor(res_eval_i$Method, levels=unique(res_eval_i$Method))
+  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+  res_eval_i$Discovery<-factor(res_eval_i$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
+
+  # Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
+  res_eval_i <- res_eval_i[
+    !(res_eval_i$Method %in%  c('quickprs','sbayesrc') & 
+      res_eval_i$Model %in% c('IndivTrain','Multi-IndivTrain')),]
+  
+  # Remove pseudo model for methods that don't really have one 
+  res_eval_i <- res_eval_i[
+    !(res_eval_i$Method %in%  c('ptclump','ptclump_multi') & 
+      res_eval_i$Model %in% c('SumStatTrain','Multi-SumStatTrain')),]
+
+  # Remove top1 models for *-Multi, PRS-CSx, X-wing, TL-*
+  res_eval_i <- res_eval_i[
+    !((res_eval_i$Method %in%  c('prscsx', 'xwing') | grepl('_multi$', res_eval_i$Method) | grepl('^tlprs_', res_eval_i$Method)) & 
+      grepl('top1', res_eval_i$Group)),]
+  
+  # Remove any duplicate models
+  res_eval_i <- res_eval_i[!duplicated(res_eval_i[, c(
+    "Target", "Method", "Model", "Source", "Discovery","gwas_group"
+  )]),]
+  
+  res_eval[[pheno_i]]<-res_eval_i
+  
+}
+
+# Create vector defining or of methods in plots
+model_order <- c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC", "DBSLMM-multi", "lassosum-multi", "LDpred2-multi", "MegaPRS-multi", "PRS-CS-multi", "pT+clump-multi", "QuickPRS-multi", "SBayesRC-multi","TL-DBSLMM", "PRS-CSx", "X-Wing", "All") 
+
+####
+# Average results across phenotypes
+####
+
+library(MAd)
+
+# Average R across phenotypes
+meta_res_eval <- NULL
+for(targ_pop_i in targ_pop){
+  if(targ_pop_i == 'EAS'){
+    disc_pop <- 'EAS'
+  }
+  if(targ_pop_i == 'AFR'){
+    disc_pop <- 'AFR'
+  }
+  if(targ_pop_i == 'EUR'){
+    disc_pop <- c('EAS','AFR')
+  }
+  for(disc_pop_i in disc_pop){
+  
+    # Subset res_eval for each scenario
+    res_eval_i <- do.call(rbind, lapply(seq_along(res_eval), function(i) {
+      x <- res_eval[[i]]
+      x$pheno <- names(res_eval)[i]
+      x <- x[x$Target == targ_pop_i]
+      x <- x[x$gwas_group == paste0('EUR+', disc_pop_i)]
+    }))
+    
+    # Average res_evalults for each test across phenotypes
+    # Use MAd to account for correlation between them
+    res_eval_i$Sample<-'A'
+  
+    for(group_i in unique(res_eval_i$Group)){
+      res_eval_group_i <- res_eval_i[res_eval_i$Group == group_i,]
+      missing_pheno <-
+        colnames(cors[[targ_pop_i]])[!(colnames(cors[[targ_pop_i]]) %in% unique(res_eval_group_i$pheno))]
+      
+      if (!all(colnames(cors[[targ_pop_i]]) %in% unique(res_eval_group_i$pheno))) {
+        print(paste0(
+          'res_evalults missing for ',
+          targ_pop_i,
+          ' ',
+          group_i,
+          ' ',
+          paste0(missing_pheno, collapse = ' ')
+        ))
+      }
+      
+      cors_i <- cors[[targ_pop_i]][unique(res_eval_group_i$pheno), unique(res_eval_group_i$pheno)]
+      
+      meta_res_eval_i <-
+        agg(
+          id = Sample,
+          es = R,
+          var = SE ^ 2,
+          cor = cors_i,
+          method = "BHHR",
+          mod = NULL,
+          data = res_eval_group_i
+        )
+      
+      tmp <- data.table(Group = group_i,
+                        Method = res_eval_group_i$Method[1],
+                        Model = res_eval_group_i$Model[1],
+                        Source = res_eval_group_i$Source[1],
+                        Discovery = res_eval_group_i$Discovery[1],
+                        gwas_group = res_eval_group_i$gwas_group[1],
+                        Target = targ_pop_i,
+                        R = meta_res_eval_i$es,
+                        SE = sqrt(meta_res_eval_i$var))
+      
+      meta_res_eval <- rbind(meta_res_eval, tmp)
+    }
+  }
+}
+
+meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
+
+# Plot average performance across phenotypes for AFR and EAS targets
+tmp <- meta_res_eval
+tmp <- tmp[tmp$Target != 'EUR',]
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$label[is.na(tmp$label)] <- 'All'
+tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All' & !grepl('^tlprs_', tmp$Method)] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All' & !grepl('^tlprs_', tmp$Method)], '-multi')
+tmp$label <- factor(tmp$label, levels = model_order)
+tmp$Discovery_clean <- as.character(tmp$Discovery)
+tmp$Discovery_clean[tmp$Discovery == 'EUR'] <- 'EUR GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Single'] <- 'Target-matched GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Multi'] <- 'Both'
+tmp$Discovery_clean <- factor(tmp$Discovery_clean, 
+                              levels = c('Target-matched GWAS',
+                                         'EUR GWAS',
+                                         'Both'))
+tmp$Target <- paste0(tmp$Target, ' Target')
+tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
+tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/tlprs/plots/average_r.png'), res=300, width = 3200, height = 2000, units = 'px')
+ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+
+# TL-PRS does seem to provide a slight advantage  
+```
 
