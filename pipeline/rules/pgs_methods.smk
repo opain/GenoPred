@@ -888,12 +888,12 @@ if 'external' in pgs_methods_all:
   pgs_methods_input.append(rules.score_reporter.output)
 if config["leopard_methods"] and config["leopard_methods"] != "NA":
   pgs_methods_input.append(rules.prep_pgs_multi.input)
+if config["tlprs_methods"] and config["tlprs_methods"] != "NA":
+  pgs_methods_input.append(rules.prep_pgs_tlprs.input)
 if 'prscsx' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_prscsx.input)
 if 'xwing' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_xwing.input)
-if 'tlprs' in pgs_methods_all:
-  pgs_methods_input.append(rules.prep_pgs_tlprs.input)
 if 'bridgeprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_bridgeprs.input)
 
