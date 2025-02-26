@@ -431,7 +431,7 @@ check_pgs_methods(config['pgs_methods'])
 # Check valid tlprs_methods are specified
 def check_tlprs_methods(config):
     valid_tlprs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "megaprs","quickprs"
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs"
     }
 
     # Check if 'tlprs_methods' is empty

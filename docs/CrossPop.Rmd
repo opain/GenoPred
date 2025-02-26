@@ -32,8 +32,6 @@ pre code, pre, code {
 
 European (EUR) GWAS are typically the largest in sample size, or even the only GWAS for certain outcomes. Here we will evaluate approaches for calculating polygenic scores (PGS) across populations. We will include single- and multi-source PGS methods, using EUR GWAS alone, or using EUR GWAS in combination with GWAS from other populations.
 
-In first instance, we will use EUR individuals in UK Biobank (UKB), to derive GWAS summary statistics, and Biobank Japan GWAS. We will evaluate PGS across populations in UKB, using outcomes available in the majority of participants to ensure sufficient sample size in non-EUR populations.
-
 ***
 
 # Derive GWAS in UKB
@@ -810,6 +808,8 @@ write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/cro
 
 ## Run pipeline
 
+<details><summary>Show code</summary>
+
 ```{bash}
 snakemake \
   --profile slurm \
@@ -817,6 +817,8 @@ snakemake \
   --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_all.yaml \
   target_pgs -n
 ```
+
+</details>
 
 ***
 
@@ -928,6 +930,8 @@ done
 
 ## Calculate CSCOREs
 
+<details><summary>Show code</summary>
+
 ```{bash}
 
 # Subset the reference data into relevant populations
@@ -962,6 +966,8 @@ done
 rm -r /users/k1806347/oliverpainfel/Data/POPCORN/1KG/temp
 rm /users/k1806347/oliverpainfel/Data/POPCORN/1KG/EUR_*_CSCORES/*chr*.txt
 ```
+
+</details>
 
 ***
 
@@ -1277,6 +1283,8 @@ ggplot(res_all, aes(x = Phenotype, y = BETA, fill = pT)) +
 
 ### Run AVENGEME
 
+<details><summary>Show code</summary>
+
 ```{r}
 
 setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
@@ -1423,9 +1431,13 @@ summary(mod_res_all$max_r2[mod_res_all$Population == 'AFR'])
 
 ```
 
+</details>
+
 ***
 
 ### Select GWAS for downstream analyses
+
+<details><summary>Show code</summary>
 
 ```{r}
 #########
@@ -1505,9 +1517,13 @@ round(sqrt(max(mod_res_all$max_r2[mod_res_all$Population == 'AFR'])), 2)
 
 ```
 
+</details>
+
 ***
 
 # Make a descriptives table of GWAS
+
+<details><summary>Show code</summary>
 
 ```{r}
 library(data.table)
@@ -1623,6 +1639,8 @@ for(i in unique(info_all_selected$`GWAS Sample`)){
 
 ```
 
+</details>
+
 ***
 
 # Run GenoPred
@@ -1696,6 +1714,8 @@ write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/cro
 
 ## Run pipeline
 
+<details><summary>Show code</summary>
+
 ```{bash}
 snakemake \
   --profile slurm \
@@ -1703,6 +1723,8 @@ snakemake \
   --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml \
   target_pgs  -n
 ```
+
+</details>
 
 ***
 
@@ -3393,6 +3415,8 @@ dev.off()
 
 Here we will compare the LEOPARD estimated weights for population specific PGS, to the weights estimated using observed data in the UKB target sample.
 
+<details><summary>Show code</summary>
+
 ```{r}
 setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
 
@@ -3611,9 +3635,104 @@ dev.off()
 
 ```
 
+</details>
+
+***
+
+# Investigate PRS-CS vs. PRS-CSx performance
+
+PRS-CS-multi is performing better than PRS-CSx often, which contrasts with the original PRS-CSx paper. Try to understand why this is.
+
+```{r}
+# Read in the PGS for EAS target from PRS-CS and PRS-CSx
+prscs_eur <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pgs/TRANS/prscs/TC_UKB/ukb-TC_UKB-TRANS.profiles')
+prscs_eas <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pgs/TRANS/prscs/TC_BBJ/ukb-TC_BBJ-TRANS.profiles')
+prscsx <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pgs/TRANS/prscsx/TC_UKB_BBJ/ukb-TC_UKB_BBJ-TRANS.profiles')
+
+# Read in the phenotype data
+pheno <- fread('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/TC.unrel.EAS.row_number.txt')
+
+# Merge all the data
+data <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('FID','IID')), list(pheno, prscs_eur, prscs_eas, prscsx))
+
+assoc_res <- data.frame(
+  PGS = names(data)[-1:-3],
+  R = cor(data[,-1:-2], use='p')[-1,1]
+)
+rownames(assoc_res)<-NULL
+
+assoc_res<-assoc_res[!grepl('META', assoc_res$PGS),]
+assoc_res$phi <- gsub('.*_phi_','',assoc_res$PGS)
+assoc_res$phi <- factor(assoc_res$phi, levels = c('1e+00','1e-02','1e-04','1e-06','auto'))
+assoc_res$method <- ifelse(grepl('UKB_BBJ', assoc_res$PGS), 'PRS-CSx', 'PRS-CS')
+assoc_res$pop <- NA
+assoc_res$pop[assoc_res$method == 'PRS-CS' & grepl('UKB', assoc_res$PGS)] <- 'EUR'
+assoc_res$pop[assoc_res$method == 'PRS-CS' & grepl('BBJ', assoc_res$PGS)] <- 'EAS'
+assoc_res$pop[assoc_res$method == 'PRS-CSx' & grepl('EUR', assoc_res$PGS)] <- 'EUR'
+assoc_res$pop[assoc_res$method == 'PRS-CSx' & grepl('EAS', assoc_res$PGS)] <- 'EAS'
+
+library(ggplot2)
+library(cowplot)
+
+ggplot(assoc_res, aes(x=pop, y=R , fill = phi)) +
+    geom_bar(stat="identity", position=position_dodge(0.7), width = 0.7) +
+    labs(y = "R", x='Method') +
+    facet_grid(. ~ method, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+# This shows nicely the poorer performance of the EAS PGS from PRS-CSx and than PRS-CS.
+# Why is this? Have a look at the SNP-weights.
+
+prscs_eur <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pgs_score_files/prscs/TC_UKB/ref-TC_UKB.score.gz')
+prscs_eas <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pgs_score_files/prscs/TC_BBJ/ref-TC_BBJ.score.gz')
+prscsx <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pgs_score_files/prscsx/TC_UKB_BBJ/ref-TC_UKB_BBJ.score.gz')
+
+prscsx<-prscsx[, !(grepl('META', names(prscsx))), with=F]
+
+names(prscs_eur) <- gsub('SCORE', 'prscs_eur', names(prscs_eur))
+names(prscs_eas) <- gsub('SCORE', 'prscs_eas', names(prscs_eas))
+names(prscsx) <- gsub('SCORE', 'prscsx', names(prscsx))
+
+data <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1', 'A2'), sort = F), list(prscs_eur, prscs_eas, prscsx))
+data[data == 0]<-NA
+
+na_count <- sapply(data[,-1:-3], function(x) sum(is.na(x)))
+na_table <- data.frame(Column = names(na_count), NA_Count = na_count)
+
+# check correlation between PRS-CS and PRS-CSx variant that are shared and not shared across GWAS
+shared_var <- data[!is.na(data$`prscs_eur_phi_1e-04`) & !is.na(data$`prscs_eas_phi_1e-04`), ]
+nonshared_var <- data[is.na(data$`prscs_eur_phi_1e-04`) & !is.na(data$`prscs_eas_phi_1e-04`), ]
+
+nrow(shared_var)
+nrow(nonshared_var)
+
+cor(shared_var$`prscs_eas_phi_1e-04`, shared_var$`prscsx_EAS_phi_1e-04`)
+cor(nonshared_var$`prscs_eas_phi_1e-04`, nonshared_var$`prscsx_EAS_phi_1e-04`)
+
+nonshared_var[, c('SNP','A1','A2','prscs_eas_phi_1e-04','prscsx_EAS_phi_1e-04'), with=F]
+
+
+shared_var <- data[!is.na(data$`prscs_eur_phi_1e-04`) & !is.na(data$`prscs_eas_phi_1e-04`), ]
+nonshared_var <- data[!is.na(data$`prscs_eur_phi_1e-04`) & is.na(data$`prscs_eas_phi_1e-04`), ]
+
+nrow(shared_var)
+nrow(nonshared_var)
+
+cor(shared_var$`prscs_eur_phi_1e-04`, shared_var$`prscsx_EUR_phi_1e-04`)
+cor(nonshared_var$`prscs_eur_phi_1e-04`, nonshared_var$`prscsx_EUR_phi_1e-04`)
+
+nonshared_var[, c('SNP','A1','A2','prscs_eas_phi_1e-04','prscsx_EAS_phi_1e-04'), with=F]
+
+```
+
 ***
 
 # Computational resoures
+
+<details><summary>Show code</summary>
 
 ```{r}
 library(data.table)
@@ -3775,6 +3894,8 @@ method_avg<-merge(method_avg, method_avg_mem, by = 'Method')
 write.csv(method_avg, '~/oliverpainfel/Analyses/crosspop/time_memory.csv', row.names=F)
 ```
 
+</details>
+
 ***
 
 # Sensitivity analysis using 1KG reference
@@ -3786,6 +3907,8 @@ PRS-CS, PRS-CSx and X-Wing all use the 1KG reference sample, whereas the other m
 ## Subset AFR and EAS individuals in UKB data
 
 To make this quicker, focus on evaluating the PGS methods in the AFR and EAS target individuals in UKB. This will avoid reprocessing the full UKB data.
+
+<details><summary>Show code</summary>
 
 ```{r}
 library(data.table)
@@ -3824,11 +3947,15 @@ done
 
 ```
 
+</details>
+
 ***
 
 ## Create 1KG only GenoPred reference data
 
 Subset the 1KG+HGDP reference data to include only 1KG individuals.
+
+<details><summary>Show code</summary>
 
 ```{bash}
 mkdir -p ~/oliverpainfel/Data/1kg/genopred/
@@ -3855,11 +3982,15 @@ for chr in $(seq 1 22); do
 done
 ```
 
+</details>
+
 ***
 
 ## Run pipeline
 
 To save time, run using PGS methods that do not need pre-processed LD matrix data (ptclump, dbslmm, megaprs, lassosum). If the results vary from the 1KG+HGDP results, then expand to other methods (LDpred2, SBayesRC, QuickPRS).
+
+<details><summary>Show code</summary>
 
 ```{r}
 library(data.table)
@@ -3908,6 +4039,8 @@ snakemake \
   --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/eas_afr_only/config.yaml \
   output_all -n
 ```
+
+</details>
 
 ***
 
@@ -4644,6 +4777,8 @@ Run using AFR and EAS subset in UKB to make it quicker to run. This is the main 
 
 To save time, run using PGS methods that do not need pre-processed LD matrix data (ptclump, dbslmm, megaprs, lassosum). If the results vary from the 1KG+HGDP results, then expand to other methods (LDpred2, SBayesRC, QuickPRS).
 
+<details><summary>Show code</summary>
+
 ```{r}
 library(data.table)
 
@@ -4683,6 +4818,8 @@ snakemake \
   --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/tlprs/config.yaml \
   output_all -n
 ```
+
+</details>
 
 ***
 
@@ -4998,7 +5135,7 @@ for(pheno_i in selected_traits){
 
   # Remove top1 models for *-Multi, PRS-CSx, X-wing, TL-*
   res_eval_i <- res_eval_i[
-    !((res_eval_i$Method %in%  c('prscsx', 'xwing') | grepl('_multi$', res_eval_i$Method) | grepl('^tlprs_', res_eval_i$Method)) & 
+    !((res_eval_i$Method %in%  c('prscsx', 'xwing') | grepl('_multi$', res_eval_i$Method)) & 
       grepl('top1', res_eval_i$Group)),]
   
   # Remove any duplicate models
@@ -5011,7 +5148,7 @@ for(pheno_i in selected_traits){
 }
 
 # Create vector defining or of methods in plots
-model_order <- c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC", "DBSLMM-multi", "lassosum-multi", "LDpred2-multi", "MegaPRS-multi", "PRS-CS-multi", "pT+clump-multi", "QuickPRS-multi", "SBayesRC-multi","TL-DBSLMM", "PRS-CSx", "X-Wing", "All") 
+model_order <- c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC", "DBSLMM-multi", "lassosum-multi", "LDpred2-multi", "MegaPRS-multi", "PRS-CS-multi", "pT+clump-multi", "QuickPRS-multi", "SBayesRC-multi","TL-DBSLMM","TL-LDpred2","TL-QuickPRS","TL-SBayesRC", "PRS-CSx", "X-Wing", "All") 
 
 ####
 # Average results across phenotypes
@@ -5112,15 +5249,26 @@ tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
 tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
 tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
 
-png(paste0('~/oliverpainfel/Analyses/crosspop/tlprs/plots/average_r.png'), res=300, width = 3200, height = 2000, units = 'px')
-ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+dir.create('~/oliverpainfel/Analyses/crosspop/tlprs/plots')
+
+# Plot unidirectional TL-PRS (as it was intended), comparing the unadjusted EUR PGS to the EUR PGS that has been adjusted according to the target-matched GWAS
+tmp_tlprs_uni <- tmp[grepl('tlprs', tmp$Method) & !grepl('pop-EUR.top1', tmp$Group) & tmp$Source == 'Single', ]
+tmp_tlprs_uni$Type <- 'TL-PRS'
+tmp_unadj <- tmp[!grepl('tlprs', tmp$Method) & tmp$Discovery == 'EUR', ]
+tmp_unadj$Type <- 'Original'
+tmp_both <- rbind(tmp_unadj, tmp_tlprs_uni)
+tmp_both$label<-gsub('TL-','',tmp_both$label)
+tmp_both$Type<-factor(tmp_both$Type, levels = c('Original','TL-PRS'))
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/tlprs/plots/unidirectional_r.png'), res=300, width = 2000, height = 1600, units = 'px')
+ggplot(tmp_both, aes(x=label, y=R , fill = Type)) +
     geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
                   width = 0,
                   position = position_dodge(width = 1)) +
     geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
     geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
     labs(y = "R (SE)", x='Method') +
-    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    facet_grid(Target ~ ., scales='free', space = 'free_x') +
     theme_half_open() +
     background_grid(major = 'y', minor = 'y') + 
     panel_border() + 
@@ -5130,6 +5278,395 @@ ggplot(tmp, aes(x=label, y=R , fill = Model)) +
           legend.justification = "center")
 dev.off()
 
-# TL-PRS does seem to provide a slight advantage  
+tmp_tlprs_uni <- tmp[grepl('tlprs', tmp$Method) & grepl('pop-EUR.top1', tmp$Group) & tmp$Source == 'Single', ]
+tmp_tlprs_uni$Type <- 'TL-PRS'
+tmp_unadj <- tmp[!grepl('tlprs', tmp$Method) & tmp$Discovery == 'EUR', ]
+tmp_unadj$Type <- 'Original'
+tmp_both <- rbind(tmp_unadj, tmp_tlprs_uni)
+tmp_both$label<-gsub('TL-','',tmp_both$label)
+tmp_both$Type<-factor(tmp_both$Type, levels = c('Original','TL-PRS'))
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/tlprs/plots/unidirectional_r.targ_EUR.png'), res=300, width = 2000, height = 1600, units = 'px')
+ggplot(tmp_both, aes(x=label, y=R , fill = Type)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    facet_grid(Target ~ ., scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+
+# Have one column per method, but fill according to Original EUR PGS, Original matched-PGS, TL-PRS EUR Target, TL-PRS non-EUR Target, TL-PRS Multi, and Original-Multi
+tmp <- meta_res_eval
+tmp <- tmp[tmp$Target != 'EUR',]
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$Type <- NA
+tmp$Type[grepl('tlprs', tmp$Method) & grepl('pop-EUR.top1', tmp$Group)]<-"TL-PRS (EUR PGS tuned to target)"
+tmp$Type[grepl('tlprs', tmp$Method) & !grepl('pop-EUR.top1', tmp$Group) & tmp$Source == 'Single']<-"TL-PRS (Target-matched PGS tuned to EUR)"
+tmp$Type[!grepl('tlprs', tmp$Method) & tmp$Discovery == 'EUR']<-"Original (EUR PGS)"
+tmp$Type[!grepl('tlprs', tmp$Method) & tmp$Discovery != 'EUR' & tmp$Source == 'Single']<-"Original (Target-matched PGS)"
+tmp$Type[grepl('tlprs', tmp$Method) & grepl('multi', tmp$Group)]<-"TL-PRS-multi"
+tmp$Type[!grepl('tlprs', tmp$Method) & grepl('multi', tmp$Group)]<-"Original-multi"
+tmp <- tmp[!is.na(tmp$Type),]
+tmp$Type<-factor(tmp$Type, levels=c("Original (EUR PGS)", "Original (Target-matched PGS)", "TL-PRS (EUR PGS tuned to target)", "TL-PRS (Target-matched PGS tuned to EUR)", "Original-multi", "TL-PRS-multi"))
+tmp$label<-gsub('TL-','',tmp$label)
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/tlprs/plots/average_r.png'), res=300, width = 4000, height = 2200, units = 'px')
+ggplot(tmp, aes(x=label, y=R , fill = Type)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    facet_grid(Target ~ ., scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+dev.off()
+
+#########################
+# Check significance of differences between TL-PRS and unadjusted approaches
+########################
+
+####
+# Create heatmap showing difference between all methods and models
+####
+
+# Create a function to mirror pred_comp results
+mirror_comp<-function(x){
+  x_sym <- x
+  x_sym$Model_1 <- x$Model_2
+  x_sym$Model_2 <- x$Model_1
+  x_sym$Model_1_R <- x$Model_2_R
+  x_sym$Model_2_R <- x$Model_1_R
+  x_sym$R_diff <- -x_sym$R_diff
+  x_mirrored <- rbind(x, x_sym)
+  x_diag<-data.frame(
+      Model_1=unique(x_mirrored$Model_1),
+      Model_2=unique(x_mirrored$Model_1),
+      Model_1_R=x_mirrored$Model_1_R,
+      Model_2_R=x_mirrored$Model_1_R,
+      R_diff=NA,
+      R_diff_pval=NA
+    )
+  x_comp<-rbind(x_mirrored, x_diag)
+  return(x_comp)
+}
+  
+# Read in results
+targ_pop=c('EAS','AFR')
+res_comp <- list()
+for(pheno_i in selected_traits){
+  res_comp_i<-NULL
+  for(targ_pop_i in targ_pop){
+    if(targ_pop_i == 'EAS'){
+      disc_pop <- 'EAS'
+    }
+    if(targ_pop_i == 'AFR'){
+      disc_pop <- 'AFR'
+    }
+    if(targ_pop_i == 'EUR'){
+      disc_pop <- c('EAS','AFR')
+    }
+    for(disc_pop_i in disc_pop){
+      comp_i <-
+        fread(
+          paste0(
+            '/users/k1806347/oliverpainfel/Analyses/crosspop/tlprs/',
+            'targ_',
+            targ_pop_i,
+            '.disc_EUR_',
+            disc_pop_i,
+            '/',
+            pheno_i,
+            '/res.tlprs.pred_comp.txt'
+          )
+        )
+      comp_i<-mirror_comp(comp_i)
+      comp_i$Target<-targ_pop_i
+      comp_i$gwas_group<-paste0('EUR+', disc_pop_i)
+      res_comp_i<-rbind(res_comp_i, comp_i)
+    }
+  }
+  
+  res_comp[[pheno_i]]<-res_comp_i
+}
+
+res_comp_all <- do.call(rbind, lapply(names(res_comp), function(name) {
+  x <- res_comp[[name]]
+  x$pheno <- name  # Add a new column with the name of the element
+  x  # Return the updated dataframe
+}))
+
+# Annotate tests to get order correct
+res_comp_all$Method1<-sub('\\..*','',res_comp_all$Model_1)
+res_comp_all$Method1<-gsub('-.*','', res_comp_all$Method1)
+res_comp_all$Method2<-sub('\\..*','',res_comp_all$Model_2)
+res_comp_all$Method2<-gsub('-.*','', res_comp_all$Method2)
+
+find_model<-function(x){
+  mod <- x
+  mod[grepl('top1$', x) & !grepl('pseudo', x)] <- 'IndivTrain'
+  mod[grepl('top1$', x) & grepl('pseudo', x)] <- 'SumStatTrain'
+  mod[grepl('multi$', x) & !grepl('pseudo', x)] <- 'Multi-IndivTrain'
+  mod[grepl('multi$', x) & grepl('pseudo', x)] <- 'Multi-SumStatTrain'
+  mod[grepl('_multi', x)] <- 'SumStatTrain'
+  mod[x == 'prscsx.pseudo.multi'] <- 'SumStatTrain'
+  mod[x == 'xwing.pseudo.multi'] <- 'SumStatTrain'
+  
+  return(mod)
+}
+
+res_comp_all$Model1<-find_model(res_comp_all$Model_1)
+res_comp_all$Model2<-find_model(res_comp_all$Model_2)
+
+res_comp_all$Source1<-ifelse(res_comp_all$Method1 %in% pgs_group_methods | grepl('_multi$', res_comp_all$Method1) | !grepl('AFR|EAS|EUR', res_comp_all$Model_1), 'Multi', 'Single')
+res_comp_all$Source2<-ifelse(res_comp_all$Method2 %in% pgs_group_methods | grepl('_multi$', res_comp_all$Method2) | !grepl('AFR|EAS|EUR', res_comp_all$Model_2), 'Multi', 'Single')
+  
+for(i in c('EUR','EAS','AFR')){
+  res_comp_all$Discovery1[grepl(i, res_comp_all$Model_1)] <- i
+  res_comp_all$Discovery2[grepl(i, res_comp_all$Model_2)] <- i
+}
+res_comp_all$Discovery1[res_comp_all$Source1 == 'Multi'] <- res_comp_all$gwas_group[res_comp_all$Source1 == 'Multi']
+res_comp_all$Discovery2[res_comp_all$Source2 == 'Multi'] <- res_comp_all$gwas_group[res_comp_all$Source2 == 'Multi']
+
+res_comp_all$Method1<-factor(res_comp_all$Method1, levels=unique(res_comp_all$Method1))
+res_comp_all$Method2<-factor(res_comp_all$Method2, levels=unique(res_comp_all$Method2))
+res_comp_all$Model1<-factor(res_comp_all$Model1, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+res_comp_all$Model2<-factor(res_comp_all$Model2, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+res_comp_all$Discovery1<-factor(res_comp_all$Discovery1, levels=rev(c('AFR','EAS','EUR','EUR+AFR','EUR+EAS')))
+res_comp_all$Discovery2<-factor(res_comp_all$Discovery2, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
+
+# Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
+res_comp_all <- res_comp_all[
+!(res_comp_all$Method1 %in%  c('quickprs','sbayesrc') & 
+  res_comp_all$Model1 %in% c('IndivTrain','Multi-IndivTrain')),]
+res_comp_all <- res_comp_all[
+!(res_comp_all$Method2 %in%  c('quickprs','sbayesrc') & 
+  res_comp_all$Model2 %in% c('IndivTrain','Multi-IndivTrain')),]
+
+# Remove pseudo model for methods that don't really have one 
+res_comp_all <- res_comp_all[
+!(res_comp_all$Method1 %in%  c('ptclump','ptclump_multi') & 
+  res_comp_all$Model1 %in% c('SumStatTrain','Multi-SumStatTrain')),]
+res_comp_all <- res_comp_all[
+!(res_comp_all$Method2 %in%  c('ptclump','ptclump_multi') & 
+  res_comp_all$Model2 %in% c('SumStatTrain','Multi-SumStatTrain')),]
+
+# Remove top1 models for PRS-CSx
+res_comp_all <- res_comp_all[
+!(grepl('prscsx|xwing|_multi', res_comp_all$Method1) & 
+  grepl('top1', res_comp_all$Model_1)),]
+res_comp_all <- res_comp_all[
+!(grepl('prscsx|xwing|_multi', res_comp_all$Method2) & 
+  grepl('top1', res_comp_all$Model_2)),]
+
+# Remove any comparisons
+res_comp_all <- res_comp_all[!duplicated(res_comp_all[, c("Target", "Method1", "Model1", "Source1", "Discovery1", "Method2", "Model2", "Source2", "Discovery2",'pheno')]),]
+
+###########
+
+library(MAd)
+
+# Average R across phenotypes
+meta_res_comp <- NULL
+for(targ_pop_i in targ_pop){
+  if(targ_pop_i == 'EAS'){
+    disc_pop <- 'EAS'
+  }
+  if(targ_pop_i == 'AFR'){
+    disc_pop <- 'AFR'
+  }
+  if(targ_pop_i == 'EUR'){
+    disc_pop <- c('EAS','AFR')
+  }
+  for(disc_pop_i in disc_pop){
+  
+    # Subset res_comp for each scenario
+    res_comp_i <- res_comp_all[res_comp_all$Target == targ_pop_i & res_comp_all$gwas_group == paste0('EUR+', disc_pop_i)]
+  
+    # Calculate diff SE based on p-value
+    res_comp_i$R_diff_pval[res_comp_i$R_diff == 0] <- 1-0.001
+    res_comp_i$R_diff_pval[res_comp_i$R_diff_pval == 1]<-1-0.001
+    res_comp_i$R_diff_z<-qnorm(res_comp_i$R_diff_pval/2)
+    res_comp_i$R_diff_SE<-abs(res_comp_i$R_diff/res_comp_i$R_diff_z)
+        
+    # Average results for each test across phenotypes
+    # Use MAd to account for correlation between them
+    res_comp_i$Sample<-'A'
+    res_comp_i$Group <- paste0(res_comp_i$Model_1, '_vs_', res_comp_i$Model_2)
+  
+    for(group_i in unique(res_comp_i$Group)){
+      res_comp_group_i <- res_comp_i[res_comp_i$Group == group_i,]
+      cors_i <- cors[[targ_pop_i]][unique(res_comp_group_i$pheno), unique(res_comp_group_i$pheno)]
+      
+      if(res_comp_group_i$Model_1[1] != res_comp_group_i$Model_2[1]){
+        
+        meta_res_comp_i <-
+          agg(
+            id = Sample,
+            es = R_diff,
+            var = R_diff_SE ^ 2,
+            cor = cors_i,
+            method = "BHHR",
+            mod = NULL,
+            data = res_comp_group_i
+          )
+        
+        tmp <- res_comp_group_i[1,]
+        tmp$pheno <- NULL
+        tmp$Model_1_R <-
+          meta_res_eval$R[meta_res_eval$Group == tmp$Model_1 &
+                            meta_res_eval$Target == targ_pop_i &
+                            meta_res_eval$gwas_group == paste0('EUR+', disc_pop_i)]
+        tmp$Model_2_R <-
+          meta_res_eval$R[meta_res_eval$Group == tmp$Model_2 &
+                            meta_res_eval$Target == targ_pop_i &
+                            meta_res_eval$gwas_group == paste0('EUR+', disc_pop_i)]
+        tmp$R_diff <- meta_res_comp_i$es
+        tmp$R_diff_SE <- sqrt(meta_res_comp_i$var)
+        tmp$R_diff_z <- tmp$R_diff / tmp$R_diff_SE
+        tmp$R_diff_p <- 2*pnorm(-abs(tmp$R_diff_z))
+      } else {
+        tmp <- res_comp_group_i[1,]
+        tmp$pheno <- NULL
+        tmp$R_diff <- NA
+        tmp$R_diff_SE <- NA
+        tmp$R_diff_z <- NA
+        tmp$R_diff_p <- NA
+      }
+      meta_res_comp <- rbind(meta_res_comp, tmp)
+    }
+  }
+}
+
+meta_res_comp$R_diff_perc <- meta_res_comp$R_diff / meta_res_comp$Model_2_R
+  
+# Compare IndivTrain SBayesRC-multi to TL-SBayesRC-multi
+tmp_sbayesrc <- meta_res_comp[meta_res_comp$Model_2 == 'sbayesrc.pseudo.multi' & 
+                                meta_res_comp$Model_1 == 'tlprs_sbayesrc.pop.multi' &
+                    meta_res_comp$Target == 'AFR',]
+round(min(tmp_sbayesrc$R_diff_perc)*100, 1)
+tmp_sbayesrc$R_diff_p
+
+tmp_sbayesrc <- meta_res_comp[meta_res_comp$Model_2 == 'sbayesrc.pseudo.multi' & 
+                                meta_res_comp$Model_1 == 'tlprs_sbayesrc.pop.multi' &
+                    meta_res_comp$Target == 'EAS',]
+round(min(tmp_sbayesrc$R_diff_perc)*100, 1)
+tmp_sbayesrc$R_diff_p
+
 ```
 
+</details>
+
+***
+
+## Computational resoures
+
+<details><summary>Show code</summary>
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/tlprs/config.yaml'
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Read in configuration specific benchmark files
+bm_files_i <- list.files(paste0(outdir, '/reference/benchmarks/'), full.names = T)
+
+# Subset benchmarks for pgs_methods
+bm_files_i <- bm_files_i[grepl('prep_pgs_tlprs', bm_files_i)]
+
+# Read in benchmark files
+bm_dat_all <- do.call(rbind, lapply(bm_files_i, function(file) {
+  tmp <- fread(file)
+  tmp$file <- basename(file)
+  return(tmp)
+}))
+
+# Create rule column
+bm_dat_all$rule <- gsub('-.*','',bm_dat_all$file)
+
+# Create method column
+bm_dat_all$method <-
+  gsub('_i', '', gsub('prep_pgs_', '', bm_dat_all$rule))
+
+#############
+# Time
+#############
+
+# Calculate average time taken for each method
+method_avg <- NULL
+for(i in unique(bm_dat_all$method)){
+  method_avg <- rbind(
+    method_avg,
+    data.frame(
+      Method = i,
+      Time = mean(bm_dat_all$s[bm_dat_all$method == i])
+    )
+  )
+}
+
+# Convert time in seconds to hours
+method_avg$Time_hour <- method_avg$Time / 60/60
+method_avg$Time_hour <- round(method_avg$Time_hour, 2)
+
+#This is for bidirectional TL-PRS
+
+#############
+# Memory
+#############
+
+# Calculate average max_rss for each method
+method_avg_mem <- NULL
+for(i in unique(bm_dat_all$method)){
+  method_avg_mem <- rbind(
+    method_avg_mem,
+    data.frame(
+      Method = i,
+      Memory = mean(bm_dat_all$max_rss[bm_dat_all$method == i])
+    )
+  )
+}
+
+# Format the Memory nicely
+method_avg_mem$Memory_clean <-
+  paste0(round(method_avg_mem$Memory/1000, 2), ' Gb')
+
+ggplot(method_avg_mem, aes(x = Method, y = Memory, fill = Method)) +
+  geom_bar(stat = "identity", position="dodge") +
+  geom_text(aes(label = Memory_clean), vjust = -0.5, position = position_dodge(width = 0.9)) +
+  labs(x = "PGS Method", y = "Memory (Mb)") +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none")
+
+method_avg_mem$Memory_gb <- method_avg_mem$Memory/1000
+method_avg_mem <- method_avg_mem[, c('Method','Memory_gb')]
+method_avg_mem$Memory_gb <- round(method_avg_mem$Memory_gb, 2)
+names(method_avg_mem)<-c('Method',"Memory (Gb)")
+
+method_avg<-merge(method_avg, method_avg_mem, by = 'Method')
+
+write.csv(method_avg, '~/oliverpainfel/Analyses/crosspop/time_memory.csv', row.names=F)
+```
+
+</details>
