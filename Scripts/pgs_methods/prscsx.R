@@ -181,6 +181,9 @@ log <- foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(presche
 # Combine score files
 ####
 
+# Read in ref to harmonise score files
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+
 score_all<-NULL
 for(pop_i in c(unlist(strsplit(opt$populations, ',')), 'META')){
   score_pop<-NULL
@@ -199,21 +202,18 @@ for(pop_i in c(unlist(strsplit(opt$populations, ',')), 'META')){
     }
     score_pop<-cbind(score_pop, score_phi)
   }
+
+  # Sort and flip effects to match reference alleles
+  score_pop <- map_score(ref = ref, score = score_pop)
+  
   if(pop_i == c(unlist(strsplit(opt$populations, ',')), 'META')[1]){
     score_all<-score_pop
   } else {
-    score_all<-merge(score_all, score_pop[, !(names(score_pop) %in% c('A1','A2')), with=F], by='SNP', all=T)
+    score_all<-cbind(score_all, score_pop[, !(names(score_pop) %in% c('SNP','A1','A2')), with=F])
   }
 }
 
-# Replace NA values with 0
-score_all[is.na(score_all)] <- 0
-
-# Flip effects to match reference alleles
-ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
-score_new <- map_score(ref = ref, score = score_all)
-
-fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+fwrite(score_all, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))

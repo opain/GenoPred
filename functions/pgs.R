@@ -79,8 +79,29 @@ list_score_files <- function(config){
 
 # Flip effects in score file to match A1 reference
 map_score<-function(ref, score){
-  if(!all(c('SNP','A1','A2') %in% names(ref)) | !all(c('SNP','A1','A2') %in% names(score))){
-    stop('ref and score must contain SNP, A1 and A2 columns.')
+  # Check if required columns exist
+  required_cols <- c('SNP', 'A1', 'A2')
+  if (!all(required_cols %in% names(ref)) | 
+      !all(required_cols %in% names(score))) {
+    stop('ref and score must contain SNP, A1, and A2 columns.')
+  }
+  
+  # Valid alleles
+  valid_alleles <- c('A', 'T', 'C', 'G')
+  
+  # Check for NA or invalid alleles in A1 and A2 columns
+  for (col in c('A1', 'A2')) {
+    if (any(is.na(ref[[col]])) | any(!ref[[col]] %in% valid_alleles)) {
+      stop(paste('Invalid allele values detected in ref column:', col))
+    }
+    if (any(is.na(score[[col]])) | any(!score[[col]] %in% valid_alleles)) {
+      stop(paste('Invalid allele values detected in score column:', col))
+    }
+  }
+  
+  # Check for NA values in SNP column
+  if (any(is.na(ref$SNP)) | any(is.na(score$SNP))) {
+    stop('NA values detected in SNP column of ref or score.')
   }
   
   ref <- ref[, c('SNP','A1','A2'), with = F]

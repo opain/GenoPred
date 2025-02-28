@@ -1,0 +1,899 @@
+---
+title: Cross-population evaluation of polygenic scores
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+In this study, we will investigate the utility if polygenic scores for stratifying individual into aetiological subtypes, and the predictive utility of modelling interactions between polygenic score and subtype membership. Our initial investigation will look at pathways specific PGS.
+
+We have previously conducted a very simple proof of concept study [here](https://opain.github.io/GenoClust/proof_of_principle.html). Here will conduct a more realistic simulation to determine feasibility and refine the methodology, and then apply the methodology to complex disease of interest.
+
+Things to think about:
+- Derive clusters using cases only, and then project in to full sample, or derive clusters within full sample?
+- Clustering method: K-means, Gaussian mixture model, hierarchical clustering
+
+***
+
+# Proof-of-concept
+
+## Simulated data
+
+We could simulate genotype and phenotype data using HAPNEST, two create two phenotypes with causal variants within different pathways.
+
+Simulate two binary phenotypes, with a genetic correlation of 0. Specify causal variants present within a gene set for each disease:
+- Disease 1: GO:0006281 DNA repair
+- Disease 2: GO:0048167 — Regulation of synaptic plasticity
+
+***
+
+### Define causal variants
+
+Download GO data to identify genes within these sets. 
+
+```{r}
+# Read in .gmt file
+gmt <- readLines('/scratch/prj/oliverpainfel/recovered/Data/MSigDB/c5.go.bp.v7.5.1.entrez.gmt')
+gene_sets <- strsplit(gmt, "\t")
+gene_list <- setNames(lapply(gene_sets, `[`, -c(1,2)), sapply(gene_sets, `[`, 1))
+
+# Subset sets of interest
+gene_list <- gene_list[ c('GOBP_DNA_REPAIR', 'GOBP_REGULATION_OF_SYNAPTIC_PLASTICITY')]
+
+# Identify variants within genes within each set
+gene_loc <- fread('/scratch/prj/oliverpainfel/recovered/Data/Gene_Locations/MAGMA_NCBI37.3/NCBI37.3.gene.loc')
+names(gene_loc)<-c('ID','CHR','START','STOP','STRAND','NAME')
+gene_loc <- gene_loc[gene_loc$CHR == 22,] #out simulation will only use chr22 data
+
+# Read in hm3 SNP-list
+rsids<-fread('~/oliverpainfel/Data/HAPNEST/data/inputs/processed/1KG+HGDP/rsid_map_list_chr22.txt')
+snplist<-fread('~/oliverpainfel/Data/HAPNEST/data/inputs/processed/1KG+HGDP/hapmap_variant_list_chr22.txt', header=F)$V1
+snplist_tab<-data.frame(do.call(rbind, lapply(strsplit(snplist, split = ':'), function(x) c(x))))
+names(snplist_tab) <- c('CHR', 'BP', 'A1', 'A2')
+snplist_tab$CHR <- gsub('chr', '', snplist_tab$CHR)
+rsids<-rsids[match(snplist, rsids$id_hg38),]
+snplist_tab$SNP <- rsids$rsid
+
+# Create SNP-list for each gene set
+dir.create('~/oliverpainfel/Data/HAPNEST/synth_2', recursive = T)
+
+set.seed(1)
+snp_sets <- list()
+for(i in names(gene_list)){
+  snp_sets[[i]] <- NULL
+  genes <- gene_list[[i]]
+  genes <- genes[genes %in% gene_loc$ID]
+  for(k in genes){
+    CHR <- gene_loc$CHR[gene_loc$ID == k] 
+    START <- gene_loc$START[gene_loc$ID == k] 
+    STOP <- gene_loc$STOP[gene_loc$ID == k]
+    
+    snp_set <- snplist_tab$SNP[which(snplist_tab$CHR == CHR & snplist_tab$BP >= START & snplist_tab$BP <= STOP)]
+    if(!(length(snp_set) > 0)){
+      next
+    }
+    
+    # Select 1 variant from each gene to be causal
+    snp_sets[[i]] <- c(snp_sets[[i]], sample(snp_set, 1))
+  }
+  snp_sets[[i]] <- unique(snp_sets[[i]])
+}
+
+# 
+causal_var<-data.frame(SNP = unlist(snp_sets))
+for(i in 1:length(snp_sets)){
+  causal_var[[paste0('Trait_', i)]]<-as.numeric(causal_var$SNP %in% snp_sets[[i]])
+}
+
+# Save as csv
+write.table(causal_var, '~/oliverpainfel/Data/HAPNEST/synth_2/causal.snplist', row.names = F, col.names = F, quote = F, sep=',')
+
+```
+
+***
+
+### Run HAPNEST
+
+<details><summary>Show code</summary>
+
+```{bash}
+cd ~/oliverpainfel/Data/HAPNEST
+
+# Generate genotype and phenotype data
+singularity exec \
+  --bind data/:/data/ \
+  --bind /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/hapnest/config.synth_2.yaml:/data/config.synth_2.yaml \
+  containers/intervene-synthetic-data_latest.sif \
+  generate_geno \
+  8 \
+  data/config.synth_2.yaml
+  
+# Keep getting an error due to memory allocation. In the end I ran it with 1 core
+
+singularity exec \
+  --bind data/:/data/ \
+  --bind /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/hapnest/config.synth_2.yaml:/data/config.synth_2.yaml \
+  containers/intervene-synthetic-data_latest.sif \
+  generate_pheno \
+  data/config.synth_2.yaml
+  
+```
+
+</details>
+
+***
+
+### Run GSEA
+
+We need to run a GWAS of each phenotyepe, and then MAGMA to see whether our simulation has lead to an enrichment of selected pathways
+
+***
+
+#### Perform PCA
+
+<details><summary>Show code</summary>
+
+```{r}
+# conda activate .snakemake/conda/ea13b6c549c70695534894feeeecf0b3_
+setwd('~/oliverpainfel/GenoPred/pipeline/')
+
+start.time <- Sys.time()
+library("optparse")
+
+option_list = list(
+  make_option("--target_plink_chr", action="store", default=NULL, type='character',
+              help="Path to per chromosome target PLINK files [required]"),
+  make_option("--maf", action="store", default=0.05, type='numeric',
+              help="Minor allele frequency threshold [optional]"),
+  make_option("--geno", action="store", default=0.02, type='numeric',
+              help="Variant missingness threshold [optional]"),
+  make_option("--hwe", action="store", default=1e-6, type='numeric',
+              help="Hardy Weinberg p-value threshold. [optional]"),
+  make_option("--n_pcs", action="store", default=10, type='numeric',
+              help="Number of PCs (min=4) [optional]"),
+  make_option("--plink2", action="store", default='plink2', type='character',
+              help="Path PLINK2 software binary [required]"),
+  make_option("--keep_list", action="store", default=NULL, type='character',
+              help="File containing list of keep files and corresponding population code [optional]"),
+  make_option("--unrel", action="store", default=NA, type='character',
+              help="File containing list of unrelated individuals [optional]"),
+  make_option("--n_cores", action="store", default=1, type='numeric',
+              help="Number of cores for parallel computing [optional]"),
+  make_option("--test", action="store", default=NA, type='character',
+              help="Specify test mode [optional]"),
+  make_option("--output", action="store", default=NULL, type='character',
+              help="Path for output files [required]")
+)
+
+opt = parse_args(OptionParser(option_list=option_list))
+
+opt$target_plink_chr<-'/users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr-'
+opt$output<-'~/oliverpainfel/Analysis/HAPNEST/synth_1/pca/'
+opt$test<-'chr22'
+
+keep_list<-data.frame(
+  file = c(
+    '~/oliverpainfel/Analysis/HAPNEST/synth_1/training.EUR.txt',
+    '~/oliverpainfel/Analysis/HAPNEST/synth_1/training.EAS.txt',
+    '~/oliverpainfel/Analysis/HAPNEST/synth_1/training.AFR.txt'),
+  POP = c('EUR','EAS','AFR')
+)
+
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+# Create temp directory
+tmp_dir<-tempdir()
+
+if(!is.na(opt$test)){
+  CHROMS <- as.numeric(gsub('chr','',opt$test))
+}
+
+############
+# Create file listing variants in regions of long range LD
+############
+
+targ_pvar <- read_bim(opt$target_plink_chr, chr = CHROMS)
+targ_pvar <- remove_regions(dat = targ_pvar, regions = long_ld_coord)
+
+for(pop in keep_list$POP){
+  # Read in keep file for population
+  keep_file <- fread(keep_list$file[keep_list$POP == pop], header=F)
+  if(ncol(keep_file) == 1){
+    keep_file <- data.table(
+      FID = keep_file$V1,
+      IID = keep_file$V1)
+  } else {
+    keep_file <- data.table(
+      FID = keep_file$V1,
+      IID = keep_file$V2)
+  }
+
+  ###########
+  # Perform PCA on QC'd and independent variants
+  ###########
+
+  # Create QC'd SNP-list
+  target_qc_snplist <- plink_qc_snplist(bfile = opt$target_plink_chr, plink2 = opt$plink2, chr = CHROMS, keep = keep_file, maf = opt$maf, geno = opt$geno, hwe = opt$hwe, threads = opt$n_cores)
+
+  # Remove high LD regions
+  target_qc_snplist <- target_qc_snplist[target_qc_snplist %in% targ_pvar$SNP]
+
+  # Perform LD pruning
+  ld_indep <- plink_prune(bfile = opt$target_plink_chr, chr = CHROMS, keep = keep_file, plink2 = opt$plink2, extract = target_qc_snplist, threads = opt$n_cores)
+
+  # To improve efficiency, derive PCs using random subset of 1000 individuals.
+  keep_file_subset <- keep_file[sample(1000, replace = T),]
+  keep_file_subset <- keep_file_subset[!duplicated(keep_file_subset),]
+
+  # Run PCA
+  snp_weights <- plink_pca(bfile = opt$target_plink_chr, keep = keep_file_subset, chr = CHROMS, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs, threads = opt$n_cores)
+  fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
+
+  # Project into the full population
+  target_pcs <- plink_score(bfile = opt$target_plink_chr, keep = keep_file, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'), threads = opt$n_cores)
+
+  fwrite(target_pcs, paste0(opt$output, pop,'.pcs.txt'), quote=F, sep=' ', na='NA')
+}
+
+```
+
+</details>
+
+***
+
+#### Perform GWAS
+
+<details><summary>Show code</summary>
+
+```{bash}
+
+module add plink2
+for pheno in $(seq 1 1); do
+    awk 'BEGIN {OFS="\t"} NR==1 {print "FID", "IID", "pheno"} NR>1 {print $1, $1, $NF}' /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.pheno${pheno} > /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.pheno${pheno}.plink
+    
+  for pop in $(echo EUR EAS AFR); do
+  
+    mkdir -p ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}
+    for chr in $(seq 22 22); do
+        sbatch -p neurohack_cpu --mem 20G -n 4 --wrap="plink2 \
+          --bfile /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr-22 \
+          --pheno /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.pheno${pheno}.plink \
+          --1 \
+          --covar ~/oliverpainfel/Analysis/HAPNEST/synth_1/pca/${pop}.pcs.txt \
+          --covar-variance-standardize \
+          --logistic omit-ref cols=+a1freq,+ax hide-covar \
+          --maf 0.01 \
+          --geno 0.05 \
+          --out ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.chr${chr}"
+    done
+  done
+done
+
+# Once complete, merge results across chromosomes
+for pheno in $(seq 1 1); do
+  for pop in $(echo EUR EAS AFR); do
+    head -n 1 ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.chr22.pheno.glm.logistic.hybrid > ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid
+      for chr in $(seq 22 22); do
+        tail -n +2 ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.chr22.pheno.glm.logistic.hybrid >> ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid
+      done
+      
+      # Remove REF and ALT columns and rename AX column to A2
+      cut -f 4,5 --complement ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid | awk 'BEGIN{FS=OFS="\t"} NR==1 {$7="A2"} 1' > temp.txt && mv temp.txt ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid
+  
+      gzip ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid
+  done
+done
+
+```
+
+</details>
+
+***
+
+#### Run MAGMA
+
+<details><summary>Show code</summary>
+
+```{bash}
+
+
+
+```
+
+</details>
+
+***
+
+## Artificial misdiagnosis
+
+Look at the UKB independent sumstats that I have used for PGS comparison. Check PGS R2 and gene set enrichment.
+
+T2D and IBD both have strong PGS R2, and presumably different gene set enrichment.
+
+***
+
+### Run GSEA
+
+```{bash}
+
+mkdir -p ~/oliverpainfel/Analyses/GenoClust/artificial/gwas
+cp /scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST004773/GCST004773-cleaned.gz ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/T2D.gz
+cp /scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST004131/GCST004131-cleaned.gz ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/IBD.gz
+cp /scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST90013445/GCST90013445-cleaned.gz ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/T1D.gz
+cp /scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST90013534/GCST90013534-cleaned.gz ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/RA.gz
+cp /scratch/prj/oliverpainfel/recovered/Data/GWAS_sumstats/prs_comparison/cleaned/COAD01.cleaned.gz ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/CAD.gz
+
+/scratch/prj/oliverpainfel/recovered/Data/GWAS_sumstats/prs_comparison/cleaned/
+
+gunzip ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/T2D.gz
+gunzip ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/IBD.gz
+gunzip ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/T1D.gz
+gunzip ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/RA.gz
+gunzip ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/CAD.gz
+
+mkdir -p ~/oliverpainfel/Analyses/GenoClust/artificial/magma/
+
+# Gene association
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --bfile /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma_ref/g1000_eur \
+  --pval ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/T2D use=SNP,P ncol=N \
+  --gene-annot /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma/NCBI37.3.genes.annot \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/T2D_gene_level
+
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --bfile /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma_ref/g1000_eur \
+  --pval ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/IBD use=SNP,P ncol=N \
+  --gene-annot /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma/NCBI37.3.genes.annot \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/IBD_gene_level
+
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --bfile /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma_ref/g1000_eur \
+  --pval ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/T1D use=SNP,P ncol=N \
+  --gene-annot /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma/NCBI37.3.genes.annot \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/T1D_gene_level
+
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --bfile /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma_ref/g1000_eur \
+  --pval ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/RA use=SNP,P ncol=N \
+  --gene-annot /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma/NCBI37.3.genes.annot \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/RA_gene_level
+
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --bfile /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma_ref/g1000_eur \
+  --pval ~/oliverpainfel/Analyses/GenoClust/artificial/gwas/CAD use=SNP,P ncol=N \
+  --gene-annot /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma/NCBI37.3.genes.annot \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/CAD_gene_level
+
+# GSEA
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --gene-results ~/oliverpainfel/Analyses/GenoClust/artificial/magma/T2D_gene_level.genes.raw \
+  --set-annot /scratch/prj/oliverpainfel/recovered/Data/MSigDB/c2.all.v7.5.1.entrez.gmt \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/T2D_gsea
+# Surprisingly T2D has very few significantly enriched gene sets
+
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --gene-results ~/oliverpainfel/Analyses/GenoClust/artificial/magma/IBD_gene_level.genes.raw \
+  --set-annot /scratch/prj/oliverpainfel/recovered/Data/MSigDB/c2.all.v7.5.1.entrez.gmt \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/IBD_gsea
+  
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --gene-results ~/oliverpainfel/Analyses/GenoClust/artificial/magma/T1D_gene_level.genes.raw \
+  --set-annot /scratch/prj/oliverpainfel/recovered/Data/MSigDB/c2.all.v7.5.1.entrez.gmt \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/T1D_gsea
+  
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --gene-results ~/oliverpainfel/Analyses/GenoClust/artificial/magma/RA_gene_level.genes.raw \
+  --set-annot /scratch/prj/oliverpainfel/recovered/Data/MSigDB/c2.all.v7.5.1.entrez.gmt \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/RA_gsea
+
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --gene-results ~/oliverpainfel/Analyses/GenoClust/artificial/magma/CAD_gene_level.genes.raw \
+  --set-annot /scratch/prj/oliverpainfel/recovered/Data/MSigDB/c2.all.v7.5.1.entrez.gmt \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/CAD_gsea
+  
+```
+
+```{r}
+# Compare GSEA results across traits
+T2D<-fread('/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/magma/T2D_gsea.gsa.out', skip = 3)
+IBD<-fread('/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/magma/IBD_gsea.gsa.out', skip = 3)
+T1D<-fread('/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/magma/T1D_gsea.gsa.out', skip = 3)
+RA<-fread('/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/magma/RA_gsea.gsa.out', skip = 3)
+CAD<-fread('/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/magma/CAD_gsea.gsa.out', skip = 3)
+
+T2D <- T2D[, c('FULL_NAME','BETA','P'), with=F]
+T2D$TRAIT <- 'T2D'
+IBD <- IBD[, c('FULL_NAME','BETA','P'), with=F]
+IBD$TRAIT <- 'IBD'
+T1D <- T1D[, c('FULL_NAME','BETA','P'), with=F]
+T1D$TRAIT <- 'T1D'
+RA <- RA[, c('FULL_NAME','BETA','P'), with=F]
+RA$TRAIT <- 'RA'
+CAD <- CAD[, c('FULL_NAME','BETA','P'), with=F]
+CAD$TRAIT <- 'CAD'
+
+both <- rbind(T2D, IBD, T1D, RA, CAD)
+
+both_wide <- reshape(both, 
+                     idvar = "FULL_NAME", 
+                     timevar = "TRAIT", 
+                     direction = "wide")
+
+cor(both_wide[, grepl('BETA', names(both_wide)), with = F], use='p')
+
+both_wide$FDR.T2D <- p.adjust(both_wide$P.T2D, method = 'fdr')
+both_wide$FDR.IBD <- p.adjust(both_wide$P.IBD, method = 'fdr')
+both_wide$FDR.T1D <- p.adjust(both_wide$P.T1D, method = 'fdr')
+both_wide$FDR.RA <- p.adjust(both_wide$P.RA, method = 'fdr')
+both_wide$FDR.CAD <- p.adjust(both_wide$P.CAD, method = 'fdr')
+
+library(VennDiagram)
+
+venn.plot <- venn.diagram(
+  x = list(T2D = both_wide$FULL_NAME[both_wide$FDR.T2D < 0.05], IBD = both_wide$FULL_NAME[both_wide$FDR.IBD < 0.05]),
+  filename = NULL,
+  output = TRUE
+)
+
+dev.off()
+grid.draw(venn.plot)
+
+venn.plot <- venn.diagram(
+  x = list(T1D = both_wide$FULL_NAME[which(both_wide$FDR.T1D < 0.05)], IBD = both_wide$FULL_NAME[which(both_wide$FDR.IBD < 0.05)]),
+  filename = NULL,
+  output = TRUE
+)
+
+dev.off()
+grid.draw(venn.plot)
+
+venn.plot <- venn.diagram(
+  x = list(RA = both_wide$FULL_NAME[which(both_wide$FDR.RA < 0.05)], IBD = both_wide$FULL_NAME[which(both_wide$FDR.IBD < 0.05)]),
+  filename = NULL,
+  output = TRUE
+)
+
+dev.off()
+grid.draw(venn.plot)
+
+venn.plot <- venn.diagram(
+  x = list(RA = both_wide$FULL_NAME[which(both_wide$FDR.RA < 0.05)], T1D = both_wide$FULL_NAME[which(both_wide$FDR.T1D < 0.05)]),
+  filename = NULL,
+  output = TRUE
+)
+
+dev.off()
+grid.draw(venn.plot)
+
+venn.plot <- venn.diagram(
+  x = list(RA = both_wide$FULL_NAME[which(both_wide$FDR.RA < 0.05)], CAD = both_wide$FULL_NAME[which(both_wide$FDR.CAD < 0.05)]),
+  filename = NULL,
+  output = TRUE
+)
+
+dev.off()
+grid.draw(venn.plot)
+
+venn.plot <- venn.diagram(
+  x = list(IBD = both_wide$FULL_NAME[which(both_wide$FDR.IBD < 0.05)], CAD = both_wide$FULL_NAME[which(both_wide$FDR.CAD < 0.05)]),
+  filename = NULL,
+  output = TRUE
+)
+
+dev.off()
+grid.draw(venn.plot)
+
+```
+***
+
+### Meta-analyse GWAS
+
+Lets use RA and CAD as they have a low correlation, but decent number of significant sets.
+
+```{bash, eval=F, echo=T}
+
+# Run METAL
+/scratch/prj/oliverpainfel/recovered/Software/generic-metal/metal
+
+SCHEME SAMPLESIZE
+MARKER SNP
+WEIGHT N
+ALLELE A1 A2
+EFFECT BETA
+STDERR SE
+PVALUE P
+PROCESS /scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/CAD
+PROCESS /scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/RA
+OUTFILE /scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA .tbl
+
+ANALYZE
+
+QUIT
+
+```
+
+```{r, eval=F, echo=T}
+# Format the METAL output
+library(data.table)
+
+# Read in the sumstats
+meta<-fread('/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA1.tbl')
+
+# Remove SNPs that were not present in both studies
+meta <- meta[!grepl('\\?', meta$Direction),]
+
+# Format for GenoPred
+names(meta)<-c('SNP','A1','A2','N','BETA','P','Direction')
+meta$A1<-toupper(meta$A1)
+meta$A2<-toupper(meta$A2)
+meta$SE<-1
+meta<-meta[,c('SNP','A1','A2','BETA','SE','N','P'),with=F]
+
+fwrite(meta, '/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA.tbl.reformat', quote=F, sep=' ', na='NA')
+
+```
+
+```{bash}
+# Rerun MAGMA to see how the results compare to the original GWAS
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --bfile /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma_ref/g1000_eur \
+  --pval /scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA.tbl.reformat use=SNP,P ncol=N \
+  --gene-annot /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma/NCBI37.3.genes.annot \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/mix_CAD_RA_gene_level
+
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --gene-results ~/oliverpainfel/Analyses/GenoClust/artificial/magma/mix_CAD_RA_gene_level.genes.raw \
+  --set-annot /scratch/prj/oliverpainfel/recovered/Data/MSigDB/c2.all.v7.5.1.entrez.gmt \
+  --out ~/oliverpainfel/Analyses/GenoClust/artificial/magma/mix_CAD_RA_gsea
+  
+```
+
+```{r}
+# Compare GSEA results across traits
+RA<-fread('/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/magma/RA_gsea.gsa.out', skip = 3)
+CAD<-fread('/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/magma/CAD_gsea.gsa.out', skip = 3)
+MIX<-fread('/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/magma/mix_CAD_RA_gsea.gsa.out', skip = 3)
+
+RA <- RA[, c('FULL_NAME','BETA','P'), with=F]
+RA$TRAIT <- 'RA'
+CAD <- CAD[, c('FULL_NAME','BETA','P'), with=F]
+CAD$TRAIT <- 'CAD'
+MIX <- MIX[, c('FULL_NAME','BETA','P'), with=F]
+MIX$TRAIT <- 'MIX'
+
+both <- rbind(RA, CAD, MIX)
+
+both_wide <- reshape(both, 
+                     idvar = "FULL_NAME", 
+                     timevar = "TRAIT", 
+                     direction = "wide")
+
+cor(both_wide[, grepl('BETA', names(both_wide)), with = F], use='p')
+
+both_wide$FDR.RA <- p.adjust(both_wide$P.RA, method = 'fdr')
+both_wide$FDR.CAD <- p.adjust(both_wide$P.CAD, method = 'fdr')
+both_wide$FDR.MIX <- p.adjust(both_wide$P.MIX, method = 'fdr')
+
+library(VennDiagram)
+
+venn.plot <- venn.diagram(
+  x = list(RA = both_wide$FULL_NAME[both_wide$FDR.RA < 0.05], 
+           CAD = both_wide$FULL_NAME[both_wide$FDR.CAD < 0.05],
+           MIX = both_wide$FULL_NAME[both_wide$FDR.MIX < 0.05]),
+  filename = NULL,
+  output = TRUE
+)
+
+dev.off()
+grid.draw(venn.plot)
+
+# It is still picking up some pathways for both disorders, but also many new pathways.
+both_wide[both_wide$FDR.MIX < 0.05 & both_wide$FDR.RA > 0.05 & both_wide$FDR.CAD > 0.05,]
+```
+
+***
+
+### Create phenotype data in UKB
+
+```{r}
+#####
+# CAD - Use definition from https://doi.org/10.1001/jama.2019.22241
+#####
+
+library(ukbkings)
+library(dplyr)
+library(stringr)
+
+# Extract ICD code and sex from UKB
+project_dir <- "/datasets/ukbiobank/ukb82087"
+f <- bio_field(project_dir)
+f %>%
+    select(field, name) %>%
+    filter(str_detect(field, "^31-0.0|41270|41271|41272|20002|20004|6150")) %>%
+    bio_field_add("~/oliverpainfel/Data/ukb/phenotypes/cad_field_subset.txt")
+
+bio_phen(
+    project_dir,
+    field = "~/oliverpainfel/Data/ukb/phenotypes/cad_field_subset.txt",
+    out = "~/oliverpainfel/Data/ukb/phenotypes/cad_field_subset"
+)
+
+df <- readRDS("~/oliverpainfel/Data/ukb/phenotypes/cad_field_subset.rds")
+
+# Load required libraries
+library(dplyr)
+
+# Assume 'ukb_data' is your loaded data frame
+# ukb_data <- read.csv("your_data_file.csv") # Example for loading data
+
+# CAD code definitions
+cad_icd10 <- c("I21", "I22", "I23", "I241", "I252")
+cad_icd9 <- c("410", "411", "412", "42789")
+cad_opcs4 <- paste0("K", c("401", "402", "403", "404",
+                           "411", "412", "413", "414",
+                           "451", "452", "453", "454", "455"))
+cad_self_reported <- c("1075")
+cad_operation <- c("1070", "1095")
+cad_vascular <- c("1")
+
+# Columns to search in
+icd10_cols <- grep("^41270", names(df), value = TRUE) # ICD-10 columns
+icd9_cols <- grep("^41271", names(df), value = TRUE) # ICD-9 columns
+opcs4_cols <- grep("^41272", names(df), value = TRUE) # OPCS-4 columns
+self_report_cols <- grep("^20002", names(df), value = TRUE) # Self-reported illness
+operation_cols <- grep("^20004", names(df), value = TRUE) # Operation codes
+vascular_cols <- grep("^6150", names(df), value = TRUE) # Vascular/heart problems
+
+# Create a binary CAD phenotype
+df <- df %>%
+  mutate(
+    CAD = if_else(
+      rowSums(across(all_of(icd10_cols), ~ . %in% cad_icd10), na.rm = TRUE) > 0 |
+      rowSums(across(all_of(icd9_cols), ~ . %in% cad_icd9), na.rm = TRUE) > 0 |
+      rowSums(across(all_of(opcs4_cols), ~ . %in% cad_opcs4), na.rm = TRUE) > 0 |
+      rowSums(across(all_of(self_report_cols), ~ . %in% cad_self_reported), na.rm = TRUE) > 0 |
+      rowSums(across(all_of(operation_cols), ~ . %in% cad_operation), na.rm = TRUE) > 0 |
+      rowSums(across(all_of(vascular_cols), ~ . %in% cad_vascular), na.rm = TRUE) > 0,
+      1, 0
+    )
+  )
+
+# Summary of CAD cases
+table(df$CAD)
+
+cad <- data.frame(eid = df$eid, CAD = df$CAD)
+
+#####
+# RA
+#####
+
+keep_files<-list.files(path = '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/output/ukb/pcs/within_sample/', pattern = '.keep')
+
+pop_dat<-NULL
+for(i in keep_files){
+  tmp<-fread(paste0('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/output/ukb/pcs/within_sample/', i))
+  names(tmp)<-c('FID','IID')
+  tmp$POP<-gsub('.keep','', gsub('ukb.outlier_detection.','',i))
+  pop_dat<-rbind(pop_dat, tmp)
+}
+
+# Update row number IDs to project specific IDs
+psam<-fread('/scratch/prj/ukbiobank/recovered/ukb82087/imputed/ukb82087_imp_chr1_MAF1_INFO4_v1.psam')
+psam$rn<-1:nrow(psam)
+psam<-psam[,c('IID','rn'), with = F]
+
+pop_dat$FID<-NULL
+pop_dat<-merge(pop_dat, psam, by.x='IID', by.y='rn')
+pop_dat<-data.frame(
+  eid=pop_dat$IID.y,
+  POP=pop_dat$POP
+)
+
+# This has been defined already during our UKB benchmark
+ra <- fread('/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/phenotypes/ra.unrel.txt')
+names(ra)<-c('eid','RA')
+
+both <- merge(ra, cad, by='eid')
+both$MIX <- ifelse(both$RA == 1 | both$CAD == 1, 1, 0)
+nrow(both[both$RA == 1 & both$CAD == 1,])
+
+# Restrict analysis to EUR individuals
+both<-both[both$eid %in% pop_dat$eid[pop_dat$POP == 'EUR']]
+
+# There are only 954  RA cases but >22k CAD cases. This could make it hard for clustering to pick out this cluster - Lets see.
+# These are unrelated individuals in UKB already.
+# To speed things up, lets use a subset of 25k controls
+set.seed(1)
+controls<-both$eid[both$MIX == 0]
+keep<-sample(controls, 25000)
+both<-both[!(both$eid %in% controls[!(controls %in% keep)])]
+
+write.table(both, '~/oliverpainfel/Data/ukb/phenotypes/ra_cad_mix.subset.txt', row.names = F, col.names = T, quote = F)
+
+# Save with row.number IDs
+both<-merge(both, psam, by.x='eid', by.y='IID')
+
+for(i in c('RA','CAD','MIX')){
+  pheno<-data.frame(
+    FID=both$rn,
+    IID=both$rn,
+    outcome=both[[i]]
+  )
+  write.table(pheno, paste0('~/oliverpainfel/Data/ukb/phenotypes/ra_cad_mix.subset.', i, '_only.txt'), row.names = F, col.names = T, quote = F)
+}
+
+keep<-data.frame(FID = both$rn, IID = both$rn)
+
+write.table(keep, '~/oliverpainfel/Data/ukb/phenotypes/ra_cad_mix.subset.keep', row.names = F, col.names = F, quote = F)
+
+```
+
+***
+
+### Run GenoPred
+
+```{bash}
+mkdir ~/oliverpainfel/Data/ukb/genoclust_subset
+
+for chr in $(seq 1 22); do
+  ~/oliverpainfel/Software/plink2 \
+    --pfile ~/oliverpainfel/Data/ukb/GenoPred/output/ukb/geno/ukb.ref.chr${chr} \
+    --keep ~/oliverpainfel/Data/ukb/phenotypes/ra_cad_mix.subset.keep \
+    --make-pgen \
+    --out ~/oliverpainfel/Data/ukb/genoclust_subset/ukb.chr${chr}
+done
+
+```
+
+```{r}
+library(data.table)
+
+dir.create('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset')
+
+######
+# target_list
+######
+
+target_list <- data.frame(
+  name='ukb',
+  path='/users/k1806347/oliverpainfel/Data/ukb/genoclust_subset/ukb',
+  type='plink2',
+  indiv_report=F,
+  unrel='/users/k1806347/oliverpainfel/Data/ukb/phenotypes/unrelated.row_number.txt'
+)
+
+write.table(target_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/target_list.txt', col.names=T, row.names=F, quote=F)
+
+######
+# gwas_list
+######
+
+gwas_list<-data.frame(
+  name=c('CAD','RA','MIX'),
+  path=c(
+    '/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/CAD',
+    '/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/RA',
+    '/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA.tbl.reformat'
+  ),
+  population='EUR',
+  n=NA,
+  sampling=NA,
+  prevalence=NA,
+  mean=NA,
+  sd=NA,
+  label=paste0('"', c('CAD','RA','MIX'),'"')
+)
+
+write.table(gwas_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/gwas_list.txt', col.names=T, row.names=F, quote=F)
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output_genoclust",
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/gwas_list.txt",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/target_list.txt",
+  "pgs_methods: ['sbayesrc']",
+  "cores_prep_pgs: 10",
+  "cores_target_pgs: 10",
+  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/hm3"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate genopred
+
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml \
+  output_all -n
+```
+
+***
+
+### Check correlation
+
+Check correlation between the PGS for CAD, RA and MIX with CAD, RA and MIX outcomes.
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Define pgs_methods used
+pgs_methods <- read_param(config = '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml', param = 'pgs_methods', return_obj = F)
+
+# Read in PGS
+pgs <- read_pgs(config = '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml', name = 'ukb')$ukb
+pgs <- Reduce(function(x, y) merge(x, y, by = c("FID", "IID"), all = TRUE), lapply(pgs$TRANS, function(x) x[[1]]))
+
+# Read in outcome data
+outcome_names<-c('CAD','RA','MIX')
+outcomes <- list()
+for(i in outcome_names){
+  outcomes[[i]]<-fread(paste0('~/oliverpainfel/Data/ukb/phenotypes/ra_cad_mix.subset.', i, '_only.txt'))
+  names(outcomes[[i]])[names(outcomes[[i]]) == 'outcome']<-paste0(i,'_outcome')
+}
+outcomes <- Reduce(function(x, y) merge(x, y, by = c("FID", "IID"), all = TRUE), outcomes)
+
+# Test correlation
+both <- merge(pgs, outcomes, by = c('FID', 'IID'))
+
+round(cor(both[,-1:-2]), 2)
+
+#              CAD_SBayesRC RA_SBayesRC MIX_SBayesRC CAD_outcome RA_outcome MIX_outcome
+# CAD_SBayesRC         1.00       -0.01         0.24        0.20      -0.02        0.20
+# RA_SBayesRC         -0.01        1.00         0.87        0.00       0.12        0.03
+# MIX_SBayesRC         0.24        0.87         1.00        0.06       0.11        0.09
+# CAD_outcome          0.20        0.00         0.06        1.00      -0.10        0.97
+# RA_outcome          -0.02        0.12         0.11       -0.10       1.00        0.15
+# MIX_outcome          0.20        0.03         0.09        0.97       0.15        1.00
+
+# This looks good so far:
+# - The MIX PGS is more correlated with the RA PGS than CAD PGS, due to larger genetic effects on RA
+# - The MIX outcome is more correlated with the CAD outcome, due to large number of CAD cases
+# - The MIX PGS predicts CAD and RA outcome worse that CAD and RA PGS respectively
+
+# The reason for PGS stratification is becoming clearer - If we were to extract genetic effects relevant to CAD, then the CAD PGS would predict CAD cases better. Likewise for RA.
+
+# It would be interesting to see whether we can cluster individuals based on these scores alone. This would be similar to the T2D paper, which stratifies PGS by relationship with other traits. Our pathway specific strategy will take a different approach.
+```
+
+
