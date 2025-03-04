@@ -28,6 +28,8 @@ option_list = list(
       help="Path for output files [required]"),
   make_option("--memory", action="store", default=5000, type='numeric',
       help="Memory limit [optional]"),
+  make_option("--leopard", action="store", default=T, type='logical',
+      help="Logical indicating whether LEOPARD analysis should be run [optional]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
       help="Comma-seperated list of GWAS summary statistics [required]"),
   make_option("--populations", action="store", default=NULL, type='character',
@@ -210,102 +212,104 @@ log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list
   }
 }
 
-##
-# Run LEOPARD to subsample GWAS
-##
-dir.create(paste0(tmp_dir,'/LEOPARD/sampled_sumstats'), recursive = T)
-
-for(i in 1:length(sumstats)){
-  system(paste0(
-    'Rscript ', opt$xwing_repo, '/LEOPARD_Sim.R ',
-    '--sumstats ', tmp_dir, '/GWAS_sumstats_', i,'_temp.txt ',
-    '--n_gwas ', gwas_N[i], ' ',
-    '--train_prop 0.75 ',
-    '--ref_prefix ', opt$leopard_ref,'/', populations[i], '/', populations[i], '_part1 ',
-    '--seed ', opt$seed, ' ',
-    '--rep 4 ',
-    '--out_prefix ', tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', i
-  ))
-}
-
-##
-# Run PANTHER on subsampled GWAS
-##
-
-combinations <- expand.grid(targ_pop = populations, pst_pop = populations, chr = CHROMS, index = 1:4)
-
-file.remove(paste0(tmp_dir, '/checker.txt'))
-log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  if(!file.exists(paste0(tmp_dir, '/checker.txt'))) {
-    targ_pop <- combinations$targ_pop[i]
-    pst_pop <- combinations$pst_pop[i]
-    chr <- combinations$chr[i]
-    index <- combinations$index[i]
-
-    dir.create(paste0(tmp_dir,'/LEOPARD/post_targ_', targ_pop), recursive = T)
-    dir.create(paste0(tmp_dir,'/LEOPARD/post_collect_targ_', targ_pop), recursive = T)
-
-    sumstats_i <- paste0(tmp_dir, '/GWAS_sumstats_', 1:length(sumstats),'_temp.txt')
-    sumstats_i[populations == targ_pop] <- paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', index, '_train.txt')
-
-    targ_gwas_train_n<-fread(paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', index, '_train_valid_N.txt'))$N_train
-
-    gwas_N_i<-gwas_N
-    gwas_N_i[populations == targ_pop] <- targ_gwas_train_n
-
-    command<-paste0(
-      'python ', opt$xwing_repo, '/PANTHER.py ',
-      '--ref_dir ', opt$panther_leopard_ref, ' ',
-      '--bim_prefix ', tmp_dir,'/ref.chr',chr,' ',
-      '--sumstats ', paste0(sumstats_i, collapse=','), ' ',
-      '--n_gwas ', paste(gwas_N_i, collapse=','), ' ',
-      '--anno_file ', paste0(paste0(tmp_dir, '/LOGODetect/targ_', targ_pop, '_annot_', populations, '.txt'), collapse=','), ' ',
-      '--chrom ', chr, ' ',
-      '--pop ', opt$populations ,' ',
-      '--target_pop ', targ_pop,' ',
-      '--pst_pop ', pst_pop, ' ',
-      '--out_name output_', index, ' ',
-      '--seed 1 ',
-      '--out_dir ', tmp_dir, '/LEOPARD/post_targ_', targ_pop
-    )
-
-    # Run command
-    log_i <- system(command)
-
-    # Check for an error
-    if(log_i != 0){
-      write("", paste0(tmp_dir, '/checker.txt'))
-    }
-  }
-}
-
-for(targ_pop in populations){
-  for(pst_pop in populations){
-    for(i in 1:4){
-      system(paste0('cat ', tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i,'_', pst_pop, '_pst_eff_phiauto_chr*.txt > ', tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i,'_', pst_pop, '_Post.txt'))
-      system(paste0("sed  -i '1iCHR\tSNP\tBP\tA1\tA2\tBETA' ", tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i, '_', pst_pop, '_Post.txt'))
-    }
-  }
-}
-
-##
-# Run LEOPARD to to find optimal weights for GWAS from each population
-##
-
-# Estimating the linear combination weights
-for(targ_pop in populations){
-  dir.create(paste0(tmp_dir,'/LEOPARD/weights_', targ_pop), recursive = T)
-
-  for(i in 1:4){
-    targ_gwas_valid_n<-fread(paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', i, '_train_valid_N.txt'))$N_valid
+if(opt$leopard){
+  ##
+  # Run LEOPARD to subsample GWAS
+  ##
+  dir.create(paste0(tmp_dir,'/LEOPARD/sampled_sumstats'), recursive = T)
+  
+  for(i in 1:length(sumstats)){
     system(paste0(
-      'Rscript ', opt$xwing_repo, '/LEOPARD_Weights.R --beta_file ', paste0(paste0(tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i, '_', populations, '_Post.txt'), collapse=','), ' --valid_file ', tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', i, '_valid.txt --n_valid ', targ_gwas_valid_n ,' --ref_prefix ', opt$leopard_ref,'/', targ_pop, '/', targ_pop, '_part3 --out ', tmp_dir,'/LEOPARD/weights_', targ_pop,'/output_LEOPARD_weights_rep', i, '.txt'
+      'Rscript ', opt$xwing_repo, '/LEOPARD_Sim.R ',
+      '--sumstats ', tmp_dir, '/GWAS_sumstats_', i,'_temp.txt ',
+      '--n_gwas ', gwas_N[i], ' ',
+      '--train_prop 0.75 ',
+      '--ref_prefix ', opt$leopard_ref,'/', populations[i], '/', populations[i], '_part1 ',
+      '--seed ', opt$seed, ' ',
+      '--rep 4 ',
+      '--out_prefix ', tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', i
     ))
   }
+  
+  ##
+  # Run PANTHER on subsampled GWAS
+  ##
+  
+  combinations <- expand.grid(targ_pop = populations, pst_pop = populations, chr = CHROMS, index = 1:4)
+  
+  file.remove(paste0(tmp_dir, '/checker.txt'))
+  log <- foreach(i = 1:nrow(combinations), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+    if(!file.exists(paste0(tmp_dir, '/checker.txt'))) {
+      targ_pop <- combinations$targ_pop[i]
+      pst_pop <- combinations$pst_pop[i]
+      chr <- combinations$chr[i]
+      index <- combinations$index[i]
+  
+      dir.create(paste0(tmp_dir,'/LEOPARD/post_targ_', targ_pop), recursive = T)
+      dir.create(paste0(tmp_dir,'/LEOPARD/post_collect_targ_', targ_pop), recursive = T)
+  
+      sumstats_i <- paste0(tmp_dir, '/GWAS_sumstats_', 1:length(sumstats),'_temp.txt')
+      sumstats_i[populations == targ_pop] <- paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', index, '_train.txt')
+  
+      targ_gwas_train_n<-fread(paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', index, '_train_valid_N.txt'))$N_train
+  
+      gwas_N_i<-gwas_N
+      gwas_N_i[populations == targ_pop] <- targ_gwas_train_n
+  
+      command<-paste0(
+        'python ', opt$xwing_repo, '/PANTHER.py ',
+        '--ref_dir ', opt$panther_leopard_ref, ' ',
+        '--bim_prefix ', tmp_dir,'/ref.chr',chr,' ',
+        '--sumstats ', paste0(sumstats_i, collapse=','), ' ',
+        '--n_gwas ', paste(gwas_N_i, collapse=','), ' ',
+        '--anno_file ', paste0(paste0(tmp_dir, '/LOGODetect/targ_', targ_pop, '_annot_', populations, '.txt'), collapse=','), ' ',
+        '--chrom ', chr, ' ',
+        '--pop ', opt$populations ,' ',
+        '--target_pop ', targ_pop,' ',
+        '--pst_pop ', pst_pop, ' ',
+        '--out_name output_', index, ' ',
+        '--seed 1 ',
+        '--out_dir ', tmp_dir, '/LEOPARD/post_targ_', targ_pop
+      )
+  
+      # Run command
+      log_i <- system(command)
+  
+      # Check for an error
+      if(log_i != 0){
+        write("", paste0(tmp_dir, '/checker.txt'))
+      }
+    }
+  }
+  
+  for(targ_pop in populations){
+    for(pst_pop in populations){
+      for(i in 1:4){
+        system(paste0('cat ', tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i,'_', pst_pop, '_pst_eff_phiauto_chr*.txt > ', tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i,'_', pst_pop, '_Post.txt'))
+        system(paste0("sed  -i '1iCHR\tSNP\tBP\tA1\tA2\tBETA' ", tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i, '_', pst_pop, '_Post.txt'))
+      }
+    }
+  }
+  
+  ##
+  # Run LEOPARD to to find optimal weights for GWAS from each population
+  ##
+  
+  # Estimating the linear combination weights
+  for(targ_pop in populations){
+    dir.create(paste0(tmp_dir,'/LEOPARD/weights_', targ_pop), recursive = T)
+  
+    for(i in 1:4){
+      targ_gwas_valid_n<-fread(paste0(tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', i, '_train_valid_N.txt'))$N_valid
+      system(paste0(
+        'Rscript ', opt$xwing_repo, '/LEOPARD_Weights.R --beta_file ', paste0(paste0(tmp_dir, '/LEOPARD/post_targ_', targ_pop, '/output_', i, '_', populations, '_Post.txt'), collapse=','), ' --valid_file ', tmp_dir,'/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', i, '_valid.txt --n_valid ', targ_gwas_valid_n ,' --ref_prefix ', opt$leopard_ref,'/', targ_pop, '/', targ_pop, '_part3 --out ', tmp_dir,'/LEOPARD/weights_', targ_pop,'/output_LEOPARD_weights_rep', i, '.txt'
+      ))
+    }
+  }
+  
+  # Average weights across repeats
+  mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'), log_file = log_file)
 }
-
-# Average weights across repeats
-mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = paste0(tmp_dir,'/LEOPARD'), log_file = log_file)
 
 ####
 # Combine score files
@@ -315,7 +319,7 @@ mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = pa
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
 
 # We should combine the raw PANTHER score files for each population,
-# and then combine using mixing weights for each population
+# and then combine using mixing weights for each population if LEOPARD was run
 score_all<-NULL
 for(targ_pop in populations){
   # Read in the .freq file for target population
@@ -336,8 +340,10 @@ for(targ_pop in populations){
     # Centre SNP-weights for target population
     score_i <- centre_weights(score = score_i, freq = freq_data, ref = ref)
     
-    # Adjust SNP-weights according to mixing weights
-    score_i$BETA <- score_i$BETA * mix_weights[[targ_pop]][which(populations == pst_pop)]
+    if(opt$leopard){
+      # Adjust SNP-weights according to mixing weights
+      score_i$BETA <- score_i$BETA * mix_weights[[targ_pop]][which(populations == pst_pop)]
+    }
     names(score_i)<-c('SNP', 'A1', 'A2', paste0('SCORE_targ_', targ_pop, '_pst_', pst_pop))
 
     if(is.null(score_pop)){
@@ -347,9 +353,12 @@ for(targ_pop in populations){
     }
   }
   
-  # Take average of weighted scores
   score_pop[is.na(score_pop)]<-0
-  score_pop[[paste0('SCORE_targ_', targ_pop, '_weighted')]] <- rowSums(score_pop[, grepl('SCORE_', names(score_pop)), with = F])
+  
+  if(opt$leopard){
+    # Take average of weighted scores
+    score_pop[[paste0('SCORE_targ_', targ_pop, '_weighted')]] <- rowSums(score_pop[, grepl('SCORE_', names(score_pop)), with = F])
+  }
   if(is.null(score_all)){
     score_all<-score_pop
   } else {

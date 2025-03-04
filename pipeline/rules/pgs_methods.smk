@@ -767,7 +767,7 @@ rule prep_pgs_xwing_i:
     """
 
 rule prep_pgs_xwing:
-  input: expand(f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df_two['name'])
 
 ####
 # TL-PRS
@@ -814,7 +814,7 @@ rule prep_pgs_tlprs_i:
     """
 
 rule prep_pgs_tlprs:
-  input: expand(f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method=config["tlprs_methods"])
+  input: expand(f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df_two['name'], method=config["tlprs_methods"])
 
 ####
 # BridgePRS

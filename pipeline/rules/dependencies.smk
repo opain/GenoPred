@@ -231,6 +231,9 @@ missing_gwas = set(gwas_groups_gwas) - set(gwas_list_names)
 if missing_gwas:
     raise ValueError(f"The following GWAS are in gwas_groups but missing in gwas_list: {', '.join(missing_gwas)}")
 
+# Subset gwas_groups to those with 2 GWAS specified
+gwas_groups_df_two = gwas_groups_df[gwas_groups_df['gwas'].str.count(',') == 1]
+
 ###
 # Check there are no duplicate values in name columns of gwas_list, score_list, gwas_groups
 ###

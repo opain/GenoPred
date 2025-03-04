@@ -47,30 +47,54 @@ list_score_files <- function(config){
   # Read in gwas_groups
   gwas_groups <- read_param(config = config, param = 'gwas_groups')
 
+  # Methods implemented when GWAS groups contains only 2 GWAS
   if(!is.null(gwas_groups)){
+    # Identify gwas_groups containing >2 GWAS
+    gwas_groups_2 <- gwas_groups[sapply(gwas_groups$gwas, function(x) sum(strsplit(x, ",")[[1]] != "") == 2), ]
+    
     # Identify PGS methods to be included
     pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
 
-    # Retain methods that are applied to groups of gwas
-    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% pgs_group_methods)]
-
+    # Retain methods that are applied to groups with only 2 gwas
+    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% c('prscsx', 'xwing'))]
+    
+    # Provide combos for methods applied to groups of gwas
+    combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = pgs_methods_list))
+    
     # For TL-PRS, list combos for tlprs_methods
     tlprs_methods<-read_param(config = config, param = 'tlprs_methods', return_obj = F)
     if(length(tlprs_methods) > 1 || !is.na(tlprs_methods)){
-      combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = paste0('tlprs_', tlprs_methods)))
+      combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = paste0('tlprs_', tlprs_methods)))
     }
     
     # For LEOPARD, list combos for leopard_methods
     leopard_methods<-read_param(config = config, param = 'leopard_methods', return_obj = F)
     if(length(leopard_methods) > 1 || !is.na(leopard_methods)){
-      combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = paste0(leopard_methods,'_multi')))
+      combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = paste0(leopard_methods,'_multi')))
     }
-
-    # Provide combos for other methods applied to groups of gwas
-    pgs_methods_list <- pgs_methods_list[!(pgs_methods_list %in% c('tlprs','leopard'))]
-    combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = pgs_methods_list))
   }
 
+  # Methods implemented when GWAS groups contain >2 GWAS
+  if(!is.null(gwas_groups)){
+    # Identify gwas_groups with more than 2 gwas
+    gwas_groups_more <- gwas_groups[sapply(gwas_groups$gwas, function(x) sum(strsplit(x, ",")[[1]] != "") > 2), ]
+    
+    # Identify PGS methods to be included
+    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+    
+    # Retain methods that are applied to groups with only 2 gwas
+    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% c('prscsx'))]
+    
+    # Provide combos for methods applied to groups of gwas
+    combos <- rbind(combos, expand.grid(name = gwas_groups_more$name, method = pgs_methods_list))
+    
+    # For LEOPARD, list combos for leopard_methods
+    leopard_methods<-read_param(config = config, param = 'leopard_methods', return_obj = F)
+    if(length(leopard_methods) > 1 || !is.na(leopard_methods)){
+      combos <- rbind(combos, expand.grid(name = gwas_groups_more$name, method = paste0(leopard_methods,'_multi')))
+    }
+  }
+  
   combos <- data.table(combos)
   combos <- combos[, lapply(.SD, as.character)]
   
