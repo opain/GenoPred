@@ -1694,7 +1694,6 @@ config<-c(
   "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
   "gwas_groups: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_groups.txt",
   "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc','prscsx','xwing']",
-  "tlprs_methods: ['dbslmm']",
   "leopard_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
   "cores_prep_pgs: 10", # xwing run with 20 cores
   "cores_target_pgs: 50",
@@ -3305,6 +3304,12 @@ tmp_simple<-tmp_simple[tmp_simple$Model_2 %in% res_eval_simp$Group,]
 # Export plot for manuscript
 png('~/oliverpainfel/Analyses/crosspop/plots/average_r.perc_improv.png', width = 3200, height = 2000, res= 300, units = 'px')
 ggplot(meta_tmp_simple[meta_tmp_simple$Target != 'EUR Target',], aes(x=label, y=R_diff_perc , fill = Model1)) +
+#    geom_boxplot(
+#      data = tmp_simple[tmp_simple$Target != 'EUR Target',],
+#        mapping = aes(x=label, y=R_diff_perc, colour=Model1),
+#        position = position_dodge(0.7),
+#        alpha = 0.3
+#      ) +
     geom_point(
         data = tmp_simple[tmp_simple$Target != 'EUR Target',],
         mapping = aes(x=label, y=R_diff_perc, colour=Model1),
@@ -3636,100 +3641,6 @@ dev.off()
 ```
 
 </details>
-
-***
-
-# Investigate PRS-CS vs. PRS-CSx performance
-
-PRS-CS-multi is performing better than PRS-CSx often, which contrasts with the original PRS-CSx paper. Try to understand why this is.
-
-```{r}
-# Read in the PGS for EAS target from PRS-CS and PRS-CSx
-prscs_eur <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pgs/TRANS/prscs/TC_UKB/ukb-TC_UKB-TRANS.profiles')
-prscs_eas <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pgs/TRANS/prscs/TC_BBJ/ukb-TC_BBJ-TRANS.profiles')
-prscsx <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pgs/TRANS/prscsx/TC_UKB_BBJ/ukb-TC_UKB_BBJ-TRANS.profiles')
-
-# Read in the phenotype data
-pheno <- fread('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/TC.unrel.EAS.row_number.txt')
-
-# Merge all the data
-data <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('FID','IID')), list(pheno, prscs_eur, prscs_eas, prscsx))
-
-assoc_res <- data.frame(
-  PGS = names(data)[-1:-3],
-  R = cor(data[,-1:-2], use='p')[-1,1]
-)
-rownames(assoc_res)<-NULL
-
-assoc_res<-assoc_res[!grepl('META', assoc_res$PGS),]
-assoc_res$phi <- gsub('.*_phi_','',assoc_res$PGS)
-assoc_res$phi <- factor(assoc_res$phi, levels = c('1e+00','1e-02','1e-04','1e-06','auto'))
-assoc_res$method <- ifelse(grepl('UKB_BBJ', assoc_res$PGS), 'PRS-CSx', 'PRS-CS')
-assoc_res$pop <- NA
-assoc_res$pop[assoc_res$method == 'PRS-CS' & grepl('UKB', assoc_res$PGS)] <- 'EUR'
-assoc_res$pop[assoc_res$method == 'PRS-CS' & grepl('BBJ', assoc_res$PGS)] <- 'EAS'
-assoc_res$pop[assoc_res$method == 'PRS-CSx' & grepl('EUR', assoc_res$PGS)] <- 'EUR'
-assoc_res$pop[assoc_res$method == 'PRS-CSx' & grepl('EAS', assoc_res$PGS)] <- 'EAS'
-
-library(ggplot2)
-library(cowplot)
-
-ggplot(assoc_res, aes(x=pop, y=R , fill = phi)) +
-    geom_bar(stat="identity", position=position_dodge(0.7), width = 0.7) +
-    labs(y = "R", x='Method') +
-    facet_grid(. ~ method, scales='free', space = 'free_x') +
-    theme_half_open() +
-    background_grid(major = 'y', minor = 'y') + 
-    panel_border() + 
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-# This shows nicely the poorer performance of the EAS PGS from PRS-CSx and than PRS-CS.
-# Why is this? Have a look at the SNP-weights.
-
-prscs_eur <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pgs_score_files/prscs/TC_UKB/ref-TC_UKB.score.gz')
-prscs_eas <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pgs_score_files/prscs/TC_BBJ/ref-TC_BBJ.score.gz')
-prscsx <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pgs_score_files/prscsx/TC_UKB_BBJ/ref-TC_UKB_BBJ.score.gz')
-
-prscsx<-prscsx[, !(grepl('META', names(prscsx))), with=F]
-
-names(prscs_eur) <- gsub('SCORE', 'prscs_eur', names(prscs_eur))
-names(prscs_eas) <- gsub('SCORE', 'prscs_eas', names(prscs_eas))
-names(prscsx) <- gsub('SCORE', 'prscsx', names(prscsx))
-
-data <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('SNP','A1', 'A2'), sort = F), list(prscs_eur, prscs_eas, prscsx))
-data[data == 0]<-NA
-
-na_count <- sapply(data[,-1:-3], function(x) sum(is.na(x)))
-na_table <- data.frame(Column = names(na_count), NA_Count = na_count)
-
-# check correlation between PRS-CS and PRS-CSx variant that are shared and not shared across GWAS
-shared_var <- data[!is.na(data$`prscs_eur_phi_1e-04`) & !is.na(data$`prscs_eas_phi_1e-04`), ]
-nonshared_var <- data[is.na(data$`prscs_eur_phi_1e-04`) & !is.na(data$`prscs_eas_phi_1e-04`), ]
-
-nrow(shared_var)
-nrow(nonshared_var)
-
-cor(shared_var$`prscs_eas_phi_1e-04`, shared_var$`prscsx_EAS_phi_1e-04`)
-cor(nonshared_var$`prscs_eas_phi_1e-04`, nonshared_var$`prscsx_EAS_phi_1e-04`)
-
-prscs_eas[prscs_eas$SNP %in% nonshared_var$SNP[1:5],]
-prscsx[prscsx$SNP %in% nonshared_var$SNP[1:5],]
-
-shared_var <- data[!is.na(data$`prscs_eur_phi_1e-04`) & !is.na(data$`prscs_eas_phi_1e-04`), ]
-nonshared_var <- data[!is.na(data$`prscs_eur_phi_1e-04`) & is.na(data$`prscs_eas_phi_1e-04`), ]
-
-nrow(shared_var)
-nrow(nonshared_var)
-
-cor(shared_var$`prscs_eur_phi_1e-04`, shared_var$`prscsx_EUR_phi_1e-04`)
-cor(nonshared_var$`prscs_eur_phi_1e-04`, nonshared_var$`prscsx_EUR_phi_1e-04`)
-
-nonshared_var[, c('SNP','A1','A2','prscs_eas_phi_1e-04','prscsx_EAS_phi_1e-04'), with=F]
-
-# The correlation between non-shared SNP weights from EAS PRS-CS and PRS-CSx PGS is strongly negative.
-# Indicates something weird is going on. I should check this isn't something to do with how I am outputting the SCORE file.
-
-```
 
 ***
 
@@ -5673,3 +5584,81 @@ write.csv(method_avg, '~/oliverpainfel/Analyses/crosspop/time_memory.csv', row.n
 ```
 
 </details>
+
+***
+
+# With 2+ GWAS
+
+Extend analysis to include gwas_groups including AFR EAS and EUR GWAS. Only some multi-source methods should be applicable here, including LEOPARD, PRS-CSx, and X-Wing. Given X-Wing with LEOPARD is slow, limit X-Wing analysis to the IndivTrain model alone.
+
+***
+
+## Prepare configuration for GenoPred
+
+<details><summary>Show code</summary>
+
+```{r}
+
+library(data.table)
+
+# Subset original gwas_list to include selected traits
+gwas_list<-fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_all.txt')
+pheno<-gsub('_.*','', gwas_list$name)
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+gwas_list<-gwas_list[pheno %in% selected_traits,]
+gwas_list$label<-paste0('"', gwas_list$label, '"')
+
+######
+# gwas_groups
+######
+
+gwas_groups_three_pop<-data.frame(
+  name=paste0(selected_traits, '_UKB_BBJ_UGR'),
+  gwas=sapply(selected_traits, function(x) paste0(x,'_UKB,',x,'_BBJ,',x,'_UGR')),
+  label=paste0('"', selected_traits, " (UKB+BBJ+UGR)", '"')
+)
+
+write.table(gwas_groups_three_pop, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_groups_three_pop.txt', col.names = T, row.names = F, quote = F)
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output",
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
+  "gwas_groups: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_groups_three_pop.txt",
+  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc','prscsx','xwing']",
+  "leopard_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
+  "cores_prep_pgs: 10", # xwing run with 20 cores
+  "cores_target_pgs: 50",
+  "ldpred2_inference: F",
+  "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/hm3",
+  "quickprs_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3",
+  "quickprs_multi_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3_subset",
+  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/hm3"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_three_pop.yaml', col.names = F, row.names = F, quote = F)
+
+```
+</details>
+
+***
+
+## Run pipeline
+
+<details><summary>Show code</summary>
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_three_pop.yaml \
+  target_pgs  -n
+```
+
+</details>
+

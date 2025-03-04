@@ -206,7 +206,7 @@ for(targ_pop in populations){
 
     system(paste0(
       'Rscript ', opt$xwing_repo, '/LEOPARD_Weights.R ',
-      '--beta_file ', tmp_dir, '/LEOPARD/post_targ_', populations[1], '/output_', j, '_', populations[1], '_Post.txt',',',tmp_dir, '/LEOPARD/post_targ_', populations[2], '/output_', j, '_', populations[2], '_Post.txt ',
+      '--beta_file ', paste(paste0(tmp_dir, '/LEOPARD/post_targ_', populations, '/output_', j, '_', populations, '_Post.txt'), collapse = ','), ' ',
       '--valid_file ', tmp_dir, '/LEOPARD/sampled_sumstats/GWAS_', which(populations == targ_pop), '_rep', j, '_valid.reformat.txt ',
       '--n_valid ', targ_gwas_valid_n ,' ',
       '--ref_prefix ', quickprs_multi_ldref_pop_i, '/', ref_files, ' ',

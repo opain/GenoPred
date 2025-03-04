@@ -140,6 +140,58 @@ singularity exec \
   generate_pheno \
   data/config.synth_2.yaml
   
+# Can't figure out how run with causal variants specified. Lets do this using R
+  
+```
+
+```{r}
+library(bigsnpr)
+
+# Attach the bigSNP object from a previously saved `.rds` file
+geno_file <- "your_genotype_data.rds"  # Update this with your actual file
+bigSNP <- snp_attach(geno_file)
+
+# Access the genotype matrix
+G <- bigSNP$genotypes
+
+# Get SNP names
+snp_names <- bigSNP$map$marker.ID
+
+set.seed(123)  # For reproducibility
+
+# Define number of causal SNPs
+num_causal <- 100
+
+# Randomly select causal SNPs from available markers
+causal_snps <- sample(snp_names, num_causal)
+
+# Assign effect sizes (from normal distribution)
+effect_sizes <- rnorm(num_causal, mean = 0, sd = 1)
+
+# Print the first few selected causal SNPs
+head(causal_snps)
+
+# Extract genotype indices of causal SNPs
+causal_indices <- match(causal_snps, snp_names)
+
+# Compute genetic component efficiently
+G_causal <- big_prodVec(G, effect_sizes, ind.col = causal_indices)
+
+h2 <- 0.5  # Desired heritability
+
+# Compute variance of genetic component
+var_G <- var(G_causal)
+
+# Compute required environmental variance
+var_E <- (var_G / h2) - var_G
+
+# Generate environmental noise
+E <- rnorm(length(G_causal), mean = 0, sd = sqrt(var_E))
+
+# Compute final phenotype
+Y <- G_causal + E
+
+h2_observed <- var(G_causal) / (var(G_causal) + var(E))
 ```
 
 </details>
@@ -795,11 +847,16 @@ write.table(target_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/config
 ######
 
 gwas_list<-data.frame(
-  name=c('CAD','RA','MIX'),
+  name=c('CAD','RA','MIX','T2D','T1D', 'IBD','BMI', 'HbA1c'),
   path=c(
     '/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/CAD',
     '/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/RA',
-    '/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA.tbl.reformat'
+    '/scratch_tmp/prj/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA.tbl.reformat',
+    '/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST004773/GCST004773-cleaned.gz',
+    '/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST90013445/GCST90013445-cleaned.gz',
+    '/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST004131/GCST004131-cleaned.gz',
+    '/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST002783/GCST002783-cleaned.gz',
+    '/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/output/reference/gwas_sumstat/GCST007954/GCST007954-cleaned.gz'
   ),
   population='EUR',
   n=NA,
@@ -807,7 +864,7 @@ gwas_list<-data.frame(
   prevalence=NA,
   mean=NA,
   sd=NA,
-  label=paste0('"', c('CAD','RA','MIX'),'"')
+  label=paste0('"', c('CAD','RA','MIX','T2D','T1D', 'IBD','BMI', 'HbA1c'),'"')
 )
 
 write.table(gwas_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/gwas_list.txt', col.names=T, row.names=F, quote=F)
@@ -894,6 +951,987 @@ round(cor(both[,-1:-2]), 2)
 # The reason for PGS stratification is becoming clearer - If we were to extract genetic effects relevant to CAD, then the CAD PGS would predict CAD cases better. Likewise for RA.
 
 # It would be interesting to see whether we can cluster individuals based on these scores alone. This would be similar to the T2D paper, which stratifies PGS by relationship with other traits. Our pathway specific strategy will take a different approach.
+
+library(pROC)
+
+auc(
+  both$MIX_outcome,
+  predict(glm(MIX_outcome ~ RA_SBayesRC + CAD_SBayesRC + MIX_SBayesRC, data = both), newdata = both))
+
+auc(
+  both$MIX_outcome,
+  predict(glm(MIX_outcome ~ MIX_SBayesRC, data = both), newdata = both))
+
+auc(
+  both$MIX_outcome,
+  predict(glm(MIX_outcome ~ RA_SBayesRC + CAD_SBayesRC, data = both), newdata = both))
+
 ```
 
+***
+
+### Cluster based on genome-wide PGS
+
+```{r}
+
+library(NbClust)
+
+both$group<-NULL
+both$group[both$CAD_outcome == 1]<-'CAD'
+both$group[both$RA_outcome == 1]<-'RA'
+both$group[both$CAD_outcome == 1 & both$RA_outcome == 1]<-'BOTH'
+both$group[both$CAD_outcome != 1 & both$RA_outcome != 1]<-'CONTROL'
+
+# Extract PGS data for MIX cases only
+both_cases <- both[which(both$MIX_outcome == 1),]
+pgs_cases <- both_cases[, c('CAD_SBayesRC', 'RA_SBayesRC'), with=F]
+pgs_cases <- scale(pgs_cases) 
+# Not sure whether I should be scaling since they are reference standardised
+
+# Determine optimal number of clusters
+n_clust_sol <-
+  NbClust(
+    data = pgs_cases[1:2000,],
+    distance = "euclidean",
+    min.nc = 2,
+    max.nc = 10,
+    method = 'ward.D2',
+    index = 'all'
+  )
+
+n_clust_opt<-length(unique(n_clust_sol$Best.partition))
+
+#####
+# K-means
+#####
+
+# Now try k-means clustering with 3 clusters
+k_res<-kmeans(pgs_cases, n_clust_opt)
+
+# Plot the mean of each group
+k_res_centers<-data.frame(Group=as.character(1:n_clust_opt),
+                          k_res$centers)
+
+library(reshape2)
+k_res_centers_melt<-melt(k_res_centers, id='Group')
+
+ggplot(k_res_centers_melt, aes(x=variable, y=value, group=Group, color=Group)) +
+  geom_point(size=5) +
+  geom_line() +
+  labs(x='Polygenic Score', y='Cluster Mean', title='Mean Polygenic Score Across Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#####
+# Hierarchical clustering
+#####
+
+# Compute distance matrix
+dist_matrix <- dist(pgs_cases, method = "euclidean")
+
+# Perform hierarchical clustering
+hclust_res <- hclust(dist_matrix, method = "ward.D2")
+
+# Cut tree into n_clust_opt clusters
+hclust_clusters <- cutree(hclust_res, k = n_clust_opt)
+
+# Convert clusters to a factor for plotting
+hclust_clusters <- as.factor(hclust_clusters)
+
+# Create a data frame with cluster assignments
+pgs_cases_clustered <- data.frame(pgs_cases, Cluster = hclust_clusters)
+
+# Compute the mean of each cluster for each PGS
+hclust_centers <- aggregate(. ~ Cluster, data = pgs_cases_clustered, FUN = mean)
+
+# Reshape the data for plotting
+hclust_centers_melt <- melt(hclust_centers, id = "Cluster")
+
+# Convert Cluster to character for consistent plotting
+hclust_centers_melt$Cluster <- as.character(hclust_centers_melt$Cluster)
+
+ggplot(hclust_centers_melt, aes(x = variable, y = value, group = Cluster, color = Cluster)) +
+  geom_point(size = 5) +
+  geom_line() +
+  labs(x = 'Polygenic Score', y = 'Cluster Mean', title = 'Mean Polygenic Score Across Hierarchical Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#####
+# Gaussian mixture model
+#####
+library(mclust)
+
+gmm_model <- Mclust(pgs_cases, G = n_clust_opt)
+summary(gmm_model)
+
+gmm_clusters <- gmm_model$classification  # Hard cluster labels
+gmm_probabilities <- gmm_model$z  # Soft probabilities for each cluster
+
+# Create a data frame with cluster assignments
+pgs_cases_clustered <- data.frame(pgs_cases, Cluster = gmm_clusters)
+
+# Compute the mean of each cluster for each PGS
+gmm_centers <- aggregate(. ~ Cluster, data = pgs_cases_clustered, FUN = mean)
+
+# Reshape the data for plotting
+gmm_centers_melt <- melt(gmm_centers, id = "Cluster")
+
+# Convert Cluster to character for consistent plotting
+gmm_centers_melt$Cluster <- as.character(gmm_centers_melt$Cluster)
+
+ggplot(gmm_centers_melt, aes(x = variable, y = value, group = Cluster, color = Cluster)) +
+  geom_point(size = 5) +
+  geom_line() +
+  labs(x = 'Polygenic Score', y = 'Cluster Mean', title = 'Mean Polygenic Score Across GMM Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#########
+# Compare the clusters to the case groups
+k_means_conf_matrix <- table(k_res$cluster, both_cases$group)
+hclust_D2_conf_matrix <- table(hclust_clusters, both_cases$group)
+gmm_conf_matrix <- table(gmm_clusters, both_cases$group)
+
+library(mclust)
+adjustedRandIndex(k_res$cluster, both_cases$group)
+adjustedRandIndex(hclust_clusters, both_cases$group)
+adjustedRandIndex(gmm_clusters, both_cases$group)
+
+# The accuracy of the hclust solution is higher
+pca_res <- prcomp(pgs_cases)
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(k_res$cluster))) + 
+  geom_point()
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(hclust_clusters))) + 
+  geom_point()
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(gmm_clusters))) + 
+  geom_point()
+
+ggplot(both_cases, aes(RA_SBayesRC, CAD_SBayesRC, color = as.factor(k_res$cluster))) + 
+  geom_point()
+ggplot(both_cases, aes(RA_SBayesRC, CAD_SBayesRC, color = as.factor(hclust_clusters))) + 
+  geom_point()
+ggplot(both_cases, aes(RA_SBayesRC, CAD_SBayesRC, color = as.factor(gmm_clusters))) + 
+  geom_point()
+
+ggplot(both_cases, aes(RA_SBayesRC, CAD_SBayesRC, color = as.factor(group))) + 
+  geom_point()
+
+ggplot(both_cases[both_cases$group != 'BOTH',], aes(x = RA_SBayesRC, y = CAD_SBayesRC, color = as.factor(group))) +
+  geom_density_2d() +  # Density contours
+  theme_minimal()
+
+library(Rtsne)
+
+tsne_res <- Rtsne(pgs_cases[!duplicated(pgs_cases),])
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(k_res$cluster[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(hclust_clusters[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(gmm_clusters[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+
+########
+# Predict MIX outcome 
+
+# Project cluster solutions into full dataset
+both_cluster<-both
+
+library(clue)
+# kmeans
+kmeans_pred<-cl_predict(k_res, newdata = both, type = "memberships")
+both_cluster$kmean<-apply(kmeans_pred, 1, function(x) which(x == 1))
+
+# hclust
+centroids <- aggregate(pgs_cases, list(hclust_clusters), mean)[, -1]  # Remove the cluster ID column
+assign_to_nearest_cluster <- function(new_data, centroids) {
+  apply(as.matrix(new_data), 1, function(row) {
+    which.min(colSums((t(centroids) - row)^2))  # Compute Euclidean distance to centroids
+  })
+}
+both_cluster$hclust <-
+  assign_to_nearest_cluster(
+    new_data = both[, c('CAD_SBayesRC', 'RA_SBayesRC'), with = F], centroids = centroids)
+
+# gmm
+both_cluster$gmm <-
+  predict(gmm_model, 
+          newdata = both[, c('CAD_SBayesRC', 'RA_SBayesRC'), with = F])$classification
+both_cluster$gmm_prob <-
+  predict(gmm_model, 
+          newdata = both[, c('CAD_SBayesRC', 'RA_SBayesRC'), with = F])$z[,1]
+
+# MIX_SBayesRC only
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  MIX_SBayesRC")),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# MIX_SBayesRC + disorder specific PGS
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  MIX_SBayesRC + CAD_SBayesRC + RA_SBayesRC")),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# kmeans interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(kmean)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# hclust interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(hclust)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# gmm interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(gmm)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# Even when defining clusters in the cases, the improvement in prediction is minimal < 1% relative improvement. However, there is a significant interaction between the RA PGS and the cluster that represents RA cases, so the concept is holding to some extent.
+
+# Would pathway specific scores help? The best PGS predicting RA or CAD subgroups would be RA or CAD PGS, so pathway specific PGS are unlikely to improve clustering/prediction. This isn't working well because the PGS are weak predictors...
+
+# Including the disease specific PGS improves prediction a lot over the MIX PGS alone. I think this is hoovering up a lot of the interaction effects. 
+
+# Rerun using full sample to define clusters
+
+#####################
+
+library(NbClust)
+
+both$group<-NULL
+both$group[both$CAD_outcome == 1]<-'CAD'
+both$group[both$RA_outcome == 1]<-'RA'
+both$group[both$CAD_outcome == 1 & both$RA_outcome == 1]<-'BOTH'
+both$group[both$CAD_outcome != 1 & both$RA_outcome != 1]<-'CONTROL'
+
+# Extract PGS data for MIX cases only
+pgs_all <- both[, c('CAD_SBayesRC', 'RA_SBayesRC'), with=F]
+pgs_all <- scale(pgs_all) 
+# Not sure whether I should be scaling since they are reference standardised
+
+# Determine optimal number of clusters
+n_clust_sol <-
+  NbClust(
+    data = pgs_all[1:2000,],
+    distance = "euclidean",
+    min.nc = 2,
+    max.nc = 10,
+    method = 'ward.D2',
+    index = 'all'
+  )
+
+n_clust_opt<-length(unique(n_clust_sol$Best.partition))
+
+#####
+# K-means
+#####
+
+# Now try k-means clustering with 3 clusters
+k_res<-kmeans(pgs_all, n_clust_opt)
+
+# Plot the mean of each group
+k_res_centers<-data.frame(Group=as.character(1:n_clust_opt),
+                          k_res$centers)
+
+library(reshape2)
+k_res_centers_melt<-melt(k_res_centers, id='Group')
+
+ggplot(k_res_centers_melt, aes(x=variable, y=value, group=Group, color=Group)) +
+  geom_point(size=5) +
+  geom_line() +
+  labs(x='Polygenic Score', y='Cluster Mean', title='Mean Polygenic Score Across Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#####
+# Hierarchical clustering
+#####
+
+# Compute distance matrix
+dist_matrix <- dist(pgs_all, method = "euclidean")
+
+# Perform hierarchical clustering
+hclust_res <- hclust(dist_matrix, method = "ward.D2")
+
+# Cut tree into n_clust_opt clusters
+hclust_clusters <- cutree(hclust_res, k = n_clust_opt)
+
+# Convert clusters to a factor for plotting
+hclust_clusters <- as.factor(hclust_clusters)
+
+# Create a data frame with cluster assignments
+pgs_all_clustered <- data.frame(pgs_all, Cluster = hclust_clusters)
+
+# Compute the mean of each cluster for each PGS
+hclust_centers <- aggregate(. ~ Cluster, data = pgs_all_clustered, FUN = mean)
+
+# Reshape the data for plotting
+hclust_centers_melt <- melt(hclust_centers, id = "Cluster")
+
+# Convert Cluster to character for consistent plotting
+hclust_centers_melt$Cluster <- as.character(hclust_centers_melt$Cluster)
+
+ggplot(hclust_centers_melt, aes(x = variable, y = value, group = Cluster, color = Cluster)) +
+  geom_point(size = 5) +
+  geom_line() +
+  labs(x = 'Polygenic Score', y = 'Cluster Mean', title = 'Mean Polygenic Score Across Hierarchical Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#####
+# Gaussian mixture model
+#####
+library(mclust)
+
+gmm_model <- Mclust(pgs_all, G = n_clust_opt)
+summary(gmm_model)
+
+gmm_clusters <- gmm_model$classification  # Hard cluster labels
+gmm_probabilities <- gmm_model$z  # Soft probabilities for each cluster
+
+# Create a data frame with cluster assignments
+pgs_all_clustered <- data.frame(pgs_all, Cluster = gmm_clusters)
+
+# Compute the mean of each cluster for each PGS
+gmm_centers <- aggregate(. ~ Cluster, data = pgs_all_clustered, FUN = mean)
+
+# Reshape the data for plotting
+gmm_centers_melt <- melt(gmm_centers, id = "Cluster")
+
+# Convert Cluster to character for consistent plotting
+gmm_centers_melt$Cluster <- as.character(gmm_centers_melt$Cluster)
+
+ggplot(gmm_centers_melt, aes(x = variable, y = value, group = Cluster, color = Cluster)) +
+  geom_point(size = 5) +
+  geom_line() +
+  labs(x = 'Polygenic Score', y = 'Cluster Mean', title = 'Mean Polygenic Score Across GMM Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#########
+# Compare the clusters to the case groups
+k_means_conf_matrix <- table(k_res$cluster, both$group)
+hclust_D2_conf_matrix <- table(hclust_clusters, both$group)
+gmm_conf_matrix <- table(assigned_clusters, both$group)
+
+library(mclust)
+adjustedRandIndex(k_res$cluster, both$group)
+adjustedRandIndex(hclust_clusters, both$group)
+adjustedRandIndex(gmm_clusters, both$group)
+
+# The accuracy of the hclust solution is higher
+pca_res <- prcomp(pgs_all)
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(k_res$cluster))) + geom_point()
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(hclust_clusters))) + geom_point()
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(gmm_clusters))) + geom_point()
+
+########
+# Predict MIX outcome 
+
+# Project cluster solutions into full dataset
+both_cluster<-both
+
+both_cluster$kmean<-k_res$cluster
+both_cluster$hclust<-hclust_clusters
+both_cluster$gmm<-gmm_clusters
+
+# MIX_SBayesRC only
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  MIX_SBayesRC")),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# MIX_SBayesRC + disorder specific PGS
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  MIX_SBayesRC + CAD_SBayesRC + RA_SBayesRC")),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# No interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], collapse = ' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# kmeans interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(kmean)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# hclust interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(hclust)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# gmm interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(gmm)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# Full sample show slightly better prediction, but there is poorer seperate of case subtypes.
+
+```
+
+***
+
+Try adding in PGS for secondary traits.
+
+```{r}
+library(NbClust)
+
+both$group<-NULL
+both$group[both$CAD_outcome == 1]<-'CAD'
+both$group[both$RA_outcome == 1]<-'RA'
+both$group[both$CAD_outcome == 1 & both$RA_outcome == 1]<-'BOTH'
+both$group[both$CAD_outcome != 1 & both$RA_outcome != 1]<-'CONTROL'
+
+# Extract PGS data for MIX cases only
+both_cases <- both[which(both$MIX_outcome == 1),]
+pgs_cases <- both_cases[, grepl('SBayesRC', names(both_cases)), with=F]
+pgs_cases <- scale(pgs_cases) 
+# Not sure whether I should be scaling since they are reference standardised
+
+# Determine optimal number of clusters
+n_clust_sol <-
+  NbClust(
+    data = pgs_cases[1:2000,],
+    distance = "euclidean",
+    min.nc = 2,
+    max.nc = 10,
+    method = 'ward.D2',
+    index = 'all'
+  )
+
+n_clust_opt<-length(unique(n_clust_sol$Best.partition))
+
+#####
+# K-means
+#####
+
+# Now try k-means clustering with 3 clusters
+k_res<-kmeans(pgs_cases, n_clust_opt)
+
+# Plot the mean of each group
+k_res_centers<-data.frame(Group=as.character(1:n_clust_opt),
+                          k_res$centers)
+
+library(reshape2)
+k_res_centers_melt<-melt(k_res_centers, id='Group')
+
+ggplot(k_res_centers_melt, aes(x=variable, y=value, group=Group, color=Group)) +
+  geom_point(size=5) +
+  geom_line() +
+  labs(x='Polygenic Score', y='Cluster Mean', title='Mean Polygenic Score Across Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#####
+# Hierarchical clustering
+#####
+
+# Compute distance matrix
+dist_matrix <- dist(pgs_cases, method = "euclidean")
+
+# Perform hierarchical clustering
+hclust_res <- hclust(dist_matrix, method = "ward.D2")
+
+# Cut tree into n_clust_opt clusters
+hclust_clusters <- cutree(hclust_res, k = n_clust_opt)
+
+# Convert clusters to a factor for plotting
+hclust_clusters <- as.factor(hclust_clusters)
+
+# Create a data frame with cluster assignments
+pgs_cases_clustered <- data.frame(pgs_cases, Cluster = hclust_clusters)
+
+# Compute the mean of each cluster for each PGS
+hclust_centers <- aggregate(. ~ Cluster, data = pgs_cases_clustered, FUN = mean)
+
+# Reshape the data for plotting
+hclust_centers_melt <- melt(hclust_centers, id = "Cluster")
+
+# Convert Cluster to character for consistent plotting
+hclust_centers_melt$Cluster <- as.character(hclust_centers_melt$Cluster)
+
+ggplot(hclust_centers_melt, aes(x = variable, y = value, group = Cluster, color = Cluster)) +
+  geom_point(size = 5) +
+  geom_line() +
+  labs(x = 'Polygenic Score', y = 'Cluster Mean', title = 'Mean Polygenic Score Across Hierarchical Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#####
+# Gaussian mixture model
+#####
+library(mclust)
+
+gmm_model <- Mclust(pgs_cases, G = n_clust_opt)
+summary(gmm_model)
+
+gmm_clusters <- gmm_model$classification  # Hard cluster labels
+gmm_probabilities <- gmm_model$z  # Soft probabilities for each cluster
+
+# Create a data frame with cluster assignments
+pgs_cases_clustered <- data.frame(pgs_cases, Cluster = gmm_clusters)
+
+# Compute the mean of each cluster for each PGS
+gmm_centers <- aggregate(. ~ Cluster, data = pgs_cases_clustered, FUN = mean)
+
+# Reshape the data for plotting
+gmm_centers_melt <- melt(gmm_centers, id = "Cluster")
+
+# Convert Cluster to character for consistent plotting
+gmm_centers_melt$Cluster <- as.character(gmm_centers_melt$Cluster)
+
+ggplot(gmm_centers_melt, aes(x = variable, y = value, group = Cluster, color = Cluster)) +
+  geom_point(size = 5) +
+  geom_line() +
+  labs(x = 'Polygenic Score', y = 'Cluster Mean', title = 'Mean Polygenic Score Across GMM Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#########
+# Compare the clusters to the case groups
+k_means_conf_matrix <- table(k_res$cluster, both_cases$group)
+hclust_D2_conf_matrix <- table(hclust_clusters, both_cases$group)
+gmm_conf_matrix <- table(gmm_clusters, both_cases$group)
+
+library(mclust)
+adjustedRandIndex(k_res$cluster, both_cases$group)
+adjustedRandIndex(hclust_clusters, both_cases$group)
+adjustedRandIndex(gmm_clusters, both_cases$group)
+
+# The accuracy of the hclust solution is higher
+pca_res <- prcomp(pgs_cases)
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(k_res$cluster))) + 
+  geom_point()
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(hclust_clusters))) + 
+  geom_point()
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(gmm_clusters))) + 
+  geom_point()
+
+ggplot(both_cases, aes(RA_SBayesRC, CAD_SBayesRC, color = as.factor(k_res$cluster))) + 
+  geom_point()
+ggplot(both_cases, aes(RA_SBayesRC, CAD_SBayesRC, color = as.factor(hclust_clusters))) + 
+  geom_point()
+ggplot(both_cases, aes(RA_SBayesRC, CAD_SBayesRC, color = as.factor(gmm_clusters))) + 
+  geom_point()
+
+ggplot(both_cases, aes(RA_SBayesRC, CAD_SBayesRC, color = as.factor(group))) + 
+  geom_point()
+
+ggplot(both_cases[both_cases$group != 'BOTH',], aes(x = RA_SBayesRC, y = CAD_SBayesRC, color = as.factor(group))) +
+  geom_density_2d() +  # Density contours
+  theme_minimal()
+
+library(Rtsne)
+
+tsne_res <- Rtsne(pgs_cases[!duplicated(pgs_cases),])
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(k_res$cluster[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(hclust_clusters[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(gmm_clusters[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+
+########
+# Predict MIX outcome 
+
+# Project cluster solutions into full dataset
+both_cluster<-both
+
+library(clue)
+# kmeans
+kmeans_pred<-cl_predict(k_res, newdata = both, type = "memberships")
+both_cluster$kmean<-apply(kmeans_pred, 1, function(x) which(x == 1))
+
+# hclust
+centroids <- aggregate(pgs_cases, list(hclust_clusters), mean)[, -1]  # Remove the cluster ID column
+assign_to_nearest_cluster <- function(new_data, centroids) {
+  apply(as.matrix(new_data), 1, function(row) {
+    which.min(colSums((t(centroids) - row)^2))  # Compute Euclidean distance to centroids
+  })
+}
+both_cluster$hclust <-
+  assign_to_nearest_cluster(
+    new_data = both[, grepl('SBayesRC', names(both_cases)), with = F], centroids = centroids)
+
+# gmm
+both_cluster$gmm <-
+  predict(gmm_model, 
+          newdata = both[, grepl('SBayesRC', names(both_cases)), with = F])$classification
+both_cluster$gmm_prob <-
+  predict(gmm_model, 
+          newdata = both[, grepl('SBayesRC', names(both_cases)), with = F])$z[,1]
+
+
+# MIX_SBayesRC only
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  MIX_SBayesRC")),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# MIX_SBayesRC + disorder specific PGS
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  MIX_SBayesRC + CAD_SBayesRC + RA_SBayesRC")),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# No interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], collapse = ' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# kmeans interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(kmean)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# hclust interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(hclust)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# gmm interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  ", 
+                      paste0(names(both_cluster)[grepl('SBayesRC', names(both_cluster))], '*as.factor(gmm)', collapse=' + '))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# 
+
+```
+
+***
+
+See whether non-negative matrix factorisation could recapitulate disease-specific PGS.
+
+Steps:
+  - Perform LD clumping on MIX GWAS
+  - Create matrix of GWAS Z-scores for top MIX hits, and disease specific GWAS
+  - Perform non-negative matrix factorisation
+  - Generate new PGS based on factor loadings for each variant.
+  - Evaluate performance in UKB
+
+```{r}
+# conda activate .snakemake/conda/329e0288cb99508f5e6c50a0996b234c_
+library("optparse")
+
+option_list = list(
+make_option("--ref_plink_chr", action="store", default=NULL, type='character',
+		help="Path to per chromosome reference PLINK files [required]"),
+make_option("--ref_keep", action="store", default=NULL, type='character',
+    help="Keep file to subset individuals in reference for clumping [optional]"),
+make_option("--plink2", action="store", default='plink2', type='character',
+    help="Path PLINKv2 software binary [required]"),
+make_option("--sumstats", action="store", default=NULL, type='character',
+		help="GWAS summary statistics in LDSC format [required]"),
+make_option("--pTs", action="store", default='5e-8,1e-6,1e-4,1e-2,0.1,0.2,0.3,0.4,0.5,1', type='character',
+		help="List of p-value thresholds for scoring [optional]"),
+make_option("--nested", action="store", default=T, type='logical',
+    help="Specify as F to use non-overlapping p-value intervals [optional]"),
+make_option("--top_hla", action="store", default=T, type='logical',
+		help="Retain only top assocaited variant in HLA/MHC region [optional]")
+)
+
+opt = parse_args(OptionParser(option_list = option_list))
+
+opt$ref_plink_chr<-'resources/data/ref/ref.chr'
+opt$ref_keep<-'resources/data/ref/keep_files/EUR.keep'
+opt$sumstats<-'~/oliverpainfel/Data/ukb/GenoPred/output_genoclust/reference/gwas_sumstat/MIX/MIX-cleaned.gz'
+
+# Load dependencies
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+# Create temp directory
+tmp_dir<-tempdir()
+
+#####
+# Format pT option
+#####
+
+opt$pTs <- as.numeric(unlist(strsplit(opt$pTs, ',')))
+
+#####
+# Read in sumstats
+#####
+
+# Read in, check and format GWAS summary statistics
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, extract = opt$extract, req_cols = c('CHR','BP','SNP','A1','A2','BETA','P'))
+
+#####
+# Prepare for ptclump
+#####
+
+if(opt$top_hla){
+  # Assumes BP column is GRCh37
+  hla <- gwas[(gwas$CHR == 6 & gwas$BP > 28e6 & gwas$BP < 34e6),]
+  top_hla <- hla$SNP[hla$P == min(hla$P)][1]
+  gwas <- gwas[!(gwas$CHR == 6 & gwas$BP > 28e6 & gwas$BP < 34e6 & gwas$SNP != top_hla),]
+}
+
+#####
+# Clump SNPs in GWAS based on LD in the reference
+#####
+
+clumped <- plink_clump(pfile = opt$ref_plink_chr, plink2 = opt$plink2, chr = CHROMS, sumstats = gwas, keep = opt$ref_keep)
+
+gwas_clumped<-gwas[gwas$SNP %in% clumped,]
+
+write.table(gwas_clumped, '~/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA.clumped', row.names=F, quote=F)
+
+```
+
+```{r}
+# Load dependencies
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+mix_clumped <- fread('~/oliverpainfel/Analyses/GenoClust/artificial/gwas/mix_CAD_RA.clumped')
+mix_clumped <- mix_clumped[mix_clumped$P < 5e-8,]
+
+mix_gwas<-fread('~/oliverpainfel/Data/ukb/GenoPred/output_genoclust/reference/gwas_sumstat/MIX/MIX-cleaned.gz')
+cad_gwas<-fread('~/oliverpainfel/Data/ukb/GenoPred/output_genoclust/reference/gwas_sumstat/CAD/CAD-cleaned.gz')
+ra_gwas<-fread('~/oliverpainfel/Data/ukb/GenoPred/output_genoclust/reference/gwas_sumstat/RA/RA-cleaned.gz')
+
+
+# Would normally have to find proxies or impute.
+mix_gwas <- mix_gwas[mix_gwas$SNP %in% mix_clumped$SNP,]
+cad_gwas <- cad_gwas[cad_gwas$SNP %in% mix_clumped$SNP,]
+ra_gwas <- ra_gwas[ra_gwas$SNP %in% mix_clumped$SNP,]
+
+# Flip mix_gwas to be risk increasing
+mix_gwas$A1_new[mix_gwas$BETA < 0]<-mix_gwas$A2[mix_gwas$BETA < 0]
+mix_gwas$A2_new[mix_gwas$BETA < 0]<-mix_gwas$A1[mix_gwas$BETA < 0]
+mix_gwas$A1[!is.na(mix_gwas$A1_new)]<-mix_gwas$A1_new[!is.na(mix_gwas$A1_new)]
+mix_gwas$A2[!is.na(mix_gwas$A2_new)]<-mix_gwas$A2_new[!is.na(mix_gwas$A2_new)]
+mix_gwas$BETA[mix_gwas$BETA < 0]<- -mix_gwas$BETA[mix_gwas$BETA < 0]
+
+# Compute Z score
+cad_gwas$Z_CAD<-cad_gwas$BETA/cad_gwas$SE
+ra_gwas$Z_RA<-ra_gwas$BETA/ra_gwas$SE
+
+# Scale Z scores by sample size
+cad_gwas$Z_MIX <- cad_gwas$Z_MIX * sqrt(cad_gwas$N)
+ra_gwas$Z_MIX <- ra_gwas$Z_MIX * sqrt(ra_gwas$N)
+
+# Flip effects to match reference alleles
+ref <- mix_gwas[, c('SNP','A1','A2'), with=F]
+cad_gwas<-cad_gwas[,c('SNP','A1','A2','Z_CAD'), with=F]
+ra_gwas<-ra_gwas[,c('SNP','A1','A2','Z_RA'), with=F]
+cad_gwas <- map_score(ref = ref, score = cad_gwas)
+ra_gwas <- map_score(ref = ref, score = ra_gwas)
+
+z_dat<-Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c("SNP", "A1", "A2"), all = TRUE), 
+       list(
+         cad_gwas,
+         ra_gwas))
+
+library(NMF)
+
+# Separate positive and negative Z-scores
+z_dat <- z_dat[,-1:-3]
+
+# Create positive matrix (keep only positive values, set negatives to 0)
+Z_pos <- z_dat
+Z_pos[Z_pos < 0] <- 0
+
+# Create negative matrix (keep only negative values, set positives to 0, then multiply by -1)
+Z_neg <- z_dat
+Z_neg[Z_neg > 0] <- 0
+Z_neg<-abs(Z_neg)
+
+# Combine them side by side (columns are doubled)
+X_matrix <- cbind(Z_pos, Z_neg)
+
+# Convert to matrix format
+X_matrix <- as.matrix(X_matrix)
+
+# Determine optimal K (Number of Clusters)
+nmf_rank <- 2:5
+nmf_estimates <- nmf(X_matrix, nmf_rank, method = "brunet", nrun = 10)
+
+# Extract best rank (K)
+best_K <- nmf_rank[which.min(nmf_estimates$measures$dispersion)]
+print(paste("Optimal K:", best_K))
+
+# Run final NMF with optimal K
+nmf_result <- nmf(X_matrix, rank = best_K, method = "brunet")
+
+# Extract factorized matrices W and H
+W <- basis(nmf_result)  # SNP-cluster associations
+H <- coef(nmf_result)   # Trait-cluster associations
+
+H_normalized <- apply(H, 2, function(x) x / sum(x))
+
+# Visualize contribution of MIX GWAS to CAD vs. RA
+barplot(H_normalized, beside = TRUE)
+
+# Apply cut off of 0.75 to weights
+W[W < 0.75] <- 0
+
+# Create score file based on cluster weights
+score <- data.frame(ref, W)
+
+dir.create('~/oliverpainfel/Analyses/GenoClust/artificial/nmf/')
+for(i in 1:ncol(W)){
+  score_i <- data.frame(ref, W[,i])
+  names(score_i)<-c('rsID','effect_allele','other_allele', 'effect_weight')
+  write.table(
+    score_i,
+    paste0(
+      '~/oliverpainfel/Analyses/GenoClust/artificial/nmf/cluster_',
+      i,
+      '.score'
+    ),
+    row.names = F,
+    quote = F
+  )
+}
+
+```
+
+```{r}
+library(data.table)
+
+dir.create('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset')
+
+######
+# score_list
+######
+
+score_list<-data.frame(
+  name=c('nmf_1','nmf_2'),
+  path=c(
+    '/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/nmf/cluster_1.score',
+    '/users/k1806347/oliverpainfel/Analyses/GenoClust/artificial/nmf/cluster_2.score'
+  ),
+  label=paste0('"', c('nmf_1','nmf_2'),'"')
+)
+
+write.table(score_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/score_list.txt', col.names=T, row.names=F, quote=F)
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output_genoclust",
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/gwas_list.txt",
+  "score_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/score_list.txt",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/target_list.txt",
+  "pgs_methods: ['sbayesrc']",
+  "cores_prep_pgs: 10",
+  "cores_target_pgs: 10",
+  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/hm3"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate genopred
+
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml \
+  output_all -n
+```
+
+I haven't fully understood this NMF process yet. 
 
