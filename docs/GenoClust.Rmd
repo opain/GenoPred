@@ -145,11 +145,12 @@ singularity exec \
 ```
 
 ```{r}
+#conda activate .snakemake/conda/329e0288cb99508f5e6c50a0996b234c_
 library(bigsnpr)
 
 # Attach the bigSNP object from a previously saved `.rds` file
-geno_file <- "your_genotype_data.rds"  # Update this with your actual file
-bigSNP <- snp_attach(geno_file)
+rds <- snp_readBed('~/oliverpainfel/Data/HAPNEST/data/outputs/synth_2/synth_2_chr-22.bed', backingfile = tempfile())
+bigSNP <- snp_attach(rds)
 
 # Access the genotype matrix
 G <- bigSNP$genotypes
@@ -157,41 +158,61 @@ G <- bigSNP$genotypes
 # Get SNP names
 snp_names <- bigSNP$map$marker.ID
 
-set.seed(123)  # For reproducibility
+# Read in causal variants
+library(data.table)
+effect_sizes<-fread('~/oliverpainfel/Data/HAPNEST/synth_2/causal.snplist')
+names(effect_sizes)<-c('rsid','trait_1','trait_2')
 
-# Define number of causal SNPs
-num_causal <- 100
+rsids<-fread('~/oliverpainfel/Data/HAPNEST/data/inputs/processed/1KG+HGDP/rsid_map_list_chr22.txt')
+effect_sizes<-merge(effect_sizes, rsids, by='rsid')
 
-# Randomly select causal SNPs from available markers
-causal_snps <- sample(snp_names, num_causal)
+h2 <- 0.05  # Desired heritability
+set.seed(1)
+traits<-list()
+for(i in 1:2){
+  effect_sizes_i<-effect_sizes[effect_sizes[[paste0('trait_',i)]] == 1,]
+  causal_indices <- match(effect_sizes_i$id_hg38, snp_names)
+  G_causal <- big_prodVec(G, effect_sizes_i[[paste0('trait_',i)]], ind.col = causal_indices)
+  var_G <- var(G_causal)
+  var_E <- (var_G / h2) - var_G
+  E <- rnorm(length(G_causal), mean = 0, sd = sqrt(var_E))
+  Y <- G_causal + E
+  traits[[paste0('trait_', i)]]<-Y
+  print(var(G_causal) / (var(G_causal) + var(E)))
+}
 
-# Assign effect sizes (from normal distribution)
-effect_sizes <- rnorm(num_causal, mean = 0, sd = 1)
+cor(do.call(cbind, traits))
 
-# Print the first few selected causal SNPs
-head(causal_snps)
+library(bigsnpr)
 
-# Extract genotype indices of causal SNPs
-causal_indices <- match(causal_snps, snp_names)
+# Prepare the phenotype
+Y1 <- traits[["trait_1"]]
+Y2 <- traits[["trait_2"]]
 
-# Compute genetic component efficiently
-G_causal <- big_prodVec(G, effect_sizes, ind.col = causal_indices)
+# Perform GWAS for trait 1
+gwas_1 <- big_univLinReg(G, Y1)
 
-h2 <- 0.5  # Desired heritability
+# Perform GWAS for trait 2
+gwas_2 <- big_univLinReg(G, Y2)
 
-# Compute variance of genetic component
-var_G <- var(G_causal)
+# Combine results into a data frame
+gwas_results <- data.frame(
+  SNP = snp_names,
+  beta_trait1 = gwas_1$estim,
+  beta_trait2 = gwas_2$estim,
+  se_trait1 = gwas_1$std.err,
+  se_trait2 = gwas_2$std.err
+)
 
-# Compute required environmental variance
-var_E <- (var_G / h2) - var_G
+gwas_results$p_trait1 <- 2*pnorm(q=abs(gwas_results$beta_trait1/gwas_results$se_trait1), lower.tail=FALSE)
+gwas_results$p_trait2 <- 2*pnorm(q=abs(gwas_results$beta_trait2/gwas_results$se_trait2), lower.tail=FALSE)
 
-# Generate environmental noise
-E <- rnorm(length(G_causal), mean = 0, sd = sqrt(var_E))
+# Looks good. Lets proceed with these simulated phenotypes
+write.table(data.frame(FID = bigSNP$fam$family.ID, IID = bigSNP$fam$sample.ID, outcome = traits[["trait_1"]]), 
+            '~/oliverpainfel/Data/HAPNEST/synth_2/trait_1.txt', row.names = F, quote=F)
+write.table(data.frame(FID = bigSNP$fam$family.ID, IID = bigSNP$fam$sample.ID, outcome = traits[["trait_2"]]), 
+            '~/oliverpainfel/Data/HAPNEST/synth_2/trait_2.txt', row.names = F, quote=F)
 
-# Compute final phenotype
-Y <- G_causal + E
-
-h2_observed <- var(G_causal) / (var(G_causal) + var(E))
 ```
 
 </details>
@@ -242,17 +263,9 @@ option_list = list(
 
 opt = parse_args(OptionParser(option_list=option_list))
 
-opt$target_plink_chr<-'/users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr-'
-opt$output<-'~/oliverpainfel/Analysis/HAPNEST/synth_1/pca/'
+opt$target_plink_chr<-'~/oliverpainfel/Data/HAPNEST/data/outputs/synth_2/synth_2_chr-'
+opt$output<-'~/oliverpainfel/Data/HAPNEST/data/outputs/synth_2/pca/'
 opt$test<-'chr22'
-
-keep_list<-data.frame(
-  file = c(
-    '~/oliverpainfel/Analysis/HAPNEST/synth_1/training.EUR.txt',
-    '~/oliverpainfel/Analysis/HAPNEST/synth_1/training.EAS.txt',
-    '~/oliverpainfel/Analysis/HAPNEST/synth_1/training.AFR.txt'),
-  POP = c('EUR','EAS','AFR')
-)
 
 library(GenoUtils)
 library(data.table)
@@ -273,45 +286,32 @@ if(!is.na(opt$test)){
 targ_pvar <- read_bim(opt$target_plink_chr, chr = CHROMS)
 targ_pvar <- remove_regions(dat = targ_pvar, regions = long_ld_coord)
 
-for(pop in keep_list$POP){
-  # Read in keep file for population
-  keep_file <- fread(keep_list$file[keep_list$POP == pop], header=F)
-  if(ncol(keep_file) == 1){
-    keep_file <- data.table(
-      FID = keep_file$V1,
-      IID = keep_file$V1)
-  } else {
-    keep_file <- data.table(
-      FID = keep_file$V1,
-      IID = keep_file$V2)
-  }
+###########
+# Perform PCA on QC'd and independent variants
+###########
 
-  ###########
-  # Perform PCA on QC'd and independent variants
-  ###########
+# Create QC'd SNP-list
+target_qc_snplist <- plink_qc_snplist(bfile = opt$target_plink_chr, plink2 = opt$plink2, chr = CHROMS, maf = opt$maf, geno = opt$geno, hwe = opt$hwe, threads = opt$n_cores)
 
-  # Create QC'd SNP-list
-  target_qc_snplist <- plink_qc_snplist(bfile = opt$target_plink_chr, plink2 = opt$plink2, chr = CHROMS, keep = keep_file, maf = opt$maf, geno = opt$geno, hwe = opt$hwe, threads = opt$n_cores)
+# Remove high LD regions
+target_qc_snplist <- target_qc_snplist[target_qc_snplist %in% targ_pvar$SNP]
 
-  # Remove high LD regions
-  target_qc_snplist <- target_qc_snplist[target_qc_snplist %in% targ_pvar$SNP]
+# Perform LD pruning
+ld_indep <- plink_prune(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, extract = target_qc_snplist, threads = opt$n_cores)
 
-  # Perform LD pruning
-  ld_indep <- plink_prune(bfile = opt$target_plink_chr, chr = CHROMS, keep = keep_file, plink2 = opt$plink2, extract = target_qc_snplist, threads = opt$n_cores)
+# To improve efficiency, derive PCs using random subset of 1000 individuals.
+fam<-fread('~/oliverpainfel/Data/HAPNEST/data/outputs/synth_2/synth_2_chr-22.fam')
+fam_subset <- fam[sample(1000, replace = F),]
 
-  # To improve efficiency, derive PCs using random subset of 1000 individuals.
-  keep_file_subset <- keep_file[sample(1000, replace = T),]
-  keep_file_subset <- keep_file_subset[!duplicated(keep_file_subset),]
+# Run PCA
+snp_weights <- plink_pca(bfile = opt$target_plink_chr, keep = fam_subset, chr = CHROMS, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs, threads = opt$n_cores)
+fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
 
-  # Run PCA
-  snp_weights <- plink_pca(bfile = opt$target_plink_chr, keep = keep_file_subset, chr = CHROMS, plink2 = opt$plink2, extract = ld_indep, n_pc = opt$n_pcs, threads = opt$n_cores)
-  fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F, sep=' ', na='NA')
+# Project into the full population
+target_pcs <- plink_score(bfile = opt$target_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'), threads = opt$n_cores)
 
-  # Project into the full population
-  target_pcs <- plink_score(bfile = opt$target_plink_chr, keep = keep_file, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'), threads = opt$n_cores)
-
-  fwrite(target_pcs, paste0(opt$output, pop,'.pcs.txt'), quote=F, sep=' ', na='NA')
-}
+dir.create('~/oliverpainfel/Data/HAPNEST/data/outputs/synth_2/pca')
+fwrite(target_pcs, paste0(opt$output,'pcs.txt'), quote=F, sep=' ', na='NA')
 
 ```
 
@@ -326,43 +326,42 @@ for(pop in keep_list$POP){
 ```{bash}
 
 module add plink2
-for pheno in $(seq 1 1); do
-    awk 'BEGIN {OFS="\t"} NR==1 {print "FID", "IID", "pheno"} NR>1 {print $1, $1, $NF}' /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.pheno${pheno} > /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.pheno${pheno}.plink
-    
-  for pop in $(echo EUR EAS AFR); do
-  
-    mkdir -p ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}
+for pheno in $(seq 1 2); do
+    mkdir -p ~/oliverpainfel/Analysis/HAPNEST/synth_2/gwas/pheno${pheno}
     for chr in $(seq 22 22); do
         sbatch -p neurohack_cpu --mem 20G -n 4 --wrap="plink2 \
-          --bfile /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr-22 \
-          --pheno /users/k1806347/oliverpainfel/HAPNEST/data/outputs/synth_1/synth_1_chr.pheno${pheno}.plink \
+          --bfile ~/oliverpainfel/Data/HAPNEST/data/outputs/synth_2/synth_2_chr-${chr} \
+          --pheno ~/oliverpainfel/Data/HAPNEST/synth_2/trait_${pheno}.txt \
           --1 \
-          --covar ~/oliverpainfel/Analysis/HAPNEST/synth_1/pca/${pop}.pcs.txt \
+          --covar ~/oliverpainfel/Data/HAPNEST/data/outputs/synth_2/pca/pcs.txt \
           --covar-variance-standardize \
-          --logistic omit-ref cols=+a1freq,+ax hide-covar \
+          --linear omit-ref cols=+a1freq,+ax hide-covar \
           --maf 0.01 \
           --geno 0.05 \
-          --out ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.chr${chr}"
+          --out ~/oliverpainfel/Analysis/HAPNEST/synth_2/gwas/pheno${pheno}/pheno${pheno}.chr${chr}"
     done
-  done
-done
-
-# Once complete, merge results across chromosomes
-for pheno in $(seq 1 1); do
-  for pop in $(echo EUR EAS AFR); do
-    head -n 1 ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.chr22.pheno.glm.logistic.hybrid > ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid
-      for chr in $(seq 22 22); do
-        tail -n +2 ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.chr22.pheno.glm.logistic.hybrid >> ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid
-      done
-      
-      # Remove REF and ALT columns and rename AX column to A2
-      cut -f 4,5 --complement ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid | awk 'BEGIN{FS=OFS="\t"} NR==1 {$7="A2"} 1' > temp.txt && mv temp.txt ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid
-  
-      gzip ~/oliverpainfel/Analysis/HAPNEST/synth_1/gwas/pheno${pheno}/pheno${pheno}.${pop}.GW.pheno.glm.logistic.hybrid
-  done
 done
 
 ```
+
+```{r}
+library(data.table)
+  rsids<-fread('~/oliverpainfel/Data/HAPNEST/data/inputs/processed/1KG+HGDP/rsid_map_list_chr22.txt')
+
+for(i in 2:2){
+  ss <- fread(paste0('/users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/gwas/pheno', i, '/pheno', i,'.chr22.outcome.glm.linear'))
+  ss$REF<-NULL
+  ss$ALT<-NULL
+  names(ss)[names(ss) == 'AX'] <- 'A2'
+  
+  ss<-merge(ss, rsids, by.x = 'ID', by.y = 'id_hg38')
+  ss$ID <- ss$rsid
+  ss$rsid <- NULL
+  
+  fwrite(ss, paste0('/users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/gwas/pheno', i, '/pheno', i,'.chr22.outcome.glm.linear'), row.names = F, quote=F, sep=' ', na='NA')
+}
+```
+
 
 </details>
 
@@ -374,8 +373,56 @@ done
 
 ```{bash}
 
+# Gene association
+mkdir /users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/magma
 
+for pheno in $(seq 2 2); do
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --bfile /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma_ref/g1000_eur \
+  --pval /users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/gwas/pheno${pheno}/pheno${pheno}.chr22.outcome.glm.linear use=ID,P ncol=OBS_CT \
+  --gene-model snp-wise=top \
+  --gene-annot /scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/data/magma/NCBI37.3.genes.annot \
+  --out /users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/magma/pheno${pheno}_gene_level
+done
 
+# GSEA
+for pheno in $(seq 2 2); do
+/scratch/prj/oliverpainfel/recovered/Software/MyGit/GenoDisc/pipeline/resources/software/magma/magma \
+  --gene-results /users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/magma/pheno${pheno}_gene_level.genes.raw \
+  --set-annot /scratch/prj/oliverpainfel/recovered/Data/MSigDB/c5.go.bp.v7.5.1.entrez.gmt \
+  --out /users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/magma/pheno${pheno}_gsea
+done
+
+```
+
+```{r}
+# Investigate gene level associations
+# Why are the gene sets not showing as enriched
+res<-fread('/users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/magma/pheno2_gene_level.genes.out')
+
+# Read in .gmt file
+gmt <- readLines('/scratch/prj/oliverpainfel/recovered/Data/MSigDB/c5.go.bp.v7.5.1.entrez.gmt')
+gene_sets <- strsplit(gmt, "\t")
+gene_list <- setNames(lapply(gene_sets, `[`, -c(1,2)), sapply(gene_sets, `[`, 1))
+
+# Subset sets of interest
+gene_list <- gene_list[ c('GOBP_DNA_REPAIR', 'GOBP_REGULATION_OF_SYNAPTIC_PLASTICITY')]
+
+res[res$GENE %in% gene_list[['GOBP_DNA_REPAIR']],]
+res[res$GENE %in% gene_list[['GOBP_REGULATION_OF_SYNAPTIC_PLASTICITY']],]
+
+# Read in causal variants
+causal_var<-fread('~/oliverpainfel/Data/HAPNEST/synth_2/causal.snplist')
+rsids<-fread('~/oliverpainfel/Data/HAPNEST/data/inputs/processed/1KG+HGDP/rsid_map_list_chr22.txt')
+causal_var<-merge(causal_var, rsids, by.x='V1', by.y='rsid')
+causal_var<-causal_var[order(causal_var$id_hg38),]
+
+# Many of the genes are not coming up as significant, despite containing SNPs with crazy high P values. Try running MAGMA with top,1 gene model. This could pick up the signal better. This helps, but gene p values are capped at 1e-50, and many genes are still non-significant. Manually check top SNP p values within these genes.
+# Read in SNPs for gene 9463
+gwas <- fread(paste0('/users/k1806347/oliverpainfel/Analysis/HAPNEST/synth_2/gwas/pheno2/pheno2.chr22.outcome.glm.linear'))
+mean(abs(gwas[gwas$POS > 38418262 & gwas$POS < 38481708,]$T_STAT))
+# The gene is highly enriched. Why is MAGMA not finding this.
+# Make sure the SNPs we are setting as causal are in the MAGMA analysis/annot file
 ```
 
 </details>
@@ -897,18 +944,14 @@ snakemake \
   --profile slurm \
   --use-conda \
   --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml \
-  output_all -n
-  
-snakemake \
-  --profile slurm \
-  --use-conda \
-  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml \
-  magma_annot -n
+  output_all target_pgs_partitioned -n
 ```
 
 ***
 
-### Check correlation
+### Genome-wide PGS
+
+#### Check correlation
 
 Check correlation between the PGS for CAD, RA and MIX with CAD, RA and MIX outcomes.
 
@@ -977,7 +1020,7 @@ auc(
 
 ***
 
-### Cluster based on genome-wide PGS
+#### Cluster
 
 ```{r}
 
@@ -1696,6 +1739,335 @@ cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
 ```
 
 ***
+
+### Partitioned PGS
+
+#### Correlation
+
+```{r}
+# Read in the partitioned PGS
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in PGS
+pgs_gw <- read_pgs(config = '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml', name = 'ukb', pseudo_only = T, gwas=c('RA','CAD','MIX'))$ukb
+
+pgs_gw <- Reduce(function(x, y) merge(x, y, by = c("FID", "IID"), all = TRUE), lapply(pgs_gw$TRANS, function(x) x[[1]]))
+
+# Read in PGS
+pgs_partitioned <- read_pgs_2(config = '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/genoclust_subset/config.yaml', name = 'ukb', partitioned = T, gwas=c('RA','CAD','MIX'))$ukb
+
+pgs_partitioned <- Reduce(function(x, y) merge(x, y, by = c("FID", "IID"), all = TRUE), lapply(pgs_partitioned$TRANS, function(x) x[[1]]))
+
+pgs <- merge(pgs_gw, pgs_partitioned, by = c('FID', 'IID'))
+cor_mat<-cor(pgs[,-1:-2])
+round(cor_mat[, !grepl('set', colnames(cor_mat))], 2)
+
+# Read in outcome data
+outcome_names<-c('CAD','RA','MIX')
+outcomes <- list()
+for(i in outcome_names){
+  outcomes[[i]]<-fread(paste0('~/oliverpainfel/Data/ukb/phenotypes/ra_cad_mix.subset.', i, '_only.txt'))
+  names(outcomes[[i]])[names(outcomes[[i]]) == 'outcome']<-paste0(i,'_outcome')
+}
+outcomes <- Reduce(function(x, y) merge(x, y, by = c("FID", "IID"), all = TRUE), outcomes)
+
+both<-merge(outcomes, pgs, by = c('FID','IID'))
+
+# Predict each outcome using GW and stratified PGS
+library(glmnet)
+
+res<-NULL
+for(i in c('MIX','RA','CAD')){
+  out1 <-
+    cv.glmnet(x = as.matrix(both[, grepl(paste0(i, '_SBayesRC'), names(both)), with = F]), y = both$MIX_outcome)
+  
+  out2 <-
+    cv.glmnet(x = as.matrix(cbind(0, both[, paste0(i, '_SBayesRC'), with = F])), y = both$MIX_outcome)
+
+  # Get predicted values using the optimal lambda
+  pred1 <- predict(out1, newx = as.matrix(both[, grepl(paste0(i, '_SBayesRC'), names(both)), with = F]), s = "lambda.min")
+  pred2 <- predict(out2, newx = as.matrix(cbind(0, both[, paste0(i, '_SBayesRC'), with = F])), s = "lambda.min")
+  
+  # Compute correlation (Observed vs. Predicted)
+  cor1 <- cor(pred1, both$MIX_outcome)
+  cor2 <- cor(pred2, both$MIX_outcome)
+  
+  res<-rbind(res,
+             data.frame(
+               outcome = i,
+               model = c('gw-pgs + p-pgs', 'gw-pgs'),
+               cor = c(cor1, cor2), 
+               n_pred = c(1, sum(grepl(paste0(i, '_SBayesRC'), names(both))))
+             ))
+}
+
+ggplot(res, aes(x=outcome, y = cor, fill = model)) +
+  geom_bar(stat="identity", position = position_dodge())
+
+res_wide<-reshape(res, direction = 'wide', timevar = 'model', idvar = 'outcome')
+res_wide$diff<-res_wide$`cor.gw-pgs + p-pgs` - res_wide$`cor.gw-pgs`
+res_wide$perc_diff<-res_wide$diff / res_wide$`cor.gw-pgs`
+
+#   outcome cor.gw-pgs + p-pgs n_pred.gw-pgs + p-pgs cor.gw-pgs n_pred.gw-pgs         diff   perc_diff
+# 1     MIX         0.09020498                     1 0.08504137            33 0.0051636170 0.060718886
+# 3      RA         0.03816091                     1 0.03159778            44 0.0065631312 0.207708618
+# 5     CAD         0.19752735                     1 0.19699081             6 0.0005365409 0.002723685
+
+# The absolute and relative improvement is highest for RA, then MIX, with very little improvement for CAD.
+# The number of pathway specific PGS is also highest for RA and then MIX.
+# The improvement could be due to over fitting.
+# Confusing that the CAD PGS is so strong, but the number sig gene sets is higher for RA. I suppose this is due to the CAD GWAS being larger, but also more complex biologically.
+
+```
+
+***
+
+#### Clustering
+
+```{r}
+
+library(NbClust)
+
+both$group<-NULL
+both$group[both$CAD_outcome == 1]<-'CAD'
+both$group[both$RA_outcome == 1]<-'RA'
+both$group[both$CAD_outcome == 1 & both$RA_outcome == 1]<-'BOTH'
+both$group[both$CAD_outcome != 1 & both$RA_outcome != 1]<-'CONTROL'
+
+# Extract PGS data for MIX cases only
+both_cases <- both[which(both$MIX_outcome == 1),]
+pgs_cases <- both_cases[, grepl('MIX_SBayesRC', names(both_cases)), with=F]
+pgs_cases <- scale(pgs_cases) 
+# Not sure whether I should be scaling since they are reference standardised
+
+# Determine optimal number of clusters
+n_clust_sol <-
+  NbClust(
+    data = pgs_cases[1:2000,],
+    distance = "euclidean",
+    min.nc = 2,
+    max.nc = 10,
+    method = 'ward.D2',
+    index = 'all'
+  )
+
+n_clust_opt<-length(unique(n_clust_sol$Best.partition))
+
+#####
+# K-means
+#####
+
+# Now try k-means clustering with 3 clusters
+k_res<-kmeans(pgs_cases, n_clust_opt)
+
+# Plot the mean of each group
+k_res_centers<-data.frame(Group=as.character(1:n_clust_opt),
+                          k_res$centers)
+
+library(reshape2)
+k_res_centers_melt<-melt(k_res_centers, id='Group')
+
+ggplot(k_res_centers_melt, aes(x=variable, y=value, group=Group, color=Group)) +
+  geom_point(size=5) +
+  geom_line() +
+  labs(x='Polygenic Score', y='Cluster Mean', title='Mean Polygenic Score Across Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#####
+# Hierarchical clustering
+#####
+
+# Compute distance matrix
+dist_matrix <- dist(pgs_cases, method = "euclidean")
+
+# Perform hierarchical clustering
+hclust_res <- hclust(dist_matrix, method = "ward.D2")
+
+# Cut tree into n_clust_opt clusters
+hclust_clusters <- cutree(hclust_res, k = n_clust_opt)
+
+# Convert clusters to a factor for plotting
+hclust_clusters <- as.factor(hclust_clusters)
+
+# Create a data frame with cluster assignments
+pgs_cases_clustered <- data.frame(pgs_cases, Cluster = hclust_clusters)
+
+# Compute the mean of each cluster for each PGS
+hclust_centers <- aggregate(. ~ Cluster, data = pgs_cases_clustered, FUN = mean)
+
+# Reshape the data for plotting
+hclust_centers_melt <- melt(hclust_centers, id = "Cluster")
+
+# Convert Cluster to character for consistent plotting
+hclust_centers_melt$Cluster <- as.character(hclust_centers_melt$Cluster)
+
+ggplot(hclust_centers_melt, aes(x = variable, y = value, group = Cluster, color = Cluster)) +
+  geom_point(size = 5) +
+  geom_line() +
+  labs(x = 'Polygenic Score', y = 'Cluster Mean', title = 'Mean Polygenic Score Across Hierarchical Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#####
+# Gaussian mixture model
+#####
+library(mclust)
+
+gmm_model <- Mclust(pgs_cases, G = n_clust_opt)
+summary(gmm_model)
+
+gmm_clusters <- gmm_model$classification  # Hard cluster labels
+gmm_probabilities <- gmm_model$z  # Soft probabilities for each cluster
+
+# Create a data frame with cluster assignments
+pgs_cases_clustered <- data.frame(pgs_cases, Cluster = gmm_clusters)
+
+# Compute the mean of each cluster for each PGS
+gmm_centers <- aggregate(. ~ Cluster, data = pgs_cases_clustered, FUN = mean)
+
+# Reshape the data for plotting
+gmm_centers_melt <- melt(gmm_centers, id = "Cluster")
+
+# Convert Cluster to character for consistent plotting
+gmm_centers_melt$Cluster <- as.character(gmm_centers_melt$Cluster)
+
+ggplot(gmm_centers_melt, aes(x = variable, y = value, group = Cluster, color = Cluster)) +
+  geom_point(size = 5) +
+  geom_line() +
+  labs(x = 'Polygenic Score', y = 'Cluster Mean', title = 'Mean Polygenic Score Across GMM Clusters') +
+  theme_half_open() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  background_grid(major = 'y', minor = 'y')
+
+#########
+# Compare the clusters to the case groups
+k_means_conf_matrix <- table(k_res$cluster, both_cases$group)
+hclust_D2_conf_matrix <- table(hclust_clusters, both_cases$group)
+gmm_conf_matrix <- table(gmm_clusters, both_cases$group)
+
+library(mclust)
+adjustedRandIndex(k_res$cluster, both_cases$group)
+adjustedRandIndex(hclust_clusters, both_cases$group)
+adjustedRandIndex(gmm_clusters, both_cases$group)
+
+# The accuracy of the hclust solution is higher
+pca_res <- prcomp(pgs_cases)
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(k_res$cluster))) + 
+  geom_point()
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(hclust_clusters))) + 
+  geom_point()
+ggplot(data.frame(pca_res$x), aes(PC1, PC2, color = as.factor(gmm_clusters))) + 
+  geom_point()
+
+library(Rtsne)
+
+tsne_res <- Rtsne(pgs_cases[!duplicated(pgs_cases),])
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(k_res$cluster[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(hclust_clusters[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+ggplot(data.frame(tsne_res$Y), aes(
+  x = X1,
+  y = X2,
+  color = as.factor(gmm_clusters[!duplicated(pgs_cases)])
+)) + 
+  geom_point() +
+  labs(color = 'Cluster')
+
+
+########
+# Predict MIX outcome 
+
+# Project cluster solutions into full dataset
+both_cluster<-both
+
+library(clue)
+# kmeans
+kmeans_pred<-cl_predict(k_res, newdata = both, type = "memberships")
+both_cluster$kmean<-apply(kmeans_pred, 1, function(x) which(x == 1))
+
+# hclust
+centroids <- aggregate(pgs_cases, list(hclust_clusters), mean)[, -1]  # Remove the cluster ID column
+assign_to_nearest_cluster <- function(new_data, centroids) {
+  apply(as.matrix(new_data), 1, function(row) {
+    which.min(colSums((t(centroids) - row)^2))  # Compute Euclidean distance to centroids
+  })
+}
+both_cluster$hclust <-
+  assign_to_nearest_cluster(
+    new_data = both[, grepl('MIX_SBayesRC', names(both_cases)), with = F], centroids = centroids)
+
+# gmm
+both_cluster$gmm <-
+  predict(gmm_model, 
+          newdata = both[, grepl('MIX_SBayesRC', names(both_cases)), with = F])$classification
+both_cluster$gmm_prob <-
+  predict(gmm_model, 
+          newdata = both[, grepl('MIX_SBayesRC', names(both_cases)), with = F])$z[,1]
+
+# MIX_SBayesRC only
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  MIX_SBayesRC")),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# MIX_SBayesRC + pathway specific PGS
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~  MIX_SBayesRC + ", paste(names(both_cluster)[grepl('MIX_SBayesRC', names(both_cluster))], collapse='+'))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# kmeans interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~ ", paste(names(both_cluster)[grepl('MIX_SBayesRC', names(both_cluster))], '*as.factor(kmean)', collapse='+'))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# hclust interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~ ", paste(names(both_cluster)[grepl('MIX_SBayesRC', names(both_cluster))], '*as.factor(hclust)', collapse='+'))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# gmm interactions
+sum_mod<-summary(
+  mod<-glm(
+    as.formula(paste0("MIX_outcome ~ ", paste(names(both_cluster)[grepl('MIX_SBayesRC', names(both_cluster))], '*as.factor(gmm)', collapse='+'))),
+    data = both_cluster))
+cor(both_cluster$MIX_outcome, predict(mod, data=both_cluster))
+
+# Prediction does improve, but likely due to over fitting. Given extreme heterogeneity in this example, I am not that.
+```
+
+***
+
+### Non-negative factorisation
 
 See whether non-negative matrix factorisation could recapitulate disease-specific PGS.
 

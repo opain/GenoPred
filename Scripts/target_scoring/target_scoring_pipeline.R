@@ -48,8 +48,8 @@ if(is.null(opt$population)){
 outdir <- read_param(config = opt$config, param = 'outdir', return_obj = F)
 
 # Create output directory
-opt$output_dir <- paste0(outdir, '/', opt$name, '/pgs/', opt$population)
-system(paste0('mkdir -p ',opt$output_dir))
+opt$output <- paste0(outdir, '/', opt$name, '/pgs/', opt$population)
+system(paste0('mkdir -p ',opt$output))
 
 # Create temp directory
 tmp_dir<-tempdir()

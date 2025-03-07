@@ -5662,3 +5662,354 @@ snakemake \
 
 </details>
 
+### Create predictor lists
+
+<details><summary>Show code</summary>
+
+```{r}
+
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+library(data.table)
+
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_three_pop.yaml'
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Read in list of outcomes 
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+# Create files for EAS and AFR targets
+targ_pop <- c('EUR','EAS','AFR')
+for(trait_i in selected_traits){
+  scores_i <- scores[grepl(trait_i, scores$name),]
+  scores_i$multi <- scores_i$method
+  
+  for(targ_pop_i in targ_pop){
+    disc_pop_j <- c('UGR','BBJ','UKB')
+    disc_pop_j_2 <- c('AFR','EAS','EUR')
+
+    dir.create(
+      paste0(
+        '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
+        targ_pop_i,
+        '.disc_', paste(disc_pop_j_2, collapse = '_'),
+        '/',
+        trait_i
+      ),
+      recursive = T
+    )
+    
+    # Insert path to score file
+    scores_i$predictor <- paste0(
+      outdir,
+      '/ukb/pgs/TRANS/',
+      scores_i$method,
+      '/',
+      scores_i$name,
+      '/ukb-',
+      scores_i$name,
+      '-TRANS.profiles'
+    )
+      
+    ####
+    # Make groups single source methods
+    ####
+    
+    scores_i_single_top1 <-
+      scores_i[!(scores_i$method %in% pgs_group_methods) &
+                   !grepl('_multi$', scores_i$method), ]
+
+    # Create top1 column indicating which predictors top1 models should be derived
+    scores_i_single_top1$top1[grepl('UKB', scores_i_single_top1$name, ignore.case = F)] <- 'EUR'
+    scores_i_single_top1$top1[grepl('BBJ', scores_i_single_top1$name, ignore.case = F)] <- 'EAS'
+    scores_i_single_top1$top1[grepl('UGR', scores_i_single_top1$name, ignore.case = F)] <- 'AFR'
+        
+    ####
+    # Make groups containing pseudo scores for single source methods
+    ####
+
+    # Extract the pseudo score for each method and specify as a separate group
+    # This can be skipped as it was done before
+    for(i in 1:nrow(scores_i_single_top1)) {
+      param <- find_pseudo(
+        config = config,
+        gwas = scores_i_single_top1$name[i],
+        pgs_method = scores_i_single_top1$method[i],
+        target_pop = targ_pop_i
+      )
+      
+      score_header <-
+        fread(scores_i_single_top1$predictor[i], nrows = 1)
+      score_cols <-
+        which(names(score_header) %in% c('FID', 'IID', paste0(scores_i_single_top1$name[i], '_', param)))
+      
+      system(
+        paste0(
+          "cut -d' ' -f ", 
+          paste0(score_cols, collapse=','),
+          " ", 
+          scores_i_single_top1$predictor[i], 
+          " > ", 
+          gsub('.profiles',
+               paste0('.', targ_pop_i, '_pseudo.profiles'),
+               scores_i_single_top1$predictor[i])
+        )
+      )
+    }
+    
+    scores_i_single_pseudo <- scores_i_single_top1
+    scores_i_single_pseudo$multi <- paste0(scores_i_single_pseudo$multi, '.pseudo')
+
+    scores_i_single_pseudo$predictor <- gsub('.profiles', 
+                                  paste0('.', targ_pop_i, '_pseudo.profiles'),
+                                  scores_i_single_pseudo$predictor)
+
+    ####
+    # Make groups for multi-single-source pseudo scores
+    ####
+    
+    scores_i_multi_single_pseudo <- scores_i[grepl('_multi$', scores_i$method),]
+
+    # Extract the pseudo score for each method and specify as a separate group
+    for(i in 1:nrow(scores_i_multi_single_pseudo)) {
+      param <- find_pseudo(
+        config = config,
+        gwas = scores_i_multi_single_pseudo$name[i],
+        pgs_method = scores_i_multi_single_pseudo$method[i],
+        target_pop = targ_pop_i
+      )
+      
+      score_header <-
+        fread(scores_i_multi_single_pseudo$predictor[i], nrows = 1)
+      score_cols <-
+        which(names(score_header) %in% c('FID', 'IID', paste0(scores_i_multi_single_pseudo$name[i], '_', param)))
+      
+      system(
+        paste0(
+          "cut -d' ' -f ", 
+          paste0(score_cols, collapse=','),
+          " ", 
+          scores_i_multi_single_pseudo$predictor[i], 
+          " > ", 
+          gsub('.profiles',
+               paste0('.', targ_pop_i, '_pseudo.profiles'),
+               scores_i_multi_single_pseudo$predictor[i])
+        )
+      )
+    }
+    
+    scores_i_multi_single_pseudo$multi <- paste0(scores_i_multi_single_pseudo$multi, '.pseudo')
+
+    scores_i_multi_single_pseudo$predictor <- gsub('.profiles', 
+                                  paste0('.', targ_pop_i, '_pseudo.profiles'),
+                                  scores_i_multi_single_pseudo$predictor)
+    
+    scores_i_multi_single_pseudo$top1<-paste(disc_pop_j_2, collapse = '_')
+
+    ####
+    # Make groups for the Multi-Source methods
+    ####
+    
+    scores_i_multi <- scores_i[(scores_i$method %in% pgs_group_methods),]
+
+    # Split top1 scores by target population
+    # This doesn't apply to xwing because it only has pop-specific pseudo scores
+    scores_i_multi_top1<-NULL
+    for(i in 1:which(scores_i_multi$method %in% c('prscsx'))){
+      score_header<-fread(scores_i_multi$predictor[i], nrow = 1)
+      
+      for(pop in c('EUR', 'AFR', 'EAS')){
+        
+        if(scores_i_multi$method[i] == 'prscsx'){
+          score_cols <-
+            which(grepl(paste0('^FID$|^IID$|_', pop, '_phi'), names(score_header)))
+        }
+        if(scores_i_multi$method[i] == 'xwing'){
+          score_cols <-
+            which(grepl(paste0('^FID$|^IID$|_targ_', pop, '_pst'), names(score_header)))
+        }
+        
+        system(
+          paste0(
+            "cut -d' ' -f ", 
+            paste0(score_cols, collapse=','),
+            " ", 
+            scores_i_multi$predictor[i], 
+            " > ", 
+            gsub('.profiles',
+                 paste0('.', pop, '_grid.profiles'),
+                 scores_i_multi$predictor[i])
+          )
+        )
+        
+        tmp <- scores_i_multi[i,]
+        tmp$multi <- paste0(tmp$multi, '.grid')
+        tmp$top1 <- pop
+        tmp$predictor <-
+            gsub('.profiles',
+                 paste0('.', pop, '_grid.profiles'),
+                 scores_i_multi$predictor[i])
+        
+        scores_i_multi_top1 <- rbind(scores_i_multi_top1, tmp)
+      }
+    }
+
+    # Split pop-specific pseudo scores by target population
+    scores_i_multi_pop_pseudo<-NULL
+    for(i in 1:nrow(scores_i_multi)){
+      score_header<-fread(scores_i_multi$predictor[i], nrow = 1)
+      
+      for(pop in c('EUR', 'AFR', 'EAS')){
+        if(scores_i_multi$method[i] == 'prscsx'){
+          score_cols <-
+            which(grepl(paste0('^FID$|^IID$|_', pop, '_phi_auto'), names(score_header)))
+        }
+        if(scores_i_multi$method[i] == 'xwing'){
+          score_cols <-
+            which(grepl(paste0('^FID$|^IID$|_targ_', pop, '_pst_', pop), names(score_header)))
+        }
+        
+        system(
+          paste0(
+            "cut -d' ' -f ", 
+            paste0(score_cols, collapse=','),
+            " ", 
+            scores_i_multi$predictor[i], 
+            " > ", 
+            gsub('.profiles',
+                 paste0('.', pop, '_pseudo.profiles'),
+                 scores_i_multi$predictor[i])
+          )
+        )
+        
+        tmp <- scores_i_multi[i,]
+        tmp$multi <- paste0(tmp$multi, '.pop_pseudo')
+        tmp$top1 <- pop
+        tmp$predictor <-
+            gsub('.profiles',
+                 paste0('.', pop, '_pseudo.profiles'),
+                 scores_i_multi$predictor[i])
+        
+        scores_i_multi_pop_pseudo <- rbind(scores_i_multi_pop_pseudo, tmp)
+      }
+    }
+    
+    # Create pseudo score for multi-source methods
+    scores_i_multi_pseudo<-NULL
+    for(i in 1:nrow(scores_i_multi)) {
+      param <- find_pseudo(
+        config = config,
+        gwas = scores_i_multi$name[i],
+        pgs_method = scores_i_multi$method[i],
+        target_pop = targ_pop_i
+      )
+      
+      score_header <-
+        fread(scores_i_multi$predictor[i], nrows = 1)
+      score_cols <-
+        which(names(score_header) %in% c('FID', 'IID', paste0(scores_i_multi$name[i], '_', param)))
+
+      system(
+        paste0(
+          "cut -d' ' -f ", 
+          paste0(score_cols, collapse=','),
+          " ", 
+          scores_i_multi$predictor[i], 
+          " > ", 
+          gsub('.profiles',
+               paste0('.pseudo.targ_', targ_pop_i,'.profiles'),
+               scores_i_multi$predictor[i])
+        )
+      )
+      
+      tmp <- scores_i_multi[i,]
+      tmp$multi <- paste0(tmp$multi, '.pseudo')
+      tmp$top1 <- paste(disc_pop_j_2, collapse = '_')
+      tmp$predictor <-
+          gsub('.profiles',
+               paste0('.pseudo.targ_', targ_pop_i,'.profiles'),
+               scores_i_multi$predictor[i])
+      
+      scores_i_multi_pseudo <- rbind(scores_i_multi_pseudo, tmp)
+    }
+    
+    ####
+    # Combine the different predictor groups
+    ####
+    predictors_i<- do.call(rbind, list(
+      scores_i_single_top1, 
+      scores_i_single_pseudo, 
+      scores_i_multi_single_pseudo,
+      scores_i_multi_top1,
+      scores_i_multi_pop_pseudo,
+      scores_i_multi_pseudo
+    ))
+    
+    predictors_i <- predictors_i[, c('predictor', 'multi','top1'), with=F]
+    
+    ####
+    # Make a group that will combined all population specific PGS
+    ####
+    
+    predictors_i_all <- predictors_i[predictors_i$top1 %in% c('EUR','AFR','EAS'),]
+    predictors_i_all$multi <- 'all'
+    predictors_i<-rbind(predictors_i, predictors_i_all)
+    
+    write.table(
+      predictors_i,
+      paste0(
+        '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
+        targ_pop_i,
+        '.disc_', paste(disc_pop_j_2, collapse = '_'),
+        '/',
+        trait_i,
+        '/predictor_list.txt'
+      ),
+      col.names = T,
+      row.names = F,
+      quote = F
+    )
+  }
+}
+
+```
+</details>
+
+***
+
+### Run model_builder
+
+<details><summary>Show code</summary>
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate model_builder
+
+#rm /users/k1806347/oliverpainfel/Analyses/crosspop/targ_*.disc_AFR_EAS_EUR/*/res*
+
+for targ_pop in $(echo EUR EAS AFR); do
+  if [ "$targ_pop" == "EUR" ]; then
+      targ_pop2="EUR_test"
+  else
+      targ_pop2=$targ_pop
+  fi
+  
+  for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
+    if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_AFR_EAS_EUR/${pheno}/res.pred_comp.txt" ]; then
+      sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+        --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
+        --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_AFR_EAS_EUR/${pheno}/predictor_list.txt \
+        --out /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_AFR_EAS_EUR/${pheno}/res \
+        --n_core 5"
+    fi
+  done
+done
+
+```
+</details>

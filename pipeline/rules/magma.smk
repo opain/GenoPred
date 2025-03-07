@@ -188,13 +188,38 @@ checkpoint set_reporter:
   params:
     config_file=config['config_file']
   shell:
-    "Rscript ../Scripts/magma/set_reporter/set_reporter.R \
+    "Rscript ../Scripts/magma/set_reporter.R \
       --config {params.config_file}"
       
 ########
 # Calculate stratified PGS
 ########
 
+# Prepare score files for stratified PGS
+rule pgs_stratifier:
+  input:
+    f"{outdir}/reference/gwas_sumstat/set_reporter.txt",
+    rules.prep_pgs.input
+  threads: config['cores_prep_pgs']
+  output:
+    touch(f"{outdir}/reference/pgs_score_files/pgs_stratifier.done"),
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/pgs_stratifier.txt"
+  log:
+    f"{outdir}/reference/logs/pgs_stratifier.log"
+  params:
+    testing=config["testing"],
+    config_file = config["config_file"]
+  shell:
+    "Rscript ../Scripts/pgs_methods/pgs_stratifier.R \
+      --config {params.config_file} \
+      --plink2 plink2 \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1"
+
+# Target sample scoring
 rule target_pgs_partitioned_i:
   resources:
     mem_mb=config['mem_target_pgs'],
@@ -204,7 +229,7 @@ rule target_pgs_partitioned_i:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
     f"{outdir}/reference/gwas_sumstat/set_reporter.txt",
     lambda w: f"{outdir}/reference/target_checks/{{name}}/pc_projection-TRANS.done" if w.population == "TRANS" else [],
-    rules.prep_pgs.input
+    f"{outdir}/reference/pgs_score_files/pgs_stratifier.done"
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs_partitioned-{{population}}.done")
   benchmark:

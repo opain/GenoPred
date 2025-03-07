@@ -92,6 +92,105 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   return(pgs)
 }
 
+# Read in PGS
+read_pgs_2 <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL, pseudo_only = F, partitioned = F){
+  # Identify outdir parameter
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+  
+  # Read in target_list
+  target_list <- read_param(config = config, param = 'target_list')
+  if(!is.null(name)){
+    if(any(!(name %in% target_list$name))){
+      stop('Requested target samples are not present in target_list')
+    }
+    name_i <- name
+    target_list <- target_list[target_list$name %in% name_i,]
+  }
+  
+  # Identify score files
+  score_file_list <- list_score_files(config)
+  
+  # If partitioned, restrict to single source methods, and gwas with sig sets
+  if(partitioned){
+    score_file_list <- score_file_list[!(score_file_list$method %in% pgs_group_methods) & !grepl('tlprs|leopard', score_file_list$method),]
+    
+    set_reporter_file <- paste0(outdir, '/reference/gwas_sumstat/set_reporter.txt')
+    set_reporter<-fread(set_reporter_file)
+    score_file_list<-score_file_list[score_file_list$name %in% set_reporter$name[set_reporter$n_sig > 0],]
+    
+    part<-'.partitioned'
+  }
+  
+  # Subset requested gwas
+  if(!is.null(gwas)){
+    if(any(!(gwas %in% score_file_list$name))){
+      stop('Requested GWAS are not present in gwas_list/score_list')
+    }
+    score_file_list<-score_file_list[score_file_list$name %in% gwas,]
+  }
+  
+  # Subset requested pgs_methods
+  if(!is.null(pgs_methods)){
+    if(any(!(pgs_methods %in% score_file_list$method))){
+      stop('Requested PGS methods are not present in gwas_list/score_list')
+    }
+    score_file_list<-score_file_list[score_file_list$method %in% pgs_methods,]
+  }
+  
+  # Identify pgs_scaling parameter
+  pgs_scaling <- read_param(config = config, param = 'pgs_scaling', return_obj = F)
+  
+  pgs <- list()
+  for (name_i in target_list$name) {
+    pops<-NULL
+    if('continuous' %in% pgs_scaling){
+      pops <- c('TRANS', pops)
+    }
+    if('discrete' %in% pgs_scaling){
+      # Read in keep_list to determine populations available
+      keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
+      pops <- c(pops, keep_list_i$POP)
+    }
+    if(!is.null(pop)){
+      if(!any('discrete' %in% pgs_scaling) & any(pop != 'TRANS')){
+        stop(paste0('Requested pop are not present in ',name_i,' sample. Only PGS adjusted using continuous ancestry correction are available due to pgs_scaling parameter in configfile.'))
+      }
+      if(any(!(pop %in% pops))){
+        stop(paste0('Requested pop are not present in ',name_i,' sample.'))
+      }
+      pops <- pops[pops %in% pop]
+    }
+    
+    pgs[[name_i]] <- list()
+    for (pop_i in pops) {
+      pgs[[name_i]][[pop_i]] <- list()
+      for(score_i in 1:nrow(score_file_list)){
+        gwas_i <- score_file_list$name[score_i]
+        pgs_method_i <- score_file_list$method[score_i]
+        if (is.null(pgs[[name_i]][[pop_i]][[gwas_i]])) {
+          pgs[[name_i]][[pop_i]][[gwas_i]] <- list()
+        }
+        file_i<-paste0(outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, part, '.profiles')
+        if(pseudo_only){
+          pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i)
+          
+          score_header <-
+            fread(file_i, nrows = 1)
+          score_cols <-
+            which(names(score_header) %in% c('FID', 'IID', paste0(gwas_i, '_',pseudo_param)))
+          
+          pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <-
+            fread(cmd = paste0("cut -d' ' -f ", paste0(score_cols, collapse=','), " ", file_i))
+        } else {
+          pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <- fread(file_i)
+        }
+      }
+    }
+  }
+  
+  return(pgs)
+}
+
 # Create function to read in parameters in the config file
 read_param <- function(config, param, return_obj = T){
   library(yaml)
