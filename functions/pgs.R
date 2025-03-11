@@ -142,7 +142,7 @@ map_score<-function(ref, score){
 # Calculate mean and sd of scores in file with plink .sscore format
 score_mean_sd<-function(scores, keep=NULL){
     if(!is.null(keep)){
-        scores<-scores[paste0(scores$FID, '_', scores$FID) %in% paste0(keep$FID, '_', keep$FID),]
+        scores<-scores[paste0(scores$FID, '_', scores$IID) %in% paste0(keep$FID, '_', keep$IID),]
     }
 
     scale<-data.table(  Param=names(scores)[-1:-2],
@@ -589,8 +589,8 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
     
     scores_pcs_resid[[i]]<-residual_pgs/sqrt(predicted_pgs_var)
     
-    mod_list[[i]]$mean_model <- pgs_pc_mean_mod
-    mod_list[[i]]$var_model <- pgs_pc_var_mod
+    mod_list[[i]]$mean_model <- compact_lm(pgs_pc_mean_mod)
+    mod_list[[i]]$var_model <- compact_lm(pgs_pc_var_mod)
   }
   
   scores_pcs_resid<-scores_pcs_resid[,grepl('FID|IID|^SCORE', names(scores_pcs_resid)), with=F]
@@ -607,6 +607,24 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
   fwrite(scores_pcs_resid, paste0(output,'-TRANS.profiles'), sep=' ', na='NA', quote=F)
 }
 
+# Remove unused parts of model object for prediction
+compact_lm <- function(cm) {
+  # just in case we forgot to set
+  # y=FALSE and model=FALSE
+  cm$y = c()
+  cm$model = c()
+  
+  cm$residuals = c()
+  cm$fitted.values = c()
+  cm$effects = c()
+  cm$qr$qr = c()
+  cm$linear.predictors = c()
+  cm$weights = c()
+  cm$prior.weights = c()
+  cm$data = c()
+  cm
+}
+
 # Adjust PGS for ancestry using reference PC models with parallel processing
 score_adjust <- function(score, pcs, ref_model) {
   # Store original column order
@@ -614,7 +632,7 @@ score_adjust <- function(score, pcs, ref_model) {
   
   # Ensure pcs is keyed on FID and IID for efficient joins
   setkey(pcs, FID, IID)
-
+  
   # Get list of score columns (excluding FID and IID)
   score_cols <- setdiff(names(score), c("FID", "IID"))
   
@@ -624,8 +642,10 @@ score_adjust <- function(score, pcs, ref_model) {
     # Get a subset of columns to process in this iteration
     chunk <- score_cols[i:min(i + chunk_size - 1, length(score_cols))]
     
-    # Parallel computation using foreach
-    chunk_results <- foreach(col_name = chunk, .packages = c("data.table")) %dopar% {
+    # Parallel computation using mclapply()
+    chunk_results <- mclapply(chunk, function(col_name) {
+      print(col_name)
+      
       # Retrieve models for the current score
       mean_model <- ref_model[[col_name]]$mean_model
       var_model <- ref_model[[col_name]]$var_model
@@ -642,7 +662,7 @@ score_adjust <- function(score, pcs, ref_model) {
       
       # Return results as a list (column name + values)
       list(col_name = col_name, values = adjusted_score)
-    }
+    }, mc.cores = getDoParWorkers())
     
     # **Write results back to `score` immediately, to avoid holding large objects in memory**
     for (res in chunk_results) {

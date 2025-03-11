@@ -6,28 +6,28 @@ rule ref_pca_i:
     f"{resdir}/last_version.txt",
     "../Scripts/ref_pca/ref_pca.R"
   output:
-    f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
   conda:
     "../envs/analysis.yaml",
   params:
     testing=config["testing"],
     ref_keep=lambda wildcards: "NA" if wildcards.population == "TRANS" else f"{refdir}/keep_files/{wildcards.population}.keep"
   benchmark:
-    f"{resdir}/data/benchmarks/ref_pca_i-{{population}}.txt"
+    f"{outdir}/reference/benchmarks/ref_pca_i-{{population}}.txt"
   log:
-    f"{resdir}/data/logs/ref_pca_i-{{population}}.log"
+    f"{outdir}/reference/logs/ref_pca_i-{{population}}.log"
   shell:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {params.ref_keep} \
       --pop_data {refdir}/ref.pop.txt \
-      --output {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
+      --output {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
       --test {params.testing} > {log} 2>&1"
 
 populations=["AFR","AMR","CSA","EAS","EUR","MID","TRANS"]
 
 rule ref_pca:
-  input: expand(f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale", population=populations)
+  input: expand(f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale", population=populations)
 
 ##
 # QC and format GWAS summary statistics
@@ -77,7 +77,7 @@ rule sumstat_prep:
 rule prep_pgs_ptclump_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -94,7 +94,7 @@ rule prep_pgs_ptclump_i:
     "Rscript ../Scripts/pgs_methods/ptclump.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --output {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
@@ -125,7 +125,7 @@ rule prep_pgs_dbslmm_i:
     rules.download_hm3_snplist.output,
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -145,7 +145,7 @@ rule prep_pgs_dbslmm_i:
     "Rscript ../Scripts/pgs_methods/dbslmm.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ld_blocks {resdir}/data/ld_blocks/{params.ld_block_pop} \
       --plink {resdir}/software/plink/plink \
@@ -180,7 +180,7 @@ rule prep_pgs_prscs_i:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
     lambda w: f"{resdir}/data/prscs_ref/" + prscs_ldref + "/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5",
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -201,7 +201,7 @@ rule prep_pgs_prscs_i:
     export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/prscs.R \
     --ref_plink_chr {refdir}/ref.chr \
-    --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+    --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
@@ -228,7 +228,7 @@ rule prep_pgs_sbayesr_i:
     lambda w: f"{sbayesr_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
     rules.download_gctb_ref.output,
     rules.download_gctb_software.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -242,7 +242,7 @@ rule prep_pgs_sbayesr_i:
   shell:
     "Rscript ../Scripts/pgs_methods/sbayesr.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb/gctb_2.03beta_Linux/gctb \
       --ld_matrix_chr {sbayesr_ldref} \
@@ -266,7 +266,7 @@ rule prep_pgs_lassosum_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.install_lassosum.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -283,7 +283,7 @@ rule prep_pgs_lassosum_i:
      --ref_plink_chr {refdir}/ref.chr \
      --ref_keep {refdir}/keep_files/{params.population}.keep \
      --gwas_pop {params.population} \
-     --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+     --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
      --n_cores {threads} \
@@ -305,7 +305,7 @@ rule prep_pgs_ldpred2_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     lambda w: f"{ldpred2_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -326,7 +326,7 @@ rule prep_pgs_ldpred2_i:
     Rscript ../Scripts/pgs_methods/ldpred2.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -355,7 +355,7 @@ rule prep_pgs_megaprs_i:
     rules.download_ldak.output,
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -371,7 +371,7 @@ rule prep_pgs_megaprs_i:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak/ldak5.1.linux \
       --ldak_map {resdir}/data/ldak_map/genetic_map_b37 \
@@ -408,7 +408,7 @@ rule prep_pgs_quickprs_i:
     rules.download_ldak5_2.output,
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -423,7 +423,7 @@ rule prep_pgs_quickprs_i:
   shell:
     "Rscript ../Scripts/pgs_methods/quickprs.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
       --quickprs_ldref {quickprs_ldref}/{params.population} \
@@ -451,7 +451,7 @@ rule prep_pgs_sbayesrc_i:
     rules.download_sbayesrc_annot.output,
     rules.install_genoutils_sbayesrc.output,
     rules.install_sbayesrc.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/sbayesrc/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -468,7 +468,7 @@ rule prep_pgs_sbayesrc_i:
     "export OMP_NUM_THREADS={threads}; \
     Rscript ../Scripts/pgs_methods/sbayesrc.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux/gctb \
       --sbayesrc_ldref {params.sbayesrc_ldref} \
@@ -520,7 +520,7 @@ rule prep_pgs_external_i:
     lambda w: score_path(w),
     ref_input,
     rules.install_genoutils.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     touch(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done")
   params:
@@ -539,7 +539,7 @@ rule prep_pgs_external_i:
     "Rscript ../Scripts/external_score_processor/external_score_processor.R \
       --ref_plink_chr {refdir}/ref.chr \
       --score {params.score} \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
       --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
@@ -630,7 +630,7 @@ rule prep_pgs_multi_i:
   input:
     f"{outdir}/reference/pgs_score_files/leopard/{{gwas_group}}/ref-{{gwas_group}}.weights.rds",
     lambda w: expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method = w.method),
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/{{method}}_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   benchmark:
@@ -674,7 +674,7 @@ rule prep_pgs_prscsx_i:
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
     lambda w: expand(f"{resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{{population}}/ldblk_{prscs_ldref}_chr1.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
     f"{resdir}/data/prscs_ref/{prscs_ldref}/snpinfo_mult_{prscs_ldref}_hm3",
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/prscsx/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -696,7 +696,7 @@ rule prep_pgs_prscsx_i:
     export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/prscsx.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
       --prscsx_ref_path {resdir}/data/prscs_ref/{prscs_ldref} \
@@ -730,7 +730,7 @@ rule prep_pgs_xwing_i:
     lambda w: expand(f"{resdir}/data/PANTHER_LEOPARD_1kg_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr13.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{resdir}/data/LEOPARD_1kg_ref/{{population}}/{{population}}_part1.bed", population=get_populations(w.gwas_group)),
     lambda w: expand(f"{resdir}/data/LOGODetect_1kg_ref/{{population}}/1000G_{{population}}_QC.bim", population=get_populations(w.gwas_group)),
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -752,7 +752,7 @@ rule prep_pgs_xwing_i:
     Rscript ../Scripts/pgs_methods/xwing.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_freq_chr {refdir}/freq_files \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
       --logodetect_ref {resdir}/data/LOGODetect_1kg_ref \
@@ -782,7 +782,7 @@ rule prep_pgs_tlprs_i:
     rules.install_tlprs.output,
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
     lambda w: expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method=w.method),
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -802,7 +802,7 @@ rule prep_pgs_tlprs_i:
     Rscript ../Scripts/pgs_methods/tlprs.R \
       --config {params.config_file} \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --scores {params.scores} \
       --populations {params.populations} \
@@ -828,7 +828,7 @@ rule prep_pgs_bridgeprs_i:
   input:
     rules.download_bridgeprs_software.output,
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas_group}}/{{gwas_group}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -845,7 +845,7 @@ rule prep_pgs_bridgeprs_i:
     """
     Rscript ../Scripts/pgs_methods/bridgeprs.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
       --pop_data {refdir}/ref.pop.txt \
@@ -901,4 +901,33 @@ rule prep_pgs:
   input:
     pgs_methods_input
     
-  
+##########################
+
+# Calculate PGS in reference data
+rule ref_pgs:
+  resources:
+    mem_mb=config['mem_target_pgs'],
+    time_min=2800
+  threads: config['cores_target_pgs']
+  input:
+    lambda w: f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale" if 'continuous' in config["pgs_scaling"] else [],
+    rules.prep_pgs.input
+  output:
+    touch(f"{outdir}/reference/pgs_score_files/ref_pgs.done")
+  benchmark:
+    f"{outdir}/reference/benchmarks/ref_pgs.txt"
+  log:
+    f"{outdir}/reference/logs/ref_pgs.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    continuous="T" if 'continuous' in config["pgs_scaling"] else "F",
+    testing=config["testing"],
+    config_file = config["config_file"]
+  shell:
+    "Rscript ../Scripts/ref_scoring/ref_scoring.R \
+      --config {params.config_file} \
+      --continuous {params.continuous} \
+      --plink2 plink2 \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1"
