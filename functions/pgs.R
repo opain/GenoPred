@@ -626,54 +626,60 @@ compact_lm <- function(cm) {
 }
 
 # Adjust PGS for ancestry using reference PC models with parallel processing
-score_adjust <- function(score, pcs, ref_model) {
-  # Store original column order
+score_adjust <- function(score, pcs, ref_model, chunk_size = 10) {
   original_order <- names(score)
   
-  # Ensure pcs is keyed on FID and IID for efficient joins
+  # Ensure 'pcs' keyed for fast lookup
   setkey(pcs, FID, IID)
   
-  # Get list of score columns (excluding FID and IID)
+  # List of score columns
   score_cols <- setdiff(names(score), c("FID", "IID"))
   
-  # Process columns in chunks to reduce memory load
-  chunk_size <- 200
-  for (i in seq(1, length(score_cols), by = chunk_size)) {
-    # Get a subset of columns to process in this iteration
-    chunk <- score_cols[i:min(i + chunk_size - 1, length(score_cols))]
+  # Split into chunks for memory efficiency
+  score_chunks <- split(score_cols, ceiling(seq_along(score_cols) / chunk_size))
+  
+  # Match PC rows by FID/IID directly (minimal memory usage)
+  matched_idx <- pcs[score[, .(FID, IID)], which = TRUE, nomatch = 0]
+  
+  # Process each chunk sequentially to manage RAM
+  for (chunk in score_chunks) {
     
-    # Parallel computation using mclapply()
+    # Run in parallel across columns within chunk
     chunk_results <- mclapply(chunk, function(col_name) {
-      print(col_name)
+      cat("Processing:", col_name, "\n")
       
-      # Retrieve models for the current score
+      # Fetch models for current score column
       mean_model <- ref_model[[col_name]]$mean_model
-      var_model <- ref_model[[col_name]]$var_model
+      var_model  <- ref_model[[col_name]]$var_model
       
-      # Get corresponding rows from pcs
-      pc_data <- pcs[score, on = .(FID, IID)]
+      # Pre-allocate adjusted score vector
+      adjusted_score <- rep(NA_real_, nrow(score))
       
-      # Predict mean and variance
-      predicted_pgs <- predict(mean_model, newdata = pc_data)
-      predicted_pgs_var <- exp(predict(var_model, newdata = pc_data))
+      # Predict mean and variance using matched PCs
+      if (length(matched_idx) > 0) {
+        adjusted_score[matched_idx] <- round(
+          (score[[col_name]][matched_idx] - predict(mean_model, newdata = pcs[matched_idx])) / 
+            sqrt(exp(predict(var_model, newdata = pcs[matched_idx]))),
+          3
+        )
+      }
       
-      # Compute residuals
-      adjusted_score <- round((score[[col_name]] - predicted_pgs) / sqrt(predicted_pgs_var), 3)
-      
-      # Return results as a list (column name + values)
-      list(col_name = col_name, values = adjusted_score)
-    }, mc.cores = getDoParWorkers())
+      adjusted_score
+    }, mc.cores = min(getDoParWorkers(), 10))
     
-    # **Write results back to `score` immediately, to avoid holding large objects in memory**
-    for (res in chunk_results) {
-      set(score, j = res$col_name, value = res$values)
+    # Write results directly back to 'score' object by reference
+    for (idx in seq_along(chunk)) {
+      set(score, j = chunk[idx], value = chunk_results[[idx]])
     }
+    
+    # Explicitly clean memory after each chunk
+    rm(chunk_results)
+    gc()
+    
   }
   
-  # Reorder columns to match original order
   setcolorder(score, original_order)
   
-  # Return only relevant columns (FID, IID, and adjusted scores)
   return(score)
 }
 

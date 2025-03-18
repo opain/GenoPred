@@ -68,7 +68,7 @@ if(!is.null(score_files)){
   
   score_files_to_do <- data.table()
   for(i in 1:nrow(score_files)){
-    pgs_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '.EUR.profiles')
+    pgs_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '-EUR.profiles')
     score_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '.score.gz')
     if(!file.exists(pgs_i)){
       score_files_to_do <- rbind(score_files_to_do, score_files[i,])
@@ -89,7 +89,7 @@ if(is.null(score_files) || nrow(score_files) == 0){
   log_add(log_file = log_file, message = paste0('No score files to be used for reference scoring.'))
   end.time <- Sys.time()
   time.taken <- end.time - start.time
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  sink(file = log_file, append = T)
   cat('Analysis finished at',as.character(end.time),'\n')
   cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
   sink()

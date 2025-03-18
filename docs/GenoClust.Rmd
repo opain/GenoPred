@@ -50,6 +50,182 @@ Simulate two binary phenotypes, with a genetic correlation of 0. Specify causal 
 
 ***
 
+### Simulate genetic data
+
+Simulate chr22 genotype data for 100k EUR individuals, using HAPNEST.
+
+<details><summary>Show code</summary>
+
+```{bash}
+cd ~/oliverpainfel/Data/HAPNEST
+
+# Generate genotype and phenotype data
+singularity exec \
+  --bind data/:/data/ \
+  --bind /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/hapnest/config.synth_2.yaml:/data/config.synth_2.yaml \
+  containers/intervene-synthetic-data_latest.sif \
+  generate_geno \
+  8 \
+  data/config.synth_2.yaml
+  
+# Keep getting an error due to memory allocation. In the end I ran it with 1 core
+  
+```
+
+</details>
+
+***
+
+### Simulate phenotype data
+
+We want to simulate pairs of phenotypes that have a range of heritability, polygenicity, and genetic correlation. Specifically, we want to ensure these traits are enriched for gene-sets, with differing degrees of overlap between the pairs of traits. 
+
+```{r}
+#conda activate .snakemake/conda/329e0288cb99508f5e6c50a0996b234c_
+library(bigsnpr)
+
+# Attach the bigSNP object from a previously saved `.rds` file
+rds <- snp_readBed('~/oliverpainfel/Data/HAPNEST/data/outputs/synth_2/synth_2_chr-22.bed', backingfile = tempfile())
+bigSNP <- snp_attach(rds)
+G <- bigSNP$genotypes
+map <- bigSNP$map
+
+# Read gene ontology sets (.gmt)
+gmt <- readLines('/scratch/prj/oliverpainfel/recovered/Data/MSigDB/c5.go.bp.v7.5.1.entrez.gmt')
+gene_sets <- strsplit(gmt, "\t")
+gene_list <- setNames(lapply(gene_sets, `[`, -c(1,2)), sapply(gene_sets, `[`, 1))
+
+# Read in gene annotations
+gene_loc <- fread('/scratch/prj/oliverpainfel/recovered/Data/Gene_Locations/MAGMA_NCBI37.3/NCBI37.3.gene.loc')
+names(gene_loc)<-c('ID','CHR','START','STOP','STRAND','NAME')
+gene_loc <- gene_loc[gene_loc$CHR == 22,] #out simulation will only use chr22 data
+
+# Annotate SNPs with genes
+map$gene <- sapply(1:nrow(map), function(i) {
+  chr <- map$chromosome[i]
+  pos <- map$physical.pos[i]
+  gene_match <- gene_annot %>% 
+    filter(chr == chromosome & pos >= start & pos <= end) %>%
+    pull(gene_symbol)
+  if(length(gene_match) > 0) paste(gene_match, collapse = ",") else NA
+})
+
+# SNPs in enriched gene sets
+snp_gene_sets <- lapply(gene_sets, function(genes) {
+  snps_in_set <- map %>% filter(grepl(paste(genes, collapse="|"), gene))
+  snps_in_set$snp_id
+})
+
+# Set simulation parameters
+set.seed(1)
+
+h2_trait1 <- 0.3
+h2_trait2 <- 0.4
+rg <- 0.5  # genetic correlation
+polygenicity_fraction <- 0.01  # fraction of causal SNPs
+overlap_fraction <- 0.5  # fraction of overlapping causal SNPs
+
+# Select causal variants for each trait
+n_snps <- ncol(G)
+n_causal <- ceiling(polygenicity_fraction * n_snps)
+causal_snps_trait1 <- sample(unlist(snp_gene_sets), n_causal)
+
+# Overlap between traits
+n_overlap <- ceiling(overlap_fraction * n_causal)
+causal_snps_overlap <- sample(causal_snps_trait1, n_overlap)
+remaining_snps <- setdiff(unlist(snp_gene_sets), causal_snps_overlap)
+causal_snps_trait2 <- c(causal_snps_overlap, sample(remaining_snps, n_causal - n_overlap))
+
+# Generate effect sizes for each trait
+library(MASS)
+Sigma <- matrix(c(1, rg, rg, 1), ncol=2)
+betas_raw <- mvrnorm(n_causal, mu=c(0,0), Sigma=Sigma)
+
+# Adjust betas to meet desired heritability
+scale_betas <- function(G, snps, h2, betas_raw_col) {
+  G_sub <- G[, snps]
+  var_g <- var(big_prodVec(G_sub, betas_raw_col))
+  scale_factor <- sqrt(h2 / var_g)
+  betas_raw_col * scale_factor
+}
+
+beta_trait1 <- scale_betas(G, causal_snps_trait1, h2_trait1, betas_raw[,1])
+beta_trait2 <- scale_betas(G, causal_snps_trait2, h2_trait2, betas_raw[,2])
+
+# Simulate phenotyp data
+n_indiv <- nrow(G)
+
+simulate_pheno <- function(G, causal_snps, betas, h2) {
+  genetic_component <- big_prodVec(G[, causal_snps], betas)
+  env_sd <- sqrt(var(genetic_component)*(1-h2)/h2)
+  genetic_component + rnorm(n_indiv, mean=0, sd=env_sd)
+}
+
+pheno_trait1 <- simulate_pheno(G, causal_snps_trait1, beta_trait1, h2_trait1)
+pheno_trait2 <- simulate_pheno(G, causal_snps_trait2, beta_trait2, h2_trait2)
+
+phenotypes <- data.frame(trait1 = pheno_trait1, trait2 = pheno_trait2)
+
+# Read in causal variants
+library(data.table)
+effect_sizes<-fread('~/oliverpainfel/Data/HAPNEST/synth_2/causal.snplist')
+names(effect_sizes)<-c('rsid','trait_1','trait_2')
+
+rsids<-fread('~/oliverpainfel/Data/HAPNEST/data/inputs/processed/1KG+HGDP/rsid_map_list_chr22.txt')
+effect_sizes<-merge(effect_sizes, rsids, by='rsid')
+
+h2 <- 0.05  # Desired heritability
+set.seed(1)
+traits<-list()
+for(i in 1:2){
+  effect_sizes_i<-effect_sizes[effect_sizes[[paste0('trait_',i)]] == 1,]
+  causal_indices <- match(effect_sizes_i$id_hg38, snp_names)
+  G_causal <- big_prodVec(G, effect_sizes_i[[paste0('trait_',i)]], ind.col = causal_indices)
+  var_G <- var(G_causal)
+  var_E <- (var_G / h2) - var_G
+  E <- rnorm(length(G_causal), mean = 0, sd = sqrt(var_E))
+  Y <- G_causal + E
+  traits[[paste0('trait_', i)]]<-Y
+  print(var(G_causal) / (var(G_causal) + var(E)))
+}
+
+cor(do.call(cbind, traits))
+
+library(bigsnpr)
+
+# Prepare the phenotype
+Y1 <- traits[["trait_1"]]
+Y2 <- traits[["trait_2"]]
+
+# Perform GWAS for trait 1
+gwas_1 <- big_univLinReg(G, Y1)
+
+# Perform GWAS for trait 2
+gwas_2 <- big_univLinReg(G, Y2)
+
+# Combine results into a data frame
+gwas_results <- data.frame(
+  SNP = snp_names,
+  beta_trait1 = gwas_1$estim,
+  beta_trait2 = gwas_2$estim,
+  se_trait1 = gwas_1$std.err,
+  se_trait2 = gwas_2$std.err
+)
+
+gwas_results$p_trait1 <- 2*pnorm(q=abs(gwas_results$beta_trait1/gwas_results$se_trait1), lower.tail=FALSE)
+gwas_results$p_trait2 <- 2*pnorm(q=abs(gwas_results$beta_trait2/gwas_results$se_trait2), lower.tail=FALSE)
+
+# Looks good. Lets proceed with these simulated phenotypes
+write.table(data.frame(FID = bigSNP$fam$family.ID, IID = bigSNP$fam$sample.ID, outcome = traits[["trait_1"]]), 
+            '~/oliverpainfel/Data/HAPNEST/synth_2/trait_1.txt', row.names = F, quote=F)
+write.table(data.frame(FID = bigSNP$fam$family.ID, IID = bigSNP$fam$sample.ID, outcome = traits[["trait_2"]]), 
+            '~/oliverpainfel/Data/HAPNEST/synth_2/trait_2.txt', row.names = F, quote=F)
+
+```
+
+
+***
+
 ### Define causal variants
 
 Download GO data to identify genes within these sets. 
@@ -1823,6 +1999,37 @@ res_wide$perc_diff<-res_wide$diff / res_wide$`cor.gw-pgs`
 # The number of pathway specific PGS is also highest for RA and then MIX.
 # The improvement could be due to over fitting.
 # Confusing that the CAD PGS is so strong, but the number sig gene sets is higher for RA. I suppose this is due to the CAD GWAS being larger, but also more complex biologically.
+
+# As example of disease stratification. Predict CAD vs RA, using MIX GW PGS and paritinoed PGS.
+both$CAD_vs_RA_outcome <- NA
+both$CAD_vs_RA_outcome[both$CAD_outcome == 1 | both$RA_outcome == 1] <- 0
+both$CAD_vs_RA_outcome[both$CAD_outcome == 1] <- 1
+both$CAD_vs_RA_outcome[both$CAD_outcome == 1 & both$RA_outcome == 1] <- NA
+both_tmp<-both[complete.cases(both),]
+
+i<-'MIX'
+out1 <-
+  cv.glmnet(x = as.matrix(both_tmp[, grepl(paste0(i, '_SBayesRC'), names(both_tmp)), with = F]), y = both_tmp$CAD_vs_RA_outcome)
+
+out2 <-
+  cv.glmnet(x = as.matrix(cbind(0, both_tmp[, paste0(i, '_SBayesRC'), with = F])), y = both_tmp$CAD_vs_RA_outcome)
+
+# Get predicted values using the optimal lambda
+pred1 <- predict(out1, newx = as.matrix(both_tmp[, grepl(paste0(i, '_SBayesRC'), names(both_tmp)), with = F]), s = "lambda.min")
+pred2 <- predict(out2, newx = as.matrix(cbind(0, both_tmp[, paste0(i, '_SBayesRC'), with = F])), s = "lambda.min")
+
+# Compute correlation (Observed vs. Predicted)
+cor1 <- cor(pred1, both_tmp$CAD_vs_RA_outcome)
+cor2 <- cor(pred2, both_tmp$CAD_vs_RA_outcome)
+
+tmp <- data.frame(
+  outcome = 'CAD vs RA',
+  model = c('gw-pgs + p-pgs', 'gw-pgs'),
+  cor = c(cor1, cor2)
+)
+
+ggplot(tmp, aes(x=outcome, y = cor, fill = model)) +
+  geom_bar(stat="identity", position = position_dodge())
 
 ```
 

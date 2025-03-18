@@ -2120,7 +2120,7 @@ for targ_pop in $(echo EUR EAS AFR); do
   for disc_pop_i in ${disc_pop}; do
     for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
       if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res.pred_comp.txt" ]; then
-        sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+        sbatch --mem 10G -n 5 --exclude=erc-hpc-comp058 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
           --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
           --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/predictor_list.txt \
           --out /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res \
@@ -2212,17 +2212,17 @@ for(pheno_i in selected_traits){
   res_eval_i$Method<-gsub('-.*','', res_eval_i$Method)
   
   res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
-                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTrain'
+                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTune'
   res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
-                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTrain'
+                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTune'
   res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
-                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTrain'
+                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTune'
   res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
-                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTrain'
+                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTune'
   
-  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTrain'
-  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTrain'
-  res_eval_i$Model[res_eval_i$Group == 'xwing.pseudo.multi']<-'SumStatTrain'
+  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTune'
+  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTune'
+  res_eval_i$Model[res_eval_i$Group == 'xwing.pseudo.multi']<-'SumStatTune'
   
   res_eval_i$Source<-ifelse(
     res_eval_i$Method %in% pgs_group_methods | grepl('_multi$', res_eval_i$Method) | 
@@ -2234,18 +2234,18 @@ for(pheno_i in selected_traits){
   res_eval_i$Discovery[res_eval_i$Source == 'Multi'] <- res_eval_i$gwas_group[res_eval_i$Source == 'Multi']
   
   res_eval_i$Method<-factor(res_eval_i$Method, levels=unique(res_eval_i$Method))
-  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
   res_eval_i$Discovery<-factor(res_eval_i$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
-  # Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
+  # Remove IndivTune and Multi-IndivTune model for groups that contain one score (aka QuickPRS and SBayesRC)
   res_eval_i <- res_eval_i[
     !(res_eval_i$Method %in%  c('quickprs','sbayesrc') & 
-      res_eval_i$Model %in% c('IndivTrain','Multi-IndivTrain')),]
+      res_eval_i$Model %in% c('IndivTune','Multi-IndivTune')),]
   
   # Remove pseudo model for methods that don't really have one 
   res_eval_i <- res_eval_i[
     !(res_eval_i$Method %in%  c('ptclump','ptclump_multi') & 
-      res_eval_i$Model %in% c('SumStatTrain','Multi-SumStatTrain')),]
+      res_eval_i$Model %in% c('SumStatTune','Multi-SumStatTune')),]
 
   # Remove top1 models for *-Multi, PRS-CSx, X-wing
   res_eval_i <- res_eval_i[
@@ -2275,9 +2275,9 @@ for(pheno_i in selected_traits){
   tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
   tmp$label <- factor(tmp$label, levels = model_order)
   
-  # Simplify result to either SumStatTrain or IndivTrain
-  tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
-  tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+  # Simplify result to either SumStatTune or IndivTune
+  tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+  tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
   tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery','Model'), with=F]),]
   
   res_eval_simp <- rbind(res_eval_simp, tmp)
@@ -2401,29 +2401,6 @@ for(pheno_i in selected_traits){
   dev.off()
 }
 
-# Compare performance of each method in each target population across values of GWAS sample size
-# Because we cannot hold all other things constant, this plot is confusing. I think relative performance might be easier to read.
-for(targ_pop_i in targ_pop){
-    tmp <- res_eval_simp[res_eval_simp$Target == targ_pop_i,]
-    for(disc_pop_i in unique(tmp$Discovery)){
-      tmp2 <- tmp[tmp$Discovery == disc_pop_i,]
-      
-      ggplot(tmp2, aes(x=label, y=R , fill = Model)) +
-        geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
-                      width = 0,
-                      position = position_dodge(width = 1)) +
-        geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
-        geom_vline(xintercept = seq(1.5, length(unique(tmp2$Trait))), linetype="dotted") +
-        labs(y = "R (SE)", x=NULL, fill = NULL, title = info_all$`Trait Description`[info_all$`Trait Label` == pheno_i]) +
-        facet_grid(. ~ Trait, scales='free', space = 'free_x') +
-        theme_half_open() +
-        background_grid(major = 'y', minor = 'y') + 
-        panel_border() + 
-        theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-      
-    }
-}
-
 ####
 # Average results across phenotypes
 ####
@@ -2500,7 +2477,7 @@ for(targ_pop_i in targ_pop){
   }
 }
 
-meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
 meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
 write.csv(meta_res_eval, '~/oliverpainfel/Analyses/crosspop/r_eval.csv', row.names = F)
@@ -2521,8 +2498,8 @@ tmp$Discovery_clean <- factor(tmp$Discovery_clean,
                                          'EUR GWAS',
                                          'Both'))
 tmp$Target <- paste0(tmp$Target, ' Target')
-tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
 tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
 
 png(paste0('~/oliverpainfel/Analyses/crosspop/plots/average_r.png'), res=300, width = 3200, height = 2000, units = 'px')
@@ -2553,8 +2530,8 @@ tmp$label <- factor(tmp$label, levels = model_order)
 tmp$Discovery_clean <- as.character(tmp$Discovery)
 tmp$Discovery_clean <- paste0(tmp$Discovery_clean, ' GWAS')
 tmp$Target <- paste0(tmp$Target, ' Target')
-tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
 tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
 
 png(paste0('~/oliverpainfel/Analyses/crosspop/plots/average_r_eur.png'), res=300, width = 4000, height = 1500, units = 'px')
@@ -2582,10 +2559,10 @@ tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method')
 tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods)] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods)], '-multi')
 tmp$label <- factor(tmp$label, levels = unique(tmp$label[order(!(grepl('Multi', tmp$label)), tmp$label)]))
 tmp<-tmp[grepl('multi', tmp$label),]
-tmp <- tmp[tmp$Model != 'Multi-IndivTrain',]
+tmp <- tmp[tmp$Model != 'Multi-IndivTune',]
 tmp$Model<-as.character(tmp$Model)
-tmp$Model[tmp$Model != 'SumStatTrain']<-'IndivTrain'
-tmp$Model[tmp$Model == 'SumStatTrain']<-'LEOPARD'
+tmp$Model[tmp$Model != 'SumStatTune']<-'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune']<-'LEOPARD'
 tmp$Target <- paste0(tmp$Target, ' Target')
 
 png(paste0('~/oliverpainfel/Analyses/crosspop/plots/average_r_leopard.png'), res=300, width = 1500, height = 2000, units = 'px')
@@ -2684,13 +2661,13 @@ res_comp_all$Method2<-gsub('-.*','', res_comp_all$Method2)
 
 find_model<-function(x){
   mod <- x
-  mod[grepl('top1$', x) & !grepl('pseudo', x)] <- 'IndivTrain'
-  mod[grepl('top1$', x) & grepl('pseudo', x)] <- 'SumStatTrain'
-  mod[grepl('multi$', x) & !grepl('pseudo', x)] <- 'Multi-IndivTrain'
-  mod[grepl('multi$', x) & grepl('pseudo', x)] <- 'Multi-SumStatTrain'
-  mod[grepl('_multi', x)] <- 'SumStatTrain'
-  mod[x == 'prscsx.pseudo.multi'] <- 'SumStatTrain'
-  mod[x == 'xwing.pseudo.multi'] <- 'SumStatTrain'
+  mod[grepl('top1$', x) & !grepl('pseudo', x)] <- 'IndivTune'
+  mod[grepl('top1$', x) & grepl('pseudo', x)] <- 'SumStatTune'
+  mod[grepl('multi$', x) & !grepl('pseudo', x)] <- 'Multi-IndivTune'
+  mod[grepl('multi$', x) & grepl('pseudo', x)] <- 'Multi-SumStatTune'
+  mod[grepl('_multi', x)] <- 'SumStatTune'
+  mod[x == 'prscsx.pseudo.multi'] <- 'SumStatTune'
+  mod[x == 'xwing.pseudo.multi'] <- 'SumStatTune'
   
   return(mod)
 }
@@ -2710,26 +2687,26 @@ res_comp_all$Discovery2[res_comp_all$Source2 == 'Multi'] <- res_comp_all$gwas_gr
 
 res_comp_all$Method1<-factor(res_comp_all$Method1, levels=unique(res_comp_all$Method1))
 res_comp_all$Method2<-factor(res_comp_all$Method2, levels=unique(res_comp_all$Method2))
-res_comp_all$Model1<-factor(res_comp_all$Model1, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
-res_comp_all$Model2<-factor(res_comp_all$Model2, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+res_comp_all$Model1<-factor(res_comp_all$Model1, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
+res_comp_all$Model2<-factor(res_comp_all$Model2, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
 res_comp_all$Discovery1<-factor(res_comp_all$Discovery1, levels=rev(c('AFR','EAS','EUR','EUR+AFR','EUR+EAS')))
 res_comp_all$Discovery2<-factor(res_comp_all$Discovery2, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
-# Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
+# Remove IndivTune and Multi-IndivTune model for groups that contain one score (aka QuickPRS and SBayesRC)
 res_comp_all <- res_comp_all[
 !(res_comp_all$Method1 %in%  c('quickprs','sbayesrc') & 
-  res_comp_all$Model1 %in% c('IndivTrain','Multi-IndivTrain')),]
+  res_comp_all$Model1 %in% c('IndivTune','Multi-IndivTune')),]
 res_comp_all <- res_comp_all[
 !(res_comp_all$Method2 %in%  c('quickprs','sbayesrc') & 
-  res_comp_all$Model2 %in% c('IndivTrain','Multi-IndivTrain')),]
+  res_comp_all$Model2 %in% c('IndivTune','Multi-IndivTune')),]
 
 # Remove pseudo model for methods that don't really have one 
 res_comp_all <- res_comp_all[
 !(res_comp_all$Method1 %in%  c('ptclump','ptclump_multi') & 
-  res_comp_all$Model1 %in% c('SumStatTrain','Multi-SumStatTrain')),]
+  res_comp_all$Model1 %in% c('SumStatTune','Multi-SumStatTune')),]
 res_comp_all <- res_comp_all[
 !(res_comp_all$Method2 %in%  c('ptclump','ptclump_multi') & 
-  res_comp_all$Model2 %in% c('SumStatTrain','Multi-SumStatTrain')),]
+  res_comp_all$Model2 %in% c('SumStatTune','Multi-SumStatTune')),]
 
 # Remove top1 models for PRS-CSx
 res_comp_all <- res_comp_all[
@@ -2783,7 +2760,7 @@ round(max(tmp_sbayesrc$r_diff_rel)*100, 1)
 #####
 # Export a csv containing difference results for all traits
 #####
-# Simplify to contain only IndivTrain or SumStatTrain result
+# Simplify to contain only IndivTune or SumStatTune result
 tmp <- res_comp_all
 tmp <- merge(tmp, pgs_method_labels, by.x = 'Method1', by.y = 'method', all.x = T)
 tmp$label[is.na(tmp$label)] <- 'All'
@@ -2795,10 +2772,10 @@ names(tmp)[names(tmp) == 'label'] <- 'label2'
 tmp$label1[grepl('Multi', tmp$Model1) & !(tmp$Method1 %in% pgs_group_methods) & tmp$label1 != 'All'] <- paste0(tmp$label1[grepl('Multi', tmp$Model1) & !(tmp$Method1 %in% pgs_group_methods) & tmp$label1 != 'All'], '-multi')
 tmp$label2[grepl('Multi', tmp$Model2) & !(tmp$Method2 %in% pgs_group_methods) & tmp$label2 != 'All'] <- paste0(tmp$label2[grepl('Multi', tmp$Model2) & !(tmp$Method2 %in% pgs_group_methods) & tmp$label2 != 'All'], '-multi')
 
-tmp$Model1[tmp$Model1 != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model1[tmp$Model1 == 'SumStatTrain'] <- 'SumStatTrain'
-tmp$Model2[tmp$Model2 != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model2[tmp$Model2 == 'SumStatTrain'] <- 'SumStatTrain'
+tmp$Model1[tmp$Model1 != 'SumStatTune'] <- 'IndivTune'
+tmp$Model1[tmp$Model1 == 'SumStatTune'] <- 'SumStatTune'
+tmp$Model2[tmp$Model2 != 'SumStatTune'] <- 'IndivTune'
+tmp$Model2[tmp$Model2 == 'SumStatTune'] <- 'SumStatTune'
 
 tmp<-tmp[tmp$Model_1 %in% res_eval_simp$Group,]
 tmp<-tmp[tmp$Model_2 %in% res_eval_simp$Group,]
@@ -2986,7 +2963,7 @@ tmp_all$R_diff_p
 #####
 # Export a csv containing difference results for all traits
 #####
-# Simplify to contain only IndivTrain or SumStatTrain result
+# Simplify to contain only IndivTune or SumStatTune result
 tmp <- meta_res_comp
 tmp <- merge(tmp, pgs_method_labels, by.x = 'Method1', by.y = 'method', all.x = T)
 tmp$label[is.na(tmp$label)] <- 'All'
@@ -2998,10 +2975,10 @@ names(tmp)[names(tmp) == 'label'] <- 'label2'
 tmp$label1[grepl('Multi', tmp$Model1) & !(tmp$Method1 %in% pgs_group_methods) & tmp$label1 != 'All'] <- paste0(tmp$label1[grepl('Multi', tmp$Model1) & !(tmp$Method1 %in% pgs_group_methods) & tmp$label1 != 'All'], '-multi')
 tmp$label2[grepl('Multi', tmp$Model2) & !(tmp$Method2 %in% pgs_group_methods) & tmp$label2 != 'All'] <- paste0(tmp$label2[grepl('Multi', tmp$Model2) & !(tmp$Method2 %in% pgs_group_methods) & tmp$label2 != 'All'], '-multi')
 
-tmp$Model1[tmp$Model1 != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model1[tmp$Model1 == 'SumStatTrain'] <- 'SumStatTrain'
-tmp$Model2[tmp$Model2 != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model2[tmp$Model2 == 'SumStatTrain'] <- 'SumStatTrain'
+tmp$Model1[tmp$Model1 != 'SumStatTune'] <- 'IndivTune'
+tmp$Model1[tmp$Model1 == 'SumStatTune'] <- 'SumStatTune'
+tmp$Model2[tmp$Model2 != 'SumStatTune'] <- 'IndivTune'
+tmp$Model2[tmp$Model2 == 'SumStatTune'] <- 'SumStatTune'
 
 tmp<-tmp[tmp$Model_1 %in% res_eval_simp$Group,]
 tmp<-tmp[tmp$Model_2 %in% res_eval_simp$Group,]
@@ -3064,10 +3041,10 @@ for(targ_pop_i in targ_pop){
     tmp$label1[grepl('Multi', tmp$Model1) & !(tmp$Method1 %in% pgs_group_methods) & tmp$label1 != 'All'] <- paste0(tmp$label1[grepl('Multi', tmp$Model1) & !(tmp$Method1 %in% pgs_group_methods) & tmp$label1 != 'All'], '-multi')
     tmp$label2[grepl('Multi', tmp$Model2) & !(tmp$Method2 %in% pgs_group_methods) & tmp$label2 != 'All'] <- paste0(tmp$label2[grepl('Multi', tmp$Model2) & !(tmp$Method2 %in% pgs_group_methods) & tmp$label2 != 'All'], '-multi')
     
-    tmp$Model1[tmp$Model1 != 'SumStatTrain'] <- 'IndivTrain'
-    tmp$Model1[tmp$Model1 == 'SumStatTrain'] <- 'SumStatTrain'
-    tmp$Model2[tmp$Model2 != 'SumStatTrain'] <- 'IndivTrain'
-    tmp$Model2[tmp$Model2 == 'SumStatTrain'] <- 'SumStatTrain'
+    tmp$Model1[tmp$Model1 != 'SumStatTune'] <- 'IndivTune'
+    tmp$Model1[tmp$Model1 == 'SumStatTune'] <- 'SumStatTune'
+    tmp$Model2[tmp$Model2 != 'SumStatTune'] <- 'IndivTune'
+    tmp$Model2[tmp$Model2 == 'SumStatTune'] <- 'SumStatTune'
     
     tmp<-tmp[tmp$Model_1 %in% res_eval_simp$Group,]
     tmp<-tmp[tmp$Model_2 %in% res_eval_simp$Group,]
@@ -3077,8 +3054,8 @@ for(targ_pop_i in targ_pop){
 
     tmp<-tmp[order(tmp$label1, tmp$label2),]
     
-    tmp$label1 <- paste0(tmp$label1," (", ifelse(tmp$Model1 == 'SumStatTrain', 'ST', 'IT'), ")")
-    tmp$label2 <- paste0(tmp$label2," (", ifelse(tmp$Model2 == 'SumStatTrain', 'ST', 'IT'), ")")
+    tmp$label1 <- paste0(tmp$label1," (", ifelse(tmp$Model1 == 'SumStatTune', 'ST', 'IT'), ")")
+    tmp$label2 <- paste0(tmp$label2," (", ifelse(tmp$Model2 == 'SumStatTune', 'ST', 'IT'), ")")
 
     tmp$label1 <- factor(tmp$label1, levels = unique(tmp$label1))
     tmp$label2 <- factor(tmp$label2, levels = unique(tmp$label2))
@@ -3121,7 +3098,7 @@ for(targ_pop_i in targ_pop){
 ####
 # Plot relative improvement of methods
 ####
-# Use ptclump IndivTrain using EUR GWAS as the reference, as provides an interpretable scale
+# Use ptclump IndivTune using EUR GWAS as the reference, as provides an interpretable scale
 
 meta_res_comp_ptclump_top1<-meta_res_comp[meta_res_comp$Method2 == 'all' & meta_res_comp$Source2 == 'Multi',]
 meta_res_comp_ptclump_top1$reference_point<-F
@@ -3152,7 +3129,7 @@ meta_tmp$Discovery_clean <- factor(meta_tmp$Discovery_clean,
                                          'EUR GWAS',
                                          'Both'))
 meta_tmp$Target <- paste0(meta_tmp$Target, ' Target')
-meta_tmp$Model1 <- factor(meta_tmp$Model1, levels = names(model_palette))
+meta_tmp$Model1 <- factor(meta_tmp$Model1, levels = c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
 
 meta_tmp_ref <- meta_res_comp_reference
 meta_tmp_ref <- merge(meta_tmp_ref, pgs_method_labels, by.x = 'Method1', by.y = 'method', all.x = T)
@@ -3168,7 +3145,7 @@ meta_tmp_ref$Discovery_clean <- factor(meta_tmp_ref$Discovery_clean,
                                          'EUR GWAS',
                                          'Both'))
 meta_tmp_ref$Target <- paste0(meta_tmp_ref$Target, ' Target')
-meta_tmp_ref$Model1 <- factor(meta_tmp_ref$Model1, levels = names(model_palette))
+meta_tmp_ref$Model1 <- factor(meta_tmp_ref$Model1, levels = c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
 
 tmp <- res_comp_all_ptclump_top1
 tmp <- merge(tmp, pgs_method_labels, by.x = 'Method1', by.y = 'method', all.x = T)
@@ -3184,7 +3161,7 @@ tmp$Discovery_clean <- factor(tmp$Discovery_clean,
                                          'EUR GWAS',
                                          'Both'))
 tmp$Target <- paste0(tmp$Target, ' Target')
-tmp$Model1 <- factor(tmp$Model1, levels = names(model_palette))
+tmp$Model1 <- factor(tmp$Model1, levels = c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
 
 ggplot(meta_tmp, aes(x=label, y=R_diff , fill = Model1)) +
     geom_point(
@@ -3278,26 +3255,26 @@ ggplot(meta_tmp, aes(x=label, y=R_diff_perc , fill = Model1)) +
 
 # Simplify results showing results only with or without training data
 meta_tmp_simple <- meta_tmp
-meta_tmp_simple$Model1[meta_tmp_simple$Model1 != 'SumStatTrain'] <- 'IndivTrain'
-meta_tmp_simple$Model1[meta_tmp_simple$Model1 == 'SumStatTrain'] <- 'SumStatTrain'
-meta_tmp_simple$Model2[meta_tmp_simple$Model2 != 'SumStatTrain'] <- 'IndivTrain'
-meta_tmp_simple$Model2[meta_tmp_simple$Model2 == 'SumStatTrain'] <- 'SumStatTrain'
+meta_tmp_simple$Model1[meta_tmp_simple$Model1 != 'SumStatTune'] <- 'IndivTune'
+meta_tmp_simple$Model1[meta_tmp_simple$Model1 == 'SumStatTune'] <- 'SumStatTune'
+meta_tmp_simple$Model2[meta_tmp_simple$Model2 != 'SumStatTune'] <- 'IndivTune'
+meta_tmp_simple$Model2[meta_tmp_simple$Model2 == 'SumStatTune'] <- 'SumStatTune'
 meta_tmp_simple<-meta_tmp_simple[meta_tmp_simple$Model_1 %in% res_eval_simp$Group,]
 meta_tmp_simple<-meta_tmp_simple[meta_tmp_simple$Model_2 %in% res_eval_simp$Group,]
 
 meta_tmp_ref_simple <- meta_tmp_ref
-meta_tmp_ref_simple$Model1[meta_tmp_ref_simple$Model1 != 'SumStatTrain'] <- 'IndivTrain'
-meta_tmp_ref_simple$Model1[meta_tmp_ref_simple$Model1 == 'SumStatTrain'] <- 'SumStatTrain'
-meta_tmp_ref_simple$Model2[meta_tmp_ref_simple$Model2 != 'SumStatTrain'] <- 'IndivTrain'
-meta_tmp_ref_simple$Model2[meta_tmp_ref_simple$Model2 == 'SumStatTrain'] <- 'SumStatTrain'
+meta_tmp_ref_simple$Model1[meta_tmp_ref_simple$Model1 != 'SumStatTune'] <- 'IndivTune'
+meta_tmp_ref_simple$Model1[meta_tmp_ref_simple$Model1 == 'SumStatTune'] <- 'SumStatTune'
+meta_tmp_ref_simple$Model2[meta_tmp_ref_simple$Model2 != 'SumStatTune'] <- 'IndivTune'
+meta_tmp_ref_simple$Model2[meta_tmp_ref_simple$Model2 == 'SumStatTune'] <- 'SumStatTune'
 meta_tmp_ref_simple<-meta_tmp_ref_simple[meta_tmp_ref_simple$Model_1 %in% res_eval_simp$Group,]
 meta_tmp_ref_simple<-meta_tmp_ref_simple[meta_tmp_ref_simple$Model_2 %in% res_eval_simp$Group,]
 
 tmp_simple <- tmp
-tmp_simple$Model1[tmp_simple$Model1 != 'SumStatTrain'] <- 'IndivTrain'
-tmp_simple$Model1[tmp_simple$Model1 == 'SumStatTrain'] <- 'SumStatTrain'
-tmp_simple$Model2[tmp_simple$Model2 != 'SumStatTrain'] <- 'IndivTrain'
-tmp_simple$Model2[tmp_simple$Model2 == 'SumStatTrain'] <- 'SumStatTrain'
+tmp_simple$Model1[tmp_simple$Model1 != 'SumStatTune'] <- 'IndivTune'
+tmp_simple$Model1[tmp_simple$Model1 == 'SumStatTune'] <- 'SumStatTune'
+tmp_simple$Model2[tmp_simple$Model2 != 'SumStatTune'] <- 'IndivTune'
+tmp_simple$Model2[tmp_simple$Model2 == 'SumStatTune'] <- 'SumStatTune'
 tmp_simple<-tmp_simple[tmp_simple$Model_1 %in% res_eval_simp$Group,]
 tmp_simple<-tmp_simple[tmp_simple$Model_2 %in% res_eval_simp$Group,]
 
@@ -3575,6 +3552,7 @@ tmp_wide <- reshape(tmp,
                      direction = "wide")
 
 names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
+tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
 
 cor_matrix_EAS <- cor(tmp_wide[tmp_wide$Target == 'EAS', -1:-2])
 cor_matrix_AFR <- cor(tmp_wide[tmp_wide$Target == 'AFR', -1:-2])
@@ -3611,6 +3589,7 @@ tmp_wide <- reshape(tmp,
                      direction = "wide")
 
 names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
+tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
 
 cor_matrix_EAS <- cor(tmp_wide[tmp_wide$Discovery == 'EAS', -1:-2])
 cor_matrix_AFR <- cor(tmp_wide[tmp_wide$Discovery == 'AFR', -1:-2])
@@ -4415,17 +4394,17 @@ for(pheno_i in selected_traits){
   res_eval_i$Method<-gsub('-.*','', res_eval_i$Method)
   
   res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
-                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTrain'
+                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTune'
   res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
-                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTrain'
+                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTune'
   res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
-                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTrain'
+                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTune'
   res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
-                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTrain'
+                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTune'
   
-  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTrain'
-  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTrain'
-  res_eval_i$Model[res_eval_i$Group == 'xwing.pseudo.multi']<-'SumStatTrain'
+  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTune'
+  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTune'
+  res_eval_i$Model[res_eval_i$Group == 'xwing.pseudo.multi']<-'SumStatTune'
   
   res_eval_i$Source<-ifelse(
     res_eval_i$Method %in% pgs_group_methods | grepl('_multi$', res_eval_i$Method) | 
@@ -4437,18 +4416,18 @@ for(pheno_i in selected_traits){
   res_eval_i$Discovery[res_eval_i$Source == 'Multi'] <- res_eval_i$gwas_group[res_eval_i$Source == 'Multi']
   
   res_eval_i$Method<-factor(res_eval_i$Method, levels=unique(res_eval_i$Method))
-  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
   res_eval_i$Discovery<-factor(res_eval_i$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
-  # Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
+  # Remove IndivTune and Multi-IndivTune model for groups that contain one score (aka QuickPRS and SBayesRC)
   res_eval_i <- res_eval_i[
     !(res_eval_i$Method %in%  c('quickprs','sbayesrc') & 
-      res_eval_i$Model %in% c('IndivTrain','Multi-IndivTrain')),]
+      res_eval_i$Model %in% c('IndivTune','Multi-IndivTune')),]
   
   # Remove pseudo model for methods that don't really have one 
   res_eval_i <- res_eval_i[
     !(res_eval_i$Method %in%  c('ptclump','ptclump_multi') & 
-      res_eval_i$Model %in% c('SumStatTrain','Multi-SumStatTrain')),]
+      res_eval_i$Model %in% c('SumStatTune','Multi-SumStatTune')),]
 
   # Remove top1 models for *-Multi, PRS-CSx, X-wing
   res_eval_i <- res_eval_i[
@@ -4478,9 +4457,9 @@ for(pheno_i in selected_traits){
   tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
   tmp$label <- factor(tmp$label, levels = model_order)
   
-  # Simplify result to either SumStatTrain or IndivTrain
-  tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
-  tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+  # Simplify result to either SumStatTune or IndivTune
+  tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+  tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
   tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery','Model'), with=F]),]
   
   res_eval_simp <- rbind(res_eval_simp, tmp)
@@ -4562,7 +4541,7 @@ for(targ_pop_i in targ_pop){
   }
 }
 
-meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
 meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
 # Plot average performance across phenotypes for AFR and EAS targets
@@ -4581,8 +4560,8 @@ tmp$Discovery_clean <- factor(tmp$Discovery_clean,
                                          'EUR GWAS',
                                          'Both'))
 tmp$Target <- paste0(tmp$Target, ' Target')
-tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
 tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
 
 png(paste0('~/oliverpainfel/Analyses/crosspop/sensitivity_1kgrefplots/average_r.png'), res=300, width = 3200, height = 2000, units = 'px')
@@ -4627,8 +4606,8 @@ tmp$Discovery_clean <- factor(tmp$Discovery_clean,
                                          'EUR GWAS',
                                          'Both'))
 tmp$Target <- paste0(tmp$Target, ' Target')
-tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
 main_results <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
 
 tmp <- sens_results
@@ -4646,8 +4625,8 @@ tmp$Discovery_clean <- factor(tmp$Discovery_clean,
                                          'EUR GWAS',
                                          'Both'))
 tmp$Target <- paste0(tmp$Target, ' Target')
-tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
 sens_results <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
 
 main_results<-main_results[main_results$Method %in% sens_results$Method,]
@@ -5012,17 +4991,17 @@ for(pheno_i in selected_traits){
   res_eval_i$Method<-gsub('-.*','', res_eval_i$Method)
   
   res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
-                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTrain'
+                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTune'
   res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
-                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTrain'
+                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTune'
   res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
-                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTrain'
+                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTune'
   res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
-                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTrain'
+                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTune'
   
-  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTrain'
-  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTrain'
-  res_eval_i$Model[res_eval_i$Group == 'xwing.pseudo.multi']<-'SumStatTrain'
+  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTune'
+  res_eval_i$Model[res_eval_i$Group == 'prscsx.pseudo.multi']<-'SumStatTune'
+  res_eval_i$Model[res_eval_i$Group == 'xwing.pseudo.multi']<-'SumStatTune'
   
   res_eval_i$Source<-ifelse(
     res_eval_i$Method %in% pgs_group_methods | grepl('_multi$', res_eval_i$Method) | 
@@ -5034,18 +5013,18 @@ for(pheno_i in selected_traits){
   res_eval_i$Discovery[res_eval_i$Source == 'Multi'] <- res_eval_i$gwas_group[res_eval_i$Source == 'Multi']
   
   res_eval_i$Method<-factor(res_eval_i$Method, levels=unique(res_eval_i$Method))
-  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
   res_eval_i$Discovery<-factor(res_eval_i$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
-  # Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
+  # Remove IndivTune and Multi-IndivTune model for groups that contain one score (aka QuickPRS and SBayesRC)
   res_eval_i <- res_eval_i[
     !(res_eval_i$Method %in%  c('quickprs','sbayesrc') & 
-      res_eval_i$Model %in% c('IndivTrain','Multi-IndivTrain')),]
+      res_eval_i$Model %in% c('IndivTune','Multi-IndivTune')),]
   
   # Remove pseudo model for methods that don't really have one 
   res_eval_i <- res_eval_i[
     !(res_eval_i$Method %in%  c('ptclump','ptclump_multi') & 
-      res_eval_i$Model %in% c('SumStatTrain','Multi-SumStatTrain')),]
+      res_eval_i$Model %in% c('SumStatTune','Multi-SumStatTune')),]
 
   # Remove top1 models for *-Multi, PRS-CSx, X-wing, TL-*
   res_eval_i <- res_eval_i[
@@ -5140,7 +5119,7 @@ for(targ_pop_i in targ_pop){
   }
 }
 
-meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
 meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
 # Plot average performance across phenotypes for AFR and EAS targets
@@ -5159,8 +5138,8 @@ tmp$Discovery_clean <- factor(tmp$Discovery_clean,
                                          'EUR GWAS',
                                          'Both'))
 tmp$Target <- paste0(tmp$Target, ' Target')
-tmp$Model[tmp$Model != 'SumStatTrain'] <- 'IndivTrain'
-tmp$Model[tmp$Model == 'SumStatTrain'] <- 'SumStatTrain'
+tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
 tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
 
 dir.create('~/oliverpainfel/Analyses/crosspop/tlprs/plots')
@@ -5330,13 +5309,13 @@ res_comp_all$Method2<-gsub('-.*','', res_comp_all$Method2)
 
 find_model<-function(x){
   mod <- x
-  mod[grepl('top1$', x) & !grepl('pseudo', x)] <- 'IndivTrain'
-  mod[grepl('top1$', x) & grepl('pseudo', x)] <- 'SumStatTrain'
-  mod[grepl('multi$', x) & !grepl('pseudo', x)] <- 'Multi-IndivTrain'
-  mod[grepl('multi$', x) & grepl('pseudo', x)] <- 'Multi-SumStatTrain'
-  mod[grepl('_multi', x)] <- 'SumStatTrain'
-  mod[x == 'prscsx.pseudo.multi'] <- 'SumStatTrain'
-  mod[x == 'xwing.pseudo.multi'] <- 'SumStatTrain'
+  mod[grepl('top1$', x) & !grepl('pseudo', x)] <- 'IndivTune'
+  mod[grepl('top1$', x) & grepl('pseudo', x)] <- 'SumStatTune'
+  mod[grepl('multi$', x) & !grepl('pseudo', x)] <- 'Multi-IndivTune'
+  mod[grepl('multi$', x) & grepl('pseudo', x)] <- 'Multi-SumStatTune'
+  mod[grepl('_multi', x)] <- 'SumStatTune'
+  mod[x == 'prscsx.pseudo.multi'] <- 'SumStatTune'
+  mod[x == 'xwing.pseudo.multi'] <- 'SumStatTune'
   
   return(mod)
 }
@@ -5356,26 +5335,26 @@ res_comp_all$Discovery2[res_comp_all$Source2 == 'Multi'] <- res_comp_all$gwas_gr
 
 res_comp_all$Method1<-factor(res_comp_all$Method1, levels=unique(res_comp_all$Method1))
 res_comp_all$Method2<-factor(res_comp_all$Method2, levels=unique(res_comp_all$Method2))
-res_comp_all$Model1<-factor(res_comp_all$Model1, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
-res_comp_all$Model2<-factor(res_comp_all$Model2, levels=c('IndivTrain','SumStatTrain','Multi-IndivTrain','Multi-SumStatTrain'))
+res_comp_all$Model1<-factor(res_comp_all$Model1, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
+res_comp_all$Model2<-factor(res_comp_all$Model2, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
 res_comp_all$Discovery1<-factor(res_comp_all$Discovery1, levels=rev(c('AFR','EAS','EUR','EUR+AFR','EUR+EAS')))
 res_comp_all$Discovery2<-factor(res_comp_all$Discovery2, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS'))
 
-# Remove IndivTrain and Multi-IndivTrain model for groups that contain one score (aka QuickPRS and SBayesRC)
+# Remove IndivTune and Multi-IndivTune model for groups that contain one score (aka QuickPRS and SBayesRC)
 res_comp_all <- res_comp_all[
 !(res_comp_all$Method1 %in%  c('quickprs','sbayesrc') & 
-  res_comp_all$Model1 %in% c('IndivTrain','Multi-IndivTrain')),]
+  res_comp_all$Model1 %in% c('IndivTune','Multi-IndivTune')),]
 res_comp_all <- res_comp_all[
 !(res_comp_all$Method2 %in%  c('quickprs','sbayesrc') & 
-  res_comp_all$Model2 %in% c('IndivTrain','Multi-IndivTrain')),]
+  res_comp_all$Model2 %in% c('IndivTune','Multi-IndivTune')),]
 
 # Remove pseudo model for methods that don't really have one 
 res_comp_all <- res_comp_all[
 !(res_comp_all$Method1 %in%  c('ptclump','ptclump_multi') & 
-  res_comp_all$Model1 %in% c('SumStatTrain','Multi-SumStatTrain')),]
+  res_comp_all$Model1 %in% c('SumStatTune','Multi-SumStatTune')),]
 res_comp_all <- res_comp_all[
 !(res_comp_all$Method2 %in%  c('ptclump','ptclump_multi') & 
-  res_comp_all$Model2 %in% c('SumStatTrain','Multi-SumStatTrain')),]
+  res_comp_all$Model2 %in% c('SumStatTune','Multi-SumStatTune')),]
 
 # Remove top1 models for PRS-CSx
 res_comp_all <- res_comp_all[
@@ -5466,7 +5445,7 @@ for(targ_pop_i in targ_pop){
 
 meta_res_comp$R_diff_perc <- meta_res_comp$R_diff / meta_res_comp$Model_2_R
   
-# Compare IndivTrain SBayesRC-multi to TL-SBayesRC-multi
+# Compare IndivTune SBayesRC-multi to TL-SBayesRC-multi
 tmp_sbayesrc <- meta_res_comp[meta_res_comp$Model_2 == 'sbayesrc.pseudo.multi' & 
                                 meta_res_comp$Model_1 == 'tlprs_sbayesrc.pop.multi' &
                     meta_res_comp$Target == 'AFR',]
@@ -5589,7 +5568,7 @@ write.csv(method_avg, '~/oliverpainfel/Analyses/crosspop/time_memory.csv', row.n
 
 # With 2+ GWAS
 
-Extend analysis to include gwas_groups including AFR EAS and EUR GWAS. Only some multi-source methods should be applicable here, including LEOPARD, PRS-CSx, and X-Wing. Given X-Wing with LEOPARD is slow, limit X-Wing analysis to the IndivTrain model alone.
+Extend analysis to include gwas_groups including AFR EAS and EUR GWAS. Only some multi-source methods should be applicable here, including LEOPARD, PRS-CSx, and X-Wing. Given X-Wing with LEOPARD is slow, limit X-Wing analysis to the IndivTune model alone.
 
 ***
 
@@ -5657,7 +5636,7 @@ snakemake \
   --profile slurm \
   --use-conda \
   --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_three_pop.yaml \
-  prep_pgs  -n
+  target_pgs  -n
 ```
 
 </details>
