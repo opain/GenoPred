@@ -6337,6 +6337,8 @@ dev.off()
 ```
 </details>
 
+Relative performance of methods is unchanged. Slight absolute improvement for the AFR target, but not for the EAS target.
+
 ***
 
 # Using GWAS in GenoPred pipeline paper
@@ -6347,9 +6349,62 @@ This is to provide more confidence in the performance of SBayesRC and QuickPRS r
 
 ## Prepare configuration
 
+We can use the gwas_list from the GenoPred pipeline paper. Just make the new configuration file.
+
+```{r}
+######
+# gwas_list
+######
+
+library(data.table)
+gwas_list <- fread('/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/GenoPredPipe/usr/k1806347/configs/benchmark/gwas_list.txt')
+
+gwas_list$path <- gsub('/scratch/prj/ukbiobank/usr/ollie_pain/GenoPredPipe/usr/k1806347/gwas_sumstats/',
+                       '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/genopred_pipeline_paper/',
+                       gwas_list$path)
+
+gwas_list$label=paste0('"', gwas_list$label, '"')
+
+write.table(gwas_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_meta.txt', col.names = T, row.names = F, quote = F)
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output",
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_meta.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_meta.txt",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
+  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
+  "cores_prep_pgs: 10",
+  "cores_target_pgs: 50",
+  "ldpred2_inference: F",
+  "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/hm3",
+  "quickprs_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3",
+  "quickprs_multi_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3_subset",
+  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/hm3"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_meta.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
 ***
 
 ## Run pipeline
+
+<details><summary>Show code</summary>
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_meta.yaml \
+  target_pgs -n
+```
+
+</details>
 
 ***
 
@@ -6360,6 +6415,149 @@ This is to provide more confidence in the performance of SBayesRC and QuickPRS r
 ## Plot results
 
 ***
+
+# Run methods using downsampled UKB sumstats
+
+It seems the performance of methods varies across EAS and AFR datasets. This could be due to the difference in sample size. To explore this, lets run the methods on EUR GWAS generated using UKB, using a range of sample sizes.
+
+***
+
+## Downsample GWAS
+
+```{r}
+library(data.table)
+
+# Read in phenotype file
+subsample_n<-c(5, 15, 45, 135)
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+set.seed(1)
+
+dir.create('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/subsample')
+for(i in selected_traits){
+  pheno_i_dat <- fread(
+    paste0(
+      '/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/',
+      i,
+      '.unrel.EUR_train.norm_resid_scale.row_number.txt'
+    )
+  )
+  
+  for(n in subsample_n){
+    tmp <- pheno_i_dat[sample(1:nrow(pheno_i_dat), size = n*1000),]
+    fwrite(tmp, paste0('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/subsample/', i, '.',n,'.txt'),
+           sep=' ',
+           na='NA',
+           quote=F)
+  }
+} 
+```
+
+```{bash}
+for pheno in $(echo TC HT HB); do
+  for n in $(echo 5 15 45 135); do
+    mkdir -p /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled
+    for chr in $(seq 1 22); do
+      if [ ! -f "/users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr${chr}.outcome.glm.linear" ]; then
+        sbatch -p interruptible_cpu --wrap="/users/k1806347/oliverpainfel/Software/plink2 \
+          --pfile /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output/ukb/geno/ukb.ref.chr${chr} \
+          --pheno /users/k1806347/oliverpainfel/Data/ukb/phenotypes/subsample/${pheno}.${n}.txt \
+          --linear omit-ref cols=+a1freq,+ax \
+          --maf 0.01 \
+          --geno 0.05 \
+          --out /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr${chr}"
+      fi
+    done
+  done
+done
+
+# Once complete, merge results across chromosomes
+for pheno in $(echo TC HT HB); do
+  for n in $(echo 5 15 45 135); do
+    head -n 1 /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr1.outcome.glm.linear > /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt
+      for chr in $(seq 1 22); do
+        tail -n +2 /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr${chr}.outcome.glm.linear >> /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt
+      done
+      
+      # Remove REF and ALT columns and rename AX column to A2
+      cut -f 4,5 --complement /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt | awk 'BEGIN{FS=OFS="\t"} NR==1 {$5="A2"} 1' > temp.txt && mv temp.txt /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt
+  
+      gzip /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt
+  done
+done
+
+# Delete per chromosome files
+rm /users/k1806347/oliverpainfel/Data/ukb/gwas/*_subsampled/*chr*
+
+```
+
+***
+
+## Prepare configuration
+
+```{r}
+######
+# gwas_list
+######
+
+gwas_list<-fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_all.txt')
+pheno<-gsub('_.*','', gwas_list$name)
+gwas_list<-gwas_list[pheno %in% c('TC', 'HT', 'HB'),]
+gwas_list<-gwas_list[gwas_list$population == 'EUR',]
+gwas_list$pheno<-gsub('_UKB','',gwas_list$name)
+
+gwas_list_subsampled <- NULL
+for(n in c(5, 15, 45, 135)){
+  gwas_list_tmp<-gwas_list
+  
+  gwas_list_tmp$name <-
+    paste0(
+      gwas_list_tmp$name, '_', n, 'K'
+    )
+  gwas_list_tmp$path <-
+    paste0(
+      '/users/k1806347/oliverpainfel/Data/ukb/gwas/',
+      gwas_list_tmp$pheno,
+      '_subsampled/ukb.eur_train.',
+      gwas_list_tmp$pheno,
+      '.',
+      n,
+      '.GW.txt'
+    )
+  gwas_list_tmp$label <-
+    paste0(
+      gsub("\\)", paste0(' - ', n,"K)"), gwas_list_tmp$label)
+    )
+  
+  gwas_list_subsampled <- rbind(gwas_list_subsampled, gwas_list_tmp)
+}
+
+gwas_list_subsampled$pheno<-NULL
+
+gwas_list_subsampled$label<-paste0('"', gwas_list_subsampled$label, '"')
+
+write.table(gwas_list_subsampled, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_subsampled.txt', col.names = T, row.names = F, quote = F)
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output",
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_subsampled.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_subsampled.txt",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
+  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
+  "cores_prep_pgs: 10",
+  "cores_target_pgs: 50",
+  "ldpred2_inference: F",
+  "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/hm3",
+  "quickprs_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3",
+  "quickprs_multi_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3_subset",
+  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/hm3"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_subsampled.yaml', col.names = F, row.names = F, quote = F)
+```
 
 ***
 
