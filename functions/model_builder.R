@@ -17,13 +17,18 @@ h2l_R2 <- function(k, r2, p) {
 }
 
 # Functions for reading in predictor file
-read_predictor<-function(x, pred_miss, file_index = NULL){
+read_predictor<-function(x, pred_miss, file_index = NULL, keep = NULL){
   # Read in predictor file
   tmp <- fread(x)
-
+  
   # Create a column that combines FID and IID
   tmp <- combine_fid_iid(tmp)
 
+  if(!is.null(keep)){
+    # Restrict to keep
+    tmp <- tmp[tmp$IID %in% keep,]
+  }
+  
   # Remove variables with > opt$pred_miss missing values
   tmp <- filter_columns_by_missing(tmp, threshold = opt$pred_miss)
 

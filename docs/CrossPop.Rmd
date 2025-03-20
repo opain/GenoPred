@@ -5653,21 +5653,28 @@ source_all('../functions')
 library(data.table)
 
 # Get some key variables from config
-config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_three_pop.yaml'
-pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
-outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+config_2_pop<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml'
+config_3_pop<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_three_pop.yaml'
+pgs_methods <- read_param(config = config_3_pop, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config_3_pop, param = 'outdir', return_obj = F)
 
 # Read in list of outcomes 
 selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
 
 # Get a list of score files
-scores <- list_score_files(config)
+scores_2_pop <- list_score_files(config_2_pop)
+scores_3_pop <- list_score_files(config_3_pop)
+scores <- rbind(scores_2_pop, scores_3_pop)
+scores <- scores[!duplicated(scores),]
+
+# Remove xwing 
+scores <- scores[scores$method != 'xwing', ]
 
 # Create files for EAS and AFR targets
-targ_pop <- c('EUR','EAS','AFR')
+targ_pop <- c('EAS','AFR')
 for(trait_i in selected_traits){
-  scores_i <- scores[grepl(trait_i, scores$name),]
-  scores_i$multi <- scores_i$method
+  scores_j <- scores[grepl(trait_i, scores$name),]
+  scores_j$multi <- scores_j$method
   
   for(targ_pop_i in targ_pop){
     disc_pop_j <- c('UGR','BBJ','UKB')
@@ -5685,6 +5692,8 @@ for(trait_i in selected_traits){
     )
     
     # Insert path to score file
+    scores_i <- scores_j[!grepl(paste0('UKB_', disc_pop_j[!(disc_pop_j_2 %in% c('EUR', targ_pop_i))], '$'), scores_j$name),]
+    
     scores_i$predictor <- paste0(
       outdir,
       '/ukb/pgs/TRANS/',
@@ -5695,7 +5704,7 @@ for(trait_i in selected_traits){
       scores_i$name,
       '-TRANS.profiles'
     )
-      
+    
     ####
     # Make groups single source methods
     ####
@@ -5717,7 +5726,7 @@ for(trait_i in selected_traits){
     # This can be skipped as it was done before
     for(i in 1:nrow(scores_i_single_top1)) {
       param <- find_pseudo(
-        config = config,
+        config = ifelse(scores_i_single_top1$name[i] %in% scores_2_pop$name, config_2_pop, config_3_pop),
         gwas = scores_i_single_top1$name[i],
         pgs_method = scores_i_single_top1$method[i],
         target_pop = targ_pop_i
@@ -5758,7 +5767,7 @@ for(trait_i in selected_traits){
     # Extract the pseudo score for each method and specify as a separate group
     for(i in 1:nrow(scores_i_multi_single_pseudo)) {
       param <- find_pseudo(
-        config = config,
+        config = ifelse(scores_i_multi_single_pseudo$name[i] %in% scores_2_pop$name, config_2_pop, config_3_pop),
         gwas = scores_i_multi_single_pseudo$name[i],
         pgs_method = scores_i_multi_single_pseudo$method[i],
         target_pop = targ_pop_i
@@ -5800,10 +5809,14 @@ for(trait_i in selected_traits){
     # Split top1 scores by target population
     # This doesn't apply to xwing because it only has pop-specific pseudo scores
     scores_i_multi_top1<-NULL
-    for(i in 1:which(scores_i_multi$method %in% c('prscsx'))){
+    for(i in which(scores_i_multi$method %in% c('prscsx'))){
       score_header<-fread(scores_i_multi$predictor[i], nrow = 1)
       
-      for(pop in c('EUR', 'AFR', 'EAS')){
+      pops <- gsub(paste0(trait_i, '_'),'', scores_i_multi$name[i])
+      pops <- unlist(strsplit(pops, '_'))
+      pops <- disc_pop_j_2[disc_pop_j %in% pops]
+
+      for(pop in pops){
         
         if(scores_i_multi$method[i] == 'prscsx'){
           score_cols <-
@@ -5844,7 +5857,11 @@ for(trait_i in selected_traits){
     for(i in 1:nrow(scores_i_multi)){
       score_header<-fread(scores_i_multi$predictor[i], nrow = 1)
       
-      for(pop in c('EUR', 'AFR', 'EAS')){
+      pops <- gsub(paste0(trait_i, '_'),'', scores_i_multi$name[i])
+      pops <- unlist(strsplit(pops, '_'))
+      pops <- disc_pop_j_2[disc_pop_j %in% pops]
+
+      for(pop in pops){
         if(scores_i_multi$method[i] == 'prscsx'){
           score_cols <-
             which(grepl(paste0('^FID$|^IID$|_', pop, '_phi_auto'), names(score_header)))
@@ -5883,7 +5900,7 @@ for(trait_i in selected_traits){
     scores_i_multi_pseudo<-NULL
     for(i in 1:nrow(scores_i_multi)) {
       param <- find_pseudo(
-        config = config,
+        config = ifelse(scores_i_multi$name[i] %in% scores_2_pop$name, config_2_pop, config_3_pop),
         gwas = scores_i_multi$name[i],
         pgs_method = scores_i_multi$method[i],
         target_pop = targ_pop_i
@@ -5930,8 +5947,6 @@ for(trait_i in selected_traits){
       scores_i_multi_pseudo
     ))
     
-    predictors_i <- predictors_i[, c('predictor', 'multi','top1'), with=F]
-    
     ####
     # Make a group that will combined all population specific PGS
     ####
@@ -5940,8 +5955,29 @@ for(trait_i in selected_traits){
     predictors_i_all$multi <- 'all'
     predictors_i<-rbind(predictors_i, predictors_i_all)
     
+    ####
+    # Split into pairwise groups (2 pop groups)
+    ####
+    
+    afr_eur <- predictors_i[!grepl('BBJ', predictors_i$name),]
+    afr_eur$multi <- paste0(afr_eur$multi, '.EUR_AFR')
+    afr_eur$top1[afr_eur$top1 == 'AFR_EAS_EUR'] <- 'AFR_EUR'
+    
+    eas_eur <- predictors_i[!grepl('UGR', predictors_i$name),]
+    eas_eur$multi <- paste0(eas_eur$multi, '.EUR_EAS')
+    eas_eur$top1[eas_eur$top1 == 'AFR_EAS_EUR'] <- 'EAS_EUR'
+
+    one_or_three <- predictors_i[!grepl('UKB_BBJ$', predictors_i$name) &
+                                   !grepl('UKB_UGR$', predictors_i$name),]
+    
+    predictors_clean <- do.call(rbind, list(
+      afr_eur, eas_eur, one_or_three
+    ))
+    predictors_clean <- predictors_clean[, c('predictor', 'multi','top1'), with=F]
+
+        
     write.table(
-      predictors_i,
+      predictors_clean,
       paste0(
         '/users/k1806347/oliverpainfel/Analyses/crosspop/targ_',
         targ_pop_i,
@@ -5972,7 +6008,7 @@ conda activate model_builder
 
 #rm /users/k1806347/oliverpainfel/Analyses/crosspop/targ_*.disc_AFR_EAS_EUR/*/res*
 
-for targ_pop in $(echo EUR EAS AFR); do
+for targ_pop in $(echo EAS AFR); do
   if [ "$targ_pop" == "EUR" ]; then
       targ_pop2="EUR_test"
   else
@@ -5981,14 +6017,366 @@ for targ_pop in $(echo EUR EAS AFR); do
   
   for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
     if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_AFR_EAS_EUR/${pheno}/res.pred_comp.txt" ]; then
-      sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+      sbatch --mem 10G -n 1 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
         --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
         --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_AFR_EAS_EUR/${pheno}/predictor_list.txt \
         --out /users/k1806347/oliverpainfel/Analyses/crosspop/targ_${targ_pop}.disc_AFR_EAS_EUR/${pheno}/res \
-        --n_core 5"
+        --n_core 1"
     fi
   done
 done
 
 ```
 </details>
+
+***
+
+### Plot results
+
+<details><summary>Show code</summary>
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in list of outcomes 
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+info_all <- fread('~/oliverpainfel/Analyses/crosspop/gwas_descriptives.csv')
+
+# Calculate correlation between all phenotypes in each target population
+cors <- list()
+for(pop_i in c('EUR','EAS','AFR','CSA','AMR')){
+  if(pop_i == 'EUR'){
+    pop_i_2 <- 'EUR_test'
+  } else {
+    pop_i_2 <- pop_i
+  }
+  pheno_pop_i <- list()
+  for(pheno_i in selected_traits){
+    pheno_pop_i[[pheno_i]] <- fread(paste0('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/', pheno_i, '.unrel.', pop_i_2, '.row_number.txt'))
+    names(pheno_pop_i[[pheno_i]])[3] <- pheno_i
+  }
+  
+  pheno_pop_i_merged <- merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE, by = c('FID','IID')), pheno_pop_i)
+
+  cors_i <- abs(cor(as.matrix(pheno_pop_i_merged[,-1:-2, with=F]), use='p'))
+  cors[[pop_i]] <- cors_i
+}
+
+# Read in results
+targ_pop = c('EAS','AFR')
+res_eval <- list()
+for(pheno_i in selected_traits){
+  res_eval_i<-NULL
+  for(targ_pop_i in targ_pop){
+    if(targ_pop_i == 'EAS'){
+      disc_pop <- 'EAS'
+    }
+    if(targ_pop_i == 'AFR'){
+      disc_pop <- 'AFR'
+    }
+    eval_i <-
+      fread(
+        paste0(
+          '/users/k1806347/oliverpainfel/Analyses/crosspop/',
+          'targ_',
+          targ_pop_i,
+          '.disc_AFR_EAS_EUR/',
+          pheno_i,
+          '/res.pred_eval.txt'
+        )
+      )
+    eval_i$Target<-targ_pop_i
+    eval_i$gwas_group <- 'EUR+AFR+EAS'
+    res_eval_i<-rbind(res_eval_i, eval_i)
+  }
+  
+  res_eval_i$Method<-sub('\\..*','',res_eval_i$Group)
+  res_eval_i$Method<-gsub('-.*','', res_eval_i$Method)
+  
+  res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
+                   !grepl('pseudo', res_eval_i$Group)]<-'IndivTune'
+  res_eval_i$Model[grepl('top1$', res_eval_i$Group) &
+                   grepl('pseudo', res_eval_i$Group)]<-'SumStatTune'
+  res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
+                   !grepl('pseudo', res_eval_i$Group)]<-'Multi-IndivTune'
+  res_eval_i$Model[grepl('multi$', res_eval_i$Group) &
+                   grepl('pseudo', res_eval_i$Group)]<-'Multi-SumStatTune'
+  
+  res_eval_i$Model[grepl('_multi', res_eval_i$Group)]<-'SumStatTune'
+  res_eval_i$Model[grepl('prscsx.pseudo', res_eval_i$Group)]<-'SumStatTune'
+
+  res_eval_i$Source<-ifelse(
+    res_eval_i$Method %in% pgs_group_methods | grepl('_multi$', res_eval_i$Method) | 
+    !grepl('-EUR|-EAS|-AFR', res_eval_i$Group), 'Multi', 'Single')
+  
+  res_eval_i$Group <- gsub('\\.multi', '-multi', res_eval_i$Group)
+  res_eval_i$Group_short <- gsub('.*\\.', '', gsub('-.*', '', res_eval_i$Group)) 
+  res_eval_i$n_gwas <- 3
+  res_eval_i$n_gwas[grepl('EUR_', res_eval_i$Group_short)] <- 2
+  res_eval_i$n_gwas[res_eval_i$Source == 'Single'] <- 1
+
+  res_eval_i$Discovery[grepl('-EUR', res_eval_i$Group)] <- 'EUR'
+  res_eval_i$Discovery[grepl('-EAS', res_eval_i$Group)] <- 'EAS'
+  res_eval_i$Discovery[grepl('-AFR', res_eval_i$Group)] <- 'AFR'
+  res_eval_i$Discovery[res_eval_i$Source == 'Multi'] <- res_eval_i$gwas_group[res_eval_i$Source == 'Multi']
+  res_eval_i$Discovery[res_eval_i$n_gwas == 2] <- gsub('_', '+', res_eval_i$Group_short[res_eval_i$n_gwas == 2])
+  
+  res_eval_i$Method<-factor(res_eval_i$Method, levels=unique(res_eval_i$Method))
+  res_eval_i$Model<-factor(res_eval_i$Model, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
+  res_eval_i$Discovery<-factor(res_eval_i$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS','EUR+AFR+EAS'))
+
+  # Remove IndivTune and Multi-IndivTune model for groups that contain one score (aka QuickPRS and SBayesRC)
+  res_eval_i <- res_eval_i[
+    !(res_eval_i$Method %in%  c('quickprs','sbayesrc') & 
+      res_eval_i$Model %in% c('IndivTune','Multi-IndivTune')),]
+  
+  # Remove pseudo model for methods that don't really have one 
+  res_eval_i <- res_eval_i[
+    !(res_eval_i$Method %in%  c('ptclump','ptclump_multi') & 
+      res_eval_i$Model %in% c('SumStatTune','Multi-SumStatTune')),]
+
+  # Remove top1 models for *-Multi, PRS-CSx, X-wing
+  res_eval_i <- res_eval_i[
+    !((res_eval_i$Method %in%  c('prscsx', 'xwing') | grepl('_multi$', res_eval_i$Method)) & 
+      grepl('top1', res_eval_i$Group)),]
+  
+  # Remove any duplicate models
+  res_eval_i <- res_eval_i[!duplicated(res_eval_i[, c(
+    "Target", "Method", "Model", "Source", "Discovery","gwas_group"
+  )]),]
+  
+  res_eval[[pheno_i]]<-res_eval_i
+  
+}
+
+# Create vector defining or of methods in plots
+model_order <- c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC", "DBSLMM-multi", "lassosum-multi", "LDpred2-multi", "MegaPRS-multi", "PRS-CS-multi", "pT+clump-multi", "QuickPRS-multi", "SBayesRC-multi", "PRS-CSx", "X-Wing", "All") 
+
+res_eval_simp <- NULL
+for(pheno_i in selected_traits){
+  tmp <- res_eval[[pheno_i]]
+  tmp$Trait <- pheno_i
+  
+  # Insert nice PGS method names
+  tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+  tmp$label[is.na(tmp$label)] <- 'All'
+  tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
+  tmp$label <- factor(tmp$label, levels = model_order)
+  
+  # Simplify result to either SumStatTune or IndivTune
+  tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+  tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
+  tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery','Model'), with=F]),]
+  
+  res_eval_simp <- rbind(res_eval_simp, tmp)
+}
+
+# Plot results for each phenotype separately
+dir.create('~/oliverpainfel/Analyses/crosspop/plots_three_pop')
+
+for(pheno_i in selected_traits){
+  tmp <- res_eval_simp[res_eval_simp$Trait == pheno_i,]
+
+  # Remove single GWAS results
+  tmp <- tmp[tmp$n_gwas != 1,]
+  
+  # Restrict to target matched + EUR and All GWAS
+  tmp <- tmp[!(tmp$Target == 'AFR' & tmp$Discovery == 'EUR+EAS'),]
+  tmp <- tmp[!(tmp$Target == 'EAS' & tmp$Discovery == 'EUR+AFR'),]
+  tmp$Discovery_clean <- as.character(tmp$Discovery)
+  tmp$Discovery_clean[(tmp$Target == 'EAS' & tmp$Discovery == 'EUR+EAS')]<-'Target-matched + EUR GWAS'
+  tmp$Discovery_clean[(tmp$Target == 'AFR' & tmp$Discovery == 'EUR+AFR')]<-'Target-matched + EUR GWAS'
+  tmp$Discovery_clean[tmp$Discovery == 'EUR+AFR+EAS']<-'AFR + EAS + EUR GWAS'
+  tmp$Discovery_clean <- factor(tmp$Discovery_clean, levels = c(
+    'Target-matched + EUR GWAS', 'AFR + EAS + EUR GWAS'
+  ))
+  
+  tmp$Target <- paste0(tmp$Target, ' Target')
+
+  png(paste0('~/oliverpainfel/Analyses/crosspop/plots_three_pop/', pheno_i,'.png'), res=300, width = 3400, height = 2000, units = 'px')
+  plot_tmp<-ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x=NULL, fill = NULL, title = info_all$`Trait Description`[info_all$`Trait Label` == pheno_i]) +
+    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+  print(plot_tmp)
+  dev.off()
+}
+
+####
+# Average results across phenotypes
+####
+
+library(MAd)
+
+# Average R across phenotypes
+meta_res_eval <- NULL
+for(targ_pop_i in targ_pop){
+  # Subset res_eval for each scenario
+  res_eval_i <- do.call(rbind, lapply(seq_along(res_eval), function(i) {
+    x <- res_eval[[i]]
+    x$pheno <- names(res_eval)[i]
+    x <- x[x$Target == targ_pop_i]
+  }))
+  
+  # Average res_evalults for each test across phenotypes
+  # Use MAd to account for correlation between them
+  res_eval_i$Sample<-'A'
+
+  for(group_i in unique(res_eval_i$Group)){
+    res_eval_group_i <- res_eval_i[res_eval_i$Group == group_i,]
+    missing_pheno <-
+      colnames(cors[[targ_pop_i]])[!(colnames(cors[[targ_pop_i]]) %in% unique(res_eval_group_i$pheno))]
+    
+    if (!all(colnames(cors[[targ_pop_i]]) %in% unique(res_eval_group_i$pheno))) {
+      print(paste0(
+        'res_evalults missing for ',
+        targ_pop_i,
+        ' ',
+        group_i,
+        ' ',
+        paste0(missing_pheno, collapse = ' ')
+      ))
+    }
+    
+    cors_i <- cors[[targ_pop_i]][unique(res_eval_group_i$pheno), unique(res_eval_group_i$pheno)]
+    
+    meta_res_eval_i <-
+      agg(
+        id = Sample,
+        es = R,
+        var = SE ^ 2,
+        cor = cors_i,
+        method = "BHHR",
+        mod = NULL,
+        data = res_eval_group_i
+      )
+    
+    tmp <- data.table(Group = group_i,
+                      Method = res_eval_group_i$Method[1],
+                      Model = res_eval_group_i$Model[1],
+                      Source = res_eval_group_i$Source[1],
+                      Discovery = res_eval_group_i$Discovery[1],
+                      gwas_group = res_eval_group_i$gwas_group[1],
+                      n_gwas = res_eval_group_i$n_gwas[1],
+                      Target = targ_pop_i,
+                      R = meta_res_eval_i$es,
+                      SE = sqrt(meta_res_eval_i$var))
+    
+    meta_res_eval <- rbind(meta_res_eval, tmp)
+  }
+}
+
+meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTune','SumStatTune','Multi-IndivTune','Multi-SumStatTune'))
+meta_res_eval$Discovery<-factor(meta_res_eval$Discovery, levels=c('AFR','EAS','EUR','EUR+AFR','EUR+EAS','EUR+AFR+EAS'))
+
+write.csv(meta_res_eval, '~/oliverpainfel/Analyses/crosspop/r_eval_three_pop.csv', row.names = F)
+
+# Plot average performance across phenotypes for AFR and EAS targets
+tmp <- meta_res_eval
+tmp <- tmp[tmp$Target != 'EUR',]
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$label[is.na(tmp$label)] <- 'All'
+tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
+tmp$label <- factor(tmp$label, levels = model_order)
+tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
+tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery','Model'), with=F]),]
+
+# Remove single GWAS results
+tmp <- tmp[tmp$n_gwas != 1,]
+
+# Restrict to target matched + EUR and All GWAS
+tmp <- tmp[!(tmp$Target == 'AFR' & tmp$Discovery == 'EUR+EAS'),]
+tmp <- tmp[!(tmp$Target == 'EAS' & tmp$Discovery == 'EUR+AFR'),]
+tmp$Discovery_clean <- as.character(tmp$Discovery)
+tmp$Discovery_clean[(tmp$Target == 'EAS' & tmp$Discovery == 'EUR+EAS')]<-'Target-matched + EUR GWAS'
+tmp$Discovery_clean[(tmp$Target == 'AFR' & tmp$Discovery == 'EUR+AFR')]<-'Target-matched + EUR GWAS'
+tmp$Discovery_clean[tmp$Discovery == 'EUR+AFR+EAS']<-'AFR + EAS + EUR GWAS'
+tmp$Discovery_clean <- factor(tmp$Discovery_clean, levels = c(
+  'Target-matched + EUR GWAS', 'AFR + EAS + EUR GWAS'
+))
+
+tmp$Target <- paste0(tmp$Target, ' Target')
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/plots_three_pop/average_r.png'), res=300, width = 3200, height = 2000, units = 'px')
+ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+
+```
+</details>
+
+***
+
+# Using GWAS in GenoPred pipeline paper
+
+This is to provide more confidence in the performance of SBayesRC and QuickPRS relative to other methods, when using GWAS that are not from single samples, typically large meta-analyses. This is a common scenario and some methods might be more robust to mispecification than others.
+
+***
+
+## Prepare configuration
+
+***
+
+## Run pipeline
+
+***
+
+## Run model_builder
+
+***
+
+## Plot results
+
+***
+
+***
+
+Additional things we could check:
+
+- Performance when using PAGE GWAS - It is a mixture of non-EUR populations, mainly AFR and AMR. The same size is larger than UGR. It was used in SBayesRC and PRS-CSx paper
+- Downsample BBJ GWAS
+- Larger reference sample size
+- Larger SNP set
+- Performance of single source methods using GWAS that were in original GenoPred pipeline (meta-analyses)
+
+All of these additional tests could be restricted to UKB GWAS sumstats. They have been done to some extent already in the SBayesRC paper. 
+I think the most interesting points are:
+- Looking at performance using downsampled UKB sumstats
+- Looking at performance using GWAS from GenoPred pipe study
+
+
+
+
+

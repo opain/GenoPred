@@ -68,6 +68,23 @@ log_file <- paste0(opt$out,'.log')
 log_header(log_file = log_file, opt = opt, script = 'model_builder.R', start.time = start.time)
 
 ###########
+# Read in the outcome data
+###########
+
+outcome<-read_outcome(x = opt$outcome, keep = opt$keep)
+
+# Determine whether outcome is binary or continuous and format accordingly
+if (length(unique(outcome$outcome_var)) > 2) {
+  family <- 'gaussian'
+}
+if (length(unique(outcome$outcome_var)) == 2) {
+  family <- 'binomial'
+  outcome$outcome_var <- factor(outcome$outcome_var, labels = c('CONTROL', 'CASE'))
+}
+
+log_add(log_file = log_file, message = paste0('Phenotype is ', ifelse(family == 'binomial', 'binary', 'quantitative'),'.'))
+
+###########
 # Read in predictors
 ###########
 
@@ -75,7 +92,7 @@ predictors_file <- fread(opt$predictors)
 
 if(nrow(predictors_file) > 1){
   predictors <- foreach(i = 1:nrow(predictors_file)) %dopar% {
-    read_predictor(x = predictors_file$predictor[i], pred_miss = opt$pred_miss, file_index = i)
+    read_predictor(x = predictors_file$predictor[i], pred_miss = opt$pred_miss, file_index = i, keep = outcome$IID)
   }
 
   group_list <- do.call(rbind, lapply(1:nrow(predictors_file), function(predfile) {
@@ -144,23 +161,6 @@ for(i in unique(group_list$multi)){
 
 write.table(group_list[!duplicated(group_list$group), c('group','n_multi','n_top1'), with = F], paste0(opt$out,'.group_list.txt'), col.names=T, row.names=F, quote=F)
 log_add(log_file = log_file, message = paste0('List of groups saved as ',opt$out,'.group_list.txt.'))
-
-###########
-# Read in the outcome data
-###########
-
-outcome<-read_outcome(x = opt$outcome, keep = opt$keep)
-
-# Determine whether outcome is binary or continuous and format accordingly
-if (length(unique(outcome$outcome_var)) > 2) {
-  family <- 'gaussian'
-}
-if (length(unique(outcome$outcome_var)) == 2) {
-  family <- 'binomial'
-  outcome$outcome_var <- factor(outcome$outcome_var, labels = c('CONTROL', 'CASE'))
-}
-
-log_add(log_file = log_file, message = paste0('Phenotype is ', ifelse(family == 'binomial', 'binary', 'quantitative'),'.'))
 
 ###########
 # Merge the outcome and predictors

@@ -827,7 +827,7 @@ rule prep_pgs_bridgeprs_i:
   threads: config['cores_prep_pgs']
   input:
     rules.download_bridgeprs_software.output,
-    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas_group}}/{{gwas_group}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
@@ -838,7 +838,7 @@ rule prep_pgs_bridgeprs_i:
   log:
     f"{outdir}/reference/logs/prep_pgs_bridgeprs_i-{{gwas_group}}.log"
   params:
-    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas_group}}/{{gwas_group}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
     testing=config["testing"]
   shell:
@@ -856,8 +856,8 @@ rule prep_pgs_bridgeprs_i:
     """
 
 rule prep_pgs_bridgeprs:
-  input: expand(f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
-
+  input: expand(f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df_two['name'])
+  
 ###############################################
 
 ##
