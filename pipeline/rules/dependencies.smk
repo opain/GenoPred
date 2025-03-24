@@ -319,12 +319,12 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickpr
     quickprs_ldref=f"{resdir}/data/quickprs"
     
     # Check if gwas_list contains invalid populations
-    valid_pops = {'EUR', 'EAS', 'AFR', 'SAS'}
+    valid_pops = {'EUR', 'EAS', 'AFR'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
   
     if invalid_pops:
       raise ValueError(
-        f"Default quickprs reference data is only available for EUR, EAS, AFR and SAS populations. For other populations, please provide your own quickprs reference data using the quickprs_ldref parameter."
+        f"Default quickprs reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own quickprs reference data using the quickprs_ldref parameter."
       )
   else:
     quickprs_ldref=config['quickprs_ldref']
@@ -339,20 +339,34 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickpr
         raise FileNotFoundError(f"Required file not found: {cors_file}. quickprs reference data must include .cors.bin for all populations when quickprs_ldref is specified.")
 
 # Set quickprs_multi reference path
-quickprs_multi_ldref=config['quickprs_multi_ldref']
-if config["leopard_methods"] and config["leopard_methods"] != "NA":
-  missing_files = []
-  for pop in gwas_list_df['population'].unique():
-    path = f"{quickprs_multi_ldref}/{pop}"
-    # Check if required files exists
-    if not os.path.exists(f"{path}/{pop}.subset_1.bed"):
-      missing_files.append(f"{path}/{pop}.subset_1.bed")
-    if not os.path.exists(f"{path}/{pop}.subset_2.bed"):
-      missing_files.append(f"{path}/{pop}.subset_2.bed")
-    if not os.path.exists(f"{path}/{pop}.subset_3.bed"):
-      missing_files.append(f"{path}/{pop}.subset_3.bed")
-    if missing_files:
-      raise FileNotFoundError(f"The following quickprs_multi reference data are missing: {', '.join(missing_files)}")
+if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
+  if config['quickprs_multi_ldref'] == 'NA':
+    quickprs_multi_ldref=f"{resdir}/data/quickprs"
+    
+    # Check if gwas_list contains invalid populations
+    valid_pops = {'EUR', 'EAS', 'AFR'}
+    invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
+  
+    if invalid_pops:
+      raise ValueError(
+        f"Default quickprs reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own quickprs reference data using the quickprs_multi_ldref parameter."
+      )
+  else:
+    quickprs_multi_ldref=config['quickprs_multi_ldref']
+  
+    # Check the quickprs ldref data is present for the required populations in the gwas_list
+    missing_files = []
+    for pop in gwas_list_df['population'].unique():
+      path = f"{quickprs_multi_ldref}/{pop}"
+      # Check if required files exists
+      if not os.path.exists(f"{path}/{pop}.subset_1.bed"):
+        missing_files.append(f"{path}/{pop}.subset_1.bed")
+      if not os.path.exists(f"{path}/{pop}.subset_2.bed"):
+        missing_files.append(f"{path}/{pop}.subset_2.bed")
+      if not os.path.exists(f"{path}/{pop}.subset_3.bed"):
+        missing_files.append(f"{path}/{pop}.subset_3.bed")
+      if missing_files:
+        raise FileNotFoundError(f"The following quickprs_multi reference data are missing: {', '.join(missing_files)}")
 
 # Set sbayesrc reference path
 if config['sbayesrc_ldref'] == 'NA':
@@ -927,6 +941,7 @@ rule download_ldpred2_ref:
       rm -r {resdir}/data/ldpred2_ref/EUR/ldref
     }} > {log} 2>&1
     """
+    
 # Download LDAK
 rule download_ldak:
   output:
@@ -946,6 +961,7 @@ rule download_ldak:
       rm {resdir}/software/ldak/ldak5.1.linux_.zip
     }} > {log} 2>&1
     """
+    
 # Download LDAK map data
 rule download_ldak_map:
   output:
@@ -964,6 +980,7 @@ rule download_ldak_map:
       rm {resdir}/data/ldak_map/genetic_map_b37.zip
     }} > {log} 2>&1
     """
+    
 # Download LDAK bld snp annotations
 rule download_ldak_bld:
   output:
@@ -982,6 +999,7 @@ rule download_ldak_bld:
       rm {resdir}/data/ldak_bld/bld.zip
     }} > {log} 2>&1
     """
+    
 # Download LDAK high ld regions file
 rule download_ldak_highld:
   output:
@@ -1018,8 +1036,37 @@ rule download_ldak5_2:
     }} > {log} 2>&1
     """
 
+# Download QuickPRS reference data
 # NOTE. This doesn't currently work as the reference data on LDAK website isn't in the right format for LDAK 5.1, 5.2, or 6
-# In due course we will update this to download from our own repo. For the timebeing. The user must specify the reference data themselves
+#rule download_quickprs_ref:
+#  output:
+#    f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin"
+#  benchmark:
+#    f"{resdir}/data/benchmarks/download_quickprs_ref-{{population}}.txt"
+#  log:
+#    f"{resdir}/data/logs/download_quickprs_ref-{{population}}.log"
+#  params:
+#    pop_code=lambda wildcards: {'EUR': 'gbr', 'SAS': 'sas', 'EAS': 'eas', 'AFR': 'afr'}[wildcards.population]
+#  shell:
+#    """
+#    {{
+#      mkdir -p {resdir}/data/quickprs; \
+#      rm -r -f {resdir}/data/quickprs/{wildcards.population}; \
+#      wget --no-check-certificate -O {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz https://genetics.ghpc.au.dk/doug/{params.pop_code}.hapmap.tar.gz; \
+#      tar -zxvf {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz -C {resdir}/data/quickprs/; \
+#      mv {resdir}/data/quickprs/{params.pop_code}.hapmap {resdir}/data/quickprs/{wildcards.population}; \
+#      find {resdir}/data/quickprs/{wildcards.population} -type f -name '*{params.pop_code}*' -exec bash -c 'mv \"$0\" \"${{0//{params.pop_code}/{wildcards.population}}}\"' {{}} \; \
+#      find {resdir}/data/quickprs/{wildcards.population} -type f -name '*hapmap*' -exec bash -c 'mv \"$0\" \"${{0//.hapmap./.}}\"' {{}} \; \
+#      rm {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz
+#    }} > {log} 2>&1
+#    """
+
+quickprs_ref_gdrive = {
+    'EUR': '10fuqn6X23dA9WKjQd9xs7xUDiFjTwfz9',
+    'EAS': '1m1OI9HpHbVcX88YvtIt80-1zonSWrZP_',
+    'AFR': '11NoeBLOC-YsxrnRPa0TOPsxywZXCWbP3'
+}
+
 rule download_quickprs_ref:
   output:
     f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin"
@@ -1028,24 +1075,52 @@ rule download_quickprs_ref:
   log:
     f"{resdir}/data/logs/download_quickprs_ref-{{population}}.log"
   params:
-    pop_code=lambda wildcards: {'EUR': 'gbr', 'SAS': 'sas', 'EAS': 'eas', 'AFR': 'afr'}[wildcards.population]
+    id=lambda w: quickprs_ref_gdrive.get(w.population)
   shell:
     """
     {{
       mkdir -p {resdir}/data/quickprs; \
       rm -r -f {resdir}/data/quickprs/{wildcards.population}; \
-      wget --no-check-certificate -O {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz https://genetics.ghpc.au.dk/doug/{params.pop_code}.hapmap.tar.gz; \
-      tar -zxvf {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz -C {resdir}/data/quickprs/; \
-      mv {resdir}/data/quickprs/{params.pop_code}.hapmap {resdir}/data/quickprs/{wildcards.population}; \
-      find {resdir}/data/quickprs/{wildcards.population} -type f -name '*{params.pop_code}*' -exec bash -c 'mv \"$0\" \"${{0//{params.pop_code}/{wildcards.population}}}\"' {{}} \; \
-      find {resdir}/data/quickprs/{wildcards.population} -type f -name '*hapmap*' -exec bash -c 'mv \"$0\" \"${{0//.hapmap./.}}\"' {{}} \; \
-      rm {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz
+      gdown {params.id} -O {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz; \
+      tar -zxvf {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz -C {resdir}/data/quickprs/; \
+      rm {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
 
 rule download_quickprs_ref_all:
   input:
-    lambda w: expand(f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin", population=['EUR', 'SAS', 'EAS', 'AFR'])
+    lambda w: expand(f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin", population=['EUR', 'EAS', 'AFR'])
+
+# Download QuickPRS reference data that has been subset for LEOPARD
+quickprs_leopard_ref_gdrive = {
+    'EUR': '1basMTYv6VEIRDZ3qRdJ04hlVwNmzVpmU',
+    'EAS': '1OGELjphyPbe9Qu9ZjRavhhnM9REuUhoc',
+    'AFR': '1fWQ77dYKaYIcHJFLii-0Aic_9F96VnQK'
+}
+
+rule download_quickprs_leopard_ref:
+  output:
+    f"{resdir}/data/quickprs_leopard/{{population}}/{{population}}.cors.bin"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_quickprs_leopard_ref-{{population}}.txt"
+  log:
+    f"{resdir}/data/logs/download_quickprs_leopard_ref-{{population}}.log"
+  params:
+    id=lambda w: quickprs_leopard_ref_gdrive.get(w.population)
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data/quickprs_leopard; \
+      rm -r -f {resdir}/data/quickprs_leopard/{wildcards.population}; \
+      gdown {params.id} -O {resdir}/data/quickprs_leopard/ldak_quickprs_hm3_{wildcards.population}.tar.gz; \
+      tar -zxvf {resdir}/data/quickprs_leopard/ldak_quickprs_hm3_{wildcards.population}.tar.gz -C {resdir}/data/quickprs_leopard/; \
+      rm {resdir}/data/quickprs_leopard/ldak_quickprs_hm3_{wildcards.population}.tar.gz
+    }} > {log} 2>&1
+    """
+
+rule download_quickprs_leopard_ref_all:
+  input:
+    lambda w: expand(f"{resdir}/data/quickprs_leopard/{{population}}/{{population}}.cors.bin", population=['EUR', 'EAS', 'AFR'])
 
 # Download preprocessed reference data (1KG+HGDP HapMap3)
 rule download_default_ref:

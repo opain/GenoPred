@@ -214,7 +214,7 @@ top1_indep_pred <- foreach(i = 1:length(unique(group_list$group)), .combine = 'c
     # NOTE. Should we be using the RMSE to select the best predictor within a group.
     top1_res<-NULL
     for(pred_i in names(cv_dat$train$x)){
-      res_pred_i <- cor(cv_dat$train$y, cv_dat$train$x[[pred_i]], use='p')
+      res_pred_i <- cor(as.numeric(cv_dat$train$y), cv_dat$train$x[[pred_i]], use='p')
       top1_res <- rbind(
         top1_res,
         data.table(
@@ -241,7 +241,7 @@ top1_indep_pred <- foreach(i = 1:length(unique(group_list$group)), .combine = 'c
   if(opt$export_models){
     top1_res<-NULL
     for(pred_i in names(cv_dat$train$x)){
-      res_pred_i <- cor(outcome_predictors$outcome_var, outcome_predictors[[pred_i]], use='p')
+      res_pred_i <- cor(as.numeric(outcome_predictors$outcome_var), outcome_predictors[[pred_i]], use='p')
       top1_res <- rbind(
         top1_res,
         data.table(
@@ -299,7 +299,7 @@ multi <- foreach(i = 1:length(unique(group_list$multi)), .combine = 'c') %dopar%
       # NOTE. Should we be using the RMSE to select the best predictor within a group.
       top1_res<-NULL
       for(pred_i in names(cv_dat_subset$train$x)){
-        res_pred_i <- cor(cv_dat_subset$train$y, cv_dat_subset$train$x[[pred_i]], use='p')
+        res_pred_i <- cor(as.numeric(cv_dat_subset$train$y), cv_dat_subset$train$x[[pred_i]], use='p')
         top1_res <- rbind(
           top1_res,
           data.table(
@@ -338,7 +338,7 @@ multi <- foreach(i = 1:length(unique(group_list$multi)), .combine = 'c') %dopar%
       # NOTE. Should we be using the RMSE to select the best predictor within a group.
       top1_res<-NULL
       for(pred_i in pred_name){
-        res_pred_i <- cor(outcome_predictors$outcome_var, outcome_predictors[[pred_i]], use='p')
+        res_pred_i <- cor(as.numeric(outcome_predictors$outcome_var), outcome_predictors[[pred_i]], use='p')
         top1_res <- rbind(
           top1_res,
           data.table(

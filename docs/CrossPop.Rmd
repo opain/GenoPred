@@ -6376,7 +6376,8 @@ config<-c(
   "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_meta.yaml",
   "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_meta.txt",
   "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
-  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
+  "pgs_methods: ['quickprs','sbayesrc','ldpred2','ptclump','dbslmm']",
+#  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
   "cores_prep_pgs: 10",
   "cores_target_pgs: 50",
   "ldpred2_inference: F",
@@ -6410,9 +6411,369 @@ snakemake \
 
 ## Run model_builder
 
+<details><summary>Show code</summary>
+
+```{r}
+
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+library(data.table)
+
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_meta.yaml'
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Read in gwas_list
+gwas_list<-read_param(config = config, param = 'gwas_list')
+
+# Create column containing the phenotypes corresponding to each GWAS
+gwas_list$pheno<-tolower(gwas_list$label)
+gwas_list$pheno[gwas_list$pheno == 'breast cancer']<-'bc'
+gwas_list$pheno[gwas_list$pheno == 'prostate cancer']<-'pc'
+gwas_list$pheno[gwas_list$pheno == 'egfr']<-'egfr,ckd'
+gwas_list$pheno[gwas_list$pheno == 'urate levels']<-'urate,gout'
+gwas_list$pheno[gwas_list$pheno == 'rheumatoid arthritis']<-'ra'
+
+bin_phenos <- c('bc', 'ckd', 'gout', 'ibd', 'pc', 'ra', 'stroke', 't1d', 't2d')
+con_phenos <- c('height','bmi','egfr','hba1c','urate','hdl')
+phenos<-c(bin_phenos, con_phenos)
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+# Create files for EUR target
+for(trait_i in phenos){
+  scores_i <- scores[scores$name == gwas_list$name[grepl(paste0('^', trait_i, '$','|', ',', trait_i, '$','|', '^', trait_i, ','), gwas_list$pheno)],]
+
+  dir.create(
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/crosspop/meta/targ_EUR.disc_EUR/', trait_i
+    ),
+    recursive = T
+  )
+  
+  scores_i$predictor <- paste0(
+    outdir,
+    '/ukb/pgs/TRANS/',
+    scores_i$method,
+    '/',
+    scores_i$name,
+    '/ukb-',
+    scores_i$name,
+    '-TRANS.profiles'
+  )
+  
+  scores_i$multi<-scores_i$method
+  scores_i$top1 <- 'EUR'
+
+  # Extract the pseudo score for each method and specify as a separate group
+  for(i in 1:nrow(scores_i)) {
+    param <- find_pseudo(
+      config = config,
+      gwas = scores_i$name[i],
+      pgs_method = scores_i$method[i],
+      target_pop = 'EUR'
+    )
+    
+    score_header <-
+      fread(scores_i$predictor[i], nrows = 1)
+    score_cols <-
+      which(names(score_header) %in% c('FID', 'IID', paste0(scores_i$name[i], '_', param)))
+    
+    system(
+      paste0(
+        "cut -d' ' -f ", 
+        paste0(score_cols, collapse=','),
+        " ", 
+        scores_i$predictor[i], 
+        " > ", 
+        gsub('.profiles',
+             paste0('.EUR_pseudo.profiles'),
+             scores_i$predictor[i])
+      )
+    )
+  }
+  
+  scores_i_pseudo <- scores_i
+  scores_i_pseudo$multi <- paste0(scores_i_pseudo$multi, '.pseudo')
+
+  scores_i_pseudo$predictor <- gsub('.profiles', 
+                                paste0('.EUR_pseudo.profiles'),
+                                scores_i_pseudo$predictor)
+
+
+  predictors_i<- do.call(rbind, list(
+    scores_i, scores_i_pseudo
+  ))
+  
+  predictors_i <- predictors_i[, c('predictor', 'top1','multi'), with=F]
+  
+  write.table(
+    predictors_i,
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/crosspop/meta/targ_EUR.disc_EUR/', trait_i, '/predictor_list.txt'
+    ),
+    col.names = T,
+    row.names = F,
+    quote = F
+  )
+}
+
+########
+# Prepare phenotype data
+########
+
+# Read in list of EUR in UKB
+eur_keep <- fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/output/ukb/pcs/within_sample/ukb.outlier_detection.EUR.keep')
+names(eur_keep)<-c('FID','IID')
+
+# Update row number IDs to project specific IDs
+psam<-fread('/scratch/prj/ukbiobank/recovered/ukb82087/imputed/ukb82087_imp_chr1_MAF1_INFO4_v1.psam')
+psam$rn<-1:nrow(psam)
+psam<-psam[,c('IID','rn'), with = F]
+
+bin_phenos <- c('bc', 'ckd', 'gout', 'ibd', 'pc', 'ra', 'stroke', 't1d', 't2d')
+con_phenos <- c('height','bmi','egfr','hba1c','urate','hdl')
+phenos<-c(bin_phenos, con_phenos)
+
+dir.create('~/oliverpainfel/Data/ukb/phenotypes/benchmark')
+
+for(i in phenos){
+  # Read in pheno data
+  pheno_i <- fread(paste0(
+      '/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/ollie_pain/phenotypes/',
+      i,
+      '.unrel.txt'
+    ))
+  
+  names(pheno_i)<-c('IID','PHENO')
+  
+  # Update to row number based IDs
+  pheno_i<-merge(psam[,c('IID','rn'), with=F], pheno_i, by='IID')
+  pheno_i$IID<-pheno_i$rn
+  pheno_i$rn<-NULL
+  pheno_i$FID<-pheno_i$IID
+  pheno_i<-pheno_i[, c('FID','IID','PHENO'), with=F]
+  
+  # Restrict to EUR
+  pheno_i <- pheno_i[pheno_i$FID %in% eur_keep$FID,]
+  
+  # Write file
+  write.table(pheno_i, paste0('~/oliverpainfel/Data/ukb/phenotypes/benchmark/', i, '.unrel.eur.txt'), row.names = F, quote = F)
+}
+
+```
+
+</details>
+
+
+<details><summary>Show code</summary>
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate model_builder
+
+#rm /users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_1kgref/targ_*.disc_EUR_*/*/res*
+
+for pheno in $(echo bc ckd gout ibd pc ra stroke t1d t2d height bmi egfr hba1c urate hdl); do
+  if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/meta/targ_EUR.disc_EUR/${pheno}/res.pred_comp.txt" ]; then
+    sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+      --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/benchmark/${pheno}.unrel.eur.txt \
+      --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/meta/targ_EUR.disc_EUR/${pheno}/predictor_list.txt \
+      --out /users/k1806347/oliverpainfel/Analyses/crosspop/meta/targ_EUR.disc_EUR/${pheno}/res \
+      --n_core 5"
+  fi
+done
+
+```
+</details>
+
 ***
 
 ## Plot results
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+bin_phenos <- c('bc', 'ckd', 'gout', 'ibd', 'pc', 'ra', 'stroke', 't1d', 't2d')
+con_phenos <- c('height','bmi','egfr','hba1c','urate','hdl')
+phenos<-c(bin_phenos, con_phenos)
+
+# Calculate correlation between all phenotypes in each target population
+pheno_pop_i <- list()
+for(pheno_i in phenos){
+  pheno_pop_i[[pheno_i]] <- fread(paste0('/users/k1806347/oliverpainfel/Data/ukb/phenotypes/benchmark/', pheno_i, '.unrel.eur.txt'))
+  names(pheno_pop_i[[pheno_i]])[3] <- pheno_i
+}
+
+pheno_pop_i_merged <- merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE, by = c('FID','IID')), pheno_pop_i)
+
+cors <- abs(cor(as.matrix(pheno_pop_i_merged[,-1:-2, with=F]), use='p'))
+cors[is.na(cors)]<-0
+
+# Read in results
+res_eval <- list()
+for(pheno_i in phenos){
+  eval_i <-
+    fread(
+      paste0(
+        '/users/k1806347/oliverpainfel/Analyses/crosspop/meta/targ_EUR.disc_EUR/', pheno_i,'/res.pred_eval.txt'
+      )
+    )
+
+  eval_i$Ncase <- NULL
+  eval_i$Ncont <- NULL
+  eval_i$R2l <- NULL
+  eval_i$R2o <- NULL
+  
+  eval_i <- eval_i[!grepl('\\.multi', eval_i$Group),]
+  
+  eval_i$Method<-sub('\\..*','',eval_i$Group)
+  eval_i$Method<-gsub('-.*','', eval_i$Method)
+  
+  eval_i$Model[grepl('top1$', eval_i$Group) &
+                   !grepl('pseudo', eval_i$Group)]<-'IndivTune'
+  eval_i$Model[grepl('top1$', eval_i$Group) &
+                   grepl('pseudo', eval_i$Group)]<-'SumStatTune'
+
+  eval_i$Method<-factor(eval_i$Method, levels=unique(eval_i$Method))
+  eval_i$Model<-factor(eval_i$Model, levels=c('IndivTune','SumStatTune'))
+
+  # Remove IndivTune and Multi-IndivTune model for groups that contain one score (aka QuickPRS and SBayesRC)
+  eval_i <- eval_i[
+    !(eval_i$Method %in%  c('quickprs','sbayesrc') & 
+      eval_i$Model %in% c('IndivTune')),]
+  
+  # Remove pseudo model for methods that don't really have one 
+  eval_i <- eval_i[
+    !(eval_i$Method %in%  c('ptclump') & 
+      eval_i$Model %in% c('SumStatTune')),]
+  
+  res_eval[[pheno_i]]<-eval_i
+  
+}
+
+# Create vector defining or of methods in plots
+model_order <- c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesRC") 
+
+res_eval_simp <- NULL
+for(pheno_i in phenos){
+  tmp <- res_eval[[pheno_i]]
+  tmp$Trait <- pheno_i
+  
+  # Insert nice PGS method names
+  tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+  tmp$label <- factor(tmp$label, levels = model_order)
+
+  res_eval_simp <- rbind(res_eval_simp, tmp)
+}
+
+# Plot results for each phenotype separately
+dir.create('~/oliverpainfel/Analyses/crosspop/plots_meta')
+
+ggplot(res_eval_simp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x=NULL, fill = NULL) +
+    facet_wrap(Trait ~ ., scales = 'free_y') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+
+####
+# Average results across phenotypes
+####
+
+library(MAd)
+
+# Average R across phenotypes
+meta_res_eval <- NULL
+
+# Average res_evalults for each test across phenotypes
+# Use MAd to account for correlation between them
+res_eval_simp$Sample<-'A'
+
+for(group_i in unique(res_eval_simp$Group)){
+  res_eval_group_i <- res_eval_simp[res_eval_simp$Group == group_i,]
+  missing_pheno <- colnames(cors)[!(colnames(cors) %in% unique(res_eval_simp$Trait))]
+  
+  if (!all(colnames(cors) %in% unique(res_eval_simp$Trait))) {
+    print(paste0(
+      'res_evalults missing for ',
+      targ_pop_i,
+      ' ',
+      group_i,
+      ' ',
+      paste0(missing_pheno, collapse = ' ')
+    ))
+  }
+  
+  cors_i <- cors[unique(res_eval_group_i$Trait), unique(res_eval_group_i$Trait)]
+  
+  meta_res_eval_simp <-
+    agg(
+      id = Sample,
+      es = R,
+      var = SE ^ 2,
+      cor = cors_i,
+      method = "BHHR",
+      mod = NULL,
+      data = res_eval_group_i
+    )
+  
+  tmp <- data.table(Group = group_i,
+                    Method = res_eval_group_i$Method[1],
+                    Model = res_eval_group_i$Model[1],
+                    R = meta_res_eval_simp$es,
+                    SE = sqrt(meta_res_eval_simp$var))
+  
+  meta_res_eval <- rbind(meta_res_eval, tmp)
+}
+
+meta_res_eval$Model<-factor(meta_res_eval$Model, levels=c('IndivTune','SumStatTune'))
+
+write.csv(meta_res_eval, '~/oliverpainfel/Analyses/crosspop/meta/r_eval.csv', row.names = F)
+
+# Plot average performance across phenotypes for AFR and EAS targets
+tmp <- meta_res_eval
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$label <- factor(tmp$label, levels = model_order)
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/plots_meta/average_r.png'), res=300, width = 3200, height = 2000, units = 'px')
+ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+
+# Result is consistent. SBayesRC is slightly better than QuickPRS on average.
+
+```
 
 ***
 
@@ -6521,7 +6882,7 @@ for(n in c(5, 15, 45, 135)){
       gwas_list_tmp$pheno,
       '.',
       n,
-      '.GW.txt'
+      '.GW.txt.gz'
     )
   gwas_list_tmp$label <-
     paste0(
@@ -6546,7 +6907,8 @@ config<-c(
   "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_subsampled.yaml",
   "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_subsampled.txt",
   "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
-  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
+  "pgs_methods: ['quickprs','sbayesrc','ptclump','ldpred2']",
+#  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
   "cores_prep_pgs: 10",
   "cores_target_pgs: 50",
   "ldpred2_inference: F",
@@ -6558,6 +6920,162 @@ config<-c(
 
 write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_subsampled.yaml', col.names = F, row.names = F, quote = F)
 ```
+
+***
+
+## Run pipeline
+
+<details><summary>Show code</summary>
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_subsampled.yaml \
+  target_pgs -n
+```
+
+</details>
+
+***
+
+### Create predictor lists
+
+<details><summary>Show code</summary>
+
+```{r}
+
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+library(data.table)
+
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_subsampled.yaml'
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Read in list of outcomes 
+selected_traits<-c('TC', 'HT', 'HB')
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+# Create files for EAS and AFR targets
+for(trait_i in selected_traits){
+  
+  dir.create(
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/crosspop/subsampled/targ_EUR.disc_EUR/', trait_i
+    ),
+    recursive = T
+  )
+  
+  scores_i <- scores[grepl('^HT_', scores$name),]
+
+  scores_i$predictor <- paste0(
+    outdir,
+    '/ukb/pgs/TRANS/',
+    scores_i$method,
+    '/',
+    scores_i$name,
+    '/ukb-',
+    scores_i$name,
+    '-TRANS.profiles'
+  )
+  
+  scores_i$top1 <- paste0(scores_i$method,'.',gsub('.*_', '', scores_i$name))
+
+  ####
+  # Make groups containing pseudo scores for single source methods
+  ####
+
+  # Extract the pseudo score for each method and specify as a separate group
+  # This can be skipped as it was done before
+  for(i in 1:nrow(scores_i)) {
+    param <- find_pseudo(
+      config = config,
+      gwas = scores_i$name[i],
+      pgs_method = scores_i$method[i],
+      target_pop = 'EUR'
+    )
+    
+    score_header <-
+      fread(scores_i$predictor[i], nrows = 1)
+    score_cols <-
+      which(names(score_header) %in% c('FID', 'IID', paste0(scores_i$name[i], '_', param)))
+    
+    system(
+      paste0(
+        "cut -d' ' -f ", 
+        paste0(score_cols, collapse=','),
+        " ", 
+        scores_i$predictor[i], 
+        " > ", 
+        gsub('.profiles',
+             paste0('.EUR_pseudo.profiles'),
+             scores_i$predictor[i])
+      )
+    )
+  }
+  
+  scores_i_pseudo <- scores_i
+  scores_i_pseudo$top1<-paste0(scores_i_pseudo$top1,'.pseudo')
+
+  scores_i_pseudo$predictor <- gsub('.profiles', 
+                                paste0('.EUR_pseudo.profiles'),
+                                scores_i_pseudo$predictor)
+
+  
+  ####
+  # Combine the different predictor groups
+  ####
+  predictors_i<- do.call(rbind, list(
+    scores_i, 
+    scores_i_pseudo
+  ))
+  predictors_i$multi <- 'All'
+  predictors_i <- predictors_i[, c('predictor', 'multi','top1'), with=F]
+      
+  write.table(
+    predictors_i,
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/crosspop/subsampled/targ_EUR.disc_EUR/', trait_i, '/predictor_list.txt'
+    ),
+    col.names = T,
+    row.names = F,
+    quote = F
+  )
+}
+
+```
+</details>
+
+***
+
+### Run model_builder
+
+<details><summary>Show code</summary>
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate model_builder
+
+#rm /users/k1806347/oliverpainfel/Analyses/crosspop/targ_*.disc_AFR_EAS_EUR/*/res*
+
+for pheno in $(echo TC HT HB); do
+  if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/subsampled/targ_EUR.disc_EUR/${pheno}/res.pred_comp.txt" ]; then
+    sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+      --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.EUR_test.row_number.txt \
+      --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/subsampled/targ_EUR.disc_EUR/${pheno}/predictor_list.txt \
+      --out /users/k1806347/oliverpainfel/Analyses/crosspop/subsampled/targ_EUR.disc_EUR/${pheno}/res \
+      --n_core 5"
+  fi
+done
+
+```
+</details>
+
 
 ***
 

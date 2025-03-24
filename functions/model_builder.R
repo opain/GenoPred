@@ -168,8 +168,8 @@ eval_pred <- function(obs, pred, family){
       mod_sum,
       R2l = h2l_R2(
         opt$outcome_pop_prev,
-        coef(Indep_mod)[2, 1] ^ 2,
-        sum(cv_dat$test$y == 'CASE') / length(cv_dat$test$y)
+        coef(mod_sum)[2, 1] ^ 2,
+        sum(obs == 'CASE') / length(obs)
       ),
       N = length(obs),
       Ncase = sum(obs == 'CASE'),
