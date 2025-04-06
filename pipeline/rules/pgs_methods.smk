@@ -6,28 +6,28 @@ rule ref_pca_i:
     f"{resdir}/last_version.txt",
     "../Scripts/ref_pca/ref_pca.R"
   output:
-    f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
   conda:
     "../envs/analysis.yaml",
   params:
     testing=config["testing"],
     ref_keep=lambda wildcards: "NA" if wildcards.population == "TRANS" else f"{refdir}/keep_files/{wildcards.population}.keep"
   benchmark:
-    f"{resdir}/data/benchmarks/ref_pca_i-{{population}}.txt"
+    f"{outdir}/reference/benchmarks/ref_pca_i-{{population}}.txt"
   log:
-    f"{resdir}/data/logs/ref_pca_i-{{population}}.log"
+    f"{outdir}/reference/logs/ref_pca_i-{{population}}.log"
   shell:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {params.ref_keep} \
       --pop_data {refdir}/ref.pop.txt \
-      --output {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
+      --output {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
       --test {params.testing} > {log} 2>&1"
 
 populations=["AFR","AMR","CSA","EAS","EUR","MID","TRANS"]
 
 rule ref_pca:
-  input: expand(f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale", population=populations)
+  input: expand(f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale", population=populations)
 
 ##
 # QC and format GWAS summary statistics
@@ -51,7 +51,6 @@ if 'gwas_list' in config:
     params:
       outdir=config["outdir"],
       refdir=config["refdir"],
-      config_file = config["config_file"],
       testing = config['testing'],
       population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
       n= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'n'].iloc[0],
@@ -78,7 +77,7 @@ rule sumstat_prep:
 rule prep_pgs_ptclump_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -95,7 +94,7 @@ rule prep_pgs_ptclump_i:
     "Rscript ../Scripts/pgs_methods/ptclump.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --output {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
@@ -126,7 +125,7 @@ rule prep_pgs_dbslmm_i:
     rules.download_hm3_snplist.output,
     rules.download_dbslmm.output,
     rules.download_ld_blocks.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -146,7 +145,7 @@ rule prep_pgs_dbslmm_i:
     "Rscript ../Scripts/pgs_methods/dbslmm.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ld_blocks {resdir}/data/ld_blocks/{params.ld_block_pop} \
       --plink {resdir}/software/plink/plink \
@@ -175,13 +174,13 @@ rule prep_pgs_dbslmm:
 rule prep_pgs_prscs_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_prscs_software.output,
     lambda w: f"{resdir}/data/prscs_ref/" + prscs_ldref + "/ldblk_" + prscs_ldref + "_" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0].lower() + "/ldblk_1kg_chr1.hdf5",
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -202,7 +201,7 @@ rule prep_pgs_prscs_i:
     export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/prscs.R \
     --ref_plink_chr {refdir}/ref.chr \
-    --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+    --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
@@ -229,7 +228,7 @@ rule prep_pgs_sbayesr_i:
     lambda w: f"{sbayesr_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
     rules.download_gctb_ref.output,
     rules.download_gctb_software.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
@@ -243,7 +242,7 @@ rule prep_pgs_sbayesr_i:
   shell:
     "Rscript ../Scripts/pgs_methods/sbayesr.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb/gctb_2.03beta_Linux/gctb \
       --ld_matrix_chr {sbayesr_ldref} \
@@ -267,7 +266,7 @@ rule prep_pgs_lassosum_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.install_lassosum.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -284,7 +283,7 @@ rule prep_pgs_lassosum_i:
      --ref_plink_chr {refdir}/ref.chr \
      --ref_keep {refdir}/keep_files/{params.population}.keep \
      --gwas_pop {params.population} \
-     --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+     --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
      --n_cores {threads} \
@@ -301,12 +300,12 @@ rule prep_pgs_lassosum:
 rule prep_pgs_ldpred2_i:
   resources:
     mem_mb=30000,
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     lambda w: f"{ldpred2_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -327,7 +326,7 @@ rule prep_pgs_ldpred2_i:
     Rscript ../Scripts/pgs_methods/ldpred2.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -348,7 +347,7 @@ rule prep_pgs_ldpred2:
 rule prep_pgs_megaprs_i:
   resources:
     mem_mb=20000,
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -356,7 +355,7 @@ rule prep_pgs_megaprs_i:
     rules.download_ldak.output,
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -372,7 +371,7 @@ rule prep_pgs_megaprs_i:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak/ldak5.1.linux \
       --ldak_map {resdir}/data/ldak_map/genetic_map_b37 \
@@ -390,26 +389,26 @@ rule prep_pgs_megaprs:
 # LDAK QuickPRS
 ##
 
-def get_quickprs_reference_path(w, gwas_list_df, resdir):
+def get_quickprs_ldref_path(w, gwas_list_df, resdir):
   # Get the population from the GWAS list
   population = gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]
 
   # Return the full path string
-  return f"{quickprs_ldref}/{population}.hm3/{population}.hm3.cors.bin"
-
+  return f"{quickprs_ldref}/{population}/{population}.cors.bin"
+  
 rule prep_pgs_quickprs_i:
   resources:
     mem_mb=20000,
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    lambda w: get_quickprs_reference_path(w, gwas_list_df, resdir),
+    lambda w: get_quickprs_ldref_path(w, gwas_list_df, resdir),
     rules.download_ldak_highld.output,
     rules.download_ldak5_2.output,
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -420,15 +419,14 @@ rule prep_pgs_quickprs_i:
     "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    quick_prs_ref= lambda w: f"{quickprs_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}.hm3",
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/quickprs.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
-      --quick_prs_ref {params.quick_prs_ref} \
+      --quickprs_ldref {quickprs_ldref}/{params.population} \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
@@ -444,16 +442,16 @@ rule prep_pgs_quickprs:
 rule prep_pgs_sbayesrc_i:
   resources:
     mem_mb=20000,
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}.hm3/ldm.info",
+    lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/ldm.info",
     rules.download_gctb252_software.output,
     rules.download_sbayesrc_annot.output,
     rules.install_genoutils_sbayesrc.output,
     rules.install_sbayesrc.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/sbayesrc/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
@@ -464,13 +462,13 @@ rule prep_pgs_sbayesrc_i:
     "../envs/sbayesrc.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    sbayesrc_ldref= lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}.hm3",
+    sbayesrc_ldref= lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}",
     testing=config["testing"]
   shell:
     "export OMP_NUM_THREADS={threads}; \
     Rscript ../Scripts/pgs_methods/sbayesrc.R \
       --ref_plink_chr {refdir}/ref.chr \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux/gctb \
       --sbayesrc_ldref {params.sbayesrc_ldref} \
@@ -522,7 +520,7 @@ rule prep_pgs_external_i:
     lambda w: score_path(w),
     ref_input,
     rules.install_genoutils.output,
-    f"{resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     touch(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done")
   params:
@@ -541,7 +539,7 @@ rule prep_pgs_external_i:
     "Rscript ../Scripts/external_score_processor/external_score_processor.R \
       --ref_plink_chr {refdir}/ref.chr \
       --score {params.score} \
-      --ref_pcs {resdir}/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
       --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
@@ -571,6 +569,98 @@ checkpoint score_reporter:
 ###########
 
 ####
+# LEOPARD 
+####
+
+# Estimate weights for population-specific PGS from single-source methods
+rule leopard_quickprs_i:
+  resources:
+    mem_mb=10000,
+    time_min=1000
+  threads: config['cores_prep_pgs']
+  input:
+    lambda w: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
+    lambda w: expand(f"{quickprs_multi_ldref}/{{population}}/{{population}}.subset_1.bed", population=[pop for pop in get_populations(w.gwas_group)]),
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    rules.download_ldak_highld.output,
+    rules.download_ldak5_2.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output
+  output:
+    f"{outdir}/reference/pgs_score_files/leopard/{{gwas_group}}/ref-{{gwas_group}}.weights.rds"
+  benchmark:
+    f"{outdir}/reference/benchmarks/leopard_quickprs_i-{{gwas_group}}.txt"
+  log:
+    f"{outdir}/reference/logs/leopard_quickprs_i-{{gwas_group}}.log"
+  conda:
+    "../envs/xwing.yaml"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    scores= lambda w: ",".join(expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"]
+  shell:
+    "Rscript ../Scripts/pgs_methods/leopard_quickprs.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --pop_data {refdir}/ref.pop.txt \
+      --sumstats {params.sumstats} \
+      --scores {params.scores} \
+      --populations {params.populations} \
+      --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
+      --quickprs_ldref {quickprs_ldref} \
+      --quickprs_multi_ldref {quickprs_multi_ldref} \
+      --xwing_repo {resdir}/software/xwing \
+      --n_cores {threads} \
+      --output {outdir}/reference/pgs_score_files/leopard/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} > {log} 2>&1"
+
+rule leopard_quickprs:
+  input: expand(f"{outdir}/reference/pgs_score_files/leopard/{{gwas_group}}/ref-{{gwas_group}}.weights.rds", gwas_group=gwas_groups_df['name'])
+
+####
+# Combine single-source PGS using LEOPARD weights
+####
+
+# Define the single_source methods that can be applied to non-EUR data
+single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs"}
+
+# Find which single source methods have been requested
+requested_single_source_methods = list(single_source_methods.intersection(pgs_methods_all))
+
+rule prep_pgs_multi_i:
+  input:
+    f"{outdir}/reference/pgs_score_files/leopard/{{gwas_group}}/ref-{{gwas_group}}.weights.rds",
+    lambda w: expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method = w.method),
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+  output:
+    f"{outdir}/reference/pgs_score_files/{{method}}_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_multi_i-{{gwas_group}}-{{method}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_multi_i-{{gwas_group}}-{{method}}.log"
+  conda:
+    "../envs/xwing.yaml"
+  params:
+    scores= lambda w: ",".join(expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method = w.method)),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"],
+    config_file = config["config_file"]
+  shell:
+    "Rscript ../Scripts/pgs_methods/apply_leopard_weights.R \
+      --config {params.config_file} \
+      --gwas_group {wildcards.gwas_group} \
+      --method {wildcards.method} \
+      --test {params.testing} > {log} 2>&1"
+
+rule prep_pgs_multi:
+  input: expand(f"{outdir}/reference/pgs_score_files/{{method}}_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method = requested_single_source_methods)
+
+#########
+# Jointly optimised methods
+#########
+
+####
 # PRS-CSx
 ####
 
@@ -579,13 +669,14 @@ checkpoint score_reporter:
 rule prep_pgs_prscsx_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     rules.download_prscsx_software.output,
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
     lambda w: expand(f"{resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{{population}}/ldblk_{prscs_ldref}_chr1.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
-    f"{resdir}/data/prscs_ref/{prscs_ldref}/snpinfo_mult_{prscs_ldref}_hm3"
+    f"{resdir}/data/prscs_ref/{prscs_ldref}/snpinfo_mult_{prscs_ldref}_hm3",
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/prscsx/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -607,6 +698,7 @@ rule prep_pgs_prscsx_i:
     export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/prscsx.R \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
       --prscsx_ref_path {resdir}/data/prscs_ref/{prscs_ldref} \
@@ -628,17 +720,19 @@ rule prep_pgs_prscsx:
 rule prep_pgs_xwing_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=10000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     rules.download_xwing_software.output,
+    rules.install_genoutils_xwing.output,
     rules.download_leopard_panther_snp_data.output,
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
     lambda w: expand(f"{resdir}/data/prscs_ref/{prscs_ldref}/ldblk_{prscs_ldref}_{{population}}/ldblk_{prscs_ldref}_chr1.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
     f"{resdir}/data/prscs_ref/{prscs_ldref}/snpinfo_mult_{prscs_ldref}_hm3",
     lambda w: expand(f"{resdir}/data/PANTHER_LEOPARD_1kg_ref/ldblk_1kg_{{population}}/ldblk_1kg_chr13.hdf5", population=[pop.lower() for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{resdir}/data/LEOPARD_1kg_ref/{{population}}/{{population}}_part1.bed", population=get_populations(w.gwas_group)),
-    lambda w: expand(f"{resdir}/data/LOGODetect_1kg_ref/{{population}}/1000G_{{population}}_QC.bim", population=get_populations(w.gwas_group))
+    lambda w: expand(f"{resdir}/data/LOGODetect_1kg_ref/{{population}}/1000G_{{population}}_QC.bim", population=get_populations(w.gwas_group)),
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -659,6 +753,8 @@ rule prep_pgs_xwing_i:
     export OPENBLAS_NUM_THREADS=1; \
     Rscript ../Scripts/pgs_methods/xwing.R \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_freq_chr {refdir}/freq_files \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
       --logodetect_ref {resdir}/data/LOGODetect_1kg_ref \
@@ -673,7 +769,7 @@ rule prep_pgs_xwing_i:
     """
 
 rule prep_pgs_xwing:
-  input: expand(f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/xwing/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df_two['name'])
 
 ####
 # TL-PRS
@@ -682,12 +778,13 @@ rule prep_pgs_xwing:
 rule prep_pgs_tlprs_i:
   resources:
     mem_mb=10000,
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     rules.install_tlprs.output,
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
-    lambda w: expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method=w.method)
+    lambda w: expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method=w.method),
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -707,6 +804,7 @@ rule prep_pgs_tlprs_i:
     Rscript ../Scripts/pgs_methods/tlprs.R \
       --config {params.config_file} \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --scores {params.scores} \
       --populations {params.populations} \
@@ -718,51 +816,7 @@ rule prep_pgs_tlprs_i:
     """
 
 rule prep_pgs_tlprs:
-  input: expand(f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method=config["tlprs_methods"])
-
-##
-# LDAK QuickPRS Multi
-##
-
-rule prep_pgs_quickprs_multi_i:
-  resources:
-    mem_mb=20000,
-    time_min=5000
-  threads: config['cores_prep_pgs']
-  input:
-    lambda w: expand(f"{quickprs_ldref}/{{population}}.hm3/{{population}}.hm3.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
-    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
-    rules.download_ldak_highld.output,
-    rules.download_ldak5_2.output,
-    rules.download_ldak_map.output,
-    rules.download_ldak_bld.output
-  output:
-    f"{outdir}/reference/pgs_score_files/quickprs_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
-  benchmark:
-    f"{outdir}/reference/benchmarks/prep_pgs_quickprs_multi_i-{{gwas_group}}.txt"
-  log:
-    f"{outdir}/reference/logs/prep_pgs_quickprs_multi_i-{{gwas_group}}.log"
-  conda:
-    "../envs/xwing.yaml"
-  params:
-    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
-    populations= lambda w: ",".join(get_populations(w.gwas_group)),
-    testing=config["testing"]
-  shell:
-    "Rscript ../Scripts/pgs_methods/quickprs_multi.R \
-      --ref_plink_chr {refdir}/ref.chr \
-      --sumstats {params.sumstats} \
-      --populations {params.populations} \
-      --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
-      --quick_prs_ref {quickprs_ldref} \
-      --xwing_repo {resdir}/software/xwing \
-      --n_cores {threads} \
-      --output {outdir}/reference/pgs_score_files/quickprs_multi/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
-      --pop_data {refdir}/ref.pop.txt \
-      --test {params.testing} > {log} 2>&1"
-
-rule prep_pgs_quickprs_multi:
-  input: expand(f"{outdir}/reference/pgs_score_files/quickprs_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/tlprs_{{method}}/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df_two['name'], method=config["tlprs_methods"])
 
 ####
 # BridgePRS
@@ -771,11 +825,12 @@ rule prep_pgs_quickprs_multi:
 rule prep_pgs_bridgeprs_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=5000
+    time_min=2800
   threads: config['cores_prep_pgs']
   input:
     rules.download_bridgeprs_software.output,
-    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas_group}}/{{gwas_group}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
@@ -785,13 +840,14 @@ rule prep_pgs_bridgeprs_i:
   log:
     f"{outdir}/reference/logs/prep_pgs_bridgeprs_i-{{gwas_group}}.log"
   params:
-    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas_group}}/{{gwas_group}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
     testing=config["testing"]
   shell:
     """
     Rscript ../Scripts/pgs_methods/bridgeprs.R \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
       --pop_data {refdir}/ref.pop.txt \
@@ -802,8 +858,8 @@ rule prep_pgs_bridgeprs_i:
     """
 
 rule prep_pgs_bridgeprs:
-  input: expand(f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'])
-
+  input: expand(f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df_two['name'])
+  
 ###############################################
 
 ##
@@ -832,17 +888,48 @@ if 'sbayesrc' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_sbayesrc.input)
 if 'external' in pgs_methods_all:
   pgs_methods_input.append(rules.score_reporter.output)
+if config["leopard_methods"] and config["leopard_methods"] != "NA":
+  pgs_methods_input.append(rules.prep_pgs_multi.input)
+if config["tlprs_methods"] and config["tlprs_methods"] != "NA":
+  pgs_methods_input.append(rules.prep_pgs_tlprs.input)
 if 'prscsx' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_prscsx.input)
 if 'xwing' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_xwing.input)
-if 'tlprs' in pgs_methods_all:
-  pgs_methods_input.append(rules.prep_pgs_tlprs.input)
-if 'quickprs_multi' in pgs_methods_all:
-  pgs_methods_input.append(rules.prep_pgs_quickprs_multi.input)
 if 'bridgeprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_bridgeprs.input)
 
 rule prep_pgs:
   input:
     pgs_methods_input
+    
+##########################
+
+# Calculate PGS in reference data
+rule ref_pgs:
+  resources:
+    mem_mb=config['mem_target_pgs'],
+    time_min=2800
+  threads: config['cores_target_pgs']
+  input:
+    lambda w: f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale" if 'continuous' in config["pgs_scaling"] else [],
+    rules.prep_pgs.input
+  output:
+    touch(f"{outdir}/reference/pgs_score_files/ref_pgs.done")
+  benchmark:
+    f"{outdir}/reference/benchmarks/ref_pgs.txt"
+  log:
+    f"{outdir}/reference/logs/ref_pgs.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    continuous="T" if 'continuous' in config["pgs_scaling"] else "F",
+    testing=config["testing"],
+    config_file = config["config_file"]
+  shell:
+    "Rscript ../Scripts/ref_scoring/ref_scoring.R \
+      --config {params.config_file} \
+      --continuous {params.continuous} \
+      --plink2 plink2 \
+      --test {params.testing} \
+      --n_cores {threads} > {log} 2>&1"

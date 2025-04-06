@@ -37,14 +37,14 @@ ref_pop <- data.frame(
 
 # Make a data.frame giving labels to the 1KG reference populations
 pgs_method_labels <- data.frame(
-  method = c('ptclump','dbslmm','ldpred2','sbayesr','sbayesrc','lassosum','prscs','megaprs','quickprs','external','prscsx','xwing','tlprs','quickprs'),
-  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','SBayesRC','lassosum','PRS-CS','MegaPRS','QuickPRS','External','PRS-CSx','X-Wing','TL-PRS','QuickPRS-Multi')
+  method = c('ptclump','dbslmm','ldpred2','sbayesr','sbayesrc','lassosum','prscs','megaprs','quickprs','external','prscsx','xwing','ptclump_multi','dbslmm_multi','ldpred2_multi','sbayesr_multi','sbayesrc_multi','lassosum_multi','prscs_multi','megaprs_multi','quickprs_multi','tlprs_dbslmm','tlprs_sbayesrc','tlprs_quickprs','tlprs_ldpred2'),
+  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','SBayesRC','lassosum','PRS-CS','MegaPRS','QuickPRS','External','PRS-CSx','X-Wing','pT+clump-multi','DBSLMM-multi','LDpred2-multi','SBayesR-multi','SBayesRC-multi','lassosum-multi','PRS-CS-multi','MegaPRS-multi','QuickPRS-multi','TL-DBSLMM','TL-SBayesRC','TL-QuickPRS','TL-LDpred2')
 )
 pgs_method_labels<-pgs_method_labels[order(pgs_method_labels$method),]
 
-# Make vector indicating pgs_methods that can be applied to non-european GWAS
+# Make vector indicating single source pgs_methods that can be applied to non-european GWAS
 pgs_methods_noneur <- c('ptclump','lassosum','megaprs','prscs','dbslmm','ldpred2','quickprs','sbayesrc')
 
 # Make vector indicating pgs_methods that are to be applied to gwas_groups
-pgs_group_methods <- c('prscsx','xwing','tlprs','quickprs_multi')
+pgs_group_methods <- c('prscsx','xwing')
 

@@ -47,31 +47,88 @@ list_score_files <- function(config){
   # Read in gwas_groups
   gwas_groups <- read_param(config = config, param = 'gwas_groups')
 
+  # Methods implemented when GWAS groups contains only 2 GWAS
   if(!is.null(gwas_groups)){
+    # Identify gwas_groups containing >2 GWAS
+    gwas_groups_2 <- gwas_groups[sapply(gwas_groups$gwas, function(x) sum(strsplit(x, ",")[[1]] != "") == 2), ]
+    
     # Identify PGS methods to be included
     pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
 
-    # Retain methods that are applied to groups of gwas
-    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% pgs_group_methods)]
-
-    if('tlprs' %in% pgs_methods_list){
-      # For TL-PRS, list combos for tlprs_methods
-      tlprs_methods_list <- read_param(config = config, param = 'tlprs_methods', return_obj = F)
-      combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = paste0('tlprs_', tlprs_methods_list)))
+    # Retain methods that are applied to groups with only 2 gwas
+    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% c('prscsx', 'xwing'))]
+    
+    # Provide combos for methods applied to groups of gwas
+    combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = pgs_methods_list))
+    
+    # For TL-PRS, list combos for tlprs_methods
+    tlprs_methods<-read_param(config = config, param = 'tlprs_methods', return_obj = F)
+    if(length(tlprs_methods) > 1 || !is.na(tlprs_methods)){
+      combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = paste0('tlprs_', tlprs_methods)))
     }
-
-    # Provide combos for other methods applied to groups of gwas
-    pgs_methods_list <- pgs_methods_list[pgs_methods_list != 'tlprs']
-    combos <- rbind(combos, expand.grid(name = gwas_groups$name, method = pgs_methods_list))
+    
+    # For LEOPARD, list combos for leopard_methods
+    leopard_methods<-read_param(config = config, param = 'leopard_methods', return_obj = F)
+    if(length(leopard_methods) > 1 || !is.na(leopard_methods)){
+      combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = paste0(leopard_methods,'_multi')))
+    }
   }
 
-  combos <- data.table(apply(combos, 2, as.character))
-
+  # Methods implemented when GWAS groups contain >2 GWAS
+  if(!is.null(gwas_groups)){
+    # Identify gwas_groups with more than 2 gwas
+    gwas_groups_more <- gwas_groups[sapply(gwas_groups$gwas, function(x) sum(strsplit(x, ",")[[1]] != "") > 2), ]
+    
+    # Identify PGS methods to be included
+    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+    
+    # Retain methods that are applied to groups with only 2 gwas
+    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% c('prscsx'))]
+    
+    # Provide combos for methods applied to groups of gwas
+    combos <- rbind(combos, expand.grid(name = gwas_groups_more$name, method = pgs_methods_list))
+    
+    # For LEOPARD, list combos for leopard_methods
+    leopard_methods<-read_param(config = config, param = 'leopard_methods', return_obj = F)
+    if(length(leopard_methods) > 1 || !is.na(leopard_methods)){
+      combos <- rbind(combos, expand.grid(name = gwas_groups_more$name, method = paste0(leopard_methods,'_multi')))
+    }
+  }
+  
+  combos <- data.table(combos)
+  combos <- combos[, lapply(.SD, as.character)]
+  
   return(combos)
 }
 
 # Flip effects in score file to match A1 reference
 map_score<-function(ref, score){
+  # Check if required columns exist
+  required_cols <- c('SNP', 'A1', 'A2')
+  if (!all(required_cols %in% names(ref)) | 
+      !all(required_cols %in% names(score))) {
+    stop('ref and score must contain SNP, A1, and A2 columns.')
+  }
+  
+  # Valid alleles
+  valid_alleles <- c('A', 'T', 'C', 'G')
+  
+  # Check for NA or invalid alleles in A1 and A2 columns
+  for (col in c('A1', 'A2')) {
+    if (any(is.na(ref[[col]])) | any(!ref[[col]] %in% valid_alleles)) {
+      stop(paste('Invalid allele values detected in ref column:', col))
+    }
+    if (any(is.na(score[[col]])) | any(!score[[col]] %in% valid_alleles)) {
+      stop(paste('Invalid allele values detected in score column:', col))
+    }
+  }
+  
+  # Check for NA values in SNP column
+  if (any(is.na(ref$SNP)) | any(is.na(score$SNP))) {
+    stop('NA values detected in SNP column of ref or score.')
+  }
+  
+  ref <- ref[, c('SNP','A1','A2'), with = F]
   tmp <- merge(ref, score, by = 'SNP', all.x=T, sort = F)
   flip <- which(tmp$A1.x != tmp$A1.y)
   tmp <- as.matrix(tmp[, -1:-5, drop = FALSE])
@@ -85,7 +142,7 @@ map_score<-function(ref, score){
 # Calculate mean and sd of scores in file with plink .sscore format
 score_mean_sd<-function(scores, keep=NULL){
     if(!is.null(keep)){
-        scores<-scores[paste0(scores$FID, '_', scores$FID) %in% paste0(keep$FID, '_', keep$FID),]
+        scores<-scores[paste0(scores$FID, '_', scores$IID) %in% paste0(keep$FID, '_', keep$IID),]
     }
 
     scale<-data.table(  Param=names(scores)[-1:-2],
@@ -181,6 +238,22 @@ read_pvar<-function(dat, chr = 1:22){
   names(pvar)<-c('CHR','BP','SNP','A2','A1')
 
   return(pvar)
+}
+
+# Read in the .freq file for target population
+read_frq<-function(freq_dir, population, chr){
+  freq_data<-NULL
+  for(i in chr){
+    tmp<-fread(paste0(freq_dir,'/',population,'/ref.',population,'.chr',i,'.afreq'))
+    tmp<-data.table(
+      SNP = tmp$ID,
+      A1 = tmp$ALT,
+      A2 = tmp$REF,
+      FREQ = tmp$ALT_FREQS
+    )
+    freq_data<-rbind(freq_data, tmp)
+  }
+  return(freq_data)
 }
 
 # Remove variants within genomic regions (REF: PMC2443852)
@@ -415,24 +488,29 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 }
 
 
-quick_prs<-function(sumstats, ref_dir, genomic_control, prs_model, n_cores = 1, ref_subset = NULL){
+quickprs<-function(sumstats, quickprs_ldref, quickprs_multi_ldref = NULL, genomic_control, prs_model, n_cores = 1, ref_subset = NULL){
   tmp_dir<-tempfile()
   dir.create(tmp_dir)
-
+  
+  # Check if quickprs_multi_ldref and ref_subset are both NULL or both non-NULL
+  if (xor(is.null(quickprs_multi_ldref), is.null(ref_subset))) {
+    stop("Both 'quickprs_multi_ldref' and 'ref_subset' must either be NULL or non-NULL.")
+  }
+  
   ######
   # Estimate Per-Predictor Heritabilities
   ######
 
   # Calculate Per-Predictor Heritabilities.
-  ref_files<-list.files(ref_dir)
+  quickprs_ldref_files<-list.files(quickprs_ldref)
 
-  tagging_file<-ref_files[grepl('quickprs.tagging',ref_files)]
-  matrix_file<-ref_files[grepl('quickprs.matrix',ref_files)]
+  tagging_file<-quickprs_ldref_files[grepl('quickprs.tagging',quickprs_ldref_files)]
+  matrix_file<-quickprs_ldref_files[grepl('quickprs.matrix',quickprs_ldref_files)]
 
   if(opt$genomic_control == F){
-    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', ref_dir, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', ref_dir, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
+    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', quickprs_ldref, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', quickprs_ldref, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
   } else{
-    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --genomic-control YES --tagfile ', ref_dir, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', ref_dir, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
+    system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --genomic-control YES --tagfile ', quickprs_ldref, '/', tagging_file, ' --summary ', sumstats, ' --matrix ', quickprs_ldref, '/', matrix_file, ' --max-threads ', n_cores, ' --check-sums NO'))
   }
 
   ldak_res_her<-fread(paste0(tmp_dir,'/bld.ldak.hers'))
@@ -442,12 +520,15 @@ quick_prs<-function(sumstats, ref_dir, genomic_control, prs_model, n_cores = 1, 
   ######
 
   if(!is.null(ref_subset)){
-    cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl(paste0('subset_', ref_subset, '.cors.bin'),ref_files)])
+    quickprs_multi_ldref_files<-list.files(quickprs_multi_ldref)
+    ref_dir <- quickprs_multi_ldref
+    cor_file_prefix<-gsub('.cors.bin','',quickprs_multi_ldref_files[grepl(paste0('subset_', ref_subset, '.cors.bin'),quickprs_multi_ldref_files)])
   } else {
-    cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files) & !grepl('subset', ref_files)])
+    cor_file_prefix<-gsub('.cors.bin','',quickprs_ldref_files[grepl('.cors.bin',quickprs_ldref_files) & !grepl('subset', quickprs_ldref_files)])
+    ref_dir <- quickprs_ldref
   }
 
-  system(paste0(opt$ldak,' --mega-prs ',tmp_dir,'/mega_full --model ', prs_model,' --cors ', ref_dir, '/', cor_file_prefix, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', sumstats, ' --high-LD ', ref_dir, '/highld.snps --cv-proportion 0.1 --window-cm 1 --max-threads ', n_cores,' --extract ', sumstats))
+  system(paste0(opt$ldak,' --mega-prs ',tmp_dir,'/mega_full --model ', prs_model,' --cors ', ref_dir, '/', cor_file_prefix, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', sumstats, ' --high-LD ', quickprs_ldref, '/highld.snps --cv-proportion 0.1 --window-cm 1 --max-threads ', n_cores,' --extract ', sumstats))
 
   # Identify the best fitting model
   ldak_res_cors <- fread(paste0(tmp_dir, '/mega_full.cors'), nThread = n_cores)
@@ -501,15 +582,15 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
     predicted_pgs <- predict(pgs_pc_mean_mod, newdata = tmp)
     residual_pgs <- tmp$y - predicted_pgs
     squared_residuals <- residual_pgs^2
-    squared_residuals <- pmax(squared_residuals, 1e-6)
+    squared_residuals <- pmax(squared_residuals, 1e-4)
     
     pgs_pc_var_mod <- glm(squared_residuals ~ ., data = tmp[, names(tmp) != 'y', with=F], family = Gamma(link = "log"))
     predicted_pgs_var <- exp(predict(pgs_pc_var_mod, newdata = tmp))
     
     scores_pcs_resid[[i]]<-residual_pgs/sqrt(predicted_pgs_var)
     
-    mod_list[[i]]$mean_model <- pgs_pc_mean_mod
-    mod_list[[i]]$var_model <- pgs_pc_var_mod
+    mod_list[[i]]$mean_model <- compact_lm(pgs_pc_mean_mod)
+    mod_list[[i]]$var_model <- compact_lm(pgs_pc_var_mod)
   }
   
   scores_pcs_resid<-scores_pcs_resid[,grepl('FID|IID|^SCORE', names(scores_pcs_resid)), with=F]
@@ -526,35 +607,162 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
   fwrite(scores_pcs_resid, paste0(output,'-TRANS.profiles'), sep=' ', na='NA', quote=F)
 }
 
-# Adjust PGS for ancestry using reference PC models
-score_adjust <- function(score, pcs, ref_model) {
-  # Convert score and pcs to data.table if not already
-  setDT(score)
-  setDT(pcs)
+# Remove unused parts of model object for prediction
+compact_lm <- function(cm) {
+  # just in case we forgot to set
+  # y=FALSE and model=FALSE
+  cm$y = c()
+  cm$model = c()
   
-  # Ensure pcs is keyed on FID and IID for efficient joins
+  cm$residuals = c()
+  cm$fitted.values = c()
+  cm$effects = c()
+  cm$qr$qr = c()
+  cm$linear.predictors = c()
+  cm$weights = c()
+  cm$prior.weights = c()
+  cm$data = c()
+  cm
+}
+
+# Adjust PGS for ancestry using reference PC models with parallel processing
+score_adjust <- function(score, pcs, ref_model, chunk_size = 10) {
+  original_order <- names(score)
+  
+  # Ensure 'pcs' keyed for fast lookup
   setkey(pcs, FID, IID)
   
-  # Loop through each score column (skipping FID and IID)
-  for (col_name in names(score)[-1:-2]) {
-    # Retrieve models for the current score
-    mean_model <- ref_model[[col_name]]$mean_model
-    var_model <- ref_model[[col_name]]$var_model
+  # List of score columns
+  score_cols <- setdiff(names(score), c("FID", "IID"))
+  
+  # Split into chunks for memory efficiency
+  score_chunks <- split(score_cols, ceiling(seq_along(score_cols) / chunk_size))
+  
+  # Match PC rows by FID/IID directly (minimal memory usage)
+  matched_idx <- pcs[score[, .(FID, IID)], which = TRUE, nomatch = 0]
+  
+  # Process each chunk sequentially to manage RAM
+  for (chunk in score_chunks) {
     
-    # Calculate residuals directly in `score`
-    score[, (col_name) := {
-      # Get corresponding rows from pcs by FID and IID
-      pc_data <- pcs[.SD, on = .(FID, IID)]
+    # Run in parallel across columns within chunk
+    chunk_results <- mclapply(chunk, function(col_name) {
+      cat("Processing:", col_name, "\n")
       
-      # Predict mean and variance
-      predicted_pgs <- predict(mean_model, newdata = pc_data)
-      predicted_pgs_var <- exp(predict(var_model, newdata = pc_data))
+      # Fetch models for current score column
+      mean_model <- ref_model[[col_name]]$mean_model
+      var_model  <- ref_model[[col_name]]$var_model
       
-      # Compute residuals
-      round((get(col_name) - predicted_pgs) / sqrt(predicted_pgs_var), 3)
-    }, .SDcols = c("FID", "IID", col_name)]
+      # Pre-allocate adjusted score vector
+      adjusted_score <- rep(NA_real_, nrow(score))
+      
+      # Predict mean and variance using matched PCs
+      if (length(matched_idx) > 0) {
+        adjusted_score[matched_idx] <- round(
+          (score[[col_name]][matched_idx] - predict(mean_model, newdata = pcs[matched_idx])) / 
+            sqrt(exp(predict(var_model, newdata = pcs[matched_idx]))),
+          3
+        )
+      }
+      
+      adjusted_score
+    }, mc.cores = min(getDoParWorkers(), 10))
+    
+    # Write results directly back to 'score' object by reference
+    for (idx in seq_along(chunk)) {
+      set(score, j = chunk[idx], value = chunk_results[[idx]])
+    }
+    
+    # Explicitly clean memory after each chunk
+    rm(chunk_results)
+    gc()
+    
   }
   
-  # Return only relevant columns (FID, IID, and adjusted scores)
+  setcolorder(score, original_order)
+  
   return(score)
+}
+
+# Helper function to calculate relative weights for a single file from LEOPARD
+cal_avg_rel_weights <- function(path){
+  weights_file <- fread(path)
+  weights_non_0 <-  ifelse(weights_file$Weights < 0, 0, weights_file$Weights)
+  rel_weights <- weights_non_0/(sum(weights_non_0))
+  return(rel_weights)
+}
+
+# Function to calculate average weights across replications from LEOPARD
+calculate_avg_weights <- function(populations, leopard_dir, log_file = NULL) {
+  avg_weights <- list()
+  
+  # Iterate over populations
+  for (targ_pop in populations) {
+    # Define the file prefix for the population
+    weights_prefix <- paste0(leopard_dir, '/weights_', targ_pop, '/output_LEOPARD_weights_rep')
+    
+    # Calculate relative weights for each replication
+    rel_weights_list <- lapply(1:4, function(i) {
+      cal_avg_rel_weights(paste0(weights_prefix, i, ".txt"))
+    })
+    
+    # Calculate the average weights across replications
+    avg_weights[[targ_pop]] <- as.numeric(colMeans(do.call(rbind, rel_weights_list), na.rm = TRUE))
+  }
+  
+  log_add(log_file = log_file, message = '------------------------')
+  for(i in names(avg_weights)){
+    log_add(log_file = log_file, message = paste0("LEOPARD weights - ", i, " target: "))
+    for(j in populations){
+      log_add(log_file = log_file, message = paste0(j, ' = ', avg_weights[[i]][which(populations == j)]))
+    }
+    log_add(log_file = log_file, message = '------------------------')
+  }
+  
+  return(avg_weights)
+}
+
+# Centre SNP-weights
+centre_weights <- function(score, freq, ref){
+  # Sort and flip according to reference data
+  score <- map_score(ref = ref, score = score)
+  
+  # Sort and flip freq according to reference just in case they are different
+  freq <- map_score(ref = ref, score = freq)
+  
+  # Calculate mean genotype dosage and denominator
+  freq$MeanGenotype <- 2 * freq$FREQ
+  denominator <- sum(freq$MeanGenotype^2)
+  
+  for(i in names(score)[!(names(score) %in% c('SNP','A1','A2'))]){
+    # Calculate mean of PGS
+    mean_pgs <- sum(score[[i]] * freq$MeanGenotype)
+    
+    # Adjust the SNP-weights so PGS is centered
+    score[[i]] <- score[[i]] - (mean_pgs / denominator) * freq$MeanGenotype
+  }
+  return(score)
+}
+
+# Linearly combine scores using mixing weights for target population
+calculate_weighted_scores <- function(score, targ_pop, mix_weights) {
+  if(!all((names(score) %in% c('SNP','A1','A2', paste0('SCORE_targ_', names(mix_weights)))))){
+    stop(paste0('score should only contain columns SNP, A1, A2, ', paste(paste0('SCORE_targ_', names(mix_weights)), collapse=', ')))
+  }
+  score_weighted<-score
+  for(disc_pop in names(mix_weights)){
+    score_tmp <- score[[paste0('SCORE_targ_', disc_pop)]]
+    weight_tmp <- mix_weights[[targ_pop]][which(names(mix_weights) == disc_pop)]
+    score_weighted[[paste0('SCORE_targ_', disc_pop)]] <- score_tmp * weight_tmp
+  }
+  score_combined <- rowSums(score_weighted[, grepl('SCORE_', names(score_weighted)), with = FALSE])
+  
+  return(score_combined)
+}
+
+# Adjust weights to correspond to PGS with SD of 1
+adjust_weights <- function(weights, pgs_sd) {
+  adjusted_weights <- weights * pgs_sd
+  # Normalize weights so they sum to 1
+  normalized_weights <- adjusted_weights * (1 / sum(adjusted_weights))
+  return(normalized_weights)
 }

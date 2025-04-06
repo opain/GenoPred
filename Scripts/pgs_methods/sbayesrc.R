@@ -162,9 +162,9 @@ tryCatch(
   },
   error = function(e) {
     # Check if the error message matches the specific issue
-    if (grepl("All correlations are negative, this may indicate errors in summary data.", e$message)) {
-      message("Specific error encountered. Retrying with btune = FALSE...")
-      log_add(log_file = log_file, message = 'Specific error encountered. Retrying with btune = FALSE...')
+    if (grepl("All correlations are negative, this may indicate errors in summary data.", conditionMessage(e))) {
+      message("Specific error encountered: All correlations are negative. Retrying with btune = FALSE...")
+      log_add(log_file = log_file, message = 'Specific error encountered: All correlations are negative. Retrying with btune = FALSE...')
       # Retry with the btune parameter set to FALSE
       SBayesRC::sbayesrc(
         mafile = paste0(tmp_dir, '/tidy.imp.ma'),
@@ -174,7 +174,7 @@ tryCatch(
         bTune = FALSE,
         log2file = FALSE
       )
-    } else if (grepl("An unexpected error occurred: Warning, the best parameter is the minimumn threshold, we suggest to expand the tuning grid by specify lower tuning value", e$message)) {
+    } else if (grepl("Warning, the best parameter is the minimumn threshold", conditionMessage(e))) {
         message("Specific error encountered. Retrying with tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6)...")
         log_add(log_file = log_file, message = 'Specific error encountered. Retrying with btune = FALSE...')
         # Retry with the tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6)
@@ -186,14 +186,26 @@ tryCatch(
           tuneStep=c(0.995, 0.9, 0.8, 0.7, 0.6),
           log2file = FALSE
         )
-      } else {
+    } else if (grepl("Invalid tune outputs, all correlations are invalid number", conditionMessage(e))) {
+      message("Specific error encountered: Invalid tune outputs. Setting bTune=FALSE...")
+      log_add(log_file = log_file, message = 'Specific error encountered: Invalid tune outputs. Setting bTune=FALSE...')
+      # Retry with bTune=FALSE
+      SBayesRC::sbayesrc(
+        mafile = paste0(tmp_dir, '/tidy.imp.ma'),
+        LDdir = opt$sbayesrc_ldref,
+        outPrefix = paste0(tmp_dir, '/sbrc'),
+        annot = opt$sbayesrc_annot,
+        bTune = FALSE,
+        log2file = FALSE
+      )
+    } else {
         # For any other error, rethrow the error and stop the script
-      stop("An unexpected error occurred: ", e$message)
+      stop("An unexpected error occurred: ", conditionMessage(e))
     }
   },
   warning = function(w) {
     message("A warning occurred while running SBayesRC::sbayesrc:")
-    message(w)
+    message(conditionMessage(e))
   }
 )
 
@@ -231,29 +243,6 @@ system(paste0('gzip ',opt$output,'.score'))
 # Record end time of test
 if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)
-}
-
-####
-# Calculate mean and sd of polygenic scores
-####
-
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
-
-# Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
-
-if(!is.null(opt$ref_pcs)){
-  log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
-  # Derive trans-ancestry PGS models and estimate PGS residual scale
-  model_trans_pgs(scores=ref_pgs, pcs=opt$ref_pcs, output=opt$output)
-}
-
-# Calculate scale within each reference population
-pop_data <- read_pop_data(opt$pop_data)
-
-for(pop_i in unique(pop_data$POP)){
-  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
 
 end.time <- Sys.time()

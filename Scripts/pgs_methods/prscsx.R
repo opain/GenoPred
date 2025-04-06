@@ -4,32 +4,34 @@ start.time <- Sys.time()
 library("optparse")
 
 option_list = list(
-  make_option("--ref_plink_chr", action="store", default=NULL, type='character',
-      help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_plink_chr", action="store", default=NA, type='character',
+              help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_pcs", action="store", default=NULL, type='character',
+              help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
-      help="File containing the population code and location of the keep file [required]"),
+              help="File containing the population code and location of the keep file [required]"),
   make_option("--plink2", action="store", default='plink2', type='character',
-      help="Path PLINK v2 software binary [optional]"),
+              help="Path PLINK v2 software binary [optional]"),
   make_option("--output", action="store", default=NULL, type='character',
-      help="Path for output files [required]"),
+              help="Path for output files [required]"),
   make_option("--memory", action="store", default=5000, type='numeric',
-      help="Memory limit [optional]"),
+              help="Memory limit [optional]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
-      help="Comma-seperated list of GWAS summary statistics [required]"),
+              help="Comma-seperated list of GWAS summary statistics [required]"),
   make_option("--populations", action="store", default=NULL, type='character',
-      help="Comma-seperated list of population codes matching GWAS [required]"),
+              help="Comma-seperated list of population codes matching GWAS [required]"),
   make_option("--prscsx_path", action="store", default=NULL, type='character',
-      help="Path to PRS-CSx executable [required]"),
+              help="Path to PRS-CSx executable [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
-      help="Number of cores for parallel computing [optional]"),
+              help="Number of cores for parallel computing [optional]"),
   make_option("--prscsx_ref_path", action="store", default=NULL, type='character',
-      help="Comma-seperated list of PRS-CSx reference data [required]"),
+              help="Comma-seperated list of PRS-CSx reference data [required]"),
   make_option("--test", action="store", default=NA, type='character',
-      help="Specify number of SNPs to include [optional]"),
+              help="Specify number of SNPs to include [optional]"),
   make_option("--phi_param", action="store", default='auto', type='character',
-      help="Path to PRScs reference [optional]"),
+              help="Path to PRScs reference [optional]"),
   make_option("--seed", action="store", default=1, type='numeric',
-      help="Seed number for PRScs [optional]")
+              help="Seed number for PRScs [optional]")
 )
 
 opt = parse_args(OptionParser(option_list = option_list))
@@ -179,6 +181,9 @@ log <- foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(presche
 # Combine score files
 ####
 
+# Read in ref to harmonise score files
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+
 score_all<-NULL
 for(pop_i in c(unlist(strsplit(opt$populations, ',')), 'META')){
   score_pop<-NULL
@@ -197,21 +202,18 @@ for(pop_i in c(unlist(strsplit(opt$populations, ',')), 'META')){
     }
     score_pop<-cbind(score_pop, score_phi)
   }
+
+  # Sort and flip effects to match reference alleles
+  score_pop <- map_score(ref = ref, score = score_pop)
+  
   if(pop_i == c(unlist(strsplit(opt$populations, ',')), 'META')[1]){
     score_all<-score_pop
   } else {
-    score_all<-merge(score_all, score_pop[, !(names(score_pop) %in% c('A1','A2')), with=F], by='SNP', all=T)
+    score_all<-cbind(score_all, score_pop[, !(names(score_pop) %in% c('SNP','A1','A2')), with=F])
   }
 }
 
-# Replace NA values with 0
-score_all[is.na(score_all)] <- 0
-
-# Flip effects to match reference alleles
-ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
-score_new <- map_score(ref = ref, score = score_all)
-
-fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+fwrite(score_all, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))
@@ -222,23 +224,6 @@ system(paste0('gzip ',opt$output,'.score'))
 # Record end time of test
 if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)
-}
-
-####
-# Calculate mean and sd of polygenic scores
-####
-
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
-
-# Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
-
-# Calculate scale within each reference population
-pop_data <- read_pop_data(opt$pop_data)
-
-for(pop_i in unique(pop_data$POP)){
-  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
 
 end.time <- Sys.time()

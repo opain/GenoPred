@@ -38,7 +38,7 @@ pgs_methods_noneur = ['ptclump','lassosum','megaprs','prscs','dbslmm']
 rule pc_projection_i:
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
-    f"{resdir}/data/ref/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/pc_projection-{{population}}.done")
   benchmark:
@@ -55,8 +55,8 @@ rule pc_projection_i:
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --target_keep {params.target_keep} \
       --ref_freq_chr {refdir}/freq_files/{wildcards.population}/ref.{wildcards.population}.chr \
-      --ref_score {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.eigenvec.var.gz \
-      --ref_scale {resdir}/data/ref/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.{wildcards.population}.scale \
+      --ref_score {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.eigenvec.var.gz \
+      --ref_scale {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.{wildcards.population}.scale \
       --plink2 plink2 \
       --test {params.testing} \
       --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}-{wildcards.population} > {log} 2>&1"
@@ -78,12 +78,12 @@ rule pc_projection:
 rule target_pgs_i:
   resources:
     mem_mb=config['mem_target_pgs'],
-    time_min=1600
+    time_min=2800
   threads: config['cores_target_pgs']
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
     lambda w: f"{outdir}/reference/target_checks/{{name}}/pc_projection-TRANS.done" if w.population == "TRANS" else [],
-    rules.prep_pgs.input
+    rules.ref_pgs.output
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{population}}.done")
   benchmark:

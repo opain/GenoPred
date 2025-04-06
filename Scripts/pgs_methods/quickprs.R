@@ -22,8 +22,8 @@ option_list = list(
               help="GWAS summary statistics [optional]"),
   make_option("--ldak", action="store", default=NA, type='character',
               help="Path to ldak v5.2 executable [required]"),
-  make_option("--quick_prs_ref", action="store", default=NA, type='character',
-              help="Path to folder containing ldak quick prs reference [required]"),
+  make_option("--quickprs_ldref", action="store", default=NA, type='character',
+              help="Path to folder containing ldak quickprs reference [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
               help="Number of cores for parallel computing [optional]"),
   make_option("--prs_model", action="store", default='bayesr', type='character',
@@ -58,8 +58,8 @@ if(is.null(opt$output)){
 if(is.null(opt$ldak)){
   stop('--ldak must be specified.\n')
 }
-if(is.null(opt$quick_prs_ref)){
-  stop('--quick_prs_ref must be specified.\n')
+if(is.null(opt$quickprs_ldref)){
+  stop('--quickprs_ldref must be specified.\n')
 }
 
 # Create output directory
@@ -98,9 +98,9 @@ gwas<-gwas[,c('Predictor','A1','A2','N','Z')]
 names(gwas)<-c('Predictor','A1','A2','n','Z')
 
 # Check overlap between GWAS and LDAK reference
-ldak_hm3_file <- list.files(opt$quick_prs_ref)
+ldak_hm3_file <- list.files(opt$quickprs_ldref)
 ldak_hm3_file <- ldak_hm3_file[grepl('.cors.bim', ldak_hm3_file)][1]
-ldak_hm3 <- fread(paste0(opt$quick_prs_ref, '/', ldak_hm3_file))
+ldak_hm3 <- fread(paste0(opt$quickprs_ldref, '/', ldak_hm3_file))
 ldak_hm3 <- ldak_hm3[ldak_hm3$V1 %in% CHROMS,]
 ref_overlap <- sum(gwas$Predictor %in% ldak_hm3$V2) / nrow(ldak_hm3)
 
@@ -122,15 +122,15 @@ if(!is.na(opt$test)){
 ############
 
 # Calculate Per-Predictor Heritabilities.
-ref_files<-list.files(opt$quick_prs_ref)
+ref_files<-list.files(opt$quickprs_ldref)
 
 tagging_file<-ref_files[grepl('quickprs.tagging',ref_files)]
 matrix_file<-ref_files[grepl('quickprs.matrix',ref_files)]
 
 if(opt$genomic_control == F){
-  system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', opt$quick_prs_ref, '/', tagging_file, ' --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --matrix ', opt$quick_prs_ref, '/', matrix_file, ' --max-threads ', opt$n_cores, ' --check-sums NO'))
+  system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', opt$quickprs_ldref, '/', tagging_file, ' --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --matrix ', opt$quickprs_ldref, '/', matrix_file, ' --max-threads ', opt$n_cores, ' --check-sums NO'))
 } else{
-  system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --genomic-control YES --tagfile ', opt$quick_prs_ref, '/', tagging_file, ' --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --matrix ', opt$quick_prs_ref, '/', matrix_file, ' --max-threads ', opt$n_cores, ' --check-sums NO'))
+  system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --genomic-control YES --tagfile ', opt$quickprs_ldref, '/', tagging_file, ' --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --matrix ', opt$quickprs_ldref, '/', matrix_file, ' --max-threads ', opt$n_cores, ' --check-sums NO'))
 }
 
 ldak_res_her<-fread(paste0(tmp_dir,'/bld.ldak.hers'))
@@ -145,7 +145,7 @@ cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files) & !g
 
 log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
 
-system(paste0(opt$ldak,' --mega-prs ',tmp_dir,'/mega_full --model ',opt$prs_model,' --cors ',opt$quick_prs_ref,'/',cor_file_prefix,' --ind-hers ',tmp_dir,'/bld.ldak.ind.hers --summary ',tmp_dir,'/GWAS_sumstats_temp.txt --high-LD ',opt$quick_prs_ref,'/highld.snps --cv-proportion 0.1 --window-cm 1 --max-threads ',opt$n_cores,' --extract ',tmp_dir,'/GWAS_sumstats_temp.txt'))
+system(paste0(opt$ldak,' --mega-prs ',tmp_dir,'/mega_full --model ',opt$prs_model,' --cors ',opt$quickprs_ldref,'/',cor_file_prefix,' --ind-hers ',tmp_dir,'/bld.ldak.ind.hers --summary ',tmp_dir,'/GWAS_sumstats_temp.txt --high-LD ',opt$quickprs_ldref,'/highld.snps --cv-proportion 0.1 --window-cm 1 --max-threads ',opt$n_cores,' --extract ',tmp_dir,'/GWAS_sumstats_temp.txt'))
 
 # Save the parameters file
 system(paste0('cp ',tmp_dir,'/mega_full.parameters ',opt$output,'.model_param.txt'))
@@ -157,7 +157,7 @@ system(paste0('cp ',tmp_dir,'/mega_full.cors ',opt$output,'.pseudoval.txt'))
 ldak_res_cors <- fread(paste0(tmp_dir, '/mega_full.cors'), nThread = opt$n_cores)
 best_score <- ldak_res_cors[which.max(ldak_res_cors$Correlation),]
 
-log_add(log_file = log_file, message = paste0('Model ', gsub('Score_','',best_score$V1[1]),' is identified as the best with correlation of ', best_score$V2))
+log_add(log_file = log_file, message = paste0('Model ', gsub('Score_','',best_score$Model[1]),' is identified as the best with correlation of ', best_score$Correlation[1]))
 
 ######
 # Format final score file
@@ -189,6 +189,7 @@ system(paste0('gzip ',opt$output,'.score'))
 if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)
 }
+
 
 ####
 # Calculate mean and sd of polygenic scores

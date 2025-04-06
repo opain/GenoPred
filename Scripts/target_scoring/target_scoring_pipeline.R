@@ -48,8 +48,8 @@ if(is.null(opt$population)){
 outdir <- read_param(config = opt$config, param = 'outdir', return_obj = F)
 
 # Create output directory
-opt$output_dir <- paste0(outdir, '/', opt$name, '/pgs/', opt$population)
-system(paste0('mkdir -p ',opt$output_dir))
+opt$output <- paste0(outdir, '/', opt$name, '/pgs/', opt$population)
+system(paste0('mkdir -p ',opt$output))
 
 # Create temp directory
 tmp_dir<-tempdir()
@@ -76,7 +76,7 @@ if(!is.null(score_files)){
   score_files_to_do <- data.table()
   for(i in 1:nrow(score_files)){
     pgs_i <- paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.profiles')
-    score_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '.score.gz')
+    score_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '-', opt$population, '.scale')
     if(!file.exists(pgs_i)){
       score_files_to_do <- rbind(score_files_to_do, score_files[i,])
     } else {
@@ -196,6 +196,9 @@ for(chr_i in CHROMS){
   system(paste0('rm ', tmp_dir, '/all_score.txt'))
   system(paste0('rm ', tmp_dir, '/row_index.txt'))
   system(paste0('rm ', tmp_dir, '/map.txt'))
+  rm(scores_i)
+  rm(current_scores)
+  gc()
 }
 
 # Combine score with IDs
@@ -211,6 +214,7 @@ if(opt$population == 'TRANS'){
 
   models<-list()
   for(i in 1:nrow(score_files)){
+    print(i)
     models[[paste0('score_file_', i)]]<-readRDS(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-TRANS.model.rds'))
     names(models[[paste0('score_file_', i)]])<-gsub('SCORE_', paste0('score_file_', i, '.'), names(models[[paste0('score_file_', i)]]))
   }

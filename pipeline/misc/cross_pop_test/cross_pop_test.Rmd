@@ -47,7 +47,10 @@ write.table(config, 'misc/opensnp/config_cross_pop.yaml', col.names = F, row.nam
 
 ```{bash}
 snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_cross_pop.yaml output_all -n
+snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_cross_pop_gw.yaml output_all -n
 ```
+
+***
 
 ## Evaluate PGS
 
@@ -68,7 +71,10 @@ source_all('../functions')
 pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt')
 
 # Read in PGS
-pgs <- read_pgs(config = 'misc/opensnp/config_cross_pop.yaml', name = 'opensnp')$opensnp
+pgs <- read_pgs(config = 'misc/opensnp/config_cross_pop_gw.yaml', name = 'opensnp')$opensnp
+
+# Read in PGS
+ancestry <- read_ancestry(config = 'misc/opensnp/config_cross_pop_gw.yaml', name = 'opensnp')
 
 # Estimate correlation between pheno and pgs
 cor <- NULL
@@ -77,6 +83,9 @@ for(pop_i in names(pgs)){
     for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
       pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
       pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
+      
+      # Restrict to EUR
+      pheno_pgs <- pheno_pgs[pheno_pgs$FID %in% ancestry$keep_files$EUR$V1,]
       
       for(model_i in names(pgs_i)[-1:-2]){
         y <- scale(pheno_pgs$height)
@@ -104,47 +113,43 @@ for(pop_i in names(pgs)){
   }
 }
 
-# The European sample is the only one large enough for interpretable results
-# Subset EUR results
-cor_eur <- cor[cor$pop == 'EUR', ]
-
 # Restrict to best and and pseudoval only
-cor_eur_subset <- NULL
-for(pop_i in unique(cor_eur$pop)){
-  for(gwas_i in unique(cor_eur$gwas[cor_eur$pop == pop_i])){
-    for(pgs_method_i in unique(cor_eur$pgs_method[cor_eur$pop == pop_i & cor_eur$gwas == gwas_i])){
+cor_subset <- NULL
+for(pop_i in unique(cor$pop)){
+  for(gwas_i in unique(cor$gwas[cor$pop == pop_i])){
+    for(pgs_method_i in unique(cor$pgs_method[cor$pop == pop_i & cor$gwas == gwas_i])){
       
       # Subset relevant results
-      cor_eur_i <- cor_eur[
-        cor_eur$pop == pop_i &
-        cor_eur$gwas == gwas_i &
-        cor_eur$pgs_method == pgs_method_i,]
+      cor_i <- cor[
+        cor$pop == pop_i &
+        cor$gwas == gwas_i &
+        cor$pgs_method == pgs_method_i,]
   
       # Top R
       if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm') | any(grepl('tlprs', pgs_method_i))){
-        top_i <- cor_eur_i[which(cor_eur_i$r == max(cor_eur_i$r, na.rm = T))[1],]
+        top_i <- cor_i[which(cor_i$r == max(cor_i$r, na.rm = T))[1],]
         top_i$model <- 'Top'
-        cor_eur_subset <- rbind(cor_eur_subset, top_i)
+        cor_subset <- rbind(cor_subset, top_i)
       }
   
       # PseudoVal
-      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm')){
-        cor_eur_i$name <- gsub(paste0(gwas_i, '_'), '', cor_eur_i$name)
-        pseudo_param <- find_pseudo(config = 'misc/opensnp/config_cross_pop.yaml', gwas = gwas_i, pgs_method = pgs_method_i)
-        pseudo_i <- cor_eur_i[cor_eur_i$name == pseudo_param,]
+      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm','quickprs','quickprs_multi')){
+        cor_i$name <- gsub(paste0(gwas_i, '_'), '', cor_i$name)
+        pseudo_param <- find_pseudo(config = 'misc/opensnp/config_cross_pop_gw.yaml', gwas = gwas_i, pgs_method = pgs_method_i, target_pop = 'EUR')
+        pseudo_i <- cor_i[cor_i$name == pseudo_param,]
         pseudo_i$model <- 'Pseudo'
-        cor_eur_subset <- rbind(cor_eur_subset, pseudo_i)
+        cor_subset <- rbind(cor_subset, pseudo_i)
       }
     }
   }
 }
 
 # Plot the results
-cor_eur_subset$model <- factor(cor_eur_subset$model, levels = c('Top','Pseudo','External'))
+cor_subset$model <- factor(cor_subset$model, levels = c('Top','Pseudo','External'))
 dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP')
 
-plot_obj_eur <- 
-  ggplot(cor_eur_subset, aes(x = pgs_method, y = r, fill = model)) +
+plot_obj <- 
+  ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
   geom_bar(stat = "identity", position = position_dodge2(preserve = "single"), width = 0.7) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
@@ -155,54 +160,12 @@ plot_obj_eur <-
     y = "Correlation (SE)",
     x = 'PGS Method',
     fill = 'Model',
-    title = paste0("OpenSNP - EUR\n(N = ", cor_eur_subset$n[1], ")")
+    title = paste0("OpenSNP - EUR\n(N = ", cor_subset$n[1], ")")
   ) +
   theme_half_open() +
   background_grid() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12)) +
   facet_grid(. ~ gwas, scales = 'free_x', space = 'free_x')
-
-
-cor_eur_tlprs<-cor_eur[cor_eur$pgs_method == 'tlprs_ptclump',]
-cor_eur_tlprs[grepl('EUR_0_0.01', cor_eur_tlprs$name),]
-
-
-cor_eas <- cor[cor$pop == 'EAS', ]
-# Restrict to best and and pseudoval only
-cor_eas_subset <- NULL
-for(pop_i in unique(cor_eas$pop)){
-  for(gwas_i in unique(cor_eas$gwas[cor_eas$pop == pop_i])){
-    for(pgs_method_i in unique(cor_eas$pgs_method[cor_eas$pop == pop_i & cor_eas$gwas == gwas_i])){
-      
-      # Subset relevant results
-      cor_eas_i <- cor_eas[
-        cor_eas$pop == pop_i &
-        cor_eas$gwas == gwas_i &
-        cor_eas$pgs_method == pgs_method_i,]
-  
-      # Top R
-      if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm') | any(grepl('tlprs', pgs_method_i))){
-        top_i <- cor_eas_i[which(cor_eas_i$r^2 == max(cor_eas_i$r^2, na.rm = T))[1],]
-        top_i$model <- 'Top'
-        cor_eas_subset <- rbind(cor_eas_subset, top_i)
-      }
-  
-      # PseudoVal
-      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm')){
-        cor_eas_i$name <- gsub(paste0(gwas_i, '_'), '', cor_eas_i$name)
-        pseudo_param <- find_pseudo(config = 'misc/opensnp/config_cross_pop.yaml', gwas = gwas_i, pgs_method = pgs_method_i)
-        pseudo_i <- cor_eas_i[cor_eas_i$name == pseudo_param,]
-        pseudo_i$model <- 'Pseudo'
-        cor_eas_subset <- rbind(cor_eas_subset, pseudo_i)
-      }
-    }
-  }
-}
-
-# Plot the results
-cor_eas_subset$model <- factor(cor_eur_subset$model, levels = c('Top','Pseudo','External'))
-dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP')
-cor_eas_tlprs<-cor_eas[cor_eas$pgs_method == 'tlprs_ptclump',]
 
 ```

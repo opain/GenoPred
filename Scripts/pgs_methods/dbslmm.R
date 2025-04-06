@@ -241,29 +241,6 @@ if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)
 }
 
-####
-# Calculate mean and sd of polygenic scores
-####
-
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
-
-# Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads=opt$n_cores)
-
-if(!is.null(opt$ref_pcs)){
-  log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
-  # Derive trans-ancestry PGS models and estimate PGS residual scale
-  model_trans_pgs(scores=ref_pgs, pcs=opt$ref_pcs, output=opt$output)
-}
-
-# Calculate scale within each reference population
-pop_data <- read_pop_data(opt$pop_data)
-
-for(pop_i in unique(pop_data$POP)){
-  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
-}
-
 end.time <- Sys.time()
 time.taken <- end.time - start.time
 sink(file = log_file, append = T)

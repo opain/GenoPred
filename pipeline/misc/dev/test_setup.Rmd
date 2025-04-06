@@ -7,16 +7,129 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-I want to set up a series of tests that can be quickly run to check everything is working as it should. We can test every step all the time, so lets focus on testing the following scenario:
+# Test data
 
-- Target sample data: Same as GenoPred test data, but restricted to subset of SNPs
-- GWAS sumstats: Same as GenoPred test data, but restricted to subset of SNPs
-- External sumstats: Same as GenoPred test data, but restricted to subset of SNPs
-- Reference data: Same as GenoPred test data, but restricted to subset of SNPs
+I previously created some test data for users to test out the pipeline. I would like to update this test data to include height GWAS from EUR and EAS populations to test out the multi-source functionality.
+  
+```{r}
+library(data.table)
+
+yengo_eur<-fread('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.txt')
+yengo_eas<-fread('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eas.txt')
+
+ref <- NULL
+for(i in 1:22){
+  ref <-
+    rbind(
+      ref,
+      readRDS(
+        paste0(
+          '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr', i, '.rds'
+      )))
+}
+
+yengo_eur <- yengo_eur[yengo_eur$variant_id %in% ref$SNP,]
+yengo_eas <- yengo_eas[yengo_eas$variant_id %in% ref$SNP,]
+
+# Save subset GWAS sumstats
+dir.create('~/test_data/reference/gwas_sumstats', recursive = T)
+fwrite(yengo_eur, '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/reference/gwas_sumstats/height_eur.txt.gz', quote=F, sep=' ', na='NA')
+fwrite(yengo_eas, '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/test_data/reference/gwas_sumstats/height_eas.txt.gz', quote=F, sep=' ', na='NA')
+
+```
+
+Test the pipeline using the example config.
+
+```{bash}
+cd ~/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate genopred
+snakemake --profile slurm --configfile=example_input/config.yaml --use-conda output_all -n
+```
+
+Make a test config that uses the EUR and EAS height GWAS.
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+
+# Create gwas_list
+gwas_list <- NULL
+gwas_list<-rbind(gwas_list, 
+                 data.table(name='height_eur',
+                            path = 'test_data/reference/gwas_sumstats/height_eur.txt.gz',
+                            population = 'EUR',
+                            n = NA,
+                            sampling = NA,
+                            prevalence = NA,
+                            mean = 0,
+                            sd = 1,
+                            label = "\"Height EUR\""))
+
+gwas_list<-rbind(gwas_list, 
+                 data.table(name='height_eas',
+                            path = 'test_data/reference/gwas_sumstats/height_eas.txt.gz',
+                            population = 'EAS',
+                            n = NA,
+                            sampling = NA,
+                            prevalence = NA,
+                            mean = 0,
+                            sd = 1,
+                            label = "\"Height EAS\""))
+
+write.table(gwas_list, 'example_input/gwas_list.multisource.txt', col.names = T, row.names = F, quote = F, sep = ' ')
+
+# Create gwas_groups
+gwas_groups <- data.frame(
+  name = 'height',
+  gwas = 'height_eur,height_eas',
+  label = "\"Height EUR+EAS\""
+)
+
+write.table(gwas_groups, 'example_input/gwas_groups.multisource.txt', col.names = T, row.names = F, quote = F, sep = ' ')
+
+# Create config file
+conf <- c(
+  'outdir: test_data/output/test1',
+  'config_file: example_input/config.multisource.yaml',
+  'gwas_list: example_input/gwas_list.multisource.txt',
+  'gwas_groups: example_input/gwas_groups.multisource.txt',
+  'target_list: example_input/target_list.txt',
+  "pgs_methods: ['lassosum']",
+  "leopard_methods: ['lassosum']",
+  'testing: chr22',
+  'cores_prep_pgs: 5',
+  'cores_target_pgs: 5',
+  'mem_target_pgs: 2000'
+)
+
+write.table(conf, 'example_input/config.multisource.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+Now test it using the multi-source set up.
+
+```{bash}
+cd ~/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate genopred
+snakemake --profile slurm --configfile=example_input/config.multisource.yaml --use-conda output_all -n
+
+# There was an error when running leopard_quickprs - running interactively to understand.
+```
+
+Now compress the test data, upload to Zenodo, and update the documentation.
+
+```{bash}
+cd ~/oliverpainfel/Software/MyGit/GenoPred/pipeline
+tar -czvf test_data.tar.gz test_data
+```
 
 ***
 
-# Create test data
+# Create smaller test data
+
+This is for rapid testing of the pipeline.
+
+***
 
 ## Reference data
 
@@ -33,7 +146,6 @@ dir.create('misc/dev/test_data/ref')
 saveRDS(ref_rds[ref_rds$SNP %in% test_snps,], 'misc/dev/test_data/ref/ref.chr22.rds')
 
 system('cp ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.pop.txt misc/dev/test_data/ref/')
-system('cp ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.keep.list misc/dev/test_data/ref/')
 system('cp -r ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/keep_files misc/dev/test_data/ref/')
 
 pops<-list.files('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/freq_files')
@@ -44,6 +156,7 @@ for(i in pops){
   fwrite(freq_i, paste0('misc/dev/test_data/ref/freq_files/',i,'/ref.',i,'.chr22.afreq'), quote=F, sep=' ', na='NA')
 }
 ```
+
 ```{bash}
 cd ~/oliverpainfel/Software/MyGit/GenoPred/pipeline
 
@@ -79,6 +192,7 @@ ss<-ss[ss$SNP %in% test_snps,]
 dir.create('misc/dev/test_data/gwas')
 fwrite(ss, 'misc/dev/test_data/gwas/BODY04.gz', quote=F, sep=' ', na='NA')
 ```
+
 ***
 
 # External score file
@@ -149,7 +263,8 @@ config<-c(
   "pgs_methods: ['ptclump','lassosum']",
   "testing: chr22",
   "cores_target_pgs: 1",
-  "mem_target_pgs: 2000"
+  "mem_target_pgs: 2000",
+  "pgs_scaling: ['continuous', 'discrete]"
   )
 
 write.table(config, 'misc/dev/test_data/config/config.yaml', col.names = F, row.names = F, quote = F)

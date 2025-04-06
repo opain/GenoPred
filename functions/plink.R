@@ -451,11 +451,12 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
     plink_opt<-paste0(plink_opt, '--score-col-nums 4 ')
   }
   # Calculate score in the target sample
+  scores <- NULL
   for(chr_i in chr){
     cmd<-paste0(plink_opt,'--chr ',chr_i,' --out ',tmp_folder,'/profiles.chr',chr_i,' --threads ',threads)
     cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
     exit_status <- system(cmd, intern=FALSE)
-    if (exit_status != 0) {
+    if (exit_status != 0 & exit_status != 13) {
       stop()
     }
 
@@ -466,7 +467,7 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
       # Delete file to save disk space
       system(paste0('rm ', tmp_folder, '/profiles.chr', chr_i, '.sscore'))
 
-      if(chr_i == chr[1]){
+      if(is.null(scores)){
         names(sscore)<-gsub('\\#', '', names(sscore))
         scores_ids <- sscore[, names(sscore) %in% c('FID', 'IID'), with = F]
         if (ncol(scores_ids) == 1) {
