@@ -169,11 +169,6 @@ if(file.exists(paste0(opt$output,'.score.gz'))){
 
 system(paste0('gzip ',opt$output,'.score'))
 
-# Record end time of test
-if(!is.na(opt$test)){
-  test_finish(log_file = log_file, test_start.time = test_start.time)
-}
-
 end.time <- Sys.time()
 time.taken <- end.time - start.time
 sink(file = log_file, append = T)

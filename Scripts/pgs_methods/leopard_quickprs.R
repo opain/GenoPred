@@ -255,6 +255,7 @@ for(i in 1:length(score_files)){
 }
 
 # Adjust weights to correspond to PGS with SD of 1
+# Note. It might be more appropriate to use the SD of the score in the target population, rather than PGS SD in GWAS population. Unlikely to make a big difference.
 log_add(log_file = log_file, message = '------------------------')
 for(i in populations){
   mix_weights[[i]] <- adjust_weights(weights = mix_weights[[i]], pgs_sd = scale_all$SD)
