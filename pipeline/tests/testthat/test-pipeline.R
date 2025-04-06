@@ -171,7 +171,7 @@ write.table(config, paste0(temp_dir2, '/config9.yaml'), col.names = F, row.names
 # Run pipeline commands inside container
 #################
 
-requested_output <- paste0("output_all pc_projection ", temp_dir, "/reference/target_checks/example_plink2/indiv_report-4_EAS.4_EAS-report.done")
+requested_output <- paste0("output_all ", temp_dir, "/reference/target_checks/example_plink2/indiv_report-4_EAS.4_EAS-report.done")
 
 exit_status <- system(paste0(
   "singularity exec --writable-tmpfs ", sif_file, " bash -c \"
@@ -312,7 +312,7 @@ test_that("Check sumstat_prep_i output", {
 # internal
 ###
 for(i in c('ptclump','lassosum')){
-  for(j in c('.score.gz','-AFR.scale')){
+  for(j in c('.score.gz','-AFR.scale','-TRANS.scale')){
     test_that(paste0("Check prep_pgs_", i,"_i output: ", j), {
       results <- fread(paste0(temp_dir,'/reference/pgs_score_files/', i,'/BODY04/ref-BODY04', j))
       expected<-fread(paste0('misc/dev/test_data/output/reference/pgs_score_files/', i, '/BODY04/ref-BODY04', j))
@@ -322,20 +322,9 @@ for(i in c('ptclump','lassosum')){
 }
 
 ###
-# prep_pgs_lassosum_i
-###
-for(i in c('.score.gz','-AFR.scale')){
-  test_that(paste0("Check prep_pgs_ptclump_i output: ", i), {
-    results <- fread(paste0(temp_dir,'/reference/pgs_score_files/ptclump/BODY04/ref-BODY04', i))
-    expected<-fread(paste0('misc/dev/test_data/output/reference/pgs_score_files/ptclump/BODY04/ref-BODY04', i))
-    expect_equal(expected, results)
-  })
-}
-
-###
 # prep_pgs_external_i
 ###
-for(i in c('.score.gz','-AFR.scale')){
+for(i in c('.score.gz','-AFR.scale','-TRANS.scale')){
   test_that(paste0("Check prep_pgs_external_i output: ", i), {
     results<-fread(paste0(temp_dir,'/reference/pgs_score_files/external/PGS002804/ref-PGS002804', i))
     expected<-fread(paste0('misc/dev/test_data/output/reference/pgs_score_files/external/PGS002804/ref-PGS002804', i))
@@ -352,19 +341,23 @@ for(i in c('.score.gz','-AFR.scale')){
 ###
 
 # external
-test_that("Check target_pgs_i output: external", {
-  results <- fread(paste0(temp_dir,'/example_plink2/pgs/AFR/external/PGS002804/example_plink2-PGS002804-AFR.profiles'))
-  expected <- fread('misc/dev/test_data/output/example_plink2/pgs/AFR/external/PGS002804/example_plink2-PGS002804-AFR.profiles')
-  expect_equal(expected, results)
-})
+for(j in c('AFR','TRANS')){
+  test_that("Check target_pgs_i output: external", {
+    results <- fread(paste0(temp_dir,'/example_plink2/pgs/', j, '/external/PGS002804/example_plink2-PGS002804-', j, '.profiles'))
+    expected <- fread('misc/dev/test_data/output/example_plink2/pgs/', j, '/external/PGS002804/example_plink2-PGS002804-', j, '.profiles')
+    expect_equal(expected, results)
+  })
+}
 
 # internal
 for(i in c('ptclump','lassosum')){
-  test_that(paste0("Check target_pgs_i output: ", i), {
-    results <- fread(paste0(temp_dir,'/example_plink2/pgs/AFR/', i, '/BODY04/example_plink2-BODY04-AFR.profiles'))
-    expected <- fread(paste0('misc/dev/test_data/output/example_plink2/pgs/AFR/', i, '/BODY04/example_plink2-BODY04-AFR.profiles'))
-    expect_equal(expected, results)
-  })
+  for(j in c('AFR','TRANS')){
+    test_that(paste0("Check target_pgs_i output: ", i), {
+      results <- fread(paste0(temp_dir,'/example_plink2/pgs/', j, '/', i, '/BODY04/example_plink2-BODY04-', j, '.profiles'))
+      expected <- fread(paste0('misc/dev/test_data/output/example_plink2/pgs/', j, '/', i, '/BODY04/example_plink2-BODY04-', j, '.profiles'))
+      expect_equal(expected, results)
+    })
+  }
 }
 
 #######
