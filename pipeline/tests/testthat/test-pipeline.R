@@ -5,7 +5,7 @@ library(testthat)
 setwd('../../')
 
 tempdir <- function(prefix = "tmpdir") {
-  tmpdir <- tempfile(pattern = prefix)
+  tmpdir <- tempfile(tmpdir = '/tmp', pattern = prefix)
   dir.create(tmpdir)
   return(tmpdir)
 }
@@ -174,7 +174,7 @@ write.table(config, paste0(temp_dir2, '/config9.yaml'), col.names = F, row.names
 requested_output <- paste0("output_all ", temp_dir, "/reference/target_checks/example_plink2/indiv_report-4_EAS.4_EAS-report.done")
 
 exit_status <- system(paste0(
-  "singularity exec --writable-tmpfs ", sif_file, " bash -c \"
+  "singularity exec --bind ", temp_dir, ":", temp_dir ," --writable-tmpfs ", sif_file, " bash -c \"
       # Set to exit if any errors incurred
       set -e &&
       # Initiate conda
@@ -219,6 +219,7 @@ exit_status <- system(paste0(
 
 # Check system command completed successfully
 if (exit_status != 0) {
+  print(readLines(paste0(temp_dir, "/snakemake1.log")))
   stop("The script failed. Check the logs for details.")
 }
 
