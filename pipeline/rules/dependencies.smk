@@ -416,7 +416,7 @@ else:
     # Check frequency files for populations in ref.pop.txt and TRANS
     freq_dir = os.path.join(refdir, "freq_files")
     for pop in list(populations) + ['TRANS']:
-        for i in range(1, 23):  # Chromosomes 1-22
+        for i in get_chr_range(testing=config['testing']):
             freq_file = os.path.join(freq_dir, pop, f"ref.{pop}.chr{i}.afreq")
             ref_input.append(freq_file)
     
