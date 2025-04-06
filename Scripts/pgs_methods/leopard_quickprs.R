@@ -6,6 +6,12 @@ suppressMessages(library("optparse"))
 option_list = list(
   make_option("--output", action="store", default='NA', type='character',
               help="Path for output files [required]"),
+  make_option("--plink2", action="store", default='plink2', type='character',
+              help="Path PLINK v2 software binary [optional]"),
+  make_option("--ref_plink_chr", action="store", default=NA, type='character',
+              help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--pop_data", action="store", default=NULL, type='character',
+              help="File containing the population code and location of the keep file [required]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
               help="Comma-seperated list of GWAS summary statistics [required]"),
   make_option("--scores", action="store", default=NULL, type='character',
@@ -39,6 +45,12 @@ source('../functions/misc.R')
 source_all('../functions')
 
 # Check required inputs
+if(is.null(opt$ref_plink_chr)){
+  stop('--ref_plink_chr must be specified.\n')
+}
+if(is.null(opt$pop_data)){
+  stop('--pop_data must be specified.\n')
+}
 if(is.null(opt$sumstats)){
   stop('--sumstats must be specified.\n')
 }
@@ -222,17 +234,21 @@ mix_weights <- calculate_avg_weights(populations = populations, leopard_dir = pa
 # Adjust weights to correspond to PGS with SD of 1
 ####
 
-# Read in the scale files for the original score files
+# Calculate scale of polygenic scores
+# This is done later by the ref_pgs rule, but we need it now
+pop_data <- read_pop_data(opt$pop_data)
 scale_all <- NULL
 for(i in 1:length(score_files)){
-  scale_file <- gsub('.score.gz', '', score_files[i])
-  scale_file <- paste0(scale_file, '-', populations[i], '.scale')
-  scale_file <- fread(scale_file)
-  
+  # Calculate scores in the full reference
+  ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = score_files[i], threads = opt$n_cores)
+
+  # Calculate scale within GWAS population
+  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == populations[i], c('FID','IID'), with=F])
+
   scale_all <- rbind(
     scale_all, 
     data.table(
-      SD = scale_file$SD,
+      SD = ref_pgs_scale_i$SD,
       Discovery = populations[i]
     )
   )

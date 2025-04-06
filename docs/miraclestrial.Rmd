@@ -63,5 +63,149 @@ We could also further stratify the polygenic scores by functional annotations, s
 
 We can use previously published EWAS summary statistics to do the same thing. Alternatively, we can use 
 
+***
 
+# Calculate PGS
+
+```{bash}
+mkdir -p /users/k1806347/oliverpainfel/Data/miraclestrial/original
+
+# Create index for each batch
+module add bcftools/1.12-gcc-13.2.0-python-3.11.6
+
+####
+# Format for GenoPred
+####
+# Split into per chromosome files
+
+##
+# Batch 1
+## 
+for chr in $(seq 1 22);do
+    sbatch --mem 10G -n 1 -p interruptible_cpu -t 1:00:00 --wrap="/users/k1806347/oliverpainfel/Software/plink2 \
+        --vcf /scratch/prj/mirocalstrial/recovered/DNAscan/variantcalling/merged_strelka_stringent.vcf.gz \
+        --chr ${chr} \
+        --out /users/k1806347/oliverpainfel/Data/miraclestrial/processed/miracles_batch1.chr${chr} \
+        --allow-extra-chr \
+        --export vcf bgz"
+done
+
+# The file is truncated mid chr16, and missing chr 17-22
+
+# Recreate merged dataset 
+module add bcftools/1.12-gcc-13.2.0-python-3.11.6
+
+bcftools merge \
+  -l sample_vcf_list.txt \
+  --missing-to-ref \
+  -o /users/k1806347/oliverpainfel/Data/miraclestrial/original/miracles_batch1.vcf.gz
+
+# Replace corrupt version
+cp /users/k1806347/oliverpainfel/Data/miraclestrial/original/miracles_batch1.vcf.gz /scratch/prj/mirocalstrial/recovered/DNAscan/variantcalling/merged_strelka_stringent_fixed.vcf.gz
+
+# Split by chromosome
+for chr in $(seq 1 22);do
+    sbatch --mem 10G -n 1 -p interruptible_cpu -t 1:00:00 --wrap="/users/k1806347/oliverpainfel/Software/plink2 \
+        --vcf /users/k1806347/oliverpainfel/Data/miraclestrial/original/miracles_batch1.vcf.gz \
+        --chr ${chr} \
+        --out /users/k1806347/oliverpainfel/Data/miraclestrial/processed/miracles_batch1.chr${chr} \
+        --allow-extra-chr \
+        --export vcf bgz"
+done
+
+##
+# Batch 2
+## 
+for chr in $(seq 1 22);do
+    sbatch --mem 10G -n 1 -p interruptible_cpu -t 1:00:00 --wrap="/users/k1806347/oliverpainfel/Software/plink2 \
+        --vcf /scratch/prj/mirocalstrial/recovered/DNAscan_batch2/variantcalling/merged_strelka_stringent.vcf.gz \
+        --chr ${chr} \
+        --out /users/k1806347/oliverpainfel/Data/miraclestrial/processed/miracles_batch2.chr${chr} \
+        --allow-extra-chr \
+        --export vcf bgz"
+done
+
+# Batch 2 seems fine.
+
+```
+
+```{r}
+library(data.table)
+
+dir.create('/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/output', recursive = T)
+dir.create('/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config', recursive = T)
+
+# Create target_list
+target_list <- NULL
+target_list <- rbind(target_list, data.table(
+  name = 'miracles_batch1',
+  path = '/users/k1806347/oliverpainfel/Data/miraclestrial/processed/miracles_batch1',
+  type = 'vcf',
+  indiv_report = F))
+
+target_list <- rbind(target_list, data.table(
+  name = 'miracles_batch2',
+  path = '/users/k1806347/oliverpainfel/Data/miraclestrial/processed/miracles_batch2',
+  type = 'vcf',
+  indiv_report = F))
+
+write.table(
+  target_list,
+  '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/target_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F,
+  sep = ' '
+)
+
+# Create gwas_list
+gwas_list <- data.table(
+  name='yengo_eur',
+  path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.txt',
+  population = 'EUR',
+  n = NA,
+  sampling = NA,
+  prevalence = NA,
+  mean = NA,
+  sd = NA,
+  label = "\"Yengo 2022 Height EUR\"")
+
+write.table(
+  gwas_list,
+  '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/gwas_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F,
+  sep = ' '
+)
+
+# Create config file
+conf <- c(
+  'outdir: /users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/output',
+  'config_file: /users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml',
+  'target_list: /users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/target_list.txt',
+  'gwas_list: /users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/gwas_list.txt',
+  "pgs_methods: ['dbslmm']"
+)
+
+write.table(
+  conf,
+  '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml',
+  col.names = F,
+  row.names = F,
+  quote = F
+)
+
+```
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate genopred
+
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml \
+  output_all -n 
+```
 

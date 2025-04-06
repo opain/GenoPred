@@ -602,6 +602,8 @@ rule leopard_quickprs_i:
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/leopard_quickprs.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --pop_data {refdir}/ref.pop.txt \
       --sumstats {params.sumstats} \
       --scores {params.scores} \
       --populations {params.populations} \

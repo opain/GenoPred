@@ -341,7 +341,7 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickpr
 # Set quickprs_multi reference path
 if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
   if config['quickprs_multi_ldref'] == 'NA':
-    quickprs_multi_ldref=f"{resdir}/data/quickprs"
+    quickprs_multi_ldref=f"{resdir}/data/quickprs_leopard"
     
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR', 'EAS', 'AFR'}
@@ -1100,7 +1100,7 @@ quickprs_leopard_ref_gdrive = {
 
 rule download_quickprs_leopard_ref:
   output:
-    f"{resdir}/data/quickprs_leopard/{{population}}/{{population}}.cors.bin"
+    f"{resdir}/data/quickprs_leopard/{{population}}/{{population}}.subset_1.bed"
   benchmark:
     f"{resdir}/data/benchmarks/download_quickprs_leopard_ref-{{population}}.txt"
   log:
@@ -1120,7 +1120,7 @@ rule download_quickprs_leopard_ref:
 
 rule download_quickprs_leopard_ref_all:
   input:
-    lambda w: expand(f"{resdir}/data/quickprs_leopard/{{population}}/{{population}}.cors.bin", population=['EUR', 'EAS', 'AFR'])
+    lambda w: expand(f"{resdir}/data/quickprs_leopard/{{population}}/{{population}}.subset_1.bed", population=['EUR', 'EAS', 'AFR'])
 
 # Download preprocessed reference data (1KG+HGDP HapMap3)
 rule download_default_ref:

@@ -1794,7 +1794,9 @@ We will do this using GenoPred.
 ######
 # gwas_list
 ######
+
 library(data.table)
+
 # Subset original gwas_list to include selected traits
 gwas_list<-fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_all.txt')
 pheno<-gsub('_.*','', gwas_list$name)
@@ -1802,7 +1804,11 @@ selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_su
 gwas_list<-gwas_list[pheno %in% selected_traits,]
 gwas_list$label<-paste0('"', gwas_list$label, '"')
 
-write.table(gwas_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt', col.names = T, row.names = F, quote = F)
+write.table(
+  gwas_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt', 
+  col.names = T, 
+  row.names = F, 
+  quote = F)
 
 ######
 # gwas_groups
@@ -2710,6 +2716,62 @@ ggplot(tmp, aes(x=label, y=R , fill = Model)) +
           legend.key.spacing.x = unit(1, "cm"),
           legend.justification = "center")
 dev.off()
+
+# Make simplified plot
+# Just show performance when using IndivTrain (or SumStat), and Remove 'All' model, with both GWAS.
+tmp <- meta_res_eval
+tmp <- tmp[tmp$Target != 'EUR',]
+tmp <- tmp[tmp$Method != 'all',]
+tmp <- tmp[tmp$Source  == 'Multi',]
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'] <- paste0(tmp$label[grepl('Multi', tmp$Model) & !(tmp$Method %in% pgs_group_methods) & tmp$label != 'All'], '-multi')
+tmp$label <- factor(tmp$label, levels = model_order)
+tmp$Discovery_clean <- as.character(tmp$Discovery)
+tmp$Discovery_clean[tmp$Discovery == 'EUR'] <- 'EUR GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Single'] <- 'Target-matched GWAS'
+tmp$Discovery_clean[tmp$Discovery != 'EUR' & tmp$Source == 'Multi'] <- 'Both'
+tmp$Discovery_clean <- factor(tmp$Discovery_clean, 
+                              levels = c('Target-matched GWAS',
+                                         'EUR GWAS',
+                                         'Both'))
+tmp$Target <- paste0(tmp$Target, ' Target')
+tmp$Model[tmp$Model != 'SumStatTune'] <- 'IndivTune'
+tmp$Model[tmp$Model == 'SumStatTune'] <- 'SumStatTune'
+tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery_clean','Model'), with=F]),]
+tmp<-tmp[tmp$Model == 'IndivTune',]
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/plots/average_r_simple.png'), res=300, width = 3200, height = 2000, units = 'px')
+ggplot(tmp, aes(x=label, y=R)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23, fill = 'black') +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    facet_grid(Target ~ ., scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+dev.off()
+
+tmp<-tmp[tmp$Method %in% c('ldpred2','prscsx','xwing'),]
+png(paste0('~/oliverpainfel/Analyses/crosspop/plots/average_r_simple_ldpred2.png'), res=300, width = 500, height = 500, units = 'px')
+ggplot(tmp, aes(x=label, y=R)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+  #  geom_point(stat="identity", position=position_dodge(1), fill = '#3399FF') +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23, fill = '#3399FF') +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x='Method') +
+    facet_grid(Target ~ ., scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+dev.off()
+
 
 ####
 # Create heatmap showing difference between all methods and models
