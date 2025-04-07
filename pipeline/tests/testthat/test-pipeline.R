@@ -174,7 +174,7 @@ write.table(config, paste0(temp_dir2, '/config9.yaml'), col.names = F, row.names
 requested_output <- paste0("output_all ", temp_dir, "/reference/target_checks/example_plink2/indiv_report-4_EAS.4_EAS-report.done")
 
 exit_status <- system(paste0(
-  "singularity exec --bind ", temp_dir, ":", temp_dir ," --writable-tmpfs ", sif_file, " bash -c \"
+  "singularity exec --bind ", temp_dir, ":", temp_dir ," --bind ", temp_dir2, ":", temp_dir2 ," --writable-tmpfs ", sif_file, " bash -c \"
       # Set to exit if any errors incurred
       set -e &&
       # Initiate conda
@@ -187,10 +187,6 @@ exit_status <- system(paste0(
       git checkout ", repo_branch, " &&
       # Fetch latest commits
       git pull &&
-      # Clear output directory
-      rm -r -f ", temp_dir, "/reference &&
-      rm -r -f ", temp_dir, "/example_plink2 &&
-      rm -r -f ", temp_dir, "/resources &&
       # Test 1
       cp ", temp_dir, "/config1.yaml ", temp_dir, "/config.yaml &&
       snakemake -j1 --use-conda ", requested_output, " --configfile=", temp_dir, "/config.yaml > ", temp_dir, "/snakemake1.log 2>&1 &&
@@ -291,10 +287,10 @@ for(i in c('pgen','psam','pvar')){
 # ref_pca_i
 ###
 
-for(i in c('eigenvec.var.gz','AFR.scale')){
+for(i in c('eigenvec.var.gz','TRANS.scale')){
   test_that(paste0("Check ref_pca_i output: ", i), {
-    results<-fread(paste0(temp_dir,'/resources/data/ref/pc_score_files/AFR/ref-AFR-pcs.', i))
-    expected<-fread(paste0('misc/dev/test_data/output/resources/data/ref/pc_score_files/AFR/ref-AFR-pcs.', i))
+    results<-fread(paste0(temp_dir,'/reference/pc_score_files/TRANS/ref-TRANS-pcs.', i))
+    expected<-fread(paste0('misc/dev/test_data/output/reference/pc_score_files/TRANS/ref-TRANS-pcs.', i))
     expect_equal(expected, results)
   })
 }
@@ -345,7 +341,7 @@ for(i in c('.score.gz','-AFR.scale','-TRANS.scale')){
 for(j in c('AFR','TRANS')){
   test_that("Check target_pgs_i output: external", {
     results <- fread(paste0(temp_dir,'/example_plink2/pgs/', j, '/external/PGS002804/example_plink2-PGS002804-', j, '.profiles'))
-    expected <- fread('misc/dev/test_data/output/example_plink2/pgs/', j, '/external/PGS002804/example_plink2-PGS002804-', j, '.profiles')
+    expected <- fread(paste0('misc/dev/test_data/output/example_plink2/pgs/', j, '/external/PGS002804/example_plink2-PGS002804-', j, '.profiles'))
     expect_equal(expected, results)
   })
 }
