@@ -349,7 +349,7 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
   
     if invalid_pops:
       raise ValueError(
-        f"Default quickprs reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own quickprs reference data using the quickprs_multi_ldref parameter."
+        f"Default LEOPARD+QuickPRS reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own LEOPARD+QuickPRS reference data using the quickprs_multi_ldref parameter."
       )
   else:
     quickprs_multi_ldref=config['quickprs_multi_ldref']
@@ -371,18 +371,27 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
 # Set sbayesrc reference path
 if config['sbayesrc_ldref'] == 'NA':
   sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
+
+  # Check if gwas_list contains invalid populations
+  valid_pops = {'EUR', 'EAS', 'AFR'}
+  invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
+
+  if invalid_pops:
+    raise ValueError(
+      f"Default sbayesrc reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own sbayesrc reference data using the sbayesrc_ldref parameter."
+    )
 else:
   sbayesrc_ldref=config['sbayesrc_ldref']
 
-# Check the sbayesrc ldref data is present for the required populations in the gwas_list
-if 'sbayesrc' in config['pgs_methods']:
-  for pop in gwas_list_df['population'].unique():
-    path = f"{sbayesrc_ldref}/{pop}"
-    # Check if required files exists
-    cors_file = os.path.join(path, f"ldm.info")
-    if not os.path.exists(cors_file):
-      print(f"File not found: {cors_file}")
-      raise FileNotFoundError(f"Required file not found: {cors_file}. sbayesrc reference data must include ldm.info for all populations.")
+  # Check the sbayesrc ldref data is present for the required populations in the gwas_list
+  if 'sbayesrc' in config['pgs_methods']:
+    for pop in gwas_list_df['population'].unique():
+      path = f"{sbayesrc_ldref}/{pop}"
+      # Check if required files exists
+      cors_file = os.path.join(path, f"ldm.info")
+      if not os.path.exists(cors_file):
+        print(f"File not found: {cors_file}")
+        raise FileNotFoundError(f"Required file not found: {cors_file}. sbayesrc reference data must include ldm.info for all populations.")
 
 ####
 # Check reference data
@@ -882,6 +891,38 @@ rule download_sbayesrc_annot:
     }} > {log} 2>&1
     """
 
+# Download SBayesRC reference data
+sbayesrc_ref_urls = {
+    'EUR': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbEUR_HM3.zip',
+    'EAS': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbEAS_HM3.zip',
+    'AFR': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbAFR_HM3.zip'
+}
+
+rule download_sbayesrc_ref:
+  output:
+    f"{resdir}/data/sbayesrc_ref/{{population}}/block148.eigen.bin"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_sbayesrc_ref-{{population}}.txt"
+  log:
+    f"{resdir}/data/logs/download_sbayesrc_ref-{{population}}.log"
+  params:
+    url=lambda w: sbayesrc_ref_urls.get(w.population)
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data/sbayesrc_ref; \
+      rm -r -f {resdir}/data/sbayesrc_ref/{wildcards.population}; \
+      wget --no-check-certificate -O {resdir}/data/sbayesrc_ref/{wildcards.population}.zip {params.url}; \
+      unzip {resdir}/data/sbayesrc_ref/{wildcards.population}.zip -d {resdir}/data/sbayesrc_ref/{wildcards.population}; \
+      rm {resdir}/data/sbayesrc_ref/{wildcards.population}.zip; \
+      mv {resdir}/data/sbayesrc_ref/{wildcards.population}/ukb{wildcards.population}_HM3/* {resdir}/data/sbayesrc_ref/{wildcards.population}/
+    }} > {log} 2>&1
+    """
+
+rule download_sbayesrc_ref_all:
+  input:
+    lambda w: expand(f"{resdir}/data/sbayesrc_ref/{{population}}/block148.eigen.bin", population=['EUR', 'EAS', 'AFR'])
+
 # Download SBayesRC R package
 rule install_sbayesrc:
   input:
@@ -1037,30 +1078,6 @@ rule download_ldak5_2:
     """
 
 # Download QuickPRS reference data
-# NOTE. This doesn't currently work as the reference data on LDAK website isn't in the right format for LDAK 5.1, 5.2, or 6
-#rule download_quickprs_ref:
-#  output:
-#    f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin"
-#  benchmark:
-#    f"{resdir}/data/benchmarks/download_quickprs_ref-{{population}}.txt"
-#  log:
-#    f"{resdir}/data/logs/download_quickprs_ref-{{population}}.log"
-#  params:
-#    pop_code=lambda wildcards: {'EUR': 'gbr', 'SAS': 'sas', 'EAS': 'eas', 'AFR': 'afr'}[wildcards.population]
-#  shell:
-#    """
-#    {{
-#      mkdir -p {resdir}/data/quickprs; \
-#      rm -r -f {resdir}/data/quickprs/{wildcards.population}; \
-#      wget --no-check-certificate -O {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz https://genetics.ghpc.au.dk/doug/{params.pop_code}.hapmap.tar.gz; \
-#      tar -zxvf {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz -C {resdir}/data/quickprs/; \
-#      mv {resdir}/data/quickprs/{params.pop_code}.hapmap {resdir}/data/quickprs/{wildcards.population}; \
-#      find {resdir}/data/quickprs/{wildcards.population} -type f -name '*{params.pop_code}*' -exec bash -c 'mv \"$0\" \"${{0//{params.pop_code}/{wildcards.population}}}\"' {{}} \; \
-#      find {resdir}/data/quickprs/{wildcards.population} -type f -name '*hapmap*' -exec bash -c 'mv \"$0\" \"${{0//.hapmap./.}}\"' {{}} \; \
-#      rm {resdir}/data/quickprs/{wildcards.population}.hapmap.tar.gz
-#    }} > {log} 2>&1
-#    """
-
 quickprs_ref_gdrive = {
     'EUR': '10fuqn6X23dA9WKjQd9xs7xUDiFjTwfz9',
     'EAS': '1m1OI9HpHbVcX88YvtIt80-1zonSWrZP_',
@@ -1199,13 +1216,6 @@ rule install_genoutils:
       Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
     }} > {log} 2>&1
     """
-
-# Install R packages (handy function for when conda env updates erroneously)
-rule install_r_packages:
-  input:
-    rules.install_ggchicklet.output,
-    rules.install_lassosum.output,
-    rules.install_genoutils.output
 
 # Download pgscatalog_utils
 rule download_pgscatalog_utils:
@@ -1433,6 +1443,16 @@ rule download_bridgeprs_software:
     }} > {log} 2>&1
     """
 
+# Install R packages (handy function for when conda env updates erroneously)
+rule install_r_packages:
+  input:
+    rules.install_ggchicklet.output,
+    rules.install_lassosum.output,
+    rules.install_genoutils.output,
+    rules.install_genoutils_sbayesrc.output,
+    rules.install_genoutils_xwing.output,
+    rules.install_tlprs.output
+
 ############
 # Check all dependencies are available
 ############
@@ -1458,29 +1478,6 @@ rule get_dependencies:
 # Rules for preparing offline resources
 ############
 
-rule get_all_resources:
-  input:
-    rules.download_plink.output,
-    rules.download_ldsc.output,
-    rules.download_dbslmm.output,
-    rules.download_prscs_software.output,
-    rules.download_gctb_software.output,
-    rules.download_ldak.output,
-    rules.download_ldscores_panukb.output,
-    rules.download_hm3_snplist.output,
-    rules.download_ld_blocks.output,
-    rules.download_prscs_ref_ukb_all.input,
-    rules.download_prscs_ref_1kg_all.input,
-    rules.download_gctb_ref.output,
-    rules.download_ldpred2_ref.output,
-    rules.download_ldak_map.output,
-    rules.download_ldak_bld.output,
-    rules.download_ldak_highld.output,
-    rules.download_default_ref.output,
-    rules.download_quickprs_ref_all.output
-  output:
-    touch(f"{resdir}/software/get_all_resources.done")
-
 rule get_key_resources:
   input:
     rules.download_plink.output,
@@ -1496,7 +1493,7 @@ rule get_key_resources:
     rules.download_default_ref.output
   output:
     touch(f"{resdir}/software/get_key_resources.done")
-
+    
 rule get_prscs_resources:
   input:
     rules.get_key_resources.output,
@@ -1505,6 +1502,17 @@ rule get_prscs_resources:
     rules.download_prscs_ref_1kg_all.input
   output:
     touch(f"{resdir}/software/get_prscs_resources.done")
+
+rule get_prscsx_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_prscs_ref_ukb_all.input,
+    rules.download_prscs_ref_1kg_all.input,
+    rules.download_prscs_snp_data_ukb.output,
+    rules.download_prscs_snp_data_1kg.output,
+    rules.download_prscsx_software.output
+  output:
+    touch(f"{resdir}/software/get_prscsx_resources.done")
 
 rule get_ldpred2_resources:
   input:
@@ -1520,3 +1528,45 @@ rule get_sbayesr_resources:
     rules.download_gctb_ref.output
   output:
     touch(f"{resdir}/software/get_sbayesr_resources.done")
+
+rule get_xwing_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_logodetect_ref_all.input,
+    rules.download_leopard_ref_all.input,
+    rules.download_leopard_panther_ref_all.input,
+    rules.download_leopard_panther_snp_data.output
+  output:
+    touch(f"{resdir}/software/get_xwing_resources.done")
+
+rule get_sbayesrc_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_gctb252_software.output,
+    rules.download_sbayesrc_annot.output,
+    rules.download_sbayesrc_ref_all.input
+  output:
+    touch(f"{resdir}/software/get_sbayesrc_resources.done")
+
+rule get_quickprs_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.download_ldak5_2.output,
+    rules.download_quickprs_ref_all.input,
+    rules.download_quickprs_leopard_ref_all.input
+  output:
+    touch(f"{resdir}/software/get_quickprs_resources.done")
+    
+rule get_all_resources:
+  input:
+    rules.get_key_resources.output,
+    rules.get_prscs_resources.output,
+    rules.get_sbayesr_resources.output,
+    rules.get_ldpred2_resources.output,
+    rules.get_prscsx_resources.output,
+    rules.get_xwing_resources.output,
+    rules.get_sbayesrc_resources.output,
+    rules.get_quickprs_resources.output
+  output:
+    touch(f"{resdir}/software/get_all_resources.done")
+
