@@ -61,7 +61,7 @@ We could also further stratify the polygenic scores by functional annotations, s
 
 ## Methylation scores
 
-We can use previously published EWAS summary statistics to do the same thing. Alternatively, we can use 
+We can use previously published EWAS summary statistics to do the same thing.
 
 ***
 
@@ -208,4 +208,109 @@ snakemake \
   --configfile=/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml \
   output_all -n 
 ```
+
+The vast majority of the clinical trial participants are of European ancestry (Non-EUR N = 15, EUR N = 267). We should restrict the primary analysis to EUR, and then rerun key analyses in full sample. 
+
+***
+
+Analyses:
+
+1. Replicate primary analysis of clinical trial (is this published/can I see details on this)
+2. Then test for interaction between PGS and IL-22 on primary endpoint
+  - We will have very little power to detect main/interaction effects at statistical significance
+  - Could test PGS for risk as primary analysis, as previous studies have done, and then do a hypothesis-free analysis across many PGS, controlling for multiple testing?
+    - ALS risk GWAS Could build multi-trait and multi-population model. Build elastic net containing many scores using ProjectMine and independent GWAS
+    
+
+What about Jiajing's PGS? seemed to predict risk very highly.
+
+I can generate the PGS and hand them over, or do the analysis? Depends on how Ahmad wants to structure the papers.
+
+***
+
+# Clinical data
+
+I have been sent some preliminary clinical data for the trial. Lets have a look at it:
+
+```{r}
+library(data.table)
+library(readxl)
+
+data <- read_excel("~/oliverpainfel/scratch_tmp/Data/miraclestrial/original/Survival-MIR.xlsx")
+data <- data.table(data)
+
+# Rename variables
+original_names<-names(data)
+names(data) <- c('reference','label','id','c9','unc13a','diagnosis','country','site','reference_2','sex','age_at_diagnosis','age_at_onset','site_of_onset','arm','sex_2','familial','alfrs','svc','age_at_death','age_at_death_rounded_down','randomisation','reference_3','gender','age_c','site_of_onset_2','arm_2')
+
+# Overview of data
+str(data)
+summary(data)
+
+# Check references are identical
+all(data$reference == data$reference_2)
+all(data$reference == data$reference_3) # We can delete reference_3 as identical to reference
+data$reference_3 <- NULL
+data[data$reference != data$reference_2,] # There is an reference value matches different row in reference_2.
+
+# Check sex are identical
+all(data$sex == data$sex_2)
+all(data$sex == data$gender)
+all(data$sex_2 == data$gender) # We can delete gender as identical to sex_2
+data$gender <- NULL
+data[data$sex != data$sex_2,] # The same rows with discordant reference values have discordant sex values.
+
+# Check site of onset
+all(data$site_of_onset == data$site_of_onset_2)
+data[data$site_of_onset != data$site_of_onset_2,] # One individual has different site of onset (also mismatched for reference)
+
+# Check arm
+all(data$arm == data$arm_2, na.rm = T) # They are identical
+data$arm_2 <- NULL
+data$arm
+
+# Check age variables
+# age_c seems to be age_at_diagnosis, just rounded to 1 decimal point, so delete age_c
+data$age_c <- NULL
+
+# Create variable indicating death before end of trial
+data$age_at_death_rounded_down <- NULL
+data$died_during_trial <- ifelse(grepl('Alive at cut off date', data$age_at_death), F, T)
+data$died_during_trial[grepl('NA', data$age_at_death)] <- NA
+data$age_at_death <- as.numeric(data$age_at_death)
+
+# Check site of onset
+all(data$site_of_onset == data$site_of_onset_2)
+
+#####
+# Run cox regression
+#####
+library(survival)
+
+# Subset those in the trial
+trial_data <- data[!is.na(data$arm),]
+trial_data <- trial_data[trial_data$randomisation == 'RN',]
+nrow(trial_data) # 218 - This is two less than the publication
+
+# We need to create a time to event variable
+# We can assume age at diagnosis is the date of enrolment
+# The trial ran for 640 days, so we can insert time_to_event for those that survived
+trial_data$time_to_event <- trial_data$age_at_death - trial_data$age_at_diagnosis
+trial_data$time_to_event[trial_data$died_during_trial == F] <- trial_data$age_at_death[trial_data$died_during_trial == F] - trial_data$age_at_diagnosis[trial_data$died_during_trial == F] + (640/365)
+trial_data$status <- as.numeric(trial_data$died_during_trial)
+trial_data$arm_numeric <- ifelse(trial_data$arm == 'IL2', 1, 0)
+
+cox_model <- coxph(Surv(time_to_event, status) ~ arm_numeric, data = trial_data)
+summary(cox_model)
+
+fit <- survfit(Surv(time_to_event, status) ~ arm_numeric, data = trial_data)
+plot(fit, col = c("blue", "red"), xlab = "Time (years)", ylab = "Survival probability")
+legend("bottomleft", legend = c("Control", "Treatment"), col = c("blue", "red"), lty = 1)
+
+# Shows non-significant increase in survival in those given IL-2
+# The real trial used prognostic covariates which we do not have access to currently.
+```
+
+
+
 

@@ -1573,7 +1573,7 @@ Show POPCORN genetic correlation estimates
 </summary>
 <div class="centered-container">
 <div class="rounded-image-container" style="width: 100%;">
-<p><img src="Images/CrossPop_2025/ldsc_h2.png"></p>
+<p><img src="Images/CrossPop_2025/popcorn_rg.png"></p>
 </div>
 </div>
 </details>
@@ -6012,7 +6012,9 @@ Prepare configuration
 <pre class="r"><code>######
 # gwas_list
 ######
+
 library(data.table)
+
 # Subset original gwas_list to include selected traits
 gwas_list&lt;-fread(&#39;/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_all.txt&#39;)
 pheno&lt;-gsub(&#39;_.*&#39;,&#39;&#39;, gwas_list$name)
@@ -6020,7 +6022,11 @@ selected_traits&lt;-fread(&#39;/users/k1806347/oliverpainfel/Analyses/crosspop/t
 gwas_list&lt;-gwas_list[pheno %in% selected_traits,]
 gwas_list$label&lt;-paste0(&#39;&quot;&#39;, gwas_list$label, &#39;&quot;&#39;)
 
-write.table(gwas_list, &#39;/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt&#39;, col.names = T, row.names = F, quote = F)
+write.table(
+  gwas_list, &#39;/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt&#39;, 
+  col.names = T, 
+  row.names = F, 
+  quote = F)
 
 ######
 # gwas_groups
@@ -6917,6 +6923,62 @@ ggplot(tmp, aes(x=label, y=R , fill = Model)) +
           legend.key.spacing.x = unit(1, &quot;cm&quot;),
           legend.justification = &quot;center&quot;)
 dev.off()
+
+# Make simplified plot
+# Just show performance when using IndivTrain (or SumStat), and Remove &#39;All&#39; model, with both GWAS.
+tmp &lt;- meta_res_eval
+tmp &lt;- tmp[tmp$Target != &#39;EUR&#39;,]
+tmp &lt;- tmp[tmp$Method != &#39;all&#39;,]
+tmp &lt;- tmp[tmp$Source  == &#39;Multi&#39;,]
+tmp &lt;- merge(tmp, pgs_method_labels, by.x = &#39;Method&#39;, by.y = &#39;method&#39;, all.x = T)
+tmp$label[grepl(&#39;Multi&#39;, tmp$Model) &amp; !(tmp$Method %in% pgs_group_methods) &amp; tmp$label != &#39;All&#39;] &lt;- paste0(tmp$label[grepl(&#39;Multi&#39;, tmp$Model) &amp; !(tmp$Method %in% pgs_group_methods) &amp; tmp$label != &#39;All&#39;], &#39;-multi&#39;)
+tmp$label &lt;- factor(tmp$label, levels = model_order)
+tmp$Discovery_clean &lt;- as.character(tmp$Discovery)
+tmp$Discovery_clean[tmp$Discovery == &#39;EUR&#39;] &lt;- &#39;EUR GWAS&#39;
+tmp$Discovery_clean[tmp$Discovery != &#39;EUR&#39; &amp; tmp$Source == &#39;Single&#39;] &lt;- &#39;Target-matched GWAS&#39;
+tmp$Discovery_clean[tmp$Discovery != &#39;EUR&#39; &amp; tmp$Source == &#39;Multi&#39;] &lt;- &#39;Both&#39;
+tmp$Discovery_clean &lt;- factor(tmp$Discovery_clean, 
+                              levels = c(&#39;Target-matched GWAS&#39;,
+                                         &#39;EUR GWAS&#39;,
+                                         &#39;Both&#39;))
+tmp$Target &lt;- paste0(tmp$Target, &#39; Target&#39;)
+tmp$Model[tmp$Model != &#39;SumStatTune&#39;] &lt;- &#39;IndivTune&#39;
+tmp$Model[tmp$Model == &#39;SumStatTune&#39;] &lt;- &#39;SumStatTune&#39;
+tmp &lt;- tmp[!duplicated(tmp[, c(&#39;label&#39;,&#39;Target&#39;,&#39;Discovery_clean&#39;,&#39;Model&#39;), with=F]),]
+tmp&lt;-tmp[tmp$Model == &#39;IndivTune&#39;,]
+
+png(paste0(&#39;~/oliverpainfel/Analyses/crosspop/plots/average_r_simple.png&#39;), res=300, width = 3200, height = 2000, units = &#39;px&#39;)
+ggplot(tmp, aes(x=label, y=R)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat=&quot;identity&quot;, position=position_dodge(1), size=3, shape=23, fill = &#39;black&#39;) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype=&quot;dotted&quot;) +
+    labs(y = &quot;R (SE)&quot;, x=&#39;Method&#39;) +
+    facet_grid(Target ~ ., scales=&#39;free&#39;, space = &#39;free_x&#39;) +
+    theme_half_open() +
+    background_grid(major = &#39;y&#39;, minor = &#39;y&#39;) + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+dev.off()
+
+tmp&lt;-tmp[tmp$Method %in% c(&#39;ldpred2&#39;,&#39;prscsx&#39;,&#39;xwing&#39;),]
+png(paste0(&#39;~/oliverpainfel/Analyses/crosspop/plots/average_r_simple_ldpred2.png&#39;), res=300, width = 500, height = 500, units = &#39;px&#39;)
+ggplot(tmp, aes(x=label, y=R)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+  #  geom_point(stat=&quot;identity&quot;, position=position_dodge(1), fill = &#39;#3399FF&#39;) +
+    geom_point(stat=&quot;identity&quot;, position=position_dodge(1), size=3, shape=23, fill = &#39;#3399FF&#39;) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype=&quot;dotted&quot;) +
+    labs(y = &quot;R (SE)&quot;, x=&#39;Method&#39;) +
+    facet_grid(Target ~ ., scales=&#39;free&#39;, space = &#39;free_x&#39;) +
+    theme_half_open() +
+    background_grid(major = &#39;y&#39;, minor = &#39;y&#39;) + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+dev.off()
+
 
 ####
 # Create heatmap showing difference between all methods and models
