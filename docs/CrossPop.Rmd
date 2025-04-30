@@ -7413,12 +7413,13 @@ for(i in selected_traits){
 ```
 
 ```{bash}
-for pheno in $(echo TC HT HB); do
+for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
   for n in $(echo 5 15 45 135); do
     mkdir -p /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled
     for chr in $(seq 1 22); do
-      if [ ! -f "/users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr${chr}.outcome.glm.linear" ]; then
-        sbatch -p interruptible_cpu --wrap="/users/k1806347/oliverpainfel/Software/plink2 \
+      if [ ! -s "/users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr${chr}.outcome.glm.linear" ]; then
+      if [ ! -f "/users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt.gz" ]; then
+        sbatch -p interruptible_cpu,cpu,neurohack_cpu --wrap="/users/k1806347/oliverpainfel/Software/plink2 \
           --pfile /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output/ukb/geno/ukb.ref.chr${chr} \
           --pheno /users/k1806347/oliverpainfel/Data/ukb/phenotypes/subsample/${pheno}.${n}.txt \
           --linear omit-ref cols=+a1freq,+ax \
@@ -7426,13 +7427,16 @@ for pheno in $(echo TC HT HB); do
           --geno 0.05 \
           --out /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr${chr}"
       fi
+      fi
     done
   done
 done
 
 # Once complete, merge results across chromosomes
-for pheno in $(echo TC HT HB); do
+for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
   for n in $(echo 5 15 45 135); do
+    if [ ! -f "/users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt.gz" ]; then
+
     head -n 1 /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr1.outcome.glm.linear > /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt
       for chr in $(seq 1 22); do
         tail -n +2 /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.chr${chr}.outcome.glm.linear >> /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt
@@ -7442,11 +7446,69 @@ for pheno in $(echo TC HT HB); do
       cut -f 4,5 --complement /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt | awk 'BEGIN{FS=OFS="\t"} NR==1 {$5="A2"} 1' > temp.txt && mv temp.txt /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt
   
       gzip /users/k1806347/oliverpainfel/Data/ukb/gwas/${pheno}_subsampled/ukb.eur_train.${pheno}.${n}.GW.txt
+    fi
   done
 done
 
 # Delete per chromosome files
 rm /users/k1806347/oliverpainfel/Data/ukb/gwas/*_subsampled/*chr*
+
+```
+
+</details>
+
+***
+
+### Subset EUR test individuals in UKB data
+
+To make this quicker, focus on evaluating the PGS methods in the EUR test subset in UKB. This will avoid reprocessing the full UKB data.
+
+<details><summary>Show code</summary>
+
+```{r}
+library(data.table)
+
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+
+pheno_long <- NULL
+for(i in selected_traits){
+  pheno_i <- fread(paste0(
+    '/users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/',
+    i ,
+    '.unrel.EUR_test.row_number.txt'
+  ))
+  
+  pheno_long <- rbind(
+    pheno_long, 
+    pheno_i
+  )
+}
+
+test_subset <- unique(pheno_long$FID)
+keep <- data.frame(FID = test_subset,
+                   IID = test_subset)
+
+write.table(
+  keep,
+  '~/oliverpainfel/Data/ukb/eur_test.keep',
+  row.names = F,
+  col.names = F,
+  quote = F
+)
+
+```
+
+```{bash}
+mkdir ~/oliverpainfel/Data/ukb/eur_test_subset
+
+for chr in $(seq 1 22); do
+  sbatch -p interruptible_cpu,cpu,neurohack_cpu -n 1 --mem 5G \
+  --wrap="~/oliverpainfel/Software/plink2 \
+    --pfile ~/oliverpainfel/Data/ukb/GenoPred/output/ukb/geno/ukb.ref.chr${chr} \
+    --keep ~/oliverpainfel/Data/ukb/eur_test.keep \
+    --make-pgen \
+    --out ~/oliverpainfel/Data/ukb/eur_test_subset/ukb.chr${chr}"
+done
 
 ```
 
@@ -7467,9 +7529,8 @@ rm /users/k1806347/oliverpainfel/Data/ukb/gwas/*_subsampled/*chr*
 # gwas_list
 ######
 
-gwas_list<-fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_all.txt')
+gwas_list<-fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt')
 pheno<-gsub('_.*','', gwas_list$name)
-gwas_list<-gwas_list[pheno %in% c('TC', 'HT', 'HB'),]
 gwas_list<-gwas_list[gwas_list$population == 'EUR',]
 gwas_list$pheno<-gsub('_UKB','',gwas_list$name)
 
@@ -7506,16 +7567,30 @@ gwas_list_subsampled$label<-paste0('"', gwas_list_subsampled$label, '"')
 write.table(gwas_list_subsampled, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_subsampled.txt', col.names = T, row.names = F, quote = F)
 
 ######
+# target_list
+######
+target_list <- data.frame(
+  name='ukb',
+  path='/users/k1806347/oliverpainfel/Data/ukb/eur_test_subset/ukb',
+  type='plink2',
+  indiv_report=F,
+  unrel='/users/k1806347/oliverpainfel/Data/ukb/phenotypes/unrelated.row_number.txt'
+)
+
+dir.create('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/eur_test_only')
+
+write.table(target_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/eur_test_only/target_list.txt', col.names=T, row.names=F, quote=F)
+
+######
 # config
 ######
 
 config<-c(
-  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output",
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output_eur_test_only",
   "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_subsampled.yaml",
   "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_subsampled.txt",
-  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
-  "pgs_methods: ['quickprs','sbayesrc','ptclump','ldpred2']",
-#  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/eur_test_only/target_list.txt",
+  "pgs_methods: ['quickprs','ptclump']",
   "cores_prep_pgs: 10",
   "cores_target_pgs: 50",
   "ldpred2_inference: F",
@@ -7565,7 +7640,7 @@ pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F
 outdir <- read_param(config = config, param = 'outdir', return_obj = F)
 
 # Read in list of outcomes 
-selected_traits<-c('TC', 'HT', 'HB')
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
 
 # Get a list of score files
 scores <- list_score_files(config)
@@ -7669,7 +7744,7 @@ conda activate model_builder
 
 #rm /users/k1806347/oliverpainfel/Analyses/crosspop/subsampled/targ_EUR.disc_EUR/*/res*
 
-for pheno in $(echo TC HT HB); do
+for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt); do
   if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/subsampled/targ_EUR.disc_EUR/${pheno}/res.pred_comp.txt" ]; then
     sbatch --mem 10G -n 1 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
       --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.EUR_test.row_number.txt \
@@ -7895,23 +7970,36 @@ Run leading single-source PGS methods using MVP GWAS sumstats.
 
 library(data.table)
 
-# Subset original gwas_list to include selected traits
-gwas_list<-fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_all.txt')
-mvp_sumstats <-fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/AFR/urls.txt', header = F)
+# Subset original gwas_list to include AFR traits
+gwas_list<-fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt')
 gwas_list <- gwas_list[gwas_list$population == 'AFR',]
-gwas_list$labels <- gsub('_UGR', '', gwas_list$name)
-gwas_list <- gwas_list[gwas_list$labels %in% mvp_sumstats$V2,]
+selected_traits <- gsub('_UGR', '', gwas_list$name)
 gwas_list$name <- gsub('UGR', 'MVP_AFR', gwas_list$name)
 gwas_list$label <- gsub('UGR', 'MVP_AFR', gwas_list$label)
-gwas_list$label <- paste0('"', gwas_list$label, '"')
-
 gwas_list$path <-
   paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/MVP/AFR/',
-         gwas_list$labels,'.txt.gz')
+         selected_traits,'.txt.gz')
 
-gwas_list$labels <- NULL
+gwas_list_eur<-fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt')
+gwas_list_eur<-gwas_list_eur[gwas_list_eur$population == 'EUR', ]
+
+gwas_list <- rbind(gwas_list, gwas_list_eur)
+
+gwas_list$label <- paste0('"', gwas_list$label, '"')
 
 write.table(gwas_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_mvp.txt', col.names = T, row.names = F, quote = F)
+
+######
+# gwas_groups
+######
+
+gwas_groups<-data.frame(
+  name=paste0(selected_traits, '_UKB_MVP_AFR'),
+  gwas=sapply(selected_traits, function(x) paste0(x,'_UKB,',x,'_MVP_AFR')),
+  label=paste0('"', selected_traits, " (UKB+MVP_AFR)", '"')
+)
+
+write.table(gwas_groups, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_groups_mvp.txt', col.names = T, row.names = F, quote = F)
 
 ######
 # config
@@ -7921,9 +8009,11 @@ config<-c(
   "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output",
   "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_mvp.yaml",
   "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_mvp.txt",
+  "gwas_groups: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_groups_mvp.txt",
   "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
-  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','ldpred2','sbayesrc']", 
-  "cores_prep_pgs: 10",
+  "pgs_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc','prscsx']",
+  "leopard_methods: ['ptclump','quickprs','dbslmm','lassosum','megaprs','prscs','ldpred2','sbayesrc']",
+  "cores_prep_pgs: 10", # xwing run with 20 cores
   "cores_target_pgs: 50",
   "ldpred2_inference: F",
   "ldpred2_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/hm3",
@@ -8328,11 +8418,11 @@ for targ_pop in $(echo AFR); do
   for disc_pop_i in ${disc_pop}; do
     for pheno in $(cat /users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_mvp/trait_subset.txt); do
       if [ ! -f "/users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_mvp/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res.pred_comp.txt" ]; then
-        sbatch --mem 10G -n 1 --exclude=erc-hpc-comp058 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
+        sbatch --mem 10G -n 5 --exclude=erc-hpc-comp058 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="Rscript ../Scripts/model_builder/model_builder_top1.R \
           --outcome /users/k1806347/oliverpainfel/Data/ukb/phenotypes/prscsx/${pheno}.unrel.${targ_pop2}.row_number.txt \
           --predictors /users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_mvp/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/predictor_list.txt \
           --out /users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_mvp/targ_${targ_pop}.disc_EUR_${disc_pop_i}/${pheno}/res \
-          --n_core 1"
+          --n_core 5"
       fi
     done
   done
@@ -8486,6 +8576,36 @@ for(pheno_i in selected_traits){
   tmp <- tmp[!duplicated(tmp[, c('label','Target','Discovery','Model'), with=F]),]
   
   res_eval_simp <- rbind(res_eval_simp, tmp)
+}
+
+# Plot results for each phenotype separately
+dir.create('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots')
+
+for(pheno_i in selected_traits){
+  tmp <- res_eval_simp[res_eval_simp$Trait == pheno_i,]
+  #tmp <- tmp[tmp$Target != 'EUR',]
+  tmp$Discovery_clean <- as.character(tmp$Discovery)
+  tmp$Discovery_clean <- paste0(tmp$Discovery_clean, ' GWAS')
+  tmp$Target <- paste0(tmp$Target, ' Target')
+
+  png(paste0('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/', pheno_i,'.png'), res=300, width = 3400, height = 2000, units = 'px')
+  plot_tmp<-ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x=NULL, fill = NULL, title = info_all$`Trait Description`[info_all$`Trait Label` == pheno_i]) +
+    facet_grid(Target ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+  print(plot_tmp)
+  dev.off()
 }
 
 ####
