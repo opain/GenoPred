@@ -12,6 +12,8 @@ option_list = list(
       help="File containing the population code and location of the keep file [required]"),
   make_option("--plink2", action="store", default='plink2', type='character',
       help="Path PLINK v2 software binary [optional]"),
+  make_option("--bridgeprs_repo", action="store", default=NULL, type='character',
+      help="BridgePRS repo path [optional]"),
   make_option("--output", action="store", default=NULL, type='character',
       help="Path for output files [required]"),
   make_option("--memory", action="store", default=5000, type='numeric',
@@ -51,6 +53,9 @@ if(is.null(opt$output)){
 }
 if(is.null(opt$populations)){
   stop('--populations must be specified.\n')
+}
+if(is.null(opt$bridgeprs_repo)){
+  stop('--bridgeprs_repo must be specified.\n')
 }
 
 # Create output directory
@@ -94,6 +99,7 @@ for(i in CHROMS){
 }
 
 pop_data <- read_pop_data(opt$pop_data)
+pop_data$FID <- 0
 for(i in unique(pop_data$POP)){
   fwrite(
     pop_data[pop_data$POP == i, c('FID', 'IID'), with = F],
@@ -120,13 +126,19 @@ for(i in 1:length(sumstats)){
   # Store average sample size
   gwas_N <- c(gwas_N, round(mean(gwas$N), 0))
   gwas$N<NULL
+  
+  # FOR testing
+  gwas <- gwas[sample(1:nrow(gwas), 10000),]
 
   # Write sumstats split by chromosome
   for(j in CHROMS){
     tmp<-gwas[gwas$CHR == j,]
     tmp$CHR<-NULL
-    fwrite(tmp, paste0(tmp_dir, '/GWAS_sumstats_',i,'_temp_chr', j, '.txt'), sep=' ')
+    fwrite(tmp, paste0(tmp_dir, '/GWAS_sumstats_',populations[i],'_temp_chr', j, '.txt'), sep=' ')
   }
+  
+  # Write QC snplist
+  fwrite(gwas[,'SNP'], paste0(tmp_dir, '/GWAS_sumstats_',populations[i],'_temp.qc.snplist'), col.names = F, quote = F)
 
   rm(gwas)
   gc()
@@ -134,74 +146,63 @@ for(i in 1:length(sumstats)){
 }
 
 #####
-# Create fake phenotype data
-#####
-
-fam<-fread(paste0(tmp_dir, '/ref_ld/chr', CHROMS[1], '.fam'))
-names(fam)[1:2]<-c('FID','IID')
-pheno<-fam[, 1:2]
-pheno$y<-rnorm(nrow(pheno))
-write.table(pheno, paste0(tmp_dir, '/fake_pheno.txt'), row.names = F, quote = F)
-
-#####
-# Create config files
-#####
-
-for(i in 1:length(sumstats)){
-  config_i<-c(
-    paste0("POP=", populations[i]),
-    paste0("LDPOP=", populations[i]),
-    paste0("LD_PATH=", tmp_dir, '/ref_ld'),
-    paste0("SUMSTATS_PREFIX=", tmp_dir, '/GWAS_sumstats_', i, '_temp_chr'),
-    "SUMSTATS_SUFFIX=.txt",
-    "SUMSTATS_FIELDS=SNP,A2,A1,P,BETA",
-    paste0("SUMSTATS_SIZE=", gwas_N[i]),
-    paste0("GENOTYPE_PREFIX=",tmp_dir, '/ref_ld/chr'),
-    paste0("PHENOTYPE_FILE=", tmp_dir, '/fake_pheno.txt')
-  )
-
-  writeLines(config_i, paste0(tmp_dir, '/', i, '.config'))
-}
-
-# Record start time for test
-if(!is.na(opt$test)){
-  test_start.time <- test_start(log_file = log_file)
-}
-
-#####
 # Run BridgePRS
 #####
 
-system(paste0(opt$bridgeprs_repo, '/bridgePRS pipeline go -o ', tmp_dir,'/out --config_files ', tmp_dir, '/', 1, '.config ', tmp_dir, '/', 2, '.config --phenotype y'))
-
-#####
-# Process sumstats using PRS-CSx
-#####
-
-# Create a temporary reference bim files for PRS-CSx to match to
-pvar <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
-pvar$POS<-0
-for(i in CHROMS){
-  write.table(pvar[pvar$CHR == i, c('CHR','SNP','POS','BP','A1','A2'), with=F], paste0(tmp_dir,'/ref.chr',i,'.bim'), col.names=F, row.names=F, quote=F)
+# set fst
+if(any(populations == 'EUR') & any(populations == 'AFR')){
+  fst <- 0.15
+}
+if(any(populations == 'EUR') & any(populations == 'EAS')){
+  fst <- 0.11
 }
 
-rm(pvar)
-gc()
+system(paste0('rm -r ', tmp_dir,'/bridge_out'))
+dir.create(paste0(tmp_dir,'/bridge_out'))
 
-# Make a data.frame listing chromosome and phi combinations
-jobs<-NULL
-for(i in rev(CHROMS)){
-  jobs<-rbind(jobs, data.frame(CHR=i, phi=phi_param))
-}
-
-# Run using PRScs auto, and specifying a range of global shrinkage parameters
-log <- foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  if(jobs$phi[i] == 'auto'){
-    system(paste0(opt$prscsx_path, ' --ref_dir=', opt$prscsx_ref_path, '/ --bim_prefix=', tmp_dir,'/ref.chr', jobs$CHR[i], ' --pop=', opt$populations, ' --sst_file=', paste0(paste0(tmp_dir, '/GWAS_sumstats_', 1:length(sumstats),'_temp.txt'), collapse=','),' --n_gwas=', paste(gwas_N, collapse=','), ' --out_dir=', tmp_dir, '/ --out_name=output --chrom=', jobs$CHR[i], ' --meta=True --seed=', opt$seed))
-  } else {
-    system(paste0(opt$prscsx_path, ' --ref_dir=', opt$prscsx_ref_path, '/ --bim_prefix=', tmp_dir,'/ref.chr', jobs$CHR[i], ' --pop=', opt$populations, ' --phi=', jobs$phi[i], ' --sst_file=', paste0(paste0(tmp_dir, '/GWAS_sumstats_', 1:length(sumstats),'_temp.txt'), collapse=','),' --n_gwas=', paste(gwas_N, collapse=','), ' --out_dir=', tmp_dir, '/ --out_name=output --chrom=', jobs$CHR[i], ' --meta=True --seed=', opt$seed))
-  }
-}
+system(paste0(
+  opt$bridgeprs_repo, '/src/Bash/BridgePRS_sumstat.sh ', opt$bridgeprs_repo, '/src/Rscripts ',
+  '--strand_check 1 ',
+  '--outdir ', tmp_dir,'/bridge_out ',
+  '--by_chr 1 ',
+  '--by_chr_sumstats .txt ',
+  '--pop1 ', populations[1], ' ',
+  '--pop2 ', populations[2], ' ',
+  '--fst ', fst, ' ',
+  '--N_pop1 ', gwas_N[1], ' ',
+  '--N_pop2 ', gwas_N[2], ' ',
+  '--pop1_sumstats ', tmp_dir, '/GWAS_sumstats_', populations[1], '_temp_chr ',
+  '--pop1_qc_snplist ', tmp_dir, '/GWAS_sumstats_',populations[1],'_temp.qc.snplist ',
+  '--pop2_sumstats ', tmp_dir, '/GWAS_sumstats_', populations[2], '_temp_chr ',
+  '--pop2_qc_snplist ', tmp_dir, '/GWAS_sumstats_',populations[2],'_temp.qc.snplist ',
+  '--pop1_ld_bfile ', tmp_dir, '/ref_ld/chr ',
+  '--pop1_ld_ids ', tmp_dir, '/ref_ld/', populations[1], '_ids.txt ',
+  '--pop2_ld_bfile ', tmp_dir, '/ref_ld/chr ',
+  '--pop2_ld_ids ', tmp_dir, '/ref_ld/', populations[2], '_ids.txt ',
+  '--sumstats_snpID SNP ',
+  '--sumstats_p P ',
+  '--sumstats_beta BETA ',
+  '--sumstats_allele1 A1 ',
+  '--sumstats_allele0 A2 ',
+  '--pheno_name y ',
+  '--n_cores ', opt$n_cores, ' ',
+  '--prop_train 0.6 ',
+  '--prop_test 0.3 ',
+  '--do_block_pop1 1 ',
+  '--do_block_pop2 1 ',
+  '--do_sumstat_pop1 1 ',
+  '--do_sumstat_pop2 1 ',
+  '--do_clump_pop1 1 ',
+  '--do_est_beta_pop1 1 ',
+  '--do_sumstat_ensembl_pop1 1 ',
+  '--do_est_beta_pop1_precision 1 ',
+  '--do_est_beta_InformPrior 1 ',
+  '--do_clump_pop2 1 ',
+  '--do_est_beta_pop2 1 ',
+  '--do_sumstat_ensembl_pop2 1 ',
+  '--n_folds 10 ',
+  ' > ',tmp_dir,'/bridge_log.txt 2>&1'
+))
 
 ####
 # Combine score files

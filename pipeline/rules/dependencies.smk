@@ -1439,7 +1439,7 @@ rule download_bridgeprs_software:
       rm -r -f {resdir}/software/bridgeprs; \
       git clone https://github.com/clivehoggart/BridgePRS.git {resdir}/software/bridgeprs; \
       cd {resdir}/software/bridgeprs; \
-      git reset --hard 1e1c9477d42d44ed312759751adbc25d146aeb9f
+      git reset --hard a4b827c1a57c6e3b7a48ed495cac7ebdb5f89d96
     }} > {log} 2>&1
     """
 
