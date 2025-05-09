@@ -6,6 +6,8 @@ suppressMessages(library("optparse"))
 option_list = list(
   make_option("--ref_plink_chr", action="store", default=NA, type='character',
               help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_keep", action="store", default=NULL, type='character',
+              help="Path to keep file for reference [optional]"),
   make_option("--ref_pcs", action="store", default=NULL, type='character',
               help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
@@ -88,14 +90,29 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
-gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N'))
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N','FREQ','REF.FREQ'))
+
+# Check allele frequency difference
+ref_psam<-fread(paste0(opt$ref_plink_chr, CHROMS[1],'.psam'))
+names(ref_psam)<-gsub('\\#', '', names(ref_psam))
+
+if(!is.null(opt$ref_keep)){
+  ref_keep <- fread(opt$ref_keep, header=F)$V1
+  ref_psam <- ref_psam[ref_psam$IID %in% ref_keep,]
+}
+
+ref_n <- nrow(ref_psam)
+
+gwas$FREQ_LRT_P <- lrt_af_dual(p1 = gwas$FREQ, n1 = gwas$N, p0 = gwas$REF.FREQ, n0 = ref_n)$p
+log_add(log_file = log_file, message = paste0('Removed ', sum(gwas$FREQ_LRT_P < 1e-6), " variants due to significant difference in allele frequency to reference (P < 1e-6)."))
+gwas <- gwas[!(gwas$FREQ_LRT_P < 1e-6),]
 
 # Format for LDAK
 snplist <- gwas$SNP
 gwas$Z <- gwas$BETA / gwas$SE
 gwas$Predictor<-paste0(gwas$CHR, ':', gwas$BP)
-gwas<-gwas[,c('Predictor','A1','A2','N','Z')]
-names(gwas)<-c('Predictor','A1','A2','n','Z')
+gwas<-gwas[,c('Predictor','A1','A2','N','Z','FREQ')]
+names(gwas)<-c('Predictor','A1','A2','n','Z','A1Freq')
 
 # Check overlap between GWAS and LDAK reference
 ldak_hm3_file <- list.files(opt$quickprs_ldref)

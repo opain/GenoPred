@@ -98,29 +98,14 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
-gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N','FREQ','REF.FREQ'))
-
-# Check allele frequency difference
-ref_psam<-fread(paste0(opt$ref_plink_chr, CHROMS[1],'.psam'))
-names(ref_psam)<-gsub('\\#', '', names(ref_psam))
-
-if(!is.null(opt$ref_keep)){
-  ref_keep <- fread(opt$ref_keep, header=F)$V1
-  ref_psam <- ref_psam[ref_psam$IID %in% ref_keep,]
-}
-
-ref_n <- nrow(ref_psam)
-
-gwas$FREQ_LRT_P <- lrt_af_dual(p1 = gwas$FREQ, n1 = gwas$N, p0 = gwas$REF.FREQ, n0 = ref_n)$p
-log_add(log_file = log_file, message = paste0('Removed ', sum(gwas$FREQ_LRT_P < 1e-6), " variants due to significant difference in allele frequency to reference (P < 1e-6)."))
-gwas <- gwas[!(gwas$FREQ_LRT_P < 1e-6),]
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N','FREQ'))
 
 # Format for LDAK
 snplist <- gwas$SNP
 gwas$Z <- gwas$BETA / gwas$SE
 gwas$Predictor<-paste0(gwas$CHR, ':', gwas$BP)
-gwas<-gwas[,c('Predictor','A1','A2','N','Z')]
-names(gwas)<-c('Predictor','A1','A2','n','Z')
+gwas<-gwas[,c('Predictor','A1','A2','N','Z','FREQ')]
+names(gwas)<-c('Predictor','A1','A2','n','Z','A1Freq')
 
 fwrite(gwas, paste0(tmp_dir,'/GWAS_sumstats_temp.txt'), sep=' ')
 
@@ -196,51 +181,17 @@ full_cors <- ldak_pred_cor(bfile = paste0(tmp_dir, '/ref_merge'), ldak = opt$lda
 
 # Run MegaPRS
 log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
-system(paste0(opt$ldak, ' --mega-prs ', tmp_dir, '/mega_full --model ', opt$prs_model, ' --bfile ', tmp_dir, '/ref_merge --cors ', full_cors, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --one-sums YES --window-cm 1 --allow-ambiguous YES --max-threads ', opt$n_cores))
+system(paste0(opt$ldak, ' --mega-prs ', tmp_dir, '/mega_full --model ', opt$prs_model, ' --bfile ', tmp_dir, '/ref_merge --cors ', full_cors, ' --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --allow-ambiguous YES --power -0.25 --max-threads ', opt$n_cores))
 
 # Save the parameters file
 system(paste0('cp ', tmp_dir, '/mega_full.parameters ', opt$output, '.model_param.txt'))
 
-# Sum of per SNP heritability is different from SNP-heritability, due to removal of variants with non-positive heritability
-
-################
-# Run using subset reference for pseudovalidation
-################
-
-log_add(log_file = log_file, message = 'Creating pseudosummaries.')
-
-# Split reference into three
-system(paste0("awk < ", tmp_dir, "/ref_merge.fam '(NR%3==1){print $0 > \"", tmp_dir, "/keepa\"}(NR%3==2){print $0 > \"", tmp_dir, "/keepb\"}(NR%3==0){print $0 > \"", tmp_dir, "/keepc\"}'"))
-
-# Create pseudo summaries
-system(paste0(opt$ldak, ' --pseudo-summaries ', tmp_dir, '/GWAS_sumstats_temp.pseudo --bfile ', tmp_dir, '/ref_merge --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --training-proportion .9 --keep ', tmp_dir, '/keepa --allow-ambiguous YES --max-threads ', opt$n_cores))
-
-# Calculate predictor-predictor correlations
-log_add(log_file = log_file, message = 'Calculating predictor-predictor correlations.')
-subset_cors <- ldak_pred_cor(bfile = paste0(tmp_dir, '/ref_merge'), keep = paste0(tmp_dir, '/keepb'), ldak = opt$ldak, n_cores = opt$n_cores, chr = CHROMS)
-
-# Run megaPRS
-log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
-system(paste0(opt$ldak, ' --mega-prs ', tmp_dir, '/mega_subset --model ', opt$prs_model, ' --bfile ', tmp_dir, '/ref_merge --cors ', subset_cors, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', tmp_dir, '/GWAS_sumstats_temp.pseudo.train.summaries --one-sums YES --window-cm 1 --allow-ambiguous YES --max-threads ', opt$n_cores))
-
-######
-# Perform pseudovalidation
-######
-
-log_add(log_file = log_file, message = 'Running pseudovalidation.')
-
-if(file.exists(paste0(opt$output_dir,'/highld/genes.predictors.used'))){
-  system(paste0(opt$ldak, ' --calc-scores ', tmp_dir, '/mega_subset --bfile ', tmp_dir, '/ref_merge --scorefile ', tmp_dir, '/mega_subset.effects --summary ', tmp_dir, '/GWAS_sumstats_temp.pseudo.test.summaries --power 0 --final-effects ', tmp_dir, '/mega_subset.effects --keep ', tmp_dir, '/keepc --allow-ambiguous YES --exclude ', tmp_dir,'/highld/genes.predictors.used --max-threads ', opt$n_cores))
-} else {
-  system(paste0(opt$ldak, ' --calc-scores ', tmp_dir, '/mega_subset --bfile ', tmp_dir, '/ref_merge --scorefile ', tmp_dir, '/mega_subset.effects --summary ', tmp_dir, '/GWAS_sumstats_temp.pseudo.test.summaries --power 0 --final-effects ', tmp_dir, '/mega_subset.effects --keep ', tmp_dir, '/keepc --allow-ambiguous YES --max-threads ', opt$n_cores))
-}
-
 # Identify the best fitting model
-ldak_res_cors <- fread(paste0(tmp_dir, '/mega_subset.cors'), nThread = opt$n_cores)
-best_score <- ldak_res_cors[ldak_res_cors$V2 == max(ldak_res_cors$V2),]
+ldak_res_cors <- fread(paste0(tmp_dir, '/mega_full.cors'), nThread = opt$n_cores)
+best_score <- ldak_res_cors[ldak_res_cors$Correlation == max(ldak_res_cors$Correlation),]
 
 # Save the pseudovalidation results
-system(paste0('cp ', tmp_dir, '/mega_subset.cors ', opt$output, '.pseudoval.txt'))
+system(paste0('cp ', tmp_dir, '/mega_full.cors ', opt$output, '.pseudoval.txt'))
 log_add(log_file = log_file, message = paste0('Model ', gsub('Score_','',best_score$V1[1]),' is identified as the best with correlation of ', best_score$V2))
 
 ######

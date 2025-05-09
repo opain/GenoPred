@@ -1002,7 +1002,26 @@ rule download_ldak:
       rm {resdir}/software/ldak/ldak5.1.linux_.zip
     }} > {log} 2>&1
     """
-    
+
+# Download LDAK v6
+rule download_ldak_repo:
+  output:
+    f"{resdir}/software/ldak_repo/ldak6.1.linux"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_ldak_repo.txt"
+  log:
+    f"{resdir}/data/logs/download_ldak_repo.log"
+  shell:
+    """
+    {{
+      rm -r -f {resdir}/software/ldak_repo; \
+      git clone https://github.com/dougspeed/LDAK {resdir}/software/ldak_repo; \
+      cd {resdir}/software/ldak_repo; \
+      git reset --hard ecbe591137ebf6e8efd7bbf924b244cef506f7c3; \
+      chmod a+x ldak6.1.linux
+    }} > {log} 2>&1
+    """
+
 # Download LDAK map data
 rule download_ldak_map:
   output:
@@ -1271,7 +1290,6 @@ rule install_genoutils_xwing:
       Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
     }} > {log} 2>&1
     """
-
 
 # Download X-wing repo
 rule download_xwing_software:

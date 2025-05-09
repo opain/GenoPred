@@ -286,7 +286,7 @@ read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, r
   # If FREQ is missing, use REF.FREQ
   if('FREQ' %in% req_cols){
     if(all(names(gwas) != 'FREQ')){
-      names(gwas)[names(gwas) == 'REF.FREQ']<-'FREQ'
+      gwas$FREQ <- gwas$REF.FREQ
       log_add(log_file = log_file, message = 'REF.FREQ being used as FREQ.')
     }
   }
@@ -765,4 +765,29 @@ adjust_weights <- function(weights, pgs_sd) {
   # Normalize weights so they sum to 1
   normalized_weights <- adjusted_weights * (1 / sum(adjusted_weights))
   return(normalized_weights)
+}
+
+# Create function to run LRT on allele frequencies
+lrt_af_dual <- function(p1, n1, p0, n0) {
+  # Convert allele frequencies to counts of alternate alleles
+  k1 <- round(2 * n1 * p1)
+  k0 <- round(2 * n0 * p0)
+  N1 <- 2 * n1
+  N0 <- 2 * n0
+  
+  # Estimate common allele frequency under null
+  p_common <- (k1 + k0) / (N1 + N0)
+  
+  # Log-likelihood under null: same freq
+  logL0 <- k1 * log(p_common) + (N1 - k1) * log(1 - p_common) +
+    k0 * log(p_common) + (N0 - k0) * log(1 - p_common)
+  
+  # Log-likelihood under alternative: separate freqs
+  logL1 <- k1 * log(p1) + (N1 - k1) * log(1 - p1) +
+    k0 * log(p0) + (N0 - k0) * log(1 - p0)
+  
+  stat <- 2 * (logL1 - logL0)
+  pval <- pchisq(stat, df = 1, lower.tail = FALSE)
+  
+  return(list(stat = stat, p = pval))
 }

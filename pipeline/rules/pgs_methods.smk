@@ -385,6 +385,48 @@ rule prep_pgs_megaprs_i:
 rule prep_pgs_megaprs:
   input: expand(f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
+rule prep_pgs_megaprs6_i:
+  resources:
+    mem_mb=20000,
+    time_min=2800
+  threads: config['cores_prep_pgs']
+  input:
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    rules.download_ldak_highld.output,
+    rules.download_ldak_repo.output,
+    rules.download_ldak_map.output,
+    rules.download_ldak_bld.output,
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+  output:
+    f"{outdir}/reference/pgs_score_files/megaprs6/{{gwas}}/ref-{{gwas}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_megaprs6_i-{{gwas}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_megaprs6_i-{{gwas}}.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    testing=config["testing"]
+  shell:
+    "Rscript ../Scripts/pgs_methods/megaprs.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{params.population}.keep \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+      --ldak {resdir}/software/ldak_repo/ldak6.1.linux \
+      --ldak_map {resdir}/data/ldak_map/genetic_map_b37 \
+      --ldak_tag {resdir}/data/ldak_bld \
+      --ldak_highld {resdir}/data/ldak_highld/highld.txt \
+      --prs_model bayesr \
+      --n_cores {threads} \
+      --output {outdir}/reference/pgs_score_files/megaprs6/{wildcards.gwas}/ref-{wildcards.gwas} \
+      --pop_data {refdir}/ref.pop.txt \
+      --test {params.testing} > {log} 2>&1"
+
+rule prep_pgs_megaprs6:
+  input: expand(f"{outdir}/reference/pgs_score_files/megaprs6/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+
 ##
 # LDAK QuickPRS
 ##
@@ -423,6 +465,7 @@ rule prep_pgs_quickprs_i:
   shell:
     "Rscript ../Scripts/pgs_methods/quickprs.R \
       --ref_plink_chr {refdir}/ref.chr \
+      --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
