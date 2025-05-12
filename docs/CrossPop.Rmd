@@ -7851,7 +7851,7 @@ tmp<-res_eval_simp
 tmp$GWAS_N <- paste0('GWAS N = ', tmp$GWAS_N)
 tmp$GWAS_N <-factor(tmp$GWAS_N, levels = unique(tmp$GWAS_N))
 
-png(paste0('~/oliverpainfel/Analyses/crosspop/plots_downsample/average_r.png'), res=100, width = 1000, height = 600, units = 'px')
+png(paste0('~/oliverpainfel/Analyses/crosspop/plots_downsample/per_trait_r.png'), res=100, width = 1000, height = 6000, units = 'px')
 ggplot(tmp, aes(x=label, y=R , fill = Model)) +
     geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
                   width = 0,
@@ -7860,6 +7860,81 @@ ggplot(tmp, aes(x=label, y=R , fill = Model)) +
     geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
     labs(y = "R (SE)", x=NULL, fill = NULL) +
     facet_grid(Trait ~ GWAS_N, scales = 'free_y') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+
+####
+# Average results across phenotypes
+####
+
+library(MAd)
+
+# Average R across phenotypes
+meta_res_eval <- NULL
+# Subset res_eval for each scenario
+res_eval_i <- do.call(rbind, lapply(seq_along(res_eval), function(i) {
+  x <- res_eval[[i]]
+  x$pheno <- names(res_eval)[i]
+  return(x)
+}))
+
+# Average res_evalults for each test across phenotypes
+# Use MAd to account for correlation between them
+res_eval_i$Sample<-'A'
+
+for(group_i in unique(res_eval_i$Group)){
+  res_eval_group_i <- res_eval_i[res_eval_i$Group == group_i,]
+  missing_pheno <-
+    colnames(cors)[!(colnames(cors) %in% unique(res_eval_group_i$pheno))]
+  
+  cors_i <- cors[unique(res_eval_group_i$pheno), unique(res_eval_group_i$pheno)]
+  
+  meta_res_eval_i <-
+    agg(
+      id = Sample,
+      es = R,
+      var = SE ^ 2,
+      cor = cors_i,
+      method = "BHHR",
+      mod = NULL,
+      data = res_eval_group_i
+    )
+  
+  tmp <- data.table(Group = group_i,
+                    Method = res_eval_group_i$Method[1],
+                    Model = res_eval_group_i$Model[1],
+                    Source = res_eval_group_i$Source[1],
+                    Discovery = 'EUR',
+                    Target = 'EUR',
+                    R = meta_res_eval_i$es,
+                    SE = sqrt(meta_res_eval_i$var),
+                    GWAS_N = res_eval_group_i$GWAS_N[1])
+  
+  meta_res_eval <- rbind(meta_res_eval, tmp)
+}
+
+tmp <- meta_res_eval
+# Insert nice PGS method names
+tmp <- merge(tmp, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x = T)
+tmp$label <- factor(tmp$label, levels = model_order)
+tmp$GWAS_N <- paste0('GWAS N = ', tmp$GWAS_N)
+tmp$GWAS_N <-factor(tmp$GWAS_N, levels = unique(tmp$GWAS_N))
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/plots_downsample/average_r.png'), res=100, width = 1000, height = 600, units = 'px')
+ggplot(tmp, aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x=NULL, fill = NULL) +
+    facet_grid(~ GWAS_N, scales = 'free_y') +
     theme_half_open() +
     background_grid(major = 'y', minor = 'y') + 
     panel_border() + 
@@ -8626,6 +8701,7 @@ for(pheno_i in selected_traits){
 # Plot results for each phenotype separately
 dir.create('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots')
 
+per_trait_plot <- list()
 for(pheno_i in selected_traits){
   tmp <- res_eval_simp[res_eval_simp$Trait == pheno_i,]
   #tmp <- tmp[tmp$Target != 'EUR',]
@@ -8651,7 +8727,49 @@ for(pheno_i in selected_traits){
           legend.justification = "center")
   print(plot_tmp)
   dev.off()
+  per_trait_plot[[pheno_i]]<-plot_tmp
 }
+
+tmp <- res_eval_simp
+tmp$Discovery_clean <- as.character(tmp$Discovery)
+tmp$Discovery_clean <- paste0(tmp$Discovery_clean, ' GWAS')
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/per_trait_part1.png'), res=300, width = 3000, height = 3800, units = 'px')
+ggplot(tmp[tmp$Trait %in% selected_traits[order(selected_traits)][1:5],], aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x=NULL, fill = NULL) +
+    facet_grid(Trait ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+
+png(paste0('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/per_trait_part2.png'), res=300, width = 3000, height = 3800, units = 'px')
+ggplot(tmp[tmp$Trait %in% selected_traits[order(selected_traits)][6:10],], aes(x=label, y=R , fill = Model)) +
+    geom_errorbar(aes(ymin = R - SE, ymax = R + SE),
+                  width = 0,
+                  position = position_dodge(width = 1)) +
+    geom_point(stat="identity", position=position_dodge(1), size=3, shape=23) +
+    geom_vline(xintercept = seq(1.5, length(unique(tmp$label))), linetype="dotted") +
+    labs(y = "R (SE)", x=NULL, fill = NULL) +
+    facet_grid(Trait ~ Discovery_clean, scales='free', space = 'free_x') +
+    theme_half_open() +
+    background_grid(major = 'y', minor = 'y') + 
+    panel_border() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.position = "top",
+          legend.key.spacing.x = unit(1, "cm"),
+          legend.justification = "center")
+dev.off()
+
 
 ####
 # Average results across phenotypes
@@ -9613,469 +9731,6 @@ dev.off()
 
 ***
 
-### LEOPARD+QuickPRS
-
-Here we will compare the LEOPARD estimated weights for population specific PGS, to the weights estimated using observed data in the UKB target sample.
-
-<details><summary>Show code</summary>
-
-```{r}
-setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
-
-library(data.table)
-library(ggplot2)
-library(cowplot)
-
-source('../functions/misc.R')
-source_all('../functions')
-
-# Read in list of outcomes 
-selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
-
-# Get some key variables from config
-config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_mvp.yaml'
-outdir <- read_param(config = config, param = 'outdir', return_obj = F)
-
-# Get a list of score files
-scores <- list_score_files(config)
-
-###
-# Read in weights estimated by LEOPARD (QuickPRS)
-###
-
-leopard_weights<-NULL
-scores_quickprs <- scores$name[scores$method == 'quickprs_multi']
-for(i in selected_traits){
-  scores_i <- scores_quickprs[grepl(paste0('^', i,'_'), scores_quickprs)]
-  for(j in scores_i){
-      weights_file <- readRDS(paste0(outdir, '/reference/pgs_score_files/leopard/', j, '/ref-', j, '.weights.rds'))
-      weights_file <- data.frame(weights_file)
-      
-      weights <-
-        data.table(
-          Target = do.call(c, lapply(names(weights_file), function(x) rep(x, 2))),
-          Discovery = names(weights_file),
-          Weight = do.call(c, lapply(weights_file, function(x) x)),
-          Trait = i,
-          Method = 'LEOPARD'
-        )
-      
-      leopard_weights <- rbind(leopard_weights, weights)
-  }
-}
-
-#####
-# Read in the PGS weights estimated using UKB data
-#####
-# Read in the final model coefficients for multi-source methods
-
-obs_weights<-NULL
-for(method_i in unique(scores$method)[!(unique(scores$method) %in% pgs_group_methods)]){
-  scores_method<-scores$name[scores$method == method_i]
-  method_i <- gsub('_multi','', method_i)
-
-  for(i in selected_traits){
-    for(j in c('AFR')){
-      if(j == 'EUR'){
-        pops <- c('EAS','AFR')
-      } else {
-        pops <- j
-      }
-      
-      for(k in pops){
-        model <- fread(paste0('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/targ_', j, '.disc_EUR_', k, '/', i, '/final_models/', method_i, '.pseudo.multi.final_model.txt'))
-        model<-model[-1,]
-        
-        # Set weight to zero if negative, as this is what LEOPARD does
-        if(any(model$V2 < 0)){
-          model$V2[model$V2 < 0] <- 0
-          model$V2[model$V2 > 0] <- 1
-        }
-        
-        names(model) <- c('x', 'BETA')
-        model$Discovery[grepl('UKB', model$x)]<-'EUR'
-        model$Discovery[grepl('BBJ', model$x)]<-'EAS'
-        model$Discovery[grepl('UGR', model$x)]<-'AFR'
-        model$Target <- j
-        model$Weight <- model$BETA/sum(model$BETA)
-        model$Trait <- i
-        model$Method <- method_i
-        model<-model[,c('Target','Discovery','Weight','Method','Trait'), with=F]
-        obs_weights<-rbind(obs_weights, model)
-      }
-    }
-  }
-}
-
-###
-# Estimate weights if using the inverse variance weighting
-###
-
-# Read in GWAS descriptives
-gwas_desc<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/gwas_descriptives.csv')
-gwas_desc <- gwas_desc[, c('Trait Label','Ancestry','GWAS N'), with=F]
-names(gwas_desc)<-c('trait','ancestry','n')
-gwas_desc<-gwas_desc[gwas_desc$trait %in% selected_traits,]
-
-library(dplyr)
-library(tidyr)
-
-# Reshape GWAS table to wide format
-wide_gwas <- gwas_desc %>%
-  pivot_wider(names_from = ancestry, values_from = n, values_fill = 0)
-
-# Function to create rows for each pair
-make_weights_long <- wide_gwas %>%
-  rowwise() %>%
-  do({
-    trait <- .$trait
-    eur <- .$EUR
-    afr <- .$AFR
-    eas <- .$EAS
-    
-    tibble(
-      Trait = trait,
-      Method = "inverse_var",
-      Target = c("AFR", "AFR", "EUR", "EUR", "EUR", "EAS", "EAS"),
-      Discovery = c("EUR", "AFR", "EUR", "AFR", "EAS", "EUR", "EAS"),
-      Weight = c(
-        eur / (eur + afr), afr / (eur + afr),  # AFR target
-        eur / (eur + afr), afr / (eur + afr),  # EUR target (vs AFR)
-        eas / (eur + eas),                     # EUR target (vs EAS)
-        eur / (eur + eas), eas / (eur + eas)   # EAS target (vs EUR)
-      )
-    )
-  }) %>%
-  bind_rows()
-
-###
-# Combine and compare
-###
-
-both <- do.call(rbind, list(obs_weights, leopard_weights, make_weights_long))
-
-# Remove ptclump as it doesn't have a sumstattune method
-both <- both[both$Method != 'ptclump',]
-
-both<-merge(both, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x=T, sort = F)
-both$label[is.na(both$label)] <- both$Method[is.na(both$label)]
-both$label <- factor(both$label, levels=unique(both$label))
-
-# Plot non-EUR target first
-tmp <- both[both$Target != 'EUR',]
-tmp <- tmp[tmp$Discovery != 'EUR',]
-
-# Set LEOPARD to black fill
-default_colors <- hue_pal()(10)
-names(default_colors) <- levels(tmp$label)
-default_colors["LEOPARD"] <- "black"
-
-# Plot the estimated and observed weights
-png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/leopard_weights.png', units = 'px', res = 300, width = 2500, height = 1500)
-ggplot(tmp, aes(x = Trait, y = Weight, fill = label)) +
-  geom_bar(width= 0.7, position=position_dodge(0.7), stat="identity", colour = 'black', size = 0.1) +
-  scale_fill_manual(values = default_colors) +
-  facet_grid(Target ~ .) +
-  theme_half_open() +
-  labs(title = 'Weight of target ancestry-matched PGS', fill = NULL) +
-  background_grid(major = 'y', minor = 'y') + 
-  panel_border() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  ylim(c(0,1))
-dev.off()
-
-# Plot EUR target
-tmp <- both[both$Target == 'EUR',]
-tmp <- tmp[tmp$Discovery != 'EUR',]
-
-# Set LEOPARD to black fill
-default_colors <- hue_pal()(10)
-names(default_colors) <- levels(tmp$label)
-default_colors["LEOPARD"] <- "black"
-
-# Plot the estimated and observed weights
-png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/leopard_weights_eur.png', units = 'px', res = 300, width = 2500, height = 1500)
-ggplot(tmp, aes(x = Trait, y = Weight, fill = label)) +
-  geom_bar(width= 0.7, position=position_dodge(0.7), stat="identity", colour = 'black', size = 0.1) +
-  scale_fill_manual(values = default_colors) +
-  facet_grid(Discovery ~ .) +
-  theme_half_open() +
-  labs(title = 'Weight of non-EUR PGS for EUR Target', fill = NULL) +
-  background_grid(major = 'y', minor = 'y') + 
-  panel_border() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  ylim(c(0,1))
-dev.off()
-
-###
-# Check calibration of LEOPARD compared to QuickPRS observed weights
-###
-
-tmp <- both[both$Target != 'EUR',]
-tmp$Target<-NULL
-tmp_wide <- reshape(tmp, 
-                     idvar = c("Trait", "Discovery"), 
-                     timevar = "label", 
-                     direction = "wide")
-
-names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
-tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
-
-tmp_wide_eas <- tmp_wide[tmp_wide$Discovery == 'EAS',]
-tmp_wide_afr <- tmp_wide[tmp_wide$Discovery == 'AFR',]
-
-# Calculate metrics
-rmse_afr <- sqrt(mean((tmp_wide_afr$QuickPRS - tmp_wide_afr$LEOPARD)^2))
-me_afr <- mean(tmp_wide_afr$QuickPRS - tmp_wide_afr$LEOPARD)
-
-rmse_eas <- sqrt(mean((tmp_wide_eas$QuickPRS - tmp_wide_eas$LEOPARD)^2))
-me_eas <- mean(tmp_wide_eas$QuickPRS - tmp_wide_eas$LEOPARD)
-
-# Create annotation data.frame
-metrics_df <- data.frame(
-  Discovery = c("AFR", "EAS"),
-  x = c(0.5, 0.5),         # Adjust positions as needed
-  y = c(-0.05, -0.05),
-  label = c(
-    paste0("RMSE = ", round(rmse_afr, 2), "\nME = ", round(me_afr, 2)),
-    paste0("RMSE = ", round(rmse_eas, 2), "\nME = ", round(me_eas, 2))
-  )
-)
-
-png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/leopard_weights_calibration.png', units = 'px', width = 2000, height = 2000, res = 300)
-ggplot(tmp_wide[tmp_wide$Discovery != 'EUR',], aes(x = LEOPARD, y = QuickPRS)) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +  # Perfect calibration
-  geom_smooth(method = "lm", se = TRUE, colour = "blue") +  # Regression line
-  geom_point(alpha = 0.7) +
-  geom_text(data = metrics_df, aes(x = x, y = y, label = label), inherit.aes = FALSE, hjust = 0, size = 3.5) +
-  labs(
-    x = "LEOPARD weight",
-    y = "Observed weight",
-  ) +
-  theme_half_open() +
-  panel_border() + 
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-  ) +
-  facet_grid(. ~ Discovery) +
-  coord_fixed()    
-dev.off()
-
-###
-# Check calibration of inverse_var compared to QuickPRS observed weights
-###
-
-tmp <- both[both$Target != 'EUR',]
-tmp$Target<-NULL
-tmp_wide <- reshape(tmp, 
-                     idvar = c("Trait", "Discovery"), 
-                     timevar = "label", 
-                     direction = "wide")
-
-names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
-tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
-
-tmp_wide_eas <- tmp_wide[tmp_wide$Discovery == 'EAS',]
-tmp_wide_afr <- tmp_wide[tmp_wide$Discovery == 'AFR',]
-
-# Calculate metrics
-rmse_afr <- sqrt(mean((tmp_wide_afr$QuickPRS - tmp_wide_afr$inverse_var)^2))
-me_afr <- mean(tmp_wide_afr$QuickPRS - tmp_wide_afr$inverse_var)
-
-rmse_eas <- sqrt(mean((tmp_wide_eas$QuickPRS - tmp_wide_eas$inverse_var)^2))
-me_eas <- mean(tmp_wide_eas$QuickPRS - tmp_wide_eas$inverse_var)
-
-# Create annotation data.frame
-metrics_df <- data.frame(
-  Discovery = c("AFR", "EAS"),
-  x = c(0.5, 0.5),         # Adjust positions as needed
-  y = c(-0.05, -0.05),
-  label = c(
-    paste0("RMSE = ", round(rmse_afr, 2), "\nME = ", round(me_afr, 2)),
-    paste0("RMSE = ", round(rmse_eas, 2), "\nME = ", round(me_eas, 2))
-  )
-)
-
-png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/inverse_var_weights_calibration.png', units = 'px', width = 2000, height = 2000, res = 300)
-ggplot(tmp_wide[tmp_wide$Discovery != 'EUR',], aes(x = inverse_var, y = QuickPRS)) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +  # Perfect calibration
-  geom_smooth(method = "lm", se = TRUE, colour = "blue") +  # Regression line
-  geom_point(alpha = 0.7) +
-  geom_text(data = metrics_df, aes(x = x, y = y, label = label), inherit.aes = FALSE, hjust = 1.5, size = 3.5) +
-  labs(
-    x = "inverse_var weight",
-    y = "Observed weight",
-  ) +
-  theme_half_open() +
-  panel_border() + 
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-  ) +
-  facet_grid(. ~ Discovery) +
-  coord_fixed()    
-dev.off()
-
-###
-# Check calibration of observed weights across all methods
-###
-
-tmp <- both[both$Target != 'EUR',]
-tmp <- tmp[!(tmp$label %in% c('LEOPARD','inverse_var')),]
-tmp$Target<-NULL
-tmp_wide <- reshape(tmp, 
-                     idvar = c("Trait", "Discovery"), 
-                     timevar = "label", 
-                     direction = "wide")
-
-names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
-tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
-
-tmp_wide <- tmp_wide[tmp_wide$Discovery %in% c('EAS','AFR'),]
-
-metrics <- NULL
-for(i in c('EAS','AFR')){
-  for(j in unique(tmp$label)){
-    for(k in unique(tmp$label)){
-      tmp_wide_i <- tmp_wide[tmp_wide$Discovery == i,]
-      rmse <- sqrt(mean((tmp_wide_i[[j]] - tmp_wide_i[[k]])^2))
-      me <- mean(tmp_wide_i[[j]] - tmp_wide_i[[k]])
-      
-      metrics <- rbind(
-        metrics,
-        data.frame(
-          Population = i,
-          Method1 = j,
-          Method2 = k,
-          rmse = rmse,
-          me = me
-        )
-      )
-    }
-  }
-}
-
-png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/observed_weights_calibration.png', units = 'px', width = 3000, height = 1650, res = 300)
-ggplot(metrics, aes(x = Method1, y = Method2, fill = rmse)) +
-  geom_tile(color = "white") +  # Tile plot with white borders
-  geom_text(aes(label = round(rmse, 2)), color = "black") +  # Add correlation values
-  scale_fill_gradient2(mid = "white", high = "red", midpoint = 0) +  # Color scale
-  theme_half_open() +
-  panel_border() + 
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.title = element_blank()
-  ) +
-  facet_grid(. ~ Population) +
-  labs(fill = "RMSE")
-dev.off()
-
-# Calculate average RMSE for each method against all other methods
-metrics_unique <- metrics[metrics$Method1 != metrics$Method2, ]
-metrics_unique$Comparison <- NA
-for (i in 1:nrow(metrics_unique)) {
-  metrics_unique$Comparison[i] <-
-    paste0(sort(c(
-      metrics_unique$Method1[i], metrics_unique$Method2[i]
-    )), collapse = ' vs. ')
-}
-metrics_unique <- metrics_unique[!duplicated(paste0(metrics_unique$Population, metrics_unique$Comparison)),]
-
-mean_rmse <- NULL
-for(i in unique(tmp$label)){
-  for(j in c('AFR','EAS')){
-    metrics_unique_tmp <- metrics_unique[metrics_unique$Method1 == i | metrics_unique$Method2 == i,]
-    metrics_unique_tmp <- metrics_unique_tmp[metrics_unique_tmp$Population == j,]
-    mean_rmse <- rbind(
-      mean_rmse, 
-      data.frame(
-        Method = i,
-        Population = j,
-        avg_rmse = mean(metrics_unique_tmp$rmse)
-      )
-    )
-  }
-}
-
-png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/avg_observed_weight_rmse.png', units = 'px', width = 1500, height = 1500, res = 300)
-ggplot(mean_rmse, aes(x = Method, y = avg_rmse, fill = Method)) +
-  geom_bar(width= 0.7, position=position_dodge(0.7), stat="identity", size = 0.1) +
-  geom_text(aes(label = round(avg_rmse, 3)),  # <-- Add this
-          vjust = 1.5,                    # <-- Move the text slightly above the bar
-          size = 3) +                      # <-- Adjust text size
-  scale_fill_manual(values = default_colors) +
-  facet_grid(Population ~ .) +
-  theme_half_open() +
-  background_grid(major = 'y', minor = 'y') + 
-  panel_border() +
-  labs(y = 'Average RMSE') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.position="none")
-dev.off()
-
-###
-# Check calibration of estimated (LEOPARD and inverse_var) weights compared to observed QuickPRS weights
-###
-
-tmp <- both[both$Target != 'EUR',]
-tmp <- tmp[(tmp$label %in% c('LEOPARD','inverse_var','QuickPRS')),]
-tmp$Target<-NULL
-tmp_wide <- reshape(tmp, 
-                     idvar = c("Trait", "Discovery"), 
-                     timevar = "label", 
-                     direction = "wide")
-
-names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
-tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
-
-tmp_wide <- tmp_wide[tmp_wide$Discovery %in% c('EAS','AFR'),]
-
-metrics <- NULL
-for(i in c('EAS','AFR')){
-  for(j in unique(tmp$label)){
-    for(k in unique(tmp$label)){
-      tmp_wide_i <- tmp_wide[tmp_wide$Discovery == i,]
-      rmse <- sqrt(mean((tmp_wide_i[[j]] - tmp_wide_i[[k]])^2))
-      me <- mean(tmp_wide_i[[j]] - tmp_wide_i[[k]])
-      
-      metrics <- rbind(
-        metrics,
-        data.frame(
-          Population = i,
-          Method1 = j,
-          Method2 = k,
-          rmse = rmse,
-          me = me
-        )
-      )
-    }
-  }
-}
-
-# Plot the rmse for LEOPARD and inverse_var predicting observed QuickPRS weight
-metrics <- metrics[metrics$Method1 == 'QuickPRS',]
-metrics <- metrics[metrics$Method2 != 'QuickPRS',]
-
-png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/inverse_var_comp_rmse.png', units = 'px', width = 800, height = 1500, res = 300)
-ggplot(metrics, aes(x = Method2, y = rmse, fill = Method2)) +
-  geom_bar(width= 0.7, position=position_dodge(0.7), stat="identity", size = 0.1) +
-  geom_text(aes(label = round(rmse, 3)),  # <-- Add this
-          vjust = 1.5,                    # <-- Move the text slightly above the bar
-          size = 3) +                      # <-- Adjust text size
-  facet_grid(Population ~ .) +
-  theme_half_open() +
-  background_grid(major = 'y', minor = 'y') + 
-  panel_border() +
-  labs(y = 'RMSE relative to QuickPRS', x = 'Method') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.position="none")
-dev.off()
-
-```
-
-</details>
-
-***
-
 ### Descriptive statistics
 
 Create a table showing descriptive statistics for the MVP sumstats. This should include LDSC SNP-heritability and AVENGEME results.
@@ -10532,3 +10187,610 @@ kable(info_all, "html") %>%
 ```
 
 </details>
+
+***
+
+### LEOPARD+QuickPRS
+
+Here we will compare the LEOPARD estimated weights for population specific PGS, to the weights estimated using observed data in the UKB target sample.
+
+<details><summary>Show code</summary>
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in list of outcomes 
+selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_subset.txt', header=F)$V1
+
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config_mvp.yaml'
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+###
+# Read in weights estimated by LEOPARD (QuickPRS)
+###
+
+leopard_weights<-NULL
+scores_quickprs <- scores$name[scores$method == 'quickprs_multi']
+for(i in selected_traits){
+  scores_i <- scores_quickprs[grepl(paste0('^', i,'_'), scores_quickprs)]
+  for(j in scores_i){
+      weights_file <- readRDS(paste0(outdir, '/reference/pgs_score_files/leopard/', j, '/ref-', j, '.weights.rds'))
+      weights_file <- data.frame(weights_file)
+      
+      weights <-
+        data.table(
+          Target = do.call(c, lapply(names(weights_file), function(x) rep(x, 2))),
+          Discovery = names(weights_file),
+          Weight = do.call(c, lapply(weights_file, function(x) x)),
+          Trait = i,
+          Method = 'LEOPARD'
+        )
+      
+      leopard_weights <- rbind(leopard_weights, weights)
+  }
+}
+
+#####
+# Read in the PGS weights estimated using UKB data
+#####
+# Read in the final model coefficients for multi-source methods
+
+obs_weights<-NULL
+for(method_i in unique(scores$method)[!(unique(scores$method) %in% pgs_group_methods)]){
+  scores_method<-scores$name[scores$method == method_i]
+  method_i <- gsub('_multi','', method_i)
+
+  for(i in selected_traits){
+    for(j in c('AFR')){
+      if(j == 'EUR'){
+        pops <- c('EAS','AFR')
+      } else {
+        pops <- j
+      }
+      
+      for(k in pops){
+        model <- fread(paste0('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/targ_', j, '.disc_EUR_', k, '/', i, '/final_models/', method_i, '.pseudo.multi.final_model.txt'))
+        model<-model[-1,]
+        
+        # Set weight to zero if negative, as this is what LEOPARD does
+        if(any(model$V2 < 0)){
+          model$V2[model$V2 < 0] <- 0
+          model$V2[model$V2 > 0] <- 1
+        }
+        
+        names(model) <- c('x', 'BETA')
+        model$Discovery[grepl('UKB', model$x)]<-'EUR'
+        model$Discovery[grepl('MVP', model$x)]<-'AFR'
+        model$Target <- j
+        model$Weight <- model$BETA/sum(model$BETA)
+        model$Trait <- i
+        model$Method <- method_i
+        model<-model[,c('Target','Discovery','Weight','Method','Trait'), with=F]
+        obs_weights<-rbind(obs_weights, model)
+      }
+    }
+  }
+}
+
+###
+# Estimate weights if using the inverse variance weighting
+###
+
+# Read in GWAS descriptives
+gwas_desc<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/gwas_descriptives.csv')
+gwas_desc <- gwas_desc[, c('Trait Label','Ancestry','GWAS N'), with=F]
+names(gwas_desc)<-c('trait','ancestry','n')
+gwas_desc<-gwas_desc[gwas_desc$trait %in% selected_traits,]
+
+gwas_desc <- gwas_desc[gwas_desc$ancestry == 'EUR',]
+
+gwas_desc_mvp <- fread('/users/k1806347/oliverpainfel/Analyses/crosspop/sensitivity_mvp/gwas_descriptives.csv')
+gwas_desc_mvp <- gwas_desc_mvp[, c('Trait Label','Ancestry','GWAS N'), with=F]
+names(gwas_desc_mvp)<-c('trait','ancestry','n')
+gwas_desc_mvp<-gwas_desc_mvp[gwas_desc_mvp$trait %in% selected_traits,]
+
+gwas_desc<-rbind(gwas_desc, gwas_desc_mvp)
+
+library(dplyr)
+library(tidyr)
+
+# Reshape GWAS table to wide format
+wide_gwas <- gwas_desc %>%
+  pivot_wider(names_from = ancestry, values_from = n, values_fill = 0)
+
+# Function to create rows for each pair
+make_weights_long <- wide_gwas %>%
+  rowwise() %>%
+  do({
+    trait <- .$trait
+    eur <- .$EUR
+    afr <- .$AFR
+    eas <- .$EAS
+    
+    tibble(
+      Trait = trait,
+      Method = "inverse_var",
+      Target = c("AFR", "AFR", "EUR", "EUR"),
+      Discovery = c("EUR", "AFR", "EUR", "AFR"),
+      Weight = c(
+        eur / (eur + afr), afr / (eur + afr),  # AFR target
+        eur / (eur + afr), afr / (eur + afr)  # EUR target (vs AFR)
+      )
+    )
+  }) %>%
+  bind_rows()
+
+###
+# Combine and compare
+###
+
+both <- do.call(rbind, list(obs_weights, leopard_weights, make_weights_long))
+
+# Remove ptclump as it doesn't have a sumstattune method
+both <- both[both$Method != 'ptclump',]
+
+both<-merge(both, pgs_method_labels, by.x = 'Method', by.y = 'method', all.x=T, sort = F)
+both$label[is.na(both$label)] <- both$Method[is.na(both$label)]
+both$label <- factor(both$label, levels=unique(both$label))
+
+# Plot non-EUR target first
+tmp <- both[both$Target != 'EUR',]
+tmp <- tmp[tmp$Discovery != 'EUR',]
+
+# Set LEOPARD to black fill
+default_colors <- hue_pal()(10)
+names(default_colors) <- levels(tmp$label)
+default_colors["LEOPARD"] <- "black"
+
+# Plot the estimated and observed weights
+png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/leopard_weights.png', units = 'px', res = 300, width = 2500, height = 1500)
+ggplot(tmp, aes(x = Trait, y = Weight, fill = label)) +
+  geom_bar(width= 0.7, position=position_dodge(0.7), stat="identity", colour = 'black', size = 0.1) +
+  scale_fill_manual(values = default_colors) +
+  facet_grid(Target ~ .) +
+  theme_half_open() +
+  labs(title = 'Weight of target ancestry-matched PGS', fill = NULL) +
+  background_grid(major = 'y', minor = 'y') + 
+  panel_border() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(c(0,1))
+dev.off()
+
+###
+# Check calibration of LEOPARD compared to QuickPRS observed weights
+###
+
+tmp <- both[both$Target != 'EUR',]
+tmp$Target<-NULL
+tmp_wide <- reshape(tmp, 
+                     idvar = c("Trait", "Discovery"), 
+                     timevar = "label", 
+                     direction = "wide")
+
+names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
+tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
+
+tmp_wide_afr <- tmp_wide[tmp_wide$Discovery == 'AFR',]
+
+# Calculate metrics
+rmse_afr <- sqrt(mean((tmp_wide_afr$QuickPRS - tmp_wide_afr$LEOPARD)^2))
+me_afr <- mean(tmp_wide_afr$QuickPRS - tmp_wide_afr$LEOPARD)
+
+# Create annotation data.frame
+metrics_df <- data.frame(
+  Discovery = c("AFR"),
+  x = c(0.5),         # Adjust positions as needed
+  y = c(-0.05),
+  label = c(
+    paste0("RMSE = ", round(rmse_afr, 2), "\nME = ", round(me_afr, 2))
+  )
+)
+
+png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/leopard_weights_calibration.png', units = 'px', width = 2000, height = 2000, res = 300)
+ggplot(tmp_wide[tmp_wide$Discovery != 'EUR',], aes(x = LEOPARD, y = QuickPRS)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +  # Perfect calibration
+  geom_smooth(method = "lm", se = TRUE, colour = "blue") +  # Regression line
+  geom_point(alpha = 0.7) +
+  geom_text(data = metrics_df, aes(x = x, y = y, label = label), inherit.aes = FALSE, hjust = 0, size = 3.5) +
+  labs(
+    x = "LEOPARD weight",
+    y = "Observed weight",
+  ) +
+  theme_half_open() +
+  panel_border() + 
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+  ) +
+  coord_fixed()    
+dev.off()
+
+###
+# Check calibration of inverse_var compared to QuickPRS observed weights
+###
+
+tmp <- both[both$Target != 'EUR',]
+tmp$Target<-NULL
+tmp_wide <- reshape(tmp, 
+                     idvar = c("Trait", "Discovery"), 
+                     timevar = "label", 
+                     direction = "wide")
+
+names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
+tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
+
+tmp_wide_afr <- tmp_wide[tmp_wide$Discovery == 'AFR',]
+
+# Calculate metrics
+rmse_afr <- sqrt(mean((tmp_wide_afr$QuickPRS - tmp_wide_afr$inverse_var)^2))
+me_afr <- mean(tmp_wide_afr$QuickPRS - tmp_wide_afr$inverse_var)
+
+
+# Create annotation data.frame
+metrics_df <- data.frame(
+  Discovery = c("AFR"),
+  x = c(0.5),         # Adjust positions as needed
+  y = c(-0.05),
+  label = c(
+    paste0("RMSE = ", round(rmse_afr, 2), "\nME = ", round(me_afr, 2))
+  )
+)
+
+png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/inverse_var_weights_calibration.png', units = 'px', width = 2000, height = 2000, res = 300)
+ggplot(tmp_wide[tmp_wide$Discovery != 'EUR',], aes(x = inverse_var, y = QuickPRS)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +  # Perfect calibration
+  geom_smooth(method = "lm", se = TRUE, colour = "blue") +  # Regression line
+  geom_point(alpha = 0.7) +
+  geom_text(data = metrics_df, aes(x = x, y = y, label = label), inherit.aes = FALSE, hjust = 1.5, size = 3.5) +
+  labs(
+    x = "inverse_var weight",
+    y = "Observed weight",
+  ) +
+  theme_half_open() +
+  panel_border() + 
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+  ) +
+  coord_fixed()    
+dev.off()
+
+###
+# Check calibration of observed weights across all methods
+###
+
+tmp <- both[both$Target != 'EUR',]
+tmp <- tmp[!(tmp$label %in% c('LEOPARD','inverse_var')),]
+tmp$Target<-NULL
+tmp_wide <- reshape(tmp, 
+                     idvar = c("Trait", "Discovery"), 
+                     timevar = "label", 
+                     direction = "wide")
+
+names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
+tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
+
+tmp_wide <- tmp_wide[tmp_wide$Discovery %in% c('AFR'),]
+
+metrics <- NULL
+for(i in c('AFR')){
+  for(j in unique(tmp$label)){
+    for(k in unique(tmp$label)){
+      tmp_wide_i <- tmp_wide[tmp_wide$Discovery == i,]
+      rmse <- sqrt(mean((tmp_wide_i[[j]] - tmp_wide_i[[k]])^2))
+      me <- mean(tmp_wide_i[[j]] - tmp_wide_i[[k]])
+      
+      metrics <- rbind(
+        metrics,
+        data.frame(
+          Population = i,
+          Method1 = j,
+          Method2 = k,
+          rmse = rmse,
+          me = me
+        )
+      )
+    }
+  }
+}
+
+png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/observed_weights_calibration.png', units = 'px', width = 2000, height = 1650, res = 300)
+ggplot(metrics, aes(x = Method1, y = Method2, fill = rmse)) +
+  geom_tile(color = "white") +  # Tile plot with white borders
+  geom_text(aes(label = round(rmse, 2)), color = "black") +  # Add correlation values
+  scale_fill_gradient2(mid = "white", high = "red", midpoint = 0) +  # Color scale
+  theme_half_open() +
+  panel_border() + 
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank()
+  ) +
+  labs(fill = "RMSE")
+dev.off()
+
+# Calculate average RMSE for each method against all other methods
+metrics_unique <- metrics[metrics$Method1 != metrics$Method2, ]
+metrics_unique$Comparison <- NA
+for (i in 1:nrow(metrics_unique)) {
+  metrics_unique$Comparison[i] <-
+    paste0(sort(c(
+      metrics_unique$Method1[i], metrics_unique$Method2[i]
+    )), collapse = ' vs. ')
+}
+metrics_unique <- metrics_unique[!duplicated(paste0(metrics_unique$Population, metrics_unique$Comparison)),]
+
+mean_rmse <- NULL
+for(i in unique(tmp$label)){
+  for(j in c('AFR')){
+    metrics_unique_tmp <- metrics_unique[metrics_unique$Method1 == i | metrics_unique$Method2 == i,]
+    metrics_unique_tmp <- metrics_unique_tmp[metrics_unique_tmp$Population == j,]
+    mean_rmse <- rbind(
+      mean_rmse, 
+      data.frame(
+        Method = i,
+        Population = j,
+        avg_rmse = mean(metrics_unique_tmp$rmse)
+      )
+    )
+  }
+}
+
+png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/avg_observed_weight_rmse.png', units = 'px', width = 1500, height = 800, res = 300)
+ggplot(mean_rmse, aes(x = Method, y = avg_rmse, fill = Method)) +
+  geom_bar(width= 0.7, position=position_dodge(0.7), stat="identity", size = 0.1) +
+  geom_text(aes(label = round(avg_rmse, 3)),  # <-- Add this
+          vjust = 1.5,                    # <-- Move the text slightly above the bar
+          size = 3) +                      # <-- Adjust text size
+  scale_fill_manual(values = default_colors) +
+  theme_half_open() +
+  background_grid(major = 'y', minor = 'y') + 
+  panel_border() +
+  labs(y = 'Average RMSE') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position="none")
+dev.off()
+
+###
+# Check calibration of estimated (LEOPARD and inverse_var) weights compared to observed QuickPRS weights
+###
+
+tmp <- both[both$Target != 'EUR',]
+tmp <- tmp[(tmp$label %in% c('LEOPARD','inverse_var','QuickPRS')),]
+tmp$Target<-NULL
+tmp_wide <- reshape(tmp, 
+                     idvar = c("Trait", "Discovery"), 
+                     timevar = "label", 
+                     direction = "wide")
+
+names(tmp_wide) <- gsub('Weight.', '', names(tmp_wide))
+tmp_wide<-tmp_wide[, !(grepl('Method', names(tmp_wide))), with = F]
+
+tmp_wide <- tmp_wide[tmp_wide$Discovery %in% c('EAS','AFR'),]
+
+metrics <- NULL
+for(i in c('AFR')){
+  for(j in unique(tmp$label)){
+    for(k in unique(tmp$label)){
+      tmp_wide_i <- tmp_wide[tmp_wide$Discovery == i,]
+      rmse <- sqrt(mean((tmp_wide_i[[j]] - tmp_wide_i[[k]])^2))
+      me <- mean(tmp_wide_i[[j]] - tmp_wide_i[[k]])
+      
+      metrics <- rbind(
+        metrics,
+        data.frame(
+          Population = i,
+          Method1 = j,
+          Method2 = k,
+          rmse = rmse,
+          me = me
+        )
+      )
+    }
+  }
+}
+
+# Plot the rmse for LEOPARD and inverse_var predicting observed QuickPRS weight
+metrics <- metrics[metrics$Method1 == 'QuickPRS',]
+metrics <- metrics[metrics$Method2 != 'QuickPRS',]
+
+png('~/oliverpainfel/Analyses/crosspop/sensitivity_mvp/plots/inverse_var_comp_rmse.png', units = 'px', width = 800, height = 1500, res = 300)
+ggplot(metrics, aes(x = Method2, y = rmse, fill = Method2)) +
+  geom_bar(width= 0.7, position=position_dodge(0.7), stat="identity", size = 0.1) +
+  geom_text(aes(label = round(rmse, 3)),  # <-- Add this
+          vjust = 1.5,                    # <-- Move the text slightly above the bar
+          size = 3) +                      # <-- Adjust text size
+  theme_half_open() +
+  background_grid(major = 'y', minor = 'y') + 
+  panel_border() +
+  labs(y = 'RMSE relative to QuickPRS', x = 'Method') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position="none")
+dev.off()
+
+```
+
+</details>
+
+***
+
+# Check genetic distances
+
+```{r}
+# Read in reference PC SNP-weights
+pc_score_file <- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pc_score_files/TRANS/ref-TRANS-pcs.eigenvec.var.gz')
+
+# Read in allele frequencies for each reference population
+ref_pop_freq <- list()
+for(i in c('EUR','EAS','AFR','AMR','MID','CSA')){
+  freq_i <- NULL
+  for(j in 1:22){
+    freq_i <- rbind(freq_i, fread(paste0('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/freq_files/', i,'/ref.', i, '.chr', j, '.afreq')))
+  }
+  ref_pop_freq[[i]] <- freq_i
+}
+
+# Calculate PCs for reference populations
+ref_pc_all <- NULL
+for(i in c('EUR','EAS','AFR','AMR','MID','CSA')){
+  # Merge on SNP ID
+  merged <- merge(
+    pc_score_file, 
+    ref_pop_freq[[i]], 
+    by.x = "SNP", 
+    by.y = "ID"
+  )
+  
+  # Flip frequencies where needed (if ALT != A1, assume ALT_FREQ = 1 - A1_FREQ)
+  merged[, A1_FREQ := ifelse(ALT == A1, ALT_FREQS, 1 - ALT_FREQS)]
+  
+  # Calculate PCs using dot product: sum(allele_freq * SNP_weight) for each PC
+  ref_PC <- merged[, lapply(.SD, function(w) sum(w * A1_FREQ, na.rm = TRUE)), 
+                   .SDcols = patterns("^PC")]
+  
+  ref_pc_all <- rbind(ref_pc_all, data.frame(group = i,
+                                             ref_PC))
+}
+
+# Read in GWAS allele frequencies for BMI
+gwas_list_main <- fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list.txt')
+gwas_list_main <- gwas_list_main[grepl('BMI', gwas_list_main$name),]
+
+gwas_list_mvp <- fread('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/gwas_list_mvp.txt')
+gwas_list_mvp <- gwas_list_mvp[grepl('BMI', gwas_list_mvp$name),]
+
+gwas_list<-rbind(gwas_list_main, gwas_list_mvp)
+
+outdir <- '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/output'
+gwas_freq <- list()
+for(i in 1:nrow(gwas_list)){
+  ss_i <- fread(paste0(
+            outdir,
+            '/reference/gwas_sumstat/',
+            gwas_list$name[i],
+            '/',
+            gwas_list$name[i],
+            '-cleaned.gz'
+          ))
+  
+  gwas_freq[[gwas_list$name[i]]] <- ss_i[, c('SNP','A1','A2','FREQ'), with = F]
+}
+
+gwas_pc_all <- NULL
+for(i in names(gwas_freq)){
+  # Merge on SNP ID
+  merged <- merge(
+    pc_score_file, 
+    gwas_freq[[i]], 
+    by = "SNP"
+  )
+  
+  # Flip frequencies where needed (if ALT != A1, assume ALT_FREQ = 1 - A1_FREQ)
+  merged[, FREQ := ifelse(A1.x == A1.y, FREQ, 1 - FREQ)]
+  
+  # Calculate PCs using dot product: sum(allele_freq * SNP_weight) for each PC
+  ref_PC <- merged[, lapply(.SD, function(w) sum(w * FREQ, na.rm = TRUE)), 
+                   .SDcols = patterns("^PC")]
+  
+  gwas_pc_all <- rbind(gwas_pc_all, data.frame(group = i,
+                                             ref_PC))
+}
+
+ref_pc_all$type <- 'Reference'
+gwas_pc_all$type <- 'GWAS'
+
+pc_all <- rbind(ref_pc_all, gwas_pc_all)
+
+ggplot(pc_all, aes(x=PC1, y = PC2, colour = group, shape = type)) +
+  geom_point(size = 5)
+
+# There is a big shift in the PCs for GWAS and reference data, probably due to missing variants. Restrict to variant present in all GWAS.
+
+extract <- Reduce(intersect, list(
+  pc_score_file$SNP,
+  gwas_freq$BMI_UKB$SNP,
+  gwas_freq$BMI_BBJ$SNP,
+  gwas_freq$BMI_UGR$SNP,
+  gwas_freq$BMI_MVP_AFR$SNP
+))
+
+pc_score_file_overlapping <- pc_score_file[pc_score_file$SNP %in% extract,]
+
+# Calculate PCs for reference populations
+ref_pc_all <- NULL
+for(i in c('EUR','EAS','AFR','AMR','MID','CSA')){
+  # Merge on SNP ID
+  merged <- merge(
+    pc_score_file_overlapping, 
+    ref_pop_freq[[i]], 
+    by.x = "SNP", 
+    by.y = "ID"
+  )
+  
+  # Flip frequencies where needed (if ALT != A1, assume ALT_FREQ = 1 - A1_FREQ)
+  merged[, A1_FREQ := ifelse(ALT == A1, ALT_FREQS, 1 - ALT_FREQS)]
+  
+  # Calculate PCs using dot product: sum(allele_freq * SNP_weight) for each PC
+  ref_PC <- merged[, lapply(.SD, function(w) sum(w * A1_FREQ, na.rm = TRUE)), 
+                   .SDcols = patterns("^PC")]
+  
+  ref_pc_all <- rbind(ref_pc_all, data.frame(group = i,
+                                             ref_PC))
+}
+
+gwas_pc_all <- NULL
+for(i in names(gwas_freq)){
+  # Merge on SNP ID
+  merged <- merge(
+    pc_score_file_overlapping, 
+    gwas_freq[[i]], 
+    by = "SNP"
+  )
+  
+  # Flip frequencies where needed (if ALT != A1, assume ALT_FREQ = 1 - A1_FREQ)
+  merged[, FREQ := ifelse(A1.x == A1.y, FREQ, 1 - FREQ)]
+  
+  # Calculate PCs using dot product: sum(allele_freq * SNP_weight) for each PC
+  ref_PC <- merged[, lapply(.SD, function(w) sum(w * FREQ, na.rm = TRUE)), 
+                   .SDcols = patterns("^PC")]
+  
+  gwas_pc_all <- rbind(gwas_pc_all, data.frame(group = i,
+                                             ref_PC))
+}
+
+ref_pc_all$Population <- ref_pc_all$group
+ref_pc_all$GWAS <- NA
+
+gwas_pc_all$GWAS <- gwas_pc_all$group
+gwas_pc_all$GWAS[gwas_pc_all$GWAS == 'BMI_UKB'] <- "UKB (EUR)"
+gwas_pc_all$GWAS[gwas_pc_all$GWAS == 'BMI_BBJ'] <- "BBJ (EAS)"
+gwas_pc_all$GWAS[gwas_pc_all$GWAS == 'BMI_UGR'] <- "UGR (AFR)"
+gwas_pc_all$GWAS[gwas_pc_all$GWAS == 'BMI_MVP_AFR'] <- "MVP (AFR)"
+gwas_pc_all$Population <- NA
+
+ref_pc_all$type <- 'Reference'
+gwas_pc_all$type <- 'GWAS'
+
+pc_all <- rbind(ref_pc_all, gwas_pc_all)
+
+png('~/oliverpainfel/Analyses/crosspop/plots/genetic_distance.png', units = 'px', width = 2000, height = 1500, res = 300)
+
+ggplot(pc_all, aes(x=PC1, y = PC2)) +
+  geom_point(data=pc_all[pc_all$type == 'Reference',], aes(x=PC1, y = PC2, fill = Population), size = 5, shape = 21) +
+  geom_point(data=pc_all[pc_all$type == 'GWAS',], aes(x=PC1, y = PC2, colour = GWAS), size = 4, shape = 3, stroke = 1.5) +
+  theme_half_open() +
+  background_grid()
+
+dev.off()
+
+# Perfect. Shows UKB match EUR, BBJ match EAS, UGR matches AFR, but MVP is close to AFR.
+
+```
