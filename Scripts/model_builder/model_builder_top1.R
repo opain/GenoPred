@@ -60,7 +60,7 @@ tmp_dir <- tempdir()
 
 # Create directory for final models to be saved
 if(opt$export_models){
-  system(paste0('mkdir -p ', opt$output_dir, '/final_models'))
+  system(paste0('mkdir -p ', opt$out, '_final_models'))
 }
 
 # Initiate log file
@@ -255,8 +255,8 @@ top1_indep_pred <- foreach(i = 1:length(unique(group_list$group)), .combine = 'c
     
     export_final_model(model = train_mod,
                        group = group_name,
-                       outdir = paste0(opt$output_dir,
-                                       '/final_models'))
+                       outdir = paste0(opt$out,
+                                       '_final_models'))
   }
   
   # Update progress log
@@ -357,8 +357,8 @@ multi <- foreach(i = 1:length(unique(group_list$multi)), .combine = 'c') %dopar%
     
     export_final_model(model = train_mod,
                        group = group_name,
-                       outdir = paste0(opt$output_dir,
-                                       '/final_models'))
+                       outdir = paste0(opt$out,
+                                       '_final_models'))
   }
   
   # Update progress log

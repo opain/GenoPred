@@ -122,6 +122,9 @@ opt$ref_freq_chr <- paste0(refdir, '/freq_files')
 # Subset PGS to SNPs in ref (useful when testing)
 score_all <- score_all[score_all$SNP %in% ref$SNP,]
 
+# Flip effects to match reference alleles
+score_all <- map_score(ref = ref, score = score_all)
+
 # Calculate linear combination of scores using mixing weights for each target population
 score_weighted <- score_all
 for(targ_pop in gwas_list$population){
@@ -159,7 +162,7 @@ for(targ_pop in gwas_list$population){
 score_weighted <- score_weighted[, c('SNP','A1','A2', names(score_weighted)[grepl('_weighted$', names(score_weighted))]), with=F]
 
 # Reduce number of significant figures to save space
-score_weighted[, (4:ncol(score_all)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_all)]
+score_weighted[, (4:ncol(score_weighted)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_weighted)]
 
 fwrite(score_weighted, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
