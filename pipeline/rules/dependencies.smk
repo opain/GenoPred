@@ -443,7 +443,7 @@ def check_pgs_methods(x):
         return
 
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx", "bridgeprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
@@ -1455,12 +1455,12 @@ rule download_bridgeprs_software:
     """
     {{
       rm -r -f {resdir}/software/bridgeprs; \
-      git clone https://github.com/clivehoggart/BridgePRS.git {resdir}/software/bridgeprs; \
+      git clone https://github.com/opain/BridgePRS.git {resdir}/software/bridgeprs; \
       cd {resdir}/software/bridgeprs; \
-      git reset --hard a4b827c1a57c6e3b7a48ed495cac7ebdb5f89d96
+      git reset --hard 2a84532ed56140dc76259cb5818ca0cbc6c8750b
     }} > {log} 2>&1
     """
-
+    
 # Install R packages (handy function for when conda env updates erroneously)
 rule install_r_packages:
   input:

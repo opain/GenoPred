@@ -877,7 +877,7 @@ rule prep_pgs_bridgeprs_i:
   output:
     f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
-    "../envs/analysis.yaml"
+    "../envs/bridgeprs.yaml"
   benchmark:
     f"{outdir}/reference/benchmarks/prep_pgs_bridgeprs_i-{{gwas_group}}.txt"
   log:

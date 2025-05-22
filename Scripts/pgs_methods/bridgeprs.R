@@ -127,12 +127,12 @@ for(i in 1:length(sumstats)){
   gwas_N <- c(gwas_N, round(mean(gwas$N), 0))
   gwas$N<NULL
   
-  # FOR testing
-  gwas <- gwas[sample(1:nrow(gwas), 10000),]
-
   # Write sumstats split by chromosome
   for(j in CHROMS){
     tmp<-gwas[gwas$CHR == j,]
+    # FOR testing
+    tmp <- tmp[1:500,]
+    gwas<-gwas[!(gwas$CHR == j & !(gwas$SNP %in% tmp$SNP)),]
     tmp$CHR<-NULL
     fwrite(tmp, paste0(tmp_dir, '/GWAS_sumstats_',populations[i],'_temp_chr', j, '.txt'), sep=' ')
   }
@@ -200,7 +200,7 @@ system(paste0(
   '--do_clump_pop2 1 ',
   '--do_est_beta_pop2 1 ',
   '--do_sumstat_ensembl_pop2 1 ',
-  '--n_folds 10 ',
+  '--n_folds 2 ', # FOR testing. Should be 10.
   ' > ',tmp_dir,'/bridge_log.txt 2>&1'
 ))
 

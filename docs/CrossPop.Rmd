@@ -7690,6 +7690,13 @@ selected_traits<-fread('/users/k1806347/oliverpainfel/Analyses/crosspop/trait_su
 # Get a list of score files
 scores <- list_score_files(config)
 
+# Get list of score files using full EUR GWAS
+config_full<-'/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/crosspop/config.yaml'
+outdir_full <- read_param(config = config_full, param = 'outdir', return_obj = F)
+scores_full <- list_score_files(config_full)
+scores_full <- scores_full[grepl('UKB$', scores_full$name),]
+scores_full <- scores_full[scores_full$method %in% pgs_methods,]
+
 # Create files for EAS and AFR targets
 for(trait_i in selected_traits){
   
@@ -7714,6 +7721,22 @@ for(trait_i in selected_traits){
   )
   
   scores_i$top1 <- paste0(scores_i$method,'.',gsub('.*_', '', scores_i$name))
+
+  # Now for full GWAS
+  scores_full_i <- scores_full[grepl(paste0('^', trait_i,'_'), scores_full$name),]
+
+  scores_full_i$predictor <- paste0(
+    outdir_full,
+    '/ukb/pgs/TRANS/',
+    scores_full_i$method,
+    '/',
+    scores_full_i$name,
+    '/ukb-',
+    scores_full_i$name,
+    '-TRANS.profiles'
+  )
+  
+  scores_full_i$top1 <- paste0(scores_full_i$method,'.full')
 
   ####
   # Make groups containing pseudo scores for single source methods
@@ -7755,13 +7778,22 @@ for(trait_i in selected_traits){
                                 paste0('.EUR_pseudo.profiles'),
                                 scores_i_pseudo$predictor)
 
+  # Now for full GWAS - skip subsetting pseudo as done before
+  scores_full_i_pseudo <- scores_full_i
+  scores_full_i_pseudo$top1<-paste0(scores_full_i_pseudo$top1,'.pseudo')
   
+  scores_full_i_pseudo$predictor <- gsub('.profiles', 
+                                paste0('.EUR_pseudo.profiles'),
+                                scores_full_i_pseudo$predictor)
+
   ####
   # Combine the different predictor groups
   ####
   predictors_i<- do.call(rbind, list(
     scores_i, 
-    scores_i_pseudo
+    scores_full_i, 
+    scores_i_pseudo, 
+    scores_full_i_pseudo
   ))
   predictors_i$multi <- 'All'
   predictors_i <- predictors_i[, c('predictor', 'multi','top1'), with=F]
@@ -8066,6 +8098,7 @@ for(pheno_i in selected_traits){
   eval_i$GWAS_N <- gsub('K\\..*','',eval_i$Group)
   eval_i$GWAS_N <- gsub('.*\\.','',eval_i$GWAS_N)
   eval_i$GWAS_N <- paste0(eval_i$GWAS_N,'K')
+  eval_i$GWAS_N[eval_i$GWAS_N == 'top1K'] <- '297K'
   
   eval_i$Model[grepl('top1$', eval_i$Group) &
                    !grepl('pseudo', eval_i$Group)]<-'IndivTune'
