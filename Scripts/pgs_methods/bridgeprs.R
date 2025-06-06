@@ -131,8 +131,8 @@ for(i in 1:length(sumstats)){
   for(j in CHROMS){
     tmp<-gwas[gwas$CHR == j,]
     # FOR testing
-    tmp <- tmp[1:500,]
-    gwas<-gwas[!(gwas$CHR == j & !(gwas$SNP %in% tmp$SNP)),]
+    # tmp <- tmp[1:500,]
+    #gwas<-gwas[!(gwas$CHR == j & !(gwas$SNP %in% tmp$SNP)),]
     tmp$CHR<-NULL
     fwrite(tmp, paste0(tmp_dir, '/GWAS_sumstats_',populations[i],'_temp_chr', j, '.txt'), sep=' ')
   }
@@ -159,11 +159,13 @@ if(any(populations == 'EUR') & any(populations == 'EAS')){
 
 system(paste0('rm -r ', tmp_dir,'/bridge_out'))
 dir.create(paste0(tmp_dir,'/bridge_out'))
+dir.create(paste0(tmp_dir,'/bridge_out/blocks'))
 
 system(paste0(
   opt$bridgeprs_repo, '/src/Bash/BridgePRS_sumstat.sh ', opt$bridgeprs_repo, '/src/Rscripts ',
   '--strand_check 1 ',
   '--outdir ', tmp_dir,'/bridge_out ',
+  '--blockdir ', tmp_dir,'/bridge_out ',
   '--by_chr 1 ',
   '--by_chr_sumstats .txt ',
   '--pop1 ', populations[1], ' ',
@@ -200,45 +202,29 @@ system(paste0(
   '--do_clump_pop2 1 ',
   '--do_est_beta_pop2 1 ',
   '--do_sumstat_ensembl_pop2 1 ',
-  '--n_folds 2 ', # FOR testing. Should be 10.
+  '--do_pool 1 ',
+  '--clean 1 ',
+  '--n_folds 10 ',
   ' > ',tmp_dir,'/bridge_log.txt 2>&1'
 ))
 
 ####
-# Combine score files
+# Read in the score file
 ####
 
-score_all<-NULL
-for(pop_i in c(unlist(strsplit(opt$populations, ',')), 'META')){
-  score_pop<-NULL
-  for(phi_i in phi_param){
-    score_phi<-NULL
-    for(i in CHROMS){
-      score_phi_i<-fread(paste0(tmp_dir,'/output_',pop_i,'_pst_eff_a1_b0.5_phi',phi_i,'_chr',i,'.txt'))
-      score_phi<-rbind(score_phi, score_phi_i)
-    }
-    if(phi_i == phi_param[1]){
-      score_phi<-score_phi[,c('V2', 'V4','V5', 'V6'), with=F]
-      names(score_phi)<-c('SNP', 'A1', 'A2', paste0('SCORE_',pop_i,'_phi_',phi_i))
-    } else {
-      score_phi<-score_phi[,'V6', with=F]
-      names(score_phi)<-paste0('SCORE_',pop_i,'_phi_',phi_i)
-    }
-    score_pop<-cbind(score_pop, score_phi)
-  }
-  if(pop_i == c(unlist(strsplit(opt$populations, ',')), 'META')[1]){
-    score_all<-score_pop
-  } else {
-    score_all<-merge(score_all, score_pop[, !(names(score_pop) %in% c('A1','A2')), with=F], by='SNP', all=T)
-  }
-}
-
-# Replace NA values with 0
-score_all[is.na(score_all)] <- 0
-
-# Flip effects to match reference alleles
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
-score_new <- map_score(ref = ref, score = score_all)
+
+score_list<-list()
+for(i in populations){
+  score_list[[i]] <- fread(paste0(tmp_dir,'/bridge_out/',i,'/fold2/snp_weights_weighted_model.dat'))
+  names(score_list[[i]]) <- c('SNP','A1','A2',paste0('SCORE_targ_', i))
+  
+  # Replace NA values with 0
+  score_list[[i]][is.na(score_list[[i]])] <- 0
+  
+  # Flip effects to match reference alleles
+  score_list[[i]] <- map_score(ref = ref, score = score_list[[i]])
+}
 
 fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
