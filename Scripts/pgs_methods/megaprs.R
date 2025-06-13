@@ -8,6 +8,8 @@ option_list = list(
               help="Path to per chromosome reference PLINK files [required]"),
   make_option("--ref_keep", action="store", default=NULL, type='character',
               help="Path to keep file for reference [optional]"),
+  make_option("--ref_pcs", action="store", default=NULL, type='character',
+              help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
               help="File containing the population code and location of the keep file [required]"),
   make_option("--plink", action="store", default='plink', type='character',
@@ -96,7 +98,22 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
-gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N'))
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N','FREQ','REF.FREQ'))
+
+# Check allele frequency difference
+ref_psam<-fread(paste0(opt$ref_plink_chr, CHROMS[1],'.psam'))
+names(ref_psam)<-gsub('\\#', '', names(ref_psam))
+
+if(!is.null(opt$ref_keep)){
+  ref_keep <- fread(opt$ref_keep, header=F)$V1
+  ref_psam <- ref_psam[ref_psam$IID %in% ref_keep,]
+}
+
+ref_n <- nrow(ref_psam)
+
+gwas$FREQ_LRT_P <- lrt_af_dual(p1 = gwas$FREQ, n1 = gwas$N, p0 = gwas$REF.FREQ, n0 = ref_n)$p
+log_add(log_file = log_file, message = paste0('Removed ', sum(gwas$FREQ_LRT_P < 1e-6), " variants due to significant difference in allele frequency to reference (P < 1e-6)."))
+gwas <- gwas[!(gwas$FREQ_LRT_P < 1e-6),]
 
 # Format for LDAK
 snplist <- gwas$SNP
@@ -255,23 +272,6 @@ system(paste0('gzip ',opt$output,'.score'))
 # Record end time of test
 if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)
-}
-
-####
-# Calculate mean and sd of polygenic scores
-####
-
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
-
-# Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
-
-# Calculate scale within each reference population
-pop_data <- read_pop_data(opt$pop_data)
-
-for(pop_i in unique(pop_data$POP)){
-  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
 
 end.time <- Sys.time()

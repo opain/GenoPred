@@ -7,7 +7,9 @@ option_list = list(
 make_option("--ref_plink_chr", action="store", default=NULL, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
 make_option("--ref_keep", action="store", default=NULL, type='character',
-		help="Keep file to subset individuals in reference for clumping [optional]"),
+    help="Keep file to subset individuals in reference for clumping [optional]"),
+make_option("--ref_pcs", action="store", default=NULL, type='character',
+    help="Reference PCs for continuous ancestry correction [optional]"),
 make_option("--pop_data", action="store", default=NULL, type='character',
     help="File containing the population code and location of the keep file [required]"),
 make_option("--plink", action="store", default='plink', type='character',
@@ -32,7 +34,7 @@ make_option("--ld_scores", action="store", default=NULL, type='character',
     help="Path to genome-wide ld scores [required]"),
 make_option("--hm3_snplist", action="store", default=NULL, type='character',
     help="Path to LDSC HapMap3 snplist [required]"),
-make_option("--hm3_no_mhc", action="store", default=F, type='character',
+make_option("--hm3_no_mhc", action="store", default=F, type='logical',
     help="Logical indicating whether MHC region should be removed for LDSC analysis [required]"),
 make_option("--pop_prev", action="store", default=NULL, type='numeric',
     help="Population prevelance (if binary) [optional]"),
@@ -121,7 +123,7 @@ opt$h2f <- as.numeric(unlist(strsplit(opt$h2f, ',')))
 # Estimate the SNP-heritability using LD-Score Regression
 #####
 
-if(opt$hm3_no_mhc){
+if(opt$hm3_no_mhc & 6 %in% CHROMS){
   # Remove MHC region from hapmap3 SNP-list
   hm3<-fread(opt$hm3_snplist)
 
@@ -148,6 +150,11 @@ fwrite(gwas, paste0(tmp_dir,'/sumstats.gz'), row.names=F, quote=F, sep=' ', na='
 opt$sumstats<-paste0(tmp_dir,'/sumstats.gz')
 
 ldsc_h2 <- ldsc(sumstats = opt$sumstats, ldsc = opt$ldsc, hm3_snplist = opt$hm3_snplist, munge_sumstats = opt$munge_sumstats, ld_scores = opt$ld_scores, pop_prev = opt$pop_prev, sample_prev = opt$sample_prev, log_file = log_file)
+
+if(ldsc_h2 < 0.05){
+  ldsc_h2 <- 0.05
+  log_add(log_file = log_file, message = 'SNP-h2 was set to 0.05.')
+}
 
 if(any(ldsc_h2*opt$h2f > 1)){
   ldsc_h2 <- ldsc_h2*(1/max(opt$h2f*ldsc_h2))
@@ -232,23 +239,6 @@ system(paste0('gzip ',opt$output,'.score'))
 # Record end time of test
 if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)
-}
-
-####
-# Calculate mean and sd of polygenic scores
-####
-
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
-
-# Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads=opt$n_cores)
-
-# Calculate scale within each reference population
-pop_data <- read_pop_data(opt$pop_data)
-
-for(pop_i in unique(pop_data$POP)){
-  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
 }
 
 end.time <- Sys.time()

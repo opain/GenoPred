@@ -6,6 +6,8 @@ library("optparse")
 option_list = list(
   make_option("--ref_plink_chr", action="store", default=NULL, type='character',
       help="Path to per chromosome reference PLINK files [required]"),
+  make_option("--ref_pcs", action="store", default=NULL, type='character',
+      help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--ref_freq_chr", action="store", default=NULL, type='character',
       help="Path to per chromosome reference PLINK .frq files [required]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
@@ -219,23 +221,6 @@ for(par in names(parRes_mcmc[[i]])){
 
 write.table(parRes, paste0(opt$output_dir,'/GWAS_sumstats_SBayesR.GW.parRes'), col.names=T, row.names=F, quote=F)
 log_add(log_file = log_file, message = paste0('SNP-heritability estimate is ',parRes[parRes$Par == 'hsq', names(parRes) == 'Mean']," (SD=",parRes[parRes$Par == 'hsq', names(parRes) == 'SD'],")."))
-
-####
-# Calculate mean and sd of polygenic scores
-####
-
-log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
-
-# Calculate scores in the full reference
-ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'), threads = opt$n_cores)
-
-# Calculate scale within each reference population
-pop_data <- read_pop_data(opt$pop_data)
-
-for(pop_i in unique(pop_data$POP)){
-  ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
-}
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

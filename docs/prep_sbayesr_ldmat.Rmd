@@ -1,0 +1,140 @@
+---
+title: Preparing SBayesR LD matrices
+output: 
+  html_document:
+    theme: cosmo
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+Here we will calculate LD matrices for SBayesR using HapMap3 SNPs in the 1KG super populations. This is to allow fair comparison across methods for a cross-population polygenic scoring study. 
+
+```{r}
+# Create shrunk LD matrix in 5000 SNP pieces
+gctb<-'/users/k1806347/oliverpainfel/Software/gctb_2.02_Linux/gctb'
+options(scipen=999)
+
+library(foreach)
+library(doMC)
+registerDoMC(10)
+
+for(pop in c('EAS','AFR')){
+  system(paste0('mkdir -p /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop))
+  log <- foreach(i = 1:22, .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+    # Restrict to SNPs with MAF > 0.001
+    freq<-fread(paste0('/users/k1806347/oliverpainfel/Data/1KG/GenoPred/v2.0.0/freq_files/', pop, '/ref.', pop, '.chr', i, '.frq'))
+    freq <- freq[freq$MAF > 0.001,]
+    write.table(freq$SNP, paste0('/users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop,'/maf_001_chr',i,'.txt'), col.names=F, row.names=F, quote=F)
+
+    nsnp <- nrow(freq)
+    nsnp_chunk <- ceiling(nsnp / 5000)
+    for (j in 1:nsnp_chunk) {
+      start <- (5000 * (j - 1)) + 1
+      end <- 5000 * j
+      print(start)
+      print(end)
+      
+      system(
+        paste0(
+          "sbatch -p neurohack_cpu --mem 10G --wrap='",
+          gctb,
+          ' --bfile /scratch/prj/oliverpainfel/Data/1KG/ldpred2/EUR/ref.EUR.GW.imp',
+          ' --keep /users/k1806347/oliverpainfel/Data/1KG/GenoPred/v2.0.0/keep_files/', pop, '.keep', 
+          ' --make-shrunk-ldm',  
+          ' --extract /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop,'/maf_001_chr',i,'.txt',
+          ' --gen-map /users/k1806347/oliverpainfel/Data/Genetic_Map/CEU/chr', i, '.OMNI.interpolated_genetic_map', 
+          ' --snp ', start, '-', end,
+          ' --out /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop,'/maf_001_chr', i,
+          "'"
+        )
+      )
+    }
+
+    # Merge the chunks into per chromosome LD matrices
+    while(1){
+      files<-list.files(path=paste0('/users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop), 
+                        pattern=paste0('maf_001_chr',i,'.snp'))
+      files<-files[grepl('.bin',files)]
+      if(length(files) == nsnp_chunk){
+        Sys.sleep(120)
+        break
+      }
+    }
+  
+    files<-paste0('/users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/', files)
+    files<-gsub('.bin', '', files)
+    file_num<-gsub('.*.snp', '', files)
+    file_num<-as.numeric(gsub('-.*', '', file_num))
+    # Sort files in order of genomic location otherwise SBayeR does not converge!
+    files<-files[order(file_num)]
+    write.table(
+      files,
+      paste0('/users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/shrunk_ld_chr', i, '.merge_list'),
+      col.names = F,
+      row.names = F,
+      quote = F
+    )
+    system(
+      paste0(
+      "sbatch -p neurohack_cpu --mem ", round(2.5 * nsnp_chunk),"G --wrap='",
+        gctb,
+        ' --mldm /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/shrunk_ld_chr', i, '.merge_list',
+        ' --make-shrunk-ldm', 
+        ' --out /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/maf_001_chr', i,
+        "'"
+      )
+    )
+    
+    # Make the LD matrices sparse
+    while(1){
+      if(file.exists(paste0('/users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/maf_001_chr', i, '.ldm.shrunk.bin'))){
+        Sys.sleep(120)
+        break
+      }
+    }
+
+    system(paste0(
+      "sbatch -p neurohack_cpu --mem 60G --wrap='",
+      gctb,
+      ' --ldm /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/maf_001_chr', i, '.ldm.shrunk', 
+      ' --chisq 0', 
+      ' --make-sparse-ldm',
+      ' --out /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/maf_001_chr', i,
+      "'"
+    ))
+    
+    while(1){
+      if(file.exists(paste0('/users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/maf_001_chr', i,'.ldm.sparse.bin'))){
+        Sys.sleep(120)
+        break
+      }
+    }
+    system(paste0('rm /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/maf_001_chr', i,'.snp*'))
+    system(paste0('rm /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/maf_001_chr', i,'.txt'))
+    system(paste0('rm /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/shrunk_ld_chr', i, '.merge_list'))
+    system(paste0('rm /users/k1806347/oliverpainfel/Data/1KG/sbayesr/', pop, '/maf_001_chr', i,'.ldm.shrunk.*'))
+    
+    'hi'
+  }
+}
+
+```
+

@@ -1,0 +1,171 @@
+---
+title: "Testing cross-populations PGS methods"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval = FALSE)
+knitr::opts_knit$set(root.dir = '/scratch/prj/oliverpainfel/Software/MyGit/GenoPred/GenoPredPipe')
+
+library(data.table)
+
+```
+
+***
+
+We will test using the mini test data to speed up testing. The configuration files are in ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/cross_pop_test.
+
+```{bash}
+snakemake -j1 --use-conda --configfile=misc/cross_pop_test/config_cross_pop.yaml output_all -n
+```
+
+***
+
+Test the new set up with OpenSNP data as the target. Initially restrict to chr22 to see if it works as expected.
+
+We need to edit the config file used in the previous run on OpenSNP data.
+
+<details><summary>Show code</summary>
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+
+config <- readLines('misc/opensnp/config.yaml')
+
+config[grepl('^config_file:', config)]<- 'config_file: misc/opensnp/config_cross_pop.yaml'
+config<-config[-which(grepl('^testing:', config))]
+config <- config[!grepl('^score_list:', config)]
+config[grepl('^outdir:', config)]<- 'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test_cross_pop_1'
+config[grepl('^pgs_methods:', config)]<- "pgs_methods: ['ptclump','tlprs']"
+config<-c(config, 'gwas_groups: misc/cross_pop_test/gwas_groups.txt')
+config<-c(config, "tlprs_methods: ['ptclump']")
+
+write.table(config, 'misc/opensnp/config_cross_pop.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_cross_pop.yaml output_all -n
+snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_cross_pop_gw.yaml output_all -n
+```
+
+***
+
+## Evaluate PGS
+
+<details><summary>Show code</summary>
+
+```{r}
+# Test correlation between PGS and observed height
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in pheno data
+pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt')
+
+# Read in PGS
+pgs <- read_pgs(config = 'misc/opensnp/config_cross_pop.yaml', name = 'opensnp')$opensnp
+
+# Read in ancestry
+ancestry <- read_ancestry(config = 'misc/opensnp/config_cross_pop_gw.yaml', name = 'opensnp')
+
+# Estimate correlation between pheno and pgs
+cor <- NULL
+for(pop_i in names(pgs)){
+  for(gwas_i in names(pgs[[pop_i]])){
+    for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
+      pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
+      pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
+      
+      # Restrict to EUR
+      pheno_pgs <- pheno_pgs[pheno_pgs$FID %in% ancestry$keep_files$EUR$V1,]
+      
+      for(model_i in names(pgs_i)[-1:-2]){
+        y <- scale(pheno_pgs$height)
+        x <- scale(pheno_pgs[[model_i]])
+        
+        if(all(is.na(x))){
+          next
+        }
+        
+        coef_i <- coef(summary(mod <- lm(y ~ x)))
+        
+        tmp <- data.table(
+          pop = pop_i,
+          gwas = gwas_i,
+          pgs_method = pgs_method_i,
+          name = model_i,
+          r = coef_i[2,1],
+          se = coef_i[2,2],
+          p = coef_i[2,4],
+          n = nobs(mod))
+      cor <- rbind(cor, tmp)
+      
+      }
+    }
+  }
+}
+
+# Restrict to best and and pseudoval only
+cor_subset <- NULL
+for(pop_i in unique(cor$pop)){
+  for(gwas_i in unique(cor$gwas[cor$pop == pop_i])){
+    for(pgs_method_i in unique(cor$pgs_method[cor$pop == pop_i & cor$gwas == gwas_i])){
+      
+      # Subset relevant results
+      cor_i <- cor[
+        cor$pop == pop_i &
+        cor$gwas == gwas_i &
+        cor$pgs_method == pgs_method_i,]
+  
+      # Top R
+      if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm') | any(grepl('tlprs', pgs_method_i))){
+        top_i <- cor_i[which(cor_i$r == max(cor_i$r, na.rm = T))[1],]
+        top_i$model <- 'Top'
+        cor_subset <- rbind(cor_subset, top_i)
+      }
+  
+      # PseudoVal
+      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','prscsx','lassosum','dbslmm','quickprs','quickprs_multi')){
+        cor_i$name <- gsub(paste0(gwas_i, '_'), '', cor_i$name)
+        pseudo_param <- find_pseudo(config = 'misc/opensnp/config_cross_pop_gw.yaml', gwas = gwas_i, pgs_method = pgs_method_i, target_pop = 'EUR')
+        pseudo_i <- cor_i[cor_i$name == pseudo_param,]
+        pseudo_i$model <- 'Pseudo'
+        cor_subset <- rbind(cor_subset, pseudo_i)
+      }
+    }
+  }
+}
+
+# Plot the results
+cor_subset$model <- factor(cor_subset$model, levels = c('Top','Pseudo','External'))
+dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP')
+
+plot_obj <- 
+  ggplot(cor_subset, aes(x = pgs_method, y = r, fill = model)) +
+  geom_bar(stat = "identity", position = position_dodge2(preserve = "single"), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  labs(
+    y = "Correlation (SE)",
+    x = 'PGS Method',
+    fill = 'Model',
+    title = paste0("OpenSNP - EUR\n(N = ", cor_subset$n[1], ")")
+  ) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12)) +
+  facet_grid(. ~ gwas, scales = 'free_x', space = 'free_x')
+
+```

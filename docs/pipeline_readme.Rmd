@@ -39,15 +39,19 @@ For a technical details of the GenoPred pipeline, click [here](pipeline_technica
 
 **Citations**
 
-Please cite our preprint when using the pipeline:
+Please cite our publication when using the pipeline:
 
-- "Pain, O. et al. "The GenoPred Pipeline: A Comprehensive and Scalable Pipeline for Polygenic Scoring." MedRxiv 2024. https://doi.org/10.1101/2024.06.12.24308843
+- "Pain, O. et al. "The GenoPred Pipeline: A Comprehensive and Scalable Pipeline for Polygenic Scoring." Bioinformatics (2024). https://doi.org/10.1093/bioinformatics/btae551
+
+If using multi-source PGS methods, please also cite our study describing their evaluation and implementation within GenoPred:
+
+- "Pain, O. "Leveraging Global Genetics Resources to Enhance Polygenic Prediction Across Ancestrally Diverse Populations." MedRxiv (2026). https://doi.org/10.1101/2025.03.27.25324773
 
 If relevant, please also cite our paper comparing polygenic scoring methods and describing the reference-standardised approach:
 
-- Pain, O. et al. "Evaluation of polygenic prediction methodology within a reference-standardized framework." PLoS genetics. https://doi.org/10.1371/journal.pgen.1009021
+- Pain, O. et al. "Evaluation of polygenic prediction methodology within a reference-standardized framework." PLoS genetics (2024). https://doi.org/10.1371/journal.pgen.1009021
 
-Please also cite the relevant studies for the tools and data used by the GenoPred pipeline.
+Please also remember to cite the relevant studies for the tools and data used by the GenoPred pipeline.
 
 ***
 
@@ -124,8 +128,9 @@ Conda is a software environment management system which is great way for easily 
 If you don't already have conda installed, we will install it using miniconda.
 
 ```{bash}
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-sh Miniconda3-latest-Linux-x86_64.sh
+# Download and install Miniforge (for Linux)
+wget https://github.com/conda-forge/miniforge/releases/download/24.11.3-0/Miniforge3-24.11.3-0-Linux-x86_64.sh
+bash Miniforge3-24.11.3-0-Linux-x86_64.sh
 ```
 
 I would say `yes` to the default options. You may then need to refresh your workspace to initiate conda, by running `source ~/.bashrc`. You should see `(base)` written in the bottom left of the terminal. Once miniconda installation is complete, you can then delete the `Miniconda3-latest-Linux-x86_64.sh` file.
@@ -133,13 +138,13 @@ I would say `yes` to the default options. You may then need to refresh your work
 Now create the conda environment based on the `GenoPred/pipeline/envs/pipeline.yaml` file. This will create an environment called `genopred` with some essential packages installed.
 
 ```{bash}
-conda env create -f GenoPred/pipeline/envs/pipeline.yaml
+mamba env create -f GenoPred/pipeline/envs/pipeline.yaml
 ```
 
 Now activate the new `genopred` environment.
 
 ```{bash}
-conda activate genopred
+mamba activate genopred
 ```
 
 ***
@@ -1324,6 +1329,287 @@ By default, the pipeline allocates 10 cores and 10Gb memory when performing targ
 By default, the pipeline allocates 10 cores when imputing 23andMe target datasets. The number of cores can be altered using the  `cores_impute_23andme` parameters in the config file.
 
 By default, the pipeline allocates 5 cores when running the outlier_detection rule (estimating relatedness and within sample PCs). The number of cores can be altered using the  `cores_outlier_detection` parameters in the config file.
+
+***
+
+## Multi-source PGS methods
+
+The GenoPred pipeline also implements a range of multi-source polygenic scoring methods that can combine GWAS summary statistics from multiple populations. To use these methods, an additional `gwas_groups` file must be provided, indicating which GWAS are to be jointly analyzed. Specify the location of the `gwas_groups` file in the `configfile` using the `gwas_groups` parameter. An example of a gwas_groups file can be found [here](../pipeline/example_input/gwas_groups.txt).
+
+<details>
+<summary>View gwas_groups format</summary>
+
+```{r, eval=TRUE, echo=FALSE, results='asis'}
+gwas_groups <- list(
+  Column = list(
+    name = list(
+      example = '`height`',
+      description = "ID for the group of GWAS. Cannot contain spaces (' ') or hyphens ('-')."
+    ),
+    gwas = list(
+      example = '`yengo_eur,yengo_eas`',
+      description = "Comma-separated list of GWAS names corresponding to those in the `gwas_list`."
+    ),
+    label = list(
+      example = '`"Height (EUR+EAS)"`',
+      description = "A human-readable name for the group of GWAS (wrap in double quotes if multiple words)."
+    )
+  )
+)
+
+gwas_groups_df <- NULL
+for (column in names(gwas_groups$Column)) {
+  description <- gwas_groups$Column[[column]]$description
+  example <- gwas_groups$Column[[column]]$example
+  
+  gwas_groups_df <- rbind(
+    gwas_groups_df,
+    data.frame(
+      Column = column,
+      Example = example,
+      Description = description,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+kable(gwas_groups_df, 'markdown')
+```
+
+The pipeline also implements a range of multi-source polygenic scoring methods, that can combine GWAS summary statistics from multiple populations. To use these methods an additional `gwas_groups` file must be provided, indicating which GWAS are to be jointly analysed. The `gwas_groups` file must be specified in the `configfile` using the `gwas_groups` parameter. An example of a gwas_groups file can be found [here](../pipeline/example_input/gwas_groups.txt). 
+
+<details>
+
+<summary>View gwas_groups format</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+gwas_groups <- list(
+  Column = list(
+    name = list(
+      example = '`height`',
+      description = "ID for the group of GWAS. Cannot contain spaces (' ') or hyphens ('-')"
+    ),
+    gwas = list(
+      example = '`yengo_eur,yengo_eas`',
+      description = "Comma-seperated list of GWAS names, corresponding to the `gwas_list`."
+    ),
+    label = list(
+      example = '`\"Height (EUR+EAS)\"`',
+      description = "A human readable name for the group of GWAS Wrap in double quotes if multiple words."
+    )
+  )
+)
+
+gwas_groups_df <- NULL
+for (column in names(gwas_groups$Column)) {
+  description <- gwas_groups$Column[[column]]$description
+  example <- gwas_groups$Column[[column]]$example
+
+  # Append each parameter's details to the data frame
+  gwas_groups_df <- rbind(
+    gwas_groups_df,
+    data.frame(
+      Column = column,
+      Example = example,
+      Description = description,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+kable(gwas_groups_df, 'markdown')
+
+```
+
+</details>
+
+<div class="shallow-break"></div>
+
+Another multi-source PGS approach is TL-PRS, which tunes an existing PGS model based on GWAS summary statistics from another population. GenoPred can automate this process. The user must specify which PGS methods TL-PRS should be applied to using the `tlprs_methods` parameter in the `configfile` (e.g., `tlprs_methods: ['lassosum','dbslmm']`). TL-PRS is only applied to the PGS from a given method selected using pseudovalidation.
+
+An alternative approach is to linearly combine population-specific PGS derived using single-source methods. GenoPred implements an approach called **LEOPARD+QuickPRS**, which estimates the optimal linear combination weights for population-specific PGS using summary statistics alone. Using the `leopard_methods` parameter in the `configfile`, the user can specify which single-source PGS should be linearly combined by the LEOPARD+QuickPRS method (for example, `leopard_methods: ['lassosum', 'dbslmm']`). LEOPARD weighting is only applied to the PGS from a given method that has been selected using pseudovalidation.
+
+<div class="note-box">
+
+**Note:** X-Wing and TL-PRS implementations in GenoPred are restricted to pairs of GWAS (in the gwas_groups config file), so groups of GWAS with >2 GWAS will not be analysed using these methods.
+
+</div>
+
+***
+
+We have provided some test data to run the multi-source functionality within GenoPred. To run the pipeline with the test data, use the `example_input/config.multisource.yaml` file. In this configuration, we have added a `gwas_groups` file and specified the methods to be linearly combined via LEOPARD+QuickPRS using the LEOPARD+QuickPRS using the `leopard_methods` parameter.
+
+<details>
+
+<summary>See contents of multisource configfile</summary>
+
+```{bash}
+# Specify output directory
+outdir: test_data/output/test1
+
+# Location of this config file
+config_file: example_input/config.multisource.yaml
+
+# Specify location of gwas_list file
+gwas_list: example_input/gwas_list.multisource.txt
+
+# Specify location of gwas_groups file
+gwas_groups: example_input/gwas_groups.multisource.txt
+
+# Specify location of target_list file
+target_list: example_input/target_list.txt
+
+# Specify pgs_methods ('ptclump','dbslmm','prscs','sbayesr','lassosum','ldpred2','megaprs')
+pgs_methods: ['lassosum']
+
+# Specify methods for which PGS should be combined using LEOPARD+QuickPRS
+leopard_methods: ['lassosum']
+
+# Specify if you want test mode. Set to NA if you don't want test mode
+testing: chr22
+```
+
+</details>
+
+<details>
+
+<summary>See contents of example gwas_list</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+gwas_list <- fread('../pipeline/example_input/gwas_list.multisource.txt')
+
+kable(gwas_list, 'markdown')
+
+```
+
+</details>
+
+<details>
+
+<summary>See contents of example gwas_groups</summary>
+
+```{r, eval = T, echo = F, results = 'asis'}
+
+gwas_groups <- fread('../pipeline/example_input/gwas_groups.multisource.txt')
+
+kable(gwas_groups, 'markdown')
+
+```
+
+</details>
+
+***
+
+```{bash}
+# Remember to activate the genopred environment and go into to the GenoPred/pipeline directory before running the pipeline
+conda activate genopred
+cd ~/GenoPred/pipeline
+
+# Do a dry run to see what would happen
+snakemake -n --configfile=example_input/config.multisource.yaml output_all
+
+# Run the pipeline running one step at a time 
+snakemake -j1 --configfile=example_input/config.multisource.yaml --use-conda output_all
+```
+
+When using LEOPARD to combine single-source PGS, `_multi` is appended to the end method name. For example, when combining `lassosum` PGS, you will see the output in the following path: `[outdir]/[target name]/pgs/[population]/lassosum_multi`. Similarly, when reading the PGS into R using the `read_pgs()` function ([see here](#read_pgs)), this method is referred to as `lassosum_multi`.
+
+When applying TL-PRS to a given method, `tlprs_` is prefixed to the method name. For example, if TL-PRS is applied to `lassosum` PGS, it is referred to as `tlprs_lassosum`.
+
+***
+
+## Select ancestry adjustment approach
+
+The GenoPred pipeline offers two approaches for adjusting PGS for ancestry: discrete or continuous.
+
+### Discrete Correction
+* This approach assigns each target individual to an ancestry-matched reference population.
+* The target individual's PGS is then standardized based on the mean and standard deviation (SD) of the PGS within the corresponding reference population.
+* This is the approach used by GenoPred until v3.0.0.
+
+### Continuous Correction
+* This method utilizes genetic principal components projected from reference populations to standardize target PGS.
+* It accounts for variation within reference populations and accommodates individuals whose ancestry does not align closely with a single reference population.
+* GenoPred uses the approach described by Linders et al. ([here](https://doi.org/10.1016/j.gim.2023.100006)), which adjust both the mean and variance of the target PGS.
+
+There is a nice explanation of these approaches on the pgsc_calc website ([here](https://pgsc-calc.readthedocs.io/en/latest/explanation/geneticancestry.html)), where they refer to the continuous approach as 'Empirical Methods', and the continuous approach as 'PCA-based methods' (specifically `Z_norm2`).
+
+By default, the GenoPred pipeline applies only the continuous correction for ancestry to scale the target PGS. However, users can specify the desired ancestry adjustment approach using the `pgs_scaling` parameter in the `configfile`. This parameter accepts a list of values, which can include `continuous` and `discrete`.
+
+For example, to produce target PGS using both continuous and discrete correction, specify:
+
+```{yaml}
+pgs_scaling: ['continuous', 'discrete']
+```
+
+Or, to produce target PGS only the discrete correction, specify:
+
+```{yaml}
+pgs_scaling: ['discrete']
+```
+
+***
+
+## Specifying alternative reference data for PGS methods
+
+PGS methods require linkage disequilibrium (LD) data. The default LD reference data used for each method is described in the [technical documentation](pipeline_technical.html). Several methods use the global `ref_dir` parameter (as described [here](#using-your-own-reference)), which affects the reference data used across the pipeline.
+
+However, many PGS methods rely on *precomputed LD matrices*, and the user can override the default reference data for these methods by specifying method-specific LD matrices using the `configfile` parameters described below.
+
+For `PRS-CS`, `PRS-CSx`, and `X-Wing`, use the `prs_cs_ldref` parameter to specify whether LD is estimated from the 1KG or UK Biobank samples. Options are:
+
+- `1kg` (default): 1000 Genomes-based LD  
+- `ukb`: UK Biobank-based LD
+
+<div class="note-box">
+
+**Note**: In OpenSNP target samples, `sumstats` performed significantly better using 1KG LD data (Yengo et al.), although this may vary by GWAS.
+
+</div>
+
+For other methods, the `configfile` must point to a directory containing precomputed LD matrices in the required format. This directory must contain one subdirectory per population (e.g., `AFR`, `EUR`), each containing the required reference files.
+
+The relevant `configfile` parameters are:
+
+- `sbayesr_ldref`: for **SBayesR**
+- `sbayesrc_ldref`: for **SBayesRC**
+- `ldpred2_ldref`: for **LDpred2**
+- `quickprs_ref`: for **QuickPRS**
+- `quickprs_multi_ldref`: for **LEOPARD+QuickPRS**
+
+For example, if you want to supply LD data for `AFR` and `EUR` populations with QuickPRS, the `quickprs_ref` directory should be structured as follows:
+
+```{}
+[quickprs_ref]
+  ├── AFR
+  │   ├──AFR.bld.ldak.quickprs.matrix
+  │   ├──AFR.cors.bim
+  │   ├──AFR.cors.bin
+  │   ├──AFR.cors.noise
+  │   ├──AFR.cors.root
+  │   └──highld.snps
+  └── EUR
+      ├──EUR.bld.ldak.quickprs.matrix
+      ├──EUR.cors.bim
+      ├──EUR.cors.bin
+      ├──EUR.cors.noise
+      ├──EUR.cors.root
+      └──highld.snps
+```
+
+<div class="note-box">
+
+**Note**: If alternative LD reference data is specified, it must be provided for **all GWAS populations listed in the `gwas_list`**. File formats required vary by method — see the documentation or GitHub README for each tool for exact format specifications.
+
+</div>
+
+LD reference data in LDpred2 format for AFR, EAS and EUR populations can be downloaded here:
+
+- AFR: [download link](https://drive.google.com/file/d/1Fc3v_N1m-ocGqw6E4HpzEVq43jS2oWUQ/view?usp=sharing)
+- EAS: [download link](https://drive.google.com/file/d/1NwGHs5zwk1p4Vui-1cRb84xkoYld-kyK/view?usp=sharing)
+- EUR: [download link](https://drive.google.com/file/d/1Vo4QAw7HiI3Y5Wk1y5-9JLgW34U4KPTZ/view?usp=sharing)
 
 ***
 

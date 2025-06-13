@@ -1,0 +1,364 @@
+---
+title: Cross-population evaluation of polygenic scores
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+This document will explore a shift in the PGS distribution reported in UKB when using the latest anorexia nervosa GWAS. 
+
+I will run this analysis myself using UKB as a target sample.
+
+```{r}
+######
+# gwas_list
+######
+
+dir.create('/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift')
+
+gwas_list<-data.frame(
+  name='ANOR07',
+  path='/scratch/prj/ukbiobank/recovered/Edinburgh_Data/usr/Miryam/project1/sum_stats/ANOR07.gz',
+  population='EUR',
+  n=NA,
+  sampling=NA,
+  prevalence=NA,
+  mean=0,
+  sd=1,
+  label=paste0('"Anorexia Nervosa"')
+)
+
+write.table(gwas_list, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/gwas_list_all.txt', col.names = T, row.names = F, quote = F)
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output",
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/gwas_list_all.txt",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
+  "pgs_methods: ['quickprs']",
+  "cores_prep_pgs: 1",
+  "cores_target_pgs: 1",
+  "pgs_scaling: ['continuous', 'discrete']"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config.yaml \
+  /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output/reference/target_checks/ukb/target_pgs-TRANS.done \
+  /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output/reference/target_checks/ukb/target_pgs-EUR.done \
+  -n
+```
+
+```{r}
+#conda activate model_builder
+library(data.table)
+
+pgs_eur<-fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pgs/EUR/quickprs/ANOR07/ukb-ANOR07-EUR.profiles')
+pgs_trans<-fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pgs/TRANS/quickprs/ANOR07/ukb-ANOR07-TRANS.profiles')
+
+pgs_trans<- pgs_trans[pgs_trans$FID %in% pgs_eur$FID,]
+
+mean(pgs_eur$ANOR07_quickprs) # -0.4638782
+mean(pgs_trans$ANOR07_quickprs) # -0.4323459
+
+ref_pgs_trans<- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pgs_score_files/quickprs/ANOR07/ref-ANOR07-TRANS.profiles')
+mean(ref_pgs_trans$SCORE_quickprs) # 7.60805e-06
+
+ref_eur<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/keep_files/EUR.keep', header=F)
+ref_pgs_trans<-ref_pgs_trans[ref_pgs_trans$FID %in% ref_eur$V1,]
+mean(ref_pgs_trans$SCORE_quickprs) # -0.4323459
+hist(ref_pgs_trans$SCORE_quickprs)
+
+names(ref_pgs_trans)[names(ref_pgs_trans) == 'SCORE_quickprs']<-'ANOR07_quickprs'
+ref_pgs_trans$group<-'ref'
+pgs_trans$group<-'ukb'
+both_pgs_trans<-rbind(ref_pgs_trans, pgs_trans)
+
+library(ggplot2)
+ggplot(both_pgs_trans, aes(x = ANOR07_quickprs, fill = group)) +
+  geom_density(alpha = 0.5) +  # alpha controls transparency
+  theme_minimal()
+
+```
+
+This replicates the issue of there being a shift in the PGS distribution.
+
+Test whether the within UKB PCs correlate with the AN PGS. This could indicate that there are ancestry effects that the reference is not capturing well
+
+```{r}
+pcs<-fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pcs/within_sample/ukb.outlier_detection.EUR.PCs.txt')
+
+pgs_trans_pcs<-merge(pgs_trans, pcs, by=c('FID','IID'))
+
+round(cor(pgs_trans_pcs[, grepl('ANOR07_quickprs|PC', names(pgs_trans_pcs)), with=F]),2)
+
+pcs<-fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pcs/projected/TRANS/ukb-TRANS.profiles')
+
+pgs_trans_pcs<-merge(pgs_trans, pcs, by=c('FID','IID'))
+
+round(cor(pgs_trans_pcs[, grepl('ANOR07_quickprs|PC', names(pgs_trans_pcs)), with=F]),2)
+```
+
+There aren't any strong correlations with UKB PCs and the PGS, but this is because we are looking at PCs within the EUR.
+
+Check whether the projected PCs in UKB overlap nicely with UKB projected PCs
+
+```{r}
+ukb_pcs<-fread('~/oliverpainfel/Data/ukb/GenoPred/output/ukb/pcs/projected/TRANS/ukb-TRANS.profiles')
+ukb_pcs$group<-'ukb'
+ref_pcs<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles')
+ref_pcs$group<-'ref'
+
+both_pcs<-rbind(ukb_pcs, ref_pcs)
+
+ggplot(both_pcs, aes(x=PC1, y=PC2, colour = group)) +
+  geom_point()
+  
+```
+
+There is a sligth contraction towards the mean in UKB, which is expected due to missing SNPs. This could be leading to an under correction of the PGS for ancestry?
+
+
+Lets see whether we see the same thing for OpenSNP.
+
+```{r}
+
+######
+# config
+######
+
+config<-c(
+  'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test6',
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config_opensnp.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/gwas_list_all.txt",
+  'target_list: misc/opensnp/target_list.txt',
+  "pgs_methods: ['quickprs']",
+  "cores_prep_pgs: 1",
+  "cores_target_pgs: 1",
+  "pgs_scaling: ['continuous', 'discrete']"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config_opensnp.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config_opensnp.yaml \
+  target_pgs \
+  -n
+```
+
+```{r}
+#conda activate model_builder
+library(data.table)
+
+pgs_eur<-fread('~/oliverpainfel/Data/OpenSNP/GenoPred/test6/opensnp/pgs/EUR/quickprs/ANOR07/opensnp-ANOR07-EUR.profiles')
+
+pgs_trans<-fread('~/oliverpainfel/Data/OpenSNP/GenoPred/test6/opensnp/pgs/TRANS/quickprs/ANOR07/opensnp-ANOR07-TRANS.profiles')
+
+pgs_trans<- pgs_trans[pgs_trans$FID %in% pgs_eur$FID,]
+
+mean(pgs_eur$ANOR07_quickprs) # -0.2224865
+mean(pgs_trans$ANOR07_quickprs) # 0.07088288
+
+ref_pgs_trans<- fread('~/oliverpainfel/Data/ukb/GenoPred/output/reference/pgs_score_files/quickprs/ANOR07/ref-ANOR07-TRANS.profiles')
+mean(ref_pgs_trans$SCORE_quickprs) # 7.60805e-06
+
+ref_eur<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/keep_files/EUR.keep', header=F)
+ref_pgs_trans<-ref_pgs_trans[ref_pgs_trans$FID %in% ref_eur$V1,]
+mean(ref_pgs_trans$SCORE_quickprs) # 0.016452
+hist(ref_pgs_trans$SCORE_quickprs)
+
+names(ref_pgs_trans)[names(ref_pgs_trans) == 'SCORE_quickprs']<-'ANOR07_quickprs'
+ref_pgs_trans$group<-'ref'
+pgs_trans$group<-'opensnp'
+both_pgs_trans<-rbind(ref_pgs_trans, pgs_trans)
+
+library(ggplot2)
+ggplot(both_pgs_trans, aes(x = ANOR07_quickprs, fill = group)) +
+  geom_density(alpha = 0.5) +  # alpha controls transparency
+  theme_minimal()
+
+```
+
+This shows there is also a skew in the opensnp data, but regressing out the reference PC effects centres it nicely. This is different to what we see in UKB. There must be some structure in UKB that is not well represented in the reference.
+
+Looking at the PC plots from the ancestry inference step from UKB and opensnp, UKB does seem to have more diversity than the reference, and there appears to be a slight shift for PC1. 
+
+```{r}
+opensnp_pcs<-fread('~/oliverpainfel/Data/OpenSNP/GenoPred/test6/opensnp/pcs/projected/TRANS/opensnp-TRANS.profiles')
+opensnp_pcs$group<-'opensnp'
+ref_pcs<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/pc_score_files/TRANS/ref-TRANS-pcs.profiles')
+ref_pcs$group<-'ref'
+
+both_pcs<-rbind(opensnp_pcs, ref_pcs)
+both_pcs$group<-factor(both_pcs$group, levels=c('opensnp','ref'))
+ggplot(both_pcs, aes(x=PC1, y=PC2, colour = group)) +
+  geom_point() +
+  geom_point(data = both_pcs[both_pcs$group == 'opensnp',], aes(x=PC1, y=PC2, colour = group))
+  
+```
+
+
+I think it is important to check whether this shift occurs even when there is perfect overlap between variants in the reference and target sample (no missingness). This would require us to make a copy of the reference only containing UKB SNPs.
+
+Identify list of SNPs with complete data in UKB.
+
+```{r}
+dir.create('~/test')
+
+for(i in 1:22){
+  system(paste0('~/oliverpainfel/Software/plink2 --pfile ~/oliverpainfel/Data/ukb/GenoPred/output/ukb/geno/ukb.ref.chr', i, ' --missing --out ~/test/ukb.chr', i))
+}
+
+library(data.table)
+vmiss<-NULL
+for(i in 1:22){
+  vmiss<-rbind(vmiss, fread(paste0('/users/k1806347/test/ukb.chr',i,'.vmiss')))
+}
+
+snp_keep<-vmiss$ID[vmiss$F_MISS < 0.005] # This retains 589k variants
+
+write.table(snp_keep, '/users/k1806347/test/snp_keep.txt', col.names = F, row.names = F, quote = F)
+
+dir.create('~/oliverpainfel/Data/hgdp_1kg/ukb_overlap/')
+for(i in 1:22){
+  system(paste0('~/oliverpainfel/Software/plink2 --pfile ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr', i, ' --extract /users/k1806347/test/snp_keep.txt --make-pgen --out ~/oliverpainfel/Data/hgdp_1kg/ukb_overlap/ref.chr', i))
+}
+
+for(i in 1:22){
+  rds<-readRDS(paste0('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr', i, '.rds'))
+  rds<-rds[rds$SNP %in% snp_keep,]
+  saveRDS(rds, paste0('~/oliverpainfel/Data/hgdp_1kg/ukb_overlap/ref.chr', i, '.rds'))
+}
+
+system('cp -r ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/keep_files ~/oliverpainfel/Data/hgdp_1kg/ukb_overlap/')
+system('cp -r ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/freq_files ~/oliverpainfel/Data/hgdp_1kg/ukb_overlap/')
+system('cp ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.pop.txt ~/oliverpainfel/Data/hgdp_1kg/ukb_overlap/')
+system('cp ~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.keep.list ~/oliverpainfel/Data/hgdp_1kg/ukb_overlap/')
+```
+
+
+```{r}
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output_test",
+  "refdir: /users/k1806347/oliverpainfel/Data/hgdp_1kg/ukb_overlap",
+  "config_file: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config_test.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/gwas_list_all.txt",
+  "target_list: /users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/basic/target_list.txt",
+  "pgs_methods: ['quickprs']",
+  "cores_prep_pgs: 1",
+  "cores_target_pgs: 1",
+  "pgs_scaling: ['continuous', 'discrete']"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config_test.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config_test.yaml \
+  /users/k1806347/oliverpainfel/Data/ukb/GenoPred/output_test/reference/target_checks/ukb/target_pgs-TRANS.done -n
+```
+
+```{r}
+#conda activate model_builder
+library(data.table)
+
+pgs_trans<-fread('~/oliverpainfel/Data/ukb/GenoPred/output_test/ukb/pgs/TRANS/quickprs/ANOR07/ukb-ANOR07-TRANS.profiles')
+
+ancestry<-read_ancestry(config = '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config_test.yaml', name = 'ukb')
+pgs_trans<- pgs_trans[pgs_trans$FID %in% ancestry$keep_files$EUR$V1,]
+
+mean(pgs_trans$ANOR07_quickprs) # -0.4086925
+
+```
+
+OK. This indicatest this shift is not caused by missing SNPs, as with nearly no missingness, there is still a substantial PGS shift. The ancestry PCs align really nicely with the reference also.
+
+Maybe we should try increasing the number of PCs that are regressed out? I have run with 20 projected PCs.
+
+```{r}
+#conda activate model_builder
+library(data.table)
+
+pgs_trans<-fread('~/oliverpainfel/Data/ukb/GenoPred/output_test/ukb/pgs/TRANS/quickprs/ANOR07/ukb-ANOR07-TRANS.profiles')
+
+ancestry<-read_ancestry(config = '/users/k1806347/oliverpainfel/Data/ukb/GenoPred/configs/pgs_shift/config_test.yaml', name = 'ukb')
+pgs_trans<- pgs_trans[pgs_trans$FID %in% ancestry$keep_files$EUR$V1,]
+
+mean(pgs_trans$ANOR07_quickprs) # -0.3901739
+
+```
+
+Increasing the number of projected PCs doesn't make a difference. This indicates that whatever structure is shifting the PGS in UKB doesn't exist in the reference. It would be interesting to see whether using the UKB sample as the reference would resolve the situation in UKB, whilst also correctly scaling the PGS in opensnp. However, given UKB is not a representative sample due to sampling bias, I don't think this is a good solution.
+
+Test whether the within-ukb PCs provided by UKB are correlated with the trans PGS.
+
+```{r}
+qc_dat<-fread('/datasets/ukbiobank/ukb82087/genotyped/ukb82087_sqc_v2.txt')
+# 28-67 are PCs 1-40
+qc_dat<-qc_dat[, c(1,2,28:67), with=F]
+names(qc_dat)<-c('FID','IID', paste0('PC', 1:40))
+
+# Convert to row number based IDs
+psam<-fread('/scratch/prj/ukbiobank/recovered/ukb82087/imputed/ukb82087_imp_chr1_MAF1_INFO4_v1.psam')
+psam$rn<-1:nrow(psam)
+psam<-psam[,c('IID','rn'), with = F]
+
+qc_dat<-merge(qc_dat, psam, by='IID')
+qc_dat$FID<-qc_dat$rn
+qc_dat$IID<-qc_dat$rn
+qc_dat$rn<-NULL
+
+pgs_trans<-fread('~/oliverpainfel/Data/ukb/GenoPred/output_test/ukb/pgs/TRANS/quickprs/ANOR07/ukb-ANOR07-TRANS.profiles')
+pgs_trans_pcs<-merge(pgs_trans, qc_dat, by=c('FID','IID'))
+
+round(cor(pgs_trans_pcs[, -1:-2]),2)
+```
+

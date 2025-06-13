@@ -1,0 +1,248 @@
+---
+title: Preparing LDpred2 LD matrices
+output: 
+  html_document:
+    theme: cosmo
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+# 1KG+HGDP
+
+Here we will prepare reference data for QuickPRS using HapMap3 SNPs in the 1KG+HGDP super populations. This is to allow fair comparison across methods for a cross-population polygenic scoring study. 
+
+QuickPRS only seems to work for v5.2, so let make the reference data using this version.
+
+***
+
+## Full reference
+
+```{r}
+# conda activate .snakemake/conda/329e0288cb99508f5e6c50a0996b234c_
+# Load dependencies
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+# Create temp directory
+tmp_dir<-tempdir()
+
+opt<-list()
+opt$ref_plink_chr<-'resources/data/ref/ref.chr'
+opt$plink<-'plink'
+opt$plink2<-'plink2'
+opt$ldak_map<-'resources/data/ldak_map/genetic_map_b37'
+opt$ldak_tag<-'resources/data/ldak_bld'
+opt$ldak_highld<-'resources/data/ldak_highld/highld.txt'
+opt$ldak<-'/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/software/ldak5.2/ldak5.2.linux'
+opt$n_cores<-20
+
+for(pop in c('EUR','EAS','AFR','AMR','CSA','MID')){
+  opt$output <- paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3/', pop, '/', pop)
+  opt$output_dir <- paste0(dirname(opt$output),'/')
+  system(paste0('mkdir -p ',opt$output_dir))
+
+  opt$ref_keep<-paste0('resources/data/ref/keep_files/', pop, '.keep')
+  
+  ###
+  # Merge the per chromosome reference genetic data and subset opt$ref_keep
+  ###
+  
+  # Save in plink1 format for MegaPRS
+  plink_merge(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
+  
+  ############
+  # Format reference for LDAK
+  ############
+  
+  # Insert CHR:BP IDs
+  system(paste0("awk < ", tmp_dir, "/ref_merge.bim '{$2=$1\":\"$4;print $0}' > ", tmp_dir, '/tmp.bim; mv ', tmp_dir, '/tmp.bim ', tmp_dir, '/ref_merge.bim'))
+  
+  # Insert genetic distances
+  system(paste0(opt$plink, ' --bfile ', tmp_dir, '/ref_merge --cm-map ', opt$ldak_map,'/genetic_map_chr@_combined_b37.txt --make-bed --out ', tmp_dir, '/map'))
+  system(paste0("cat ", tmp_dir, "/map.bim | awk '{print $2, $3}' > ", tmp_dir, '/map.all'))
+  system(paste0("awk '(NR==FNR){arr[$1]=$2;next}{print $1, $2, arr[$2], $4, $5, $6}' ", tmp_dir, '/map.all ', tmp_dir, '/ref_merge.bim > ', tmp_dir, '/tmp.bim; mv ', tmp_dir, '/tmp.bim ', tmp_dir, '/ref_merge.bim'))
+  system(paste0('rm ', tmp_dir, '/map*'))
+  
+  ############
+  # Estimate Per-Predictor Heritabilities
+  ############
+  # We will use the BLD-LDAK Model, as recommended for human SNP data
+  
+  # Calculate LDAK weights
+  system(paste0(opt$ldak, ' --cut-weights ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
+  system(paste0(opt$ldak, ' --calc-weights-all ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
+  system(paste0('mkdir ', tmp_dir, '/bld'))
+  system(paste0('cp ', opt$ldak_tag, '/* ', tmp_dir, '/bld/'))
+  system(paste0('mv ', tmp_dir, '/sections/weights.short ', tmp_dir,'/bld/bld65'))
+  
+  # Calculate taggings
+    system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --save-matrix YES --max-threads ', opt$n_cores))
+    
+  # Calculate predictor-predictor correlations
+  system(paste0(opt$ldak,' --calc-cors ', tmp_dir, '/tmp --bfile ', tmp_dir, '/ref_merge --window-cm 3 --max-threads ', opt$n_cores))
+    
+  # Identify SNPs in high LD regions
+  system(paste0(opt$ldak, ' --cut-genes ', tmp_dir, '/highld --bfile ', tmp_dir, '/ref_merge --genefile ', opt$ldak_highld, ' --max-threads ', opt$n_cores))
+
+  # Export the files required for QuickPRS
+  for (i in c('bim', 'bin', 'noise', 'root')) {
+    system(paste0('cp ', tmp_dir, '/tmp.cors.', i, ' ', opt$output, '.cors.', i))
+  }
+  for (i in c('matrix', 'tagging')) {
+    system(paste0('cp ', tmp_dir, '/bld.ldak.', i, ' ', opt$output, '.bld.ldak.quickprs.', i))
+  }
+  system(paste0('cp ', tmp_dir, '/highld/genes.predictors.used ', opt$output_dir, '/highld.snps'))
+
+  system(paste0('rm -r ', tmp_dir, '/*'))
+}
+
+```
+
+***
+
+## Split reference
+
+To use GWAS subsampling techniques
+Only the correlations part needs to be derived using subset data
+Follow X-wing strategy first - Split into three parts
+
+```{r}
+# conda activate .snakemake/conda/2af04663624aee04f7a150a9d54c1cdf_
+# Load dependencies
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+# Create temp directory
+tmp_dir<-tempdir()
+
+opt<-list()
+opt$ref_plink_chr<-'resources/data/ref/ref.chr'
+opt$plink<-'plink'
+opt$plink2<-'plink2'
+opt$ldak_map<-'resources/data/ldak_map/genetic_map_b37'
+opt$ldak_tag<-'resources/data/ldak_bld'
+opt$ldak_highld<-'resources/data/ldak_highld/highld.txt'
+opt$ldak<-'/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/software/ldak5.2/ldak5.2.linux'
+opt$n_cores<-20
+
+for(pop in c('EUR','EAS','AFR','AMR','CSA','MID')){
+  opt$output <- paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3_subset/', pop, '/', pop)
+  opt$output_dir <- paste0(dirname(opt$output),'/')
+  system(paste0('mkdir -p ',opt$output_dir))
+
+  opt$ref_keep<-paste0('resources/data/ref/keep_files/', pop, '.keep')
+  
+  ###
+  # Merge the per chromosome reference genetic data and subset opt$ref_keep
+  ###
+  
+  # Save in plink1 format for MegaPRS
+  plink_merge(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
+  
+  ############
+  # Format reference for LDAK
+  ############
+  
+  # Insert CHR:BP IDs
+  system(paste0("awk < ", tmp_dir, "/ref_merge.bim '{$2=$1\":\"$4;print $0}' > ", tmp_dir, '/tmp.bim; mv ', tmp_dir, '/tmp.bim ', tmp_dir, '/ref_merge.bim'))
+  
+  # Insert genetic distances
+  system(paste0(opt$plink, ' --bfile ', tmp_dir, '/ref_merge --cm-map ', opt$ldak_map,'/genetic_map_chr@_combined_b37.txt --make-bed --out ', tmp_dir, '/map'))
+  system(paste0("cat ", tmp_dir, "/map.bim | awk '{print $2, $3}' > ", tmp_dir, '/map.all'))
+  system(paste0("awk '(NR==FNR){arr[$1]=$2;next}{print $1, $2, arr[$2], $4, $5, $6}' ", tmp_dir, '/map.all ', tmp_dir, '/ref_merge.bim > ', tmp_dir, '/tmp.bim; mv ', tmp_dir, '/tmp.bim ', tmp_dir, '/ref_merge.bim'))
+  system(paste0('rm ', tmp_dir, '/map*'))
+  
+  keep <- fread(opt$ref_keep)
+  
+  # Split reference into three groups
+  lines <- readLines(opt$ref_keep)
+  set.seed(1)
+  shuffled_lines <- sample(lines)
+
+  # Calculate the split points
+  n <- length(shuffled_lines)
+  split1 <- floor(n / 3)
+  split2 <- 2 * split1
+  
+  # Split the lines into three groups
+  keep1 <- shuffled_lines[1:split1]
+  keep2 <- shuffled_lines[(split1 + 1):split2]
+  keep3 <- shuffled_lines[(split2 + 1):n]
+  
+  # Write each group to a separate file
+  write.table(data.frame(0, keep1), paste0(tmp_dir, "/keep1"), col.names = F, row.names = F, quote = F)
+  write.table(data.frame(0, keep2), paste0(tmp_dir, "/keep2"), col.names = F, row.names = F, quote = F)
+  write.table(data.frame(0, keep3), paste0(tmp_dir, "/keep3"), col.names = F, row.names = F, quote = F)
+
+  for(subset_i in 1:3){
+    # Save plink format files
+    system(paste0(opt$plink, ' --bfile ', tmp_dir, '/ref_merge --keep ', tmp_dir, '/keep', subset_i, ' --make-bed --out ', opt$output, '.subset_', subset_i))
+  }
+  
+  for(subset_i in 2:2){
+    # Calculate predictor-predictor correlations
+    system(paste0(opt$ldak,' --calc-cors ', tmp_dir, '/tmp.subset_', subset_i, ' --keep ', tmp_dir, '/keep', subset_i, ' --bfile ', tmp_dir, '/ref_merge --window-cm 3 --max-threads ', opt$n_cores))
+      
+    # Export the files required for QuickPRS
+    for (i in c('bim', 'bin', 'noise', 'root')) {
+      system(paste0('cp ', tmp_dir, '/tmp.subset_', subset_i, '.cors.', i, ' ', opt$output, '.subset_', subset_i, '.cors.', i))
+    }
+  }
+
+  # Calculate freq files for subset 3, as required by LEOPARD
+  for(subset_i in 3:3){
+    system(paste0(opt$plink, ' --bfile ', opt$output, '.subset_', subset_i, ' --freq --out ', opt$output, '.subset_', subset_i))
+  }
+
+  system(paste0('rm -r ', tmp_dir, '/*'))
+}
+
+```
+
+***
+
+# Package for sharing online
+
+We should provide the quickprs reference using full sample, and split for LEOPARD.
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3
+for pop in $(echo EUR EAS AFR AMR CSA MID); do
+  tar -czvf ldak_quickprs_hm3_${pop}.tar.gz ${pop}
+done
+
+for pop in $(echo EUR EAS AFR AMR CSA MID); do
+  ~/oliverpainfel/Software/gdrive files upload ldak_quickprs_hm3_${pop}.tar.gz
+done
+
+cd /users/k1806347/oliverpainfel/Data/hgdp_1kg/quickprs/hm3_subset
+for pop in $(echo EUR EAS AFR AMR CSA MID); do
+  tar -czvf ldak_quickprs_hm3_subset_${pop}.tar.gz ${pop}
+done
+
+for pop in $(echo EUR EAS AFR AMR CSA MID); do
+  ~/oliverpainfel/Software/gdrive files upload ldak_quickprs_hm3_subset_${pop}.tar.gz
+done
+```

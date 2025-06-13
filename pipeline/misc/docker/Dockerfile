@@ -34,7 +34,7 @@ RUN /opt/mambaforge/bin/conda init bash && \
     . /opt/mambaforge/etc/profile.d/conda.sh && \
     conda activate genopred && \
     cd /tools/GenoPred/pipeline && \
-    snakemake --restart-times 3 -j1 --use-conda --conda-frontend mamba install_r_packages resources/software/pgscatalog_utils/download_pgscatalog_utils.done && \
+    snakemake --restart-times 3 -j1 --use-conda --conda-frontend mamba install_r_packages resources/software/pgscatalog_utils/download_pgscatalog_utils.done resources/software/xwing/block_partition.txt && \
     mamba clean -a -y
 
 ENTRYPOINT ["/bin/bash"]

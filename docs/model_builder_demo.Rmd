@@ -1,0 +1,144 @@
+---
+title: Model Builder Top1 Script Demo
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+This document provides a demonstration of the `model_builder_top1.R` script. This script derives and evaluates predictive models using a structured approach:
+
+1. **Top1 Model**: Identifies the best predictor within a specified `top1` group.
+2. **Multi Model**: Constructs a generalized linear model (GLM) incorporating all best predictors from different `top1` groups within the same `multi` group.
+3. **Evaluation**: Uses cross-validation to train and evaluate both `top1` and `multi` models.
+4. **Comparison**: Applies Williams' test to compare the predictive utility of the models (using `psych::paired.r` function).
+
+***
+
+## Input Files
+
+### Outcome File (`--outcome`)
+
+- A file containing the outcome data to be predicted.
+- Column names are required.
+- Acceptable delimiters: space, tab, or comma.
+- Required format:
+
+  1. **FID**: Family ID
+  2. **IID**: Individual ID
+  3. **Outcome Variable** (any column name is acceptable)
+
+### Predictor List File (`--predictors`)
+
+- A file listing the predictor data files and their respective grouping information.
+- Must contain three columns with headers:
+
+  - **predictor**: Path to the predictor data file.
+  - **multi**: Grouping variable specifying which `top1` models should be combined into a `multi` model.
+  - **top1**: Group variable indicating which predictor files should be considered together when creating a `top1` model.
+
+Each **predictor file** must follow this format:
+
+- Column names are required.
+- Acceptable delimiters: space, tab, or comma.
+- Required format:
+
+  1. **FID**: Family ID
+  2. **IID**: Individual ID
+  3. Additional columns: Predictor variables (any column names are acceptable)
+
+***
+
+## Generating Demo Data
+
+Below is an example script to simulate a phenotype and polygenic scores (PGS) across different p-value thresholds, derived from two separate GWAS datasets.
+
+```{r}
+# Create a directory for the demo
+dir.create('~/test_model_builder')
+set.seed(1)
+n <- 1000
+ids <- 1:n
+data <- data.frame(FID = ids, IID = ids, outcome = rnorm(n))
+
+# Simulate PGS for two GWAS datasets
+for(i in 1:2){
+  pgs_tmp <- data$outcome + rnorm(n)
+  for(j in c(0.05, 0.01, 0.5)){
+    data[[paste0('pgs',i,'_',j)]] <- pgs_tmp + rnorm(n, 0, j*5)
+  }
+}
+
+# Save outcome data
+write.table(data[, c('FID','IID','outcome')], '~/test_model_builder/outcome.txt', col.names=TRUE, row.names=FALSE, quote=FALSE)
+
+# Save PGS data from each GWAS
+write.table(data[, grepl('FID|IID|pgs1', names(data))], '~/test_model_builder/pgs1.txt', col.names=TRUE, row.names=FALSE, quote=FALSE)
+write.table(data[, grepl('FID|IID|pgs2', names(data))], '~/test_model_builder/pgs2.txt', col.names=TRUE, row.names=FALSE, quote=FALSE)
+```
+
+***
+
+## Creating the Predictor List File
+
+The following script generates a predictor list file, linking predictor files to their respective `multi` and `top1` groups.
+
+```{r}
+pred <- data.frame(
+  predictor = c('~/test_model_builder/pgs1.txt','~/test_model_builder/pgs2.txt'),
+  multi = 'combo',
+  top1 = c('pgs1','pgs2')
+)
+
+write.table(pred, '~/test_model_builder/predictor_list.txt', col.names=TRUE, row.names=FALSE, quote=FALSE)
+```
+
+***
+
+## Running the Model Builder Script
+
+To execute the `model_builder_top1.R` script, activate the appropriate Conda environment and run the script with the required input files. Note, a .yaml file to create the model_builder environment can be found [here](https://github.com/opain/GenoPred/blob/gwas_grouping/pipeline/envs/model_builder.yaml).
+
+```{bash}
+conda activate model_builder
+
+Rscript ../Scripts/model_builder/model_builder_top1.R \
+  --outcome ~/test_model_builder/outcome.txt \
+  --predictors ~/test_model_builder/predictor_list.txt \
+  --out ~/test_model_builder/res
+```
+
+***
+
+## Output Files
+
+Upon execution, the script will generate the following outputs:
+
+- `<out>.log` - Log file recording the execution process.
+- `<out>.pred_eval.txt` - Evaluation results indicating the predictive utility of each model.
+- `<out>.pred_comp.txt` - Comparative results of predictive utility across models.
+- `<out>.group_list.txt` - Summary of the number of predictors used in each `multi` and `top1` model.
+
+
