@@ -699,6 +699,44 @@ rule prep_pgs_multi_i:
 rule prep_pgs_multi:
   input: expand(f"{outdir}/reference/pgs_score_files/{{method}}_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method = requested_single_source_methods)
 
+####
+# Inverse-variance meta-analysis 
+####
+
+# Estimate weights for population-specific PGS from single-source methods
+rule pgsmeta_i:
+  resources:
+    mem_mb=10000
+  input:
+    lambda w: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))
+  output:
+    f"{outdir}/reference/pgs_score_files/{{method}}_meta/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/pgsmeta_i-{{gwas_group}}-{{method}}.txt"
+  log:
+    f"{outdir}/reference/logs/pgsmeta_i-{{gwas_group}}-{{method}}.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    sumstats= lambda w: ",".join(expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group))),
+    scores= lambda w: ",".join(expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group))),
+    populations= lambda w: ",".join(get_populations(w.gwas_group)),
+    testing=config["testing"]
+  shell:
+    "Rscript ../Scripts/pgs_methods/pgsmeta.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --pop_data {refdir}/ref.pop.txt \
+      --sumstats {params.sumstats} \
+      --scores {params.scores} \
+      --populations {params.populations} \
+      --method {wildcards.method} \
+      --output {outdir}/reference/pgs_score_files/{wildcards.method}_meta/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
+      --test {params.testing} > {log} 2>&1"
+
+rule pgsmeta:
+  input: expand(f"{outdir}/reference/pgs_score_files/{{method}}_meta/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method = requested_single_source_methods)
+
 #########
 # Jointly optimised methods
 #########
@@ -877,7 +915,7 @@ rule prep_pgs_bridgeprs_i:
   output:
     f"{outdir}/reference/pgs_score_files/bridgeprs/{{gwas_group}}/ref-{{gwas_group}}.score.gz"
   conda:
-    "../envs/analysis.yaml"
+    "../envs/bridgeprs.yaml"
   benchmark:
     f"{outdir}/reference/benchmarks/prep_pgs_bridgeprs_i-{{gwas_group}}.txt"
   log:

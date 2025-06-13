@@ -319,12 +319,12 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickpr
     quickprs_ldref=f"{resdir}/data/quickprs"
     
     # Check if gwas_list contains invalid populations
-    valid_pops = {'EUR', 'EAS', 'AFR'}
+    valid_pops = {'EUR', 'EAS', 'AFR', 'CSA', 'AMR', 'MID'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
   
     if invalid_pops:
       raise ValueError(
-        f"Default quickprs reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own quickprs reference data using the quickprs_ldref parameter."
+        f"Default quickprs reference data is only available for EUR, EAS, AFR, CSA, AMR, and MID populations. For other populations, please provide your own quickprs reference data using the quickprs_ldref parameter."
       )
   else:
     quickprs_ldref=config['quickprs_ldref']
@@ -344,12 +344,12 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
     quickprs_multi_ldref=f"{resdir}/data/quickprs_leopard"
     
     # Check if gwas_list contains invalid populations
-    valid_pops = {'EUR', 'EAS', 'AFR'}
+    valid_pops = {'EUR', 'EAS', 'AFR', 'CSA', 'AMR', 'MID'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
   
     if invalid_pops:
       raise ValueError(
-        f"Default LEOPARD+QuickPRS reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own LEOPARD+QuickPRS reference data using the quickprs_multi_ldref parameter."
+        f"Default LEOPARD+QuickPRS reference data is only available for EUR, EAS, AFR, CSA, AMR, and MID populations. For other populations, please provide your own LEOPARD+QuickPRS reference data using the quickprs_multi_ldref parameter."
       )
   else:
     quickprs_multi_ldref=config['quickprs_multi_ldref']
@@ -369,29 +369,30 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
         raise FileNotFoundError(f"The following quickprs_multi reference data are missing: {', '.join(missing_files)}")
 
 # Set sbayesrc reference path
-if config['sbayesrc_ldref'] == 'NA':
-  sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
-
-  # Check if gwas_list contains invalid populations
-  valid_pops = {'EUR', 'EAS', 'AFR'}
-  invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
-
-  if invalid_pops:
-    raise ValueError(
-      f"Default sbayesrc reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own sbayesrc reference data using the sbayesrc_ldref parameter."
-    )
-else:
-  sbayesrc_ldref=config['sbayesrc_ldref']
-
-  # Check the sbayesrc ldref data is present for the required populations in the gwas_list
-  if 'sbayesrc' in config['pgs_methods']:
-    for pop in gwas_list_df['population'].unique():
-      path = f"{sbayesrc_ldref}/{pop}"
-      # Check if required files exists
-      cors_file = os.path.join(path, f"ldm.info")
-      if not os.path.exists(cors_file):
-        print(f"File not found: {cors_file}")
-        raise FileNotFoundError(f"Required file not found: {cors_file}. sbayesrc reference data must include ldm.info for all populations.")
+if "sbayesrc" in config["pgs_methods"]:
+  if config['sbayesrc_ldref'] == 'NA':
+    sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
+  
+    # Check if gwas_list contains invalid populations
+    valid_pops = {'EUR', 'EAS', 'AFR'}
+    invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
+  
+    if invalid_pops:
+      raise ValueError(
+        f"Default sbayesrc reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own sbayesrc reference data using the sbayesrc_ldref parameter."
+      )
+  else:
+    sbayesrc_ldref=config['sbayesrc_ldref']
+  
+    # Check the sbayesrc ldref data is present for the required populations in the gwas_list
+    if 'sbayesrc' in config['pgs_methods']:
+      for pop in gwas_list_df['population'].unique():
+        path = f"{sbayesrc_ldref}/{pop}"
+        # Check if required files exists
+        cors_file = os.path.join(path, f"ldm.info")
+        if not os.path.exists(cors_file):
+          print(f"File not found: {cors_file}")
+          raise FileNotFoundError(f"Required file not found: {cors_file}. sbayesrc reference data must include ldm.info for all populations.")
 
 ####
 # Check reference data
@@ -443,7 +444,7 @@ def check_pgs_methods(x):
         return
 
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "xwing", "prscsx", "bridgeprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
@@ -1100,7 +1101,10 @@ rule download_ldak5_2:
 quickprs_ref_gdrive = {
     'EUR': '10fuqn6X23dA9WKjQd9xs7xUDiFjTwfz9',
     'EAS': '1m1OI9HpHbVcX88YvtIt80-1zonSWrZP_',
-    'AFR': '11NoeBLOC-YsxrnRPa0TOPsxywZXCWbP3'
+    'AFR': '11NoeBLOC-YsxrnRPa0TOPsxywZXCWbP3',
+    'CSA': '10ENLyjnMNndBM8NtXy-BVmroP5m4qgtg',
+    'AMR': '1bmnbWPw8MzVwFYw9F4TcGOVxxay20uOS',
+    'MID': '16MuxjIi1Eb_kyf9HZgpBwRA1cbP_yE5U'
 }
 
 rule download_quickprs_ref:
@@ -1131,7 +1135,10 @@ rule download_quickprs_ref_all:
 quickprs_leopard_ref_gdrive = {
     'EUR': '1basMTYv6VEIRDZ3qRdJ04hlVwNmzVpmU',
     'EAS': '1OGELjphyPbe9Qu9ZjRavhhnM9REuUhoc',
-    'AFR': '1fWQ77dYKaYIcHJFLii-0Aic_9F96VnQK'
+    'AFR': '1fWQ77dYKaYIcHJFLii-0Aic_9F96VnQK',
+    'CSA': '1e-zCjT7gCdRobSwUvCepDkl-K8Y10ECj',
+    'AMR': '12a6sxe338eX3hD6Q7FvIobIni_TxlDTY',
+    'MID': '1nTqb8FTPlMFBN66dGZyteN4n1SIj1YRC'
 }
 
 rule download_quickprs_leopard_ref:
@@ -1455,12 +1462,12 @@ rule download_bridgeprs_software:
     """
     {{
       rm -r -f {resdir}/software/bridgeprs; \
-      git clone https://github.com/clivehoggart/BridgePRS.git {resdir}/software/bridgeprs; \
+      git clone https://github.com/opain/BridgePRS.git {resdir}/software/bridgeprs; \
       cd {resdir}/software/bridgeprs; \
-      git reset --hard a4b827c1a57c6e3b7a48ed495cac7ebdb5f89d96
+      git reset --hard aeea807c9640e28f45dac24a9b5d524a3f11f7f2
     }} > {log} 2>&1
     """
-
+    
 # Install R packages (handy function for when conda env updates erroneously)
 rule install_r_packages:
   input:
