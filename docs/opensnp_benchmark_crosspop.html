@@ -11,7 +11,7 @@
 
 
 
-<title>Leveraging Global Genetics Resources to Enhance Polygenic Prediction Across Ancestrally Diverse Populations</title>
+<title>OpenSNP Benchmark</title>
 
 <script src="site_libs/header-attrs-2.26/header-attrs.js"></script>
 <script src="site_libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
@@ -460,74 +460,279 @@ div.tocify {
 
 
 
-<h1 class="title toc-ignore">Leveraging Global Genetics Resources to
-Enhance Polygenic Prediction Across Ancestrally Diverse Populations</h1>
+<h1 class="title toc-ignore">OpenSNP Benchmark</h1>
 
 </div>
 
 
 <hr />
-<div id="summary" class="section level1">
-<h1>Summary</h1>
-<p>Polygenic scores (PGS) are increasingly used to estimate genetic
-predisposition to complex traits, but their performance remains
-inequitable across global populations. This study benchmarks leading
-polygenic scoring methods for ancestrally diverse populations,
-evaluating their predictive accuracy and computational efficiency across
-multiple GWAS datasets.</p>
-<p>We evaluated ten complex traits in African (AFR), East Asian (EAS),
-and European (EUR) populations using publicly available GWAS from the
-Ugandan Genome Resource, Biobank Japan, UK Biobank, and the Million
-Veteran Program. We tested both single-source and multi-source PGS
-methods, including recent advances like SBayesRC, LDpred2, PRS-CSx,
-TL-PRS, and X-Wing. Multi-source methods leverage GWAS from multiple
-ancestries to improve prediction.</p>
-<p>A key contribution is the application of the LEOPARD method for
-combining population-specific scores from single-source PGS methods
-using only summary statistics—avoiding the need for individual-level
-data. This approach enables practical implementation of multi-source PGS
-methods even in data-limited settings.</p>
-<p><br/></p>
+<p>This document will test multi-source PGS methods using height GWAS
+with OpenSNP as the target sample. A previous demonstration of GenoPred
+using the OpenSNP data is shown <a
+href="opensnp_benchmark.html">here</a>, which shows some additional
+information regarding where the OpenSNP data was downloaded.</p>
+<hr />
+<div id="download-the-sumstats" class="section level1">
+<h1>Download the sumstats</h1>
+<p>We will use height GWAS sumstats from the Yengo paper, including UKB
+and for all populations.</p>
+<details>
+<summary>
+Show code
+</summary>
+<pre class="bash"><code># These are from the Yengo 2022 paper
+mkdir -p /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.txt https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90245001-GCST90246000/GCST90245992/GCST90245992_buildGRCh37.tsv
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eas.txt https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90245001-GCST90246000/GCST90245991/GCST90245991_buildGRCh37.tsv
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_afr.txt https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90245001-GCST90246000/GCST90245989/GCST90245989_buildGRCh37.tsv
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_amr.txt https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90245001-GCST90246000/GCST90245993/GCST90245993_buildGRCh37.tsv
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_sas.txt https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90245001-GCST90246000/GCST90245994/GCST90245994_buildGRCh37.tsv
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_all.txt https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90245001-GCST90246000/GCST90245990/GCST90245990_buildGRCh37.tsv</code></pre>
+</details>
+<hr />
 </div>
-<div id="key-findings" class="section level1">
-<h1>Key Findings</h1>
+<div id="create-configuration" class="section level1">
+<h1>Create configuration</h1>
+<p>We want to compare PGS derived using each GWAS seperately, PGS
+derived using GWAS from multiple populations.</p>
+<p>We will only use QuickPRS, with LEOPARD to linearly combine across
+GWAS populations. Neither of these approaches require individual-level
+data to tune the PGS.</p>
+<details>
+<summary>
+Show code
+</summary>
+<pre class="r"><code>setwd(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline&#39;)
+
+# Create gwas_list
+gwas_list &lt;- NULL
+
+for(i in c(&#39;EUR&#39;,&#39;EAS&#39;,&#39;CSA&#39;,&#39;AMR&#39;,&#39;AFR&#39;)){
+  gwas_list &lt;- rbind(gwas_list, data.table(
+    name = paste0(&#39;yengo_&#39;, tolower(i)),
+    path = paste0(
+      &#39;/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_&#39;,
+      ifelse(i == &#39;CSA&#39;, &#39;sas&#39;, tolower(i)),
+      &#39;.txt&#39;
+    ),
+    population = i,
+    n = NA,
+    sampling = NA,
+    prevalence = NA,
+    mean = NA,
+    sd = NA,
+    label = paste0(&#39;&quot;Yengo 2022 Height &#39;, i,&#39;\&quot;&#39;)))
+}
+
+# Insert GWAS from all, and assign EUR as the population
+gwas_list &lt;- rbind(gwas_list, data.table(
+  name = &#39;yengo_all&#39;,
+  path = &#39;/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_all.txt&#39;,
+  population = &#39;EUR&#39;,
+  n = NA,
+  sampling = NA,
+  prevalence = NA,
+  mean = NA,
+  sd = NA,
+  label = &quot;\&quot;Yengo 2022 Height All\&quot;&quot;))
+
+write.table(gwas_list, &#39;misc/opensnp/gwas_list_cross_pop.txt&#39;, col.names = T, row.names = F, quote = F, sep = &#39; &#39;)
+
+# Create gwas_groups file
+gwas_groups &lt;- NULL
+gwas_groups &lt;- rbind(gwas_groups, data.frame(
+  name = &#39;height_eur_eas&#39;,
+  gwas = &#39;yengo_eur,yengo_eas&#39;,
+  label = &quot;\&quot;Yengo 2022 Height EUR+EAS\&quot;&quot;
+))
+
+gwas_groups &lt;- rbind(gwas_groups, data.frame(
+  name = &#39;height_eur_eas_afr&#39;,
+  gwas = &#39;yengo_eur,yengo_eas,yengo_afr&#39;,
+  label = &quot;\&quot;Yengo 2022 Height EUR+EAS+AFR\&quot;&quot;
+))
+
+gwas_groups &lt;- rbind(gwas_groups, data.frame(
+  name = &#39;height_eur_eas_afr_csa&#39;,
+  gwas = &#39;yengo_eur,yengo_eas,yengo_afr,yengo_csa&#39;,
+  label = &quot;\&quot;Yengo 2022 Height EUR+EAS+AFR+CSA\&quot;&quot;
+))
+
+gwas_groups &lt;- rbind(gwas_groups, data.frame(
+  name = &#39;height_eur_eas_afr_csa_amr&#39;,
+  gwas = &#39;yengo_eur,yengo_eas,yengo_afr,yengo_csa,yengo_amr&#39;,
+  label = &quot;\&quot;Yengo 2022 Height EUR+EAS+AFR+CSA+AMR\&quot;&quot;
+))
+
+write.table(gwas_groups, &#39;misc/opensnp/gwas_groups.txt&#39;, col.names = T, row.names = F, quote = F, sep = &#39; &#39;)
+
+# Create config file
+config &lt;- readLines(&#39;misc/opensnp/config.yaml&#39;)
+
+config[grepl(&#39;^config_file:&#39;, config)]&lt;- &#39;config_file: misc/opensnp/config_cross_pop.yaml&#39;
+config &lt;- config[!grepl(&#39;^score_list:&#39;, config)]
+config[grepl(&#39;^outdir:&#39;, config)]&lt;- &#39;outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/test_cross_pop_2&#39;
+config[grepl(&#39;^pgs_methods:&#39;, config)]&lt;- &quot;pgs_methods: [&#39;quickprs&#39;]&quot;
+config[grepl(&#39;^gwas_list:&#39;, config)]&lt;- &quot;gwas_list: misc/opensnp/gwas_list_cross_pop.txt&quot;
+config&lt;-c(config, &#39;gwas_groups: misc/opensnp/gwas_groups.txt&#39;)
+config&lt;-c(config, &quot;leopard_methods: [&#39;quickprs&#39;]&quot;)
+config&lt;-c(config, &quot;pgs_scaling: [&#39;continuous&#39;, &#39;discrete&#39;]&quot;)
+
+write.table(config, &#39;misc/opensnp/config_cross_pop.yaml&#39;, col.names = F, row.names = F, quote = F)</code></pre>
+<div class="note-box">
+<p><strong>Note:</strong> The original configfile for OpenSNP, and the
+target_list that it refers to, were created in the OpenSNP benchmark
+document (<a href="opensnp_benchmark.html">here</a>).</p>
+</div>
+</details>
+<hr />
+</div>
+<div id="run-pipeline" class="section level1">
+<h1>Run pipeline</h1>
+<pre class="bash"><code>snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_cross_pop.yaml output_all</code></pre>
+<hr />
+</div>
+<div id="evaluate-pgs" class="section level1">
+<h1>Evaluate PGS</h1>
+<details>
+<summary>
+Show code
+</summary>
+<pre class="r"><code># Test correlation between PGS and observed height
+
+setwd(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/&#39;)
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source(&#39;../functions/misc.R&#39;)
+source_all(&#39;../functions&#39;)
+
+# Read in pheno data
+pheno &lt;- fread(&#39;/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt&#39;)
+
+# Read in PGS
+pgs &lt;- read_pgs(config = &#39;misc/opensnp/config_cross_pop.yaml&#39;, name = &#39;opensnp&#39;)$opensnp
+
+# Read in ancestry
+ancestry &lt;- read_ancestry(config = &#39;misc/opensnp/config_cross_pop_gw.yaml&#39;, name = &#39;opensnp&#39;)
+
+# Estimate correlation between pheno and pgs
+cor &lt;- NULL
+for(pop_i in names(pgs)){
+  for(gwas_i in names(pgs[[pop_i]])){
+    for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
+      pgs_i &lt;- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
+      pheno_pgs&lt;-merge(pheno, pgs_i, by = c(&#39;FID&#39;,&#39;IID&#39;))
+      
+      for(model_i in names(pgs_i)[-1:-2]){
+        y &lt;- scale(pheno_pgs$height)
+        x &lt;- scale(pheno_pgs[[model_i]])
+        
+        if(all(is.na(x))){
+          next
+        }
+        
+        coef_i &lt;- coef(summary(mod &lt;- lm(y ~ x)))
+        
+        tmp &lt;- data.table(
+          pop = pop_i,
+          gwas = gwas_i,
+          pgs_method = pgs_method_i,
+          name = model_i,
+          r = coef_i[2,1],
+          se = coef_i[2,2],
+          p = coef_i[2,4],
+          n = nobs(mod))
+      cor &lt;- rbind(cor, tmp)
+      
+      }
+    }
+  }
+}
+
+library(ggplot2)
+library(cowplot)
+ggplot(cor, aes(x = name, y = r, group = gwas)) +
+  geom_bar(stat = &quot;identity&quot;, position = position_dodge2(preserve = &quot;single&quot;), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  facet_wrap(. ~ pop, scales = &#39;free&#39;) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12))
+
+ggplot(cor[cor$pop %in% c(&#39;EUR&#39;),], aes(x = name, y = r, group = gwas)) +
+  geom_bar(stat = &quot;identity&quot;, position = position_dodge2(preserve = &quot;single&quot;), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  facet_wrap(. ~ pop) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12))
+
+tmp &lt;- cor[cor$pop %in% c(&#39;EUR&#39;) &amp; grepl(&#39;yengo|EUR_weighted&#39;, cor$name) ,]
+tmp$name &lt;- gsub(&#39;yengo_|_quickprs|height_|_targ.*&#39;, &#39;&#39;, tmp$name)
+tmp$name &lt;- gsub(&#39;_&#39;,&#39;+&#39;,tmp$name)
+tmp$name &lt;- toupper(tmp$name)
+tmp$name[tmp$name == &#39;ALL&#39;] &lt;- &quot;ALL (META)&quot;
+tmp$name &lt;- factor(tmp$name, levels = tmp$name[order(tmp$r)])
+tmp$pop &lt;- &#39;Target = EUR&#39;
+
+png(&#39;~/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/cross_pop_eur.png&#39;, res = 200, width = 1500, height = 1500, units = &#39;px&#39;)
+ggplot(tmp, aes(x = name, y = r, fill = gwas)) +
+  geom_bar(stat = &quot;identity&quot;, position = position_dodge2(preserve = &quot;single&quot;), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = r - se, ymax = r + se),
+    width = .2,
+    position = position_dodge(width = 0.7)
+  ) +
+  geom_text(
+    aes(y = r + se + 0.05,label = round(r, 3)),
+    position = position_dodge2(width = 0.7, preserve = &quot;single&quot;),
+  ) +
+  labs(x = &#39;GWAS populations&#39;, y = &quot;R (SE)&quot;) +
+  ylim(c(0,0.6)) +
+  facet_wrap(. ~ pop) +
+  theme_half_open() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size=12),
+        legend.position = &quot;none&quot;)
+dev.off()</code></pre>
+</details>
+<hr />
+</div>
+<div id="result" class="section level1">
+<h1>Result</h1>
+<p>EUR is the only population of sufficient sample size to accurately
+estimate the performance of the PGS.</p>
+<p>Observations:</p>
 <ul>
-<li><p>Multi-source methods consistently outperform single-source models
-across ancestries, especially for AFR and EAS populations.</p></li>
-<li><p>Independently optimised scores, when combined using LEOPARD,
-outperform jointly optimised methods (e.g. PRS-CSx, X-Wing) with far
-lower computational cost.</p></li>
-<li><p>SBayesRC and LDpred2 were the top-performing single-source
-methods, with SBayesRC performing best when no individual-level tuning
-data were available.</p></li>
-<li><p>LEOPARD + QuickPRS enables fast, summary-statistic-only tuning of
-multi-source models (independently or jontly optimised), nearly matching
-individual-level tuning performance.</p></li>
-<li><p>Computational benchmarks show that independently optimised
-approaches can be completed in under 2 hours per trait with 10
-cores—compared to over 30 hours for X-Wing.</p></li>
+<li>The PGS based on EUR is the best single-source PGS</li>
+<li>The PGS based on meta-analysis of each GWAS, with a EUR LD reference
+performs worse than the PGS based on EUR GWAS alone.</li>
+<li>The PGS based on GWAS from multiple populations (multi-source)
+improved prediction slightly over the PGS based on EUR GWAS alone
+(single-source), with the prediction improving as more populations were
+considered.</li>
 </ul>
-<p><br/></p>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 75%;">
+<div class="figure">
+<img src="Images/OpenSNP/cross_pop_eur.png" alt="" />
+<p class="caption">Correlation between PGS and height</p>
 </div>
-<div id="citation" class="section level1">
-<h1>Citation</h1>
-<p>Pain, Oliver. “Leveraging Global Genetics Resources to Enhance
-Polygenic Prediction Across Ancestrally Diverse Populations.” MedRxiv
-(2025). <a href="https://doi.org/10.1101/2025.03.27.25324773"
-class="uri">https://doi.org/10.1101/2025.03.27.25324773</a></p>
-<p><br/></p>
 </div>
-<div id="additional-resources" class="section level1">
-<h1>Additional resources</h1>
-<ul>
-<li>Code used to conduct the study: <a
-href="CrossPop.html">here</a></li>
-<li>Example applying LEOPARD + QuickPRS to height GWAS from 5
-populations and then evaluated in OpenSNP target sample: <a
-href="opensnp_benchmark_crosspop.html">here</a></li>
-</ul>
-<p><br/></p>
-<p><br/></p>
+</div>
 </div>
 
 <!-- footer.html -->
@@ -587,7 +792,7 @@ $(document).ready(function ()  {
 
     // establish options
     var options = {
-      selectors: "h1,h2,h3",
+      selectors: "h1,h2",
       theme: "bootstrap3",
       context: '.toc-content',
       hashGenerator: function (text) {

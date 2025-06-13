@@ -299,7 +299,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   gwas_groups <- read_param(config = config, param = 'gwas_groups')
 
   # If pgs_method is multi-source, subset gwas_list to gwas in relevant group
-  if(grepl(paste0('^', pgs_group_methods, collapse = '|'), pgs_method)){
+  if(grepl(paste0('^', pgs_group_methods, '$', collapse = '|'), pgs_method) | grepl('_multi$', pgs_method)){
     gwas_list <- gwas_list[gwas_list$name %in% unlist(strsplit(gwas_groups$gwas[gwas_groups$name == gwas], ','))]
   }
 
@@ -397,6 +397,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   if(pgs_method == 'prscsx'){
     pseudo_val <- 'META_phi_auto'
   }
+  
   if(pgs_method == 'xwing'){
     if(!is.null(target_pop) && target_pop == 'TRANS'){
       cat('No pseudovalidation for TRANS target population available for xwing.\n')
@@ -409,6 +410,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
     }
     pseudo_val <- paste0('targ_', target_pop, '_weighted')
   }
+  
   if(grepl('_multi$', pgs_method)){
     if(!is.null(target_pop) && target_pop == 'TRANS'){
       cat('No pseudovalidation for TRANS target population available for xwing.\n')
