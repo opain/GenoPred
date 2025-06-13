@@ -24,25 +24,15 @@ library(data.table)
 
 This document provides technical details of the GenoPred pipeline. The GenoPred pipeline automates the process of calculating polygenic scores. The pipeline aims to implement the current practises for polygenic scoring. See [here](pipeline_overview.html) more general information regarding the GenoPred pipeline.
 
-***
+Please cite our preprint when using the pipeline:
 
-<h3>Citations</h4>
+- "Pain, O. et al. "The GenoPred Pipeline: A Comprehensive and Scalable Pipeline for Polygenic Scoring." MedRxiv 2024. https://doi.org/10.1101/2024.06.12.24308843
 
-Please cite the following relevant papers when using the pipeline:
+If relevant, please also cite our paper comparing polygenic scoring methods and describing the reference-standardised approach:
 
-**Pipeline overview:**
-- Pain, O. et al. (2024). *The GenoPred Pipeline: A Comprehensive and Scalable Pipeline for Polygenic Scoring*. Bioinformatics.  
-  https://doi.org/10.1093/bioinformatics/btae551
+- Pain, O. et al. "Evaluation of polygenic prediction methodology within a reference-standardized framework." PLoS genetics. https://doi.org/10.1371/journal.pgen.1009021
 
-**Comparison of single-source PGS methods:**
-- Pain, O. et al. (2021). *Evaluation of polygenic prediction methodology within a reference-standardized framework*. PLoS Genetics.  
-  https://doi.org/10.1371/journal.pgen.1009021
-
-**Integration and comparison of multi-source PGS methods:**
-- Pain, O. (2025). *Leveraging Global Genetics Resources to Enhance Polygenic Prediction Across Ancestrally Diverse Populations*. medRxiv. 
-  https://doi.org/10.1101/2025.03.27.25324773
-
-Please also cite the relevant studies for the tools and data used by the GenoPred pipeline - Details provided in the [Technical Documentation](pipeline_technical.html).
+Please also cite the relevant studies for the tools and data used by the GenoPred pipeline.
 
 ***
 
@@ -59,10 +49,9 @@ The pipeline can be separated into two halves, reference data preparation and ta
 See [here](pipeline_readme.html#pipeline-configuration) for more information on pipeline configuration.
 
 ***
-
 <div class="centered-container">
 <div class="rounded-image-container">
-![Figure 1. GenoPred pipeline schematic. Shows input files, processes, outputs, and rules.](Images/pipeline_readme/pipeline_schematic_groups_lowdef.png)
+![Figure 1. GenoPred pipeline schematic. Shows input files, processes, outputs, and rules.](Images/pipeline_readme/pipeline_schematic_lowdef.png)
 </div>
 </div>
 
@@ -83,6 +72,7 @@ Users can provide there own reference data using the `refdir` parameter in the `
   ├── ref.chr[1-22].[pgen/pvar/psam] (plink2 genotype data with RSIDs in SNP column)
   ├── ref.chr[1-22].rds (SNP data - refer to default ref data for format)
   ├── ref.pop.txt (Population data for reference individuals - with header)
+  ├── ref.keep.list (lists keep files for each population - columns pop and path - no header)
   ├── keep_files
   │   └──[pop].keep (keep files for each population - no header)
   └── freq_files
@@ -128,28 +118,26 @@ The GenoPred pipeline integrates various polygenic scoring methods for adjusting
 
 ### Single Ancestry Methods 
 
-The GenoPred pipeline implements a range of PGS methods intended for GWAS based on a single ancestral population. When using GWAS based on mixed ancestry individuals, we suggest specifying the population that matches most individuals in the GWAS. See [here](#multi-ancestry-methods) for methods that leverage multiple GWAS from different ancestral populations. 
+The GenoPred pipeline currently only implements PGS methods intended for GWAS based on a single ancestral population. When using GWAS based on mixed ancestry individuals, we suggest specifying the population that matches most individuals in the GWAS. 
 
 ```{r, eval = T, echo = F}
 
 methods_table <- data.frame(
-  Method = c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "QuickPRS", "SBayesR", "SBayesRC"),
-  Software = c("DBSLMM", "lassosum R package", "bigsnpr R package", "LDAK", "PRS-CS", "PLINK", "LDAK", "GCTB", "SBayesRC R package"),
-  PubMedID = c("32330416", "28480976", "33326037", "34234142", "30992449", "25722852", "34234142", "31704910", "38689000"),
-  PseudoValidationOption = c("Yes", "Yes", "Yes", "Yes", "Yes", "No", "Yes (only option)", "Yes (only option)", "Yes (only option)"),
-  Parameters = c("SNP-heritability estimated using LD Score Regression (on liability scale for binary outcomes), multiplied by 0.8, 1, and 1.2",
+  Method = c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "SBayesR"),
+  Software = c("DBSLMM", "lassosum R package", "bigsnpr R package", "LDAK", "PRS-CS", "PLINK", "GCTB"),
+  PubMedID = c(32330416, "28480976", "33326037", "34234142", "30992449", "25722852", "31704910"),
+  PseudoValidationOption = c("Yes (only option)", "Yes", "Yes", "Yes", "Yes", "No", "Yes (only option)"),
+  Parameters = c("SNP-heritability estimated using LD Score Regression (on liability scale for binary outcomes)",
                  "s = 0.2, 0.5, 0.9, 1; lambda = exp(seq(log(0.001), log(0.1), length.out=20))",
                  "Grid includes 126 combinations of heritability and non-zero effect fractions (p).",
                  "Fits lasso, ridge, bolt and BayesR models, with a total of 148 sets of hyperparameters",
                  "phi = 1e-6, 1e-4, 1e-2, 1, auto",
                  "p-value thresholds: 1e-8, 1e-6, 1e-4, 1e-2, 0.1, 0.2, 0.3, 0.4, 0.5, 1; Clumping: r2 = 0.1; window = 250kb",
-                 "Fits lasso, ridge, bolt and BayesR models, with a total of 148 sets of hyperparameters",
-                 "NA",
                  "NA"),
-  MHCRegion = c("Not excluded", "Not excluded", "Not excluded", "Not excluded", "Not excluded", "Only top variant retained", "Not excluded", "Excluded (as recommended)", "Not excluded"),
-  LDReference = c("Population-matched 1KG+HGDP", "Population-matched 1KG+HGDP", "EUR UKB (LDpred2-provided)", "Population-matched 1KG+HGDP", "Population-matched UKB (PRS-CS provided)", "Population-matched 1KG+HGDP", "Population-matched 1KG+HGDP", "EUR UKB (GCTB-provided)", "AFR/EAS/EUR UKB HapMap3 (SBayesRC provided)"),
-  CPUUsage = c("0.15 hrs", "0.08 hrs", "0.38 hrs", "0.85 hrs", "4.40 hrs", "0.02 hrs", "0.06 hrs", "0.38 hrs", "0.38 hrs"),
-  MemoryUsage = c("1.2 GB", "7.3 GB", "20.5 GB", "12.5 GB", "10.6 GB", "0.8 GB", "4.9 GB", "4.4 GB", "4.4 GB")
+  MHCRegion = c("Not excluded", "Not excluded", "Not excluded", "Not excluded", "Not excluded", "Only top variant retained", "Excluded (as recommended)"),
+  LDReference = c("Population-matched 1KG+HGDP", "Population-matched 1KG+HGDP", "EUR UKB (LDpred2-provided)", "Population-matched 1KG+HGDP", "Population-matched UKB (PRS-CS provided)", "Population-matched 1KG+HGDP", "EUR UKB (GCTB-provided)"),
+  CPUUsage = c("40 seconds", "10 seconds", "3 minutes", "5 minutes", "35 minutes", "5 seconds", "3 minutes"),
+  MemoryUsage = c("450 Mb", "400 Mb", "500 Mb", "450Mb", "350 Mb", "100 Mb", "500 Mb")
 )
 
 names(methods_table) <- c('Method','Software','PubMed ID', 'Pseudovalidation Option','Parameters','MHC Region','LD Reference','CPU usage*','Memory Usage*')
@@ -161,9 +149,7 @@ kable(methods_table, "html", caption = "Table 1 provides a summary of each appro
 
 ```
 
-\* = Using genome-wide GWAS with 10 cores. See [here](crosspop.html#computational-resources) for full benchmark information.
-
-Note.This is the default behaviour of the GenoPred pipeline. Certain aspects can be modified using the configfile ([see here](pipeline_readme.html#additional-parameters)).
+\* = Based on chromosome 22 using single core. See [here](pipeline_benchmark.html) for full benchmark information.
 
 ***
 
@@ -193,7 +179,7 @@ MegaPRS uses a range of priors (lasso, ridge, bolt, BayesR) for SNP effects, run
 
 #### PRS-CS
 
-PRS-CS, a Bayesian method using a continuous shrinkage prior, specifies a range of global shrinkage parameters (phi), generating multiple sets of genetic effects for polygenic scoring. Its 'auto' model estimates the optimal parameter directly from GWAS summary statistics, negating the need for an external dataset. In GenoPred, PRS-CS is run using the script [pgs_methods/prscs.R](https://github.com/opain/GenoPred/blob/master/Scripts/pgs_methods/prscs.R). GenoPred clones PRS-CS from GitHub (621fdc80daac56c93d9528eb1a1187f7b1fc9afb) and uses the provided precompiled PRS-CS binary to estimate SNP effect sizes. By default, GenoPred specifies four phi parameters (1e-6, 1e-4, 1e-2, 1) and the auto model, but the user can modify this behaviour using the prscs_phi parameter in the configfile. By default, GenoPred uses the PRS-CS provided 1KG-derived LD matrix data, matching the population of the GWAS sample. The user can select the UKB-derived LD matrix data to be used using the `prscs_ldref` parameter in the `configfile`. 1KG is used by default as PGS based on Yengo et al. sumstats performed significantly better in the OpenSNP target sample, when using the 1KG reference data (this may differ for other GWAS).
+PRS-CS, a Bayesian method using a continuous shrinkage prior, specifies a range of global shrinkage parameters (phi), generating multiple sets of genetic effects for polygenic scoring. Its 'auto' model estimates the optimal parameter directly from GWAS summary statistics, negating the need for an external dataset. In GenoPred, PRS-CS is run using the script [pgs_methods/prscs.R](https://github.com/opain/GenoPred/blob/master/Scripts/pgs_methods/prscs.R). By default, GenoPred specifies four phi parameters (1e-6, 1e-4, 1e-2, 1) and the auto model, but the user can modify this behaviour using the prscs_phi parameter in the configfile. By default, GenoPred uses the PRS-CS provided 1KG-derived LD matrix data, matching the population of the GWAS sample. The user can select the UKB-derived LD matrix data to be used using the `prscs_ldref` parameter in the `configfile`. 1KG is used by default as PGS based on Yengo et al. sumstats performed significantly better in the OpenSNP target sample, when using the 1KG reference data (this may differ for other GWAS).
 
 ***
 
@@ -294,7 +280,7 @@ The script used to estimate the weights for population-specific PGS is [pgs_meth
 
 ### Pseudovalidation
 
-Several polygenic scoring methods use a range of 'tuning' parameters when adjusting the GWAS effect sizes for polygenic scoring, resulting in multiple polygenic scores from a given GWAS. Traditionally, the user would then evaluate the predictive utility of polygenic scores derived using these various parameters, to select the best performing polygenic score, using cross-validation or bootstrapping to estimating the effect of the polygenic score without overfitting. However, several methods offer a pseudovalidation approach, whereby the optimal tuning parameter is estimated based on the GWAS summary statistics alone, conveniently avoiding the need for a tuning sample. The performance of pseudovalidation relative to formal validation varies between methods. See our previous [polygenic scoring methods comparison](https://doi.org/10.1101/2025.03.27.25324773) for more information. 
+Several polygenic scoring methods use a range of 'tuning' parameters when adjusting the GWAS effect sizes for polygenic scoring, resulting in multiple polygenic scores from a given GWAS. Traditionally, the user would then evaluate the predictive utility of polygenic scores derived using these various parameters, to select the best performing polygenic score, using cross-validation or bootstrapping to estimating the effect of the polygenic score without overfitting. However, several methods offer a pseudovalidation approach, whereby the optimal tuning parameter is estimated based on the GWAS summary statistics alone, convieniently avoiding the need for a tuning sample. The performance of pseudovalidation relative to formal validation varies between methods. See our previous [polygenic scoring methods comparison](comparison_of_methods_summary.html) for more information. 
 
 ***
 
@@ -340,17 +326,7 @@ If the user doesn't provide a list of unrelated indiviuals using the `unrel` col
 
 ## Target scoring
 
-This step calculates scores in the target sample, based on scoring files from the PGS methods, and from the reference PCA. It is carried out using the [target_scoring.R script](https://github.com/opain/GenoPred/blob/master/Scripts/target_scoring/target_scoring.R). It is performed separately for each target sample population. Scoring is performed using PLINK2 using the --read-freq function to impute missing genotypes using the ancestry-matched reference allele frequency. The scores are computed for each chromosome, then multiplied by the number of non-missing variants to get the sum score, and then added across chromosomes. Finally, the target sample PGS are adjusted for ancestry, so they can be interpreted in units of SD from the mean in an ancestry-matched population. See [here](#ancestry-adjustment) for more information on ancestry adjustment. 
-
-***
-
-### Ancestry adjustment
-
-The GenoPred pipeline offers discrete or continuous approaches for adjusting PGS for ancestry. Previously described [here](pipeline_readme.html#select-ancestry-adjustment-approach). As of GenoPred v3.0.0, only the continuous approach is applied by default.
-
-The discrete approach involves standardising target sample PGS according the mean and SD of the PGS in the individual's assigned reference population.
-
-The continuous approach uses reference data to model the relationship between genetic principal components and the PGS, and then corrects the mean and SD of the PGS for target individuals according to their reference-projected principal component scores. This approach was used in the study by Linders et al. ([here](https://doi.org/10.1016/j.gim.2023.100006)).
+This step calculates scores in the target sample, based on scoring files from the PGS methods, and from the reference PCA. It is carried out using the [target_scoring.R script](https://github.com/opain/GenoPred/blob/master/Scripts/target_scoring/target_scoring.R). It is performed separately for each target sample population. Scoring is performed using PLINK2 using the --read-freq function to impute missing genotypes using the ancestry-matched reference allele frequency. The scores are computed for each chromosome, then multiplied by the number of non-missing variants to get the sum score, and then added across chromosomes. Finally, the target sample scores are standardised according to the mean and SD of the score in an ancestry-matched reference.
 
 ***
 
