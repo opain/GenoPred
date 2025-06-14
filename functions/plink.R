@@ -410,7 +410,7 @@ plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2=
   system(paste0('tail -n +2 ', tmp_dir, '/merged.king.cutoff.in.id > ', out, '.unrelated.keep'))
 }
 
-plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, plink2=NULL, threads=1){
+plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, plink2=NULL, threads=1, fbm = F){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -462,14 +462,12 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
 
     # Add up the scores across chromosomes as they are produced
     if (file.exists(paste0(tmp_folder, '/profiles.chr', chr_i, '.sscore'))) {
-      sscore <- fread(paste0(paste0(tmp_folder,'/profiles.chr', chr_i, '.sscore')))
-
-      # Delete file to save disk space
-      system(paste0('rm ', tmp_folder, '/profiles.chr', chr_i, '.sscore'))
-
       if(is.null(scores)){
-        names(sscore)<-gsub('\\#', '', names(sscore))
-        scores_ids <- sscore[, names(sscore) %in% c('FID', 'IID'), with = F]
+        # Read sample IDs once to define rows
+        scores_ids <- fread(cmd = paste0('cut -f 1-2 ', tmp_folder,'/profiles.chr', chr_i, '.sscore'))
+        names(scores_ids)<-gsub('\\#', '', names(scores_ids))
+        scores_ids <- scores_ids[, names(scores_ids) %in% c('FID', 'IID'), with = F]
+        
         if (ncol(scores_ids) == 1) {
           scores_ids <- data.table(FID = scores_ids$IID,
                                    IID = scores_ids$IID)
@@ -477,30 +475,89 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
           scores_ids <- data.table(FID = scores_ids$FID,
                                    IID = scores_ids$IID)
         }
-
-        # Subset and transform scores as required
-        current_scores <- as.matrix(sscore[, paste0(names(score_small)[-1:-3], '_SUM'), with = FALSE])
-
-        # If scores is not initialized, copy current_scores
-        scores <- current_scores
+        
+        n_samples <- nrow(scores_ids)
+        
+        # Read in the column names to identify _SUM columns
+        scores_cols <- fread(paste0(tmp_folder,'/profiles.chr', chr_i, '.sscore'), nrows = 0)
+        sum_cols <- which(names(scores_cols) %in% paste0(names(score_small)[-1:-3], '_SUM'))
+        n_scores  <- length(sum_cols)
+        scores_cols <- paste0(names(score_small)[-1:-3], '_SUM')
+        
+        if(fbm){
+          # Initialize a FBM (backed on disk) for running PGS sum
+          file.remove(paste0(tmp_folder, '/plink_score_fbm.bk'))
+          scores <- FBM(
+            nrow = n_samples,
+            ncol = n_scores,
+            backingfile = paste0(tmp_folder, '/plink_score_fbm'),
+            init = 0
+          )
+        } else {
+          # Initialize a matrix running PGS sum
+          scores <- matrix(
+            nrow = n_samples,
+            ncol = n_scores,
+            data = 0
+          )
+        }
+      }
+      
+      if(fbm){
+        # Read in sscore file
+        file.remove(paste0(tmp_folder,'/profiles.chr', chr_i, '.bk'))
+        dt_chr <- big_read(
+          paste0(tmp_folder,'/profiles.chr', chr_i, '.sscore'),
+          header = TRUE,
+          select = sum_cols,
+          backingfile = paste0(tmp_folder,'/profiles.chr', chr_i),
+          colClasses = list(numeric = sum_cols)
+        )
+        
+        # Get PGS column names
+        scores_cols_i <- fread(paste0(tmp_folder,'/profiles.chr', chr_i, '.sscore'), nrows = 0)
+        scores_cols_i <- names(scores_cols_i[, names(scores_cols_i) %in% paste0(names(score_small)[-1:-3], '_SUM'), with = F])
+        
+        # In-place addition: for each score column
+        for (j in scores_cols) {
+          scores[, which(scores_cols == j)] <- scores[, which(scores_cols == j)] + dt_chr[,which(scores_cols_i == j)]
+        }
+        
+        rm(dt_chr)
+        gc()
+        file.remove(paste0(tmp_folder,'/profiles.chr', chr_i, ".bk"),
+                    paste0(tmp_folder,'/profiles.chr', chr_i, ".rds"),
+                    paste0(tmp_folder,'/profiles.chr', chr_i, ".sscore"))
       } else {
+        current_scores <- fread(paste0(tmp_folder,'/profiles.chr', chr_i, '.sscore'))
+        
         # Subset and transform scores as required
-        current_scores <- as.matrix(sscore[, paste0(names(score_small)[-1:-3], '_SUM'), with = FALSE])
-
+        current_scores <- as.matrix(current_scores[, paste0(names(score_small)[-1:-3], '_SUM'), with = FALSE])
+        
         # Sum the current scores with the running total
         scores <- scores + current_scores
+        
+        rm(current_scores)
+        gc()
+        file.remove(paste0(tmp_folder, '/profiles.chr', chr_i, '.sscore'))
       }
-    } else {
-      cat('No scores for chromosome ', chr_i, '. Check plink logs file for reason.\n')
     }
   }
-
-  # Combine score with IDs
-  scores<-data.table(scores_ids,
-                     scores)
-
-  # Rename columns
-  names(scores)[-1:-2]<-names(score_small)[-1:-3]
-
+  
+  if(fbm){
+    scores <- list(
+      ids = scores_ids,
+      cols = names(score_small)[-1:-3],
+      scores = scores
+    )
+  } else {
+    # Combine score with IDs
+    scores<-data.table(scores_ids,
+                       scores)
+    
+    # Rename columns
+    names(scores)[-1:-2]<-names(score_small)[-1:-3]
+  }
+  
   return(scores)
 }
