@@ -24,15 +24,19 @@ library(data.table)
 
 This document provides technical details of the GenoPred pipeline. The GenoPred pipeline automates the process of calculating polygenic scores. The pipeline aims to implement the current practises for polygenic scoring. See [here](pipeline_overview.html) more general information regarding the GenoPred pipeline.
 
-Please cite our preprint when using the pipeline:
+Please cite our publication when using the pipeline:
 
-- "Pain, O. et al. "The GenoPred Pipeline: A Comprehensive and Scalable Pipeline for Polygenic Scoring." MedRxiv 2024. https://doi.org/10.1101/2024.06.12.24308843
+- "Pain, O. et al. "The GenoPred Pipeline: A Comprehensive and Scalable Pipeline for Polygenic Scoring." Bioinformatics (2024). https://doi.org/10.1093/bioinformatics/btae551
+
+If using multi-source PGS methods, please also cite our study describing their evaluation and implementation within GenoPred:
+
+- "Pain, O. "Leveraging Global Genetics Resources to Enhance Polygenic Prediction Across Ancestrally Diverse Populations." MedRxiv (2026). https://doi.org/10.1101/2025.03.27.25324773
 
 If relevant, please also cite our paper comparing polygenic scoring methods and describing the reference-standardised approach:
 
-- Pain, O. et al. "Evaluation of polygenic prediction methodology within a reference-standardized framework." PLoS genetics. https://doi.org/10.1371/journal.pgen.1009021
+- Pain, O. et al. "Evaluation of polygenic prediction methodology within a reference-standardized framework." PLoS genetics (2024). https://doi.org/10.1371/journal.pgen.1009021
 
-Please also cite the relevant studies for the tools and data used by the GenoPred pipeline.
+Please also remember to cite the relevant studies for the tools and data used by the GenoPred pipeline.
 
 ***
 
@@ -51,7 +55,7 @@ See [here](pipeline_readme.html#pipeline-configuration) for more information on 
 ***
 <div class="centered-container">
 <div class="rounded-image-container">
-![Figure 1. GenoPred pipeline schematic. Shows input files, processes, outputs, and rules.](Images/pipeline_readme/pipeline_schematic_lowdef.png)
+![Figure 1. GenoPred pipeline schematic. Shows input files, processes, outputs, and rules.](Images/pipeline_readme/pipeline_schematic_groups_lowdef.png)
 </div>
 </div>
 
@@ -123,21 +127,22 @@ The GenoPred pipeline currently only implements PGS methods intended for GWAS ba
 ```{r, eval = T, echo = F}
 
 methods_table <- data.frame(
-  Method = c("DBSLMM", "lassosum", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "SBayesR"),
-  Software = c("DBSLMM", "lassosum R package", "bigsnpr R package", "LDAK", "PRS-CS", "PLINK", "GCTB"),
-  PubMedID = c(32330416, "28480976", "33326037", "34234142", "30992449", "25722852", "31704910"),
-  PseudoValidationOption = c("Yes (only option)", "Yes", "Yes", "Yes", "Yes", "No", "Yes (only option)"),
+  Method = c("DBSLMM", "lassosum", "lassosum2", "LDpred2", "MegaPRS", "PRS-CS", "pT+clump", "SBayesR"),
+  Software = c("DBSLMM", "lassosum R package",  "bigsnpr R package", "bigsnpr R package", "LDAK", "PRS-CS", "PLINK", "GCTB"),
+  PubMedID = c("32330416", "28480976", "36105883", "33326037", "34234142", "30992449", "25722852", "31704910"),
+  PseudoValidationOption = c("Yes (only option)", "Yes", "No", "Yes", "Yes", "Yes", "No", "Yes (only option)"),
   Parameters = c("SNP-heritability estimated using LD Score Regression (on liability scale for binary outcomes)",
                  "s = 0.2, 0.5, 0.9, 1; lambda = exp(seq(log(0.001), log(0.1), length.out=20))",
+                 "delta = 0.001, 0.01, 0.1, 1; nlambda = 30; lambda.min.ratio = 0.01",
                  "Grid includes 126 combinations of heritability and non-zero effect fractions (p).",
                  "Fits lasso, ridge, bolt and BayesR models, with a total of 148 sets of hyperparameters",
                  "phi = 1e-6, 1e-4, 1e-2, 1, auto",
                  "p-value thresholds: 1e-8, 1e-6, 1e-4, 1e-2, 0.1, 0.2, 0.3, 0.4, 0.5, 1; Clumping: r2 = 0.1; window = 250kb",
                  "NA"),
-  MHCRegion = c("Not excluded", "Not excluded", "Not excluded", "Not excluded", "Not excluded", "Only top variant retained", "Excluded (as recommended)"),
-  LDReference = c("Population-matched 1KG+HGDP", "Population-matched 1KG+HGDP", "EUR UKB (LDpred2-provided)", "Population-matched 1KG+HGDP", "Population-matched UKB (PRS-CS provided)", "Population-matched 1KG+HGDP", "EUR UKB (GCTB-provided)"),
-  CPUUsage = c("40 seconds", "10 seconds", "3 minutes", "5 minutes", "35 minutes", "5 seconds", "3 minutes"),
-  MemoryUsage = c("450 Mb", "400 Mb", "500 Mb", "450Mb", "350 Mb", "100 Mb", "500 Mb")
+  MHCRegion = c("Not excluded", "Not excluded", "Not excluded", "Not excluded", "Not excluded", "Not excluded", "Only top variant retained", "Excluded (as recommended)"),
+  LDReference = c("Population-matched 1KG+HGDP", "Population-matched 1KG+HGDP", "EUR UKB (LDpred2-provided)", "EUR UKB (LDpred2-provided)", "Population-matched 1KG+HGDP", "Population-matched UKB (PRS-CS provided)", "Population-matched 1KG+HGDP", "EUR UKB (GCTB-provided)"),
+  CPUUsage = c("40 seconds", "10 seconds", "NA but it is quick", "3 minutes", "5 minutes", "35 minutes", "5 seconds", "3 minutes"),
+  MemoryUsage = c("450 Mb", "400 Mb", "NA but ~500Mb", "500 Mb", "450Mb", "350 Mb", "100 Mb", "500 Mb")
 )
 
 names(methods_table) <- c('Method','Software','PubMed ID', 'Pseudovalidation Option','Parameters','MHC Region','LD Reference','CPU usage*','Memory Usage*')
@@ -162,6 +167,12 @@ DBSLMM, a Bayesian shrinkage method, is implemented using the script [pgs_method
 #### lassosum
 
 lassosum, an R package, applies the LASSO method for constructing PGS, is implemented using the script [pgs_methods/lassosum.R](https://github.com/opain/GenoPred/blob/master/Scripts/pgs_methods/lassosum.R). It uses a range of lambda hyperparameters and offers a pseudovalidation feature to deduce the optimal lambda value, eliminating the need for external testing data. GenoPred uses lassosum v0.4.5, with the default range of lambda values, and the 1KG+HGDP reference for LD estimation, matching the population of the GWAS sample. LD block data for EUR, EAS and AFR are provided by lassosum - If the GWAS are from CSA, AMR, MID populations, EUR LD block data is used. 
+
+***
+
+#### lassosum2
+
+lassosum2 is an updated version of the original lassosum method and is implemented in the bigsnpr R package. It performs penalised regression on GWAS summary statistics using an elastic net–like approach, balancing L1 and L2 penalties through a grid of hyperparameters: the shrinkage parameter lambda and the sparsity parameter delta. Lassosum2 can be run efficiently on sparse LD matrices derived from reference data, and is particularly suited for traits where variable selection may be beneficial. In GenoPred, lassosum2 is run using the script [pgs_methods/lassosum2.R](https://github.com/opain/GenoPred/blob/master/Scripts/pgs_methods/lassosum2.R). GenoPred uses bigsnpr v1.12.2 with the default grid of lambda and delta values, and performs GWAS quality control as recommended by the authors. LD matrices used by lassosum2 are precomputed from European individuals in the UK Biobank and applied only to GWAS based on a EUR population. Alternative LD reference panels can be specified for other populations ([see here](pipeline_readme.html#specifying-alternative-reference-data-for-pgs-methods)).
 
 ***
 
