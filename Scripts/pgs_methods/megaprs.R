@@ -23,13 +23,11 @@ option_list = list(
   make_option("--sumstats", action="store", default=NULL, type='character',
               help="GWAS summary statistics [required]"),
   make_option("--ldak", action="store", default=NULL, type='character',
-              help="Path to ldak executable [required]"),
-  make_option("--ldak_map", action="store", default=NULL, type='character',
-              help="Path to ldak map [required]"),
-  make_option("--ldak_tag", action="store", default=NULL, type='character',
-              help="Path to ldak tagging data [required]"),
-  make_option("--ldak_highld", action="store", default=NULL, type='character',
-              help="Path to ldak highld data [required]"),
+              help="Path to ldak v6.1 executable [required]"),
+  make_option("--breakpoints", action="store", default=NULL, type='character',
+              help="Path to breakpoints file [required]"),
+  make_option("--quickprs_ldref", action="store", default=NA, type='character',
+              help="Path to folder containing ldak quickprs reference [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
               help="Number of cores for parallel computing [optional]"),
   make_option("--prs_model", action="store", default='mega', type='character',
@@ -62,14 +60,15 @@ if(is.null(opt$output)){
 if(is.null(opt$ldak)){
   stop('--ldak must be specified.\n')
 }
-if(is.null(opt$ldak_map)){
-  stop('--ldak_map must be specified.\n')
+
+if(!is.na(opt$quickprs_ldref) && opt$quickprs_ldref == 'NA'){
+  opt$quickprs_ldref<-NA
 }
-if(is.null(opt$ldak_tag)){
-  stop('--ldak_tag must be specified.\n')
-}
-if(is.null(opt$ldak_highld)){
-  stop('--ldak_highld must be specified.\n')
+
+if(is.na(opt$quickprs_ldref)){
+  if(is.null(opt$breakpoints)){
+    stop('--breakpoints must be specified when --quickprs_ldref is not specified.\n')
+  }
 }
 
 # Create output directory
@@ -100,27 +99,29 @@ log_add(log_file = log_file, message = 'Reading in GWAS.')
 # Read in, check and format GWAS summary statistics
 gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N','FREQ','REF.FREQ'))
 
-# Check allele frequency difference
-ref_psam<-fread(paste0(opt$ref_plink_chr, CHROMS[1],'.psam'))
-names(ref_psam)<-gsub('\\#', '', names(ref_psam))
-
-if(!is.null(opt$ref_keep)){
-  ref_keep <- fread(opt$ref_keep, header=F)$V1
-  ref_psam <- ref_psam[ref_psam$IID %in% ref_keep,]
-}
-
-ref_n <- nrow(ref_psam)
-
-gwas$FREQ_LRT_P <- lrt_af_dual(p1 = gwas$FREQ, n1 = gwas$N, p0 = gwas$REF.FREQ, n0 = ref_n)$p
-log_add(log_file = log_file, message = paste0('Removed ', sum(gwas$FREQ_LRT_P < 1e-6), " variants due to significant difference in allele frequency to reference (P < 1e-6)."))
-gwas <- gwas[!(gwas$FREQ_LRT_P < 1e-6),]
-
 # Format for LDAK
 snplist <- gwas$SNP
 gwas$Z <- gwas$BETA / gwas$SE
-gwas$Predictor<-paste0(gwas$CHR, ':', gwas$BP)
-gwas<-gwas[,c('Predictor','A1','A2','N','Z')]
+gwas<-gwas[,c('SNP','A1','A2','N','Z')]
 names(gwas)<-c('Predictor','A1','A2','n','Z')
+
+if(!is.na(opt$quickprs_ldref)){
+  
+  log_add(log_file = log_file, message = 'Using precomputed predictor-predictor correlations.')
+  
+  # Check overlap between GWAS and LDAK reference
+  ldak_hm3_file <- list.files(opt$quickprs_ldref)
+  ldak_hm3_file <- ldak_hm3_file[grepl('.cors.bim', ldak_hm3_file)][1]
+  ldak_hm3 <- fread(paste0(opt$quickprs_ldref, '/', ldak_hm3_file))
+  ldak_hm3 <- ldak_hm3[ldak_hm3$V1 %in% CHROMS,]
+  ref_overlap <- sum(gwas$Predictor %in% ldak_hm3$V2) / nrow(ldak_hm3)
+  
+  log_add(log_file = log_file, message = paste0('GWAS-reference overlap is ', round(ref_overlap * 100, 2), '%.'))
+
+  # Subset GWAS to LDAK reference data
+  gwas <- gwas[gwas$Predictor %in% ldak_hm3$V2, ]
+
+}
 
 fwrite(gwas, paste0(tmp_dir,'/GWAS_sumstats_temp.txt'), sep=' ')
 
@@ -139,109 +140,73 @@ if(!is.na(opt$test)){
 }
 
 ############
-# Format reference for LDAK
+# Create LD matrices
 ############
 
-log_add(log_file = log_file, message = 'Formatting reference for LDAK.')
+if(is.na(opt$quickprs_ldref)){
+  
+  log_add(log_file = log_file, message = 'Calculating predictor-predictor correlations.')
+  
+  system(paste0(
+    opt$ldak, ' ',
+    '--calc-cors ', tmp_dir, '/full_cors ',
+    '--bfile ', tmp_dir, '/ref_merge ', 
+    '--break-points ', opt$breakpoints, ' ',
+    '--max-threads ', opt$n_cores))
+  
+  ld_ref_path <- paste0(tmp_dir, '/full_cors')
 
-# Insert CHR:BP IDs
-system(paste0("awk < ", tmp_dir, "/ref_merge.bim '{$2=$1\":\"$4;print $0}' > ", tmp_dir, '/tmp.bim; mv ', tmp_dir, '/tmp.bim ', tmp_dir, '/ref_merge.bim'))
-
-# Insert genetic distances
-system(paste0(opt$plink, ' --bfile ', tmp_dir, '/ref_merge --cm-map ', opt$ldak_map,'/genetic_map_chr@_combined_b37.txt --make-bed --out ', tmp_dir, '/map'))
-system(paste0("cat ", tmp_dir, "/map.bim | awk '{print $2, $3}' > ", tmp_dir, '/map.all'))
-system(paste0("awk '(NR==FNR){arr[$1]=$2;next}{print $1, $2, arr[$2], $4, $5, $6}' ", tmp_dir, '/map.all ', tmp_dir, '/ref_merge.bim > ', tmp_dir, '/tmp.bim; mv ', tmp_dir, '/tmp.bim ', tmp_dir, '/ref_merge.bim'))
-system(paste0('rm ', tmp_dir, '/map*'))
-
-############
-# Estimate Per-Predictor Heritabilities
-############
-# We will use the BLD-LDAK Model, as recommended for human SNP data
-
-log_add(log_file = log_file, message = 'Estimating per-predictor heritabilities.')
-
-# Calculate LDAK weights
-system(paste0(opt$ldak, ' --cut-weights ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
-system(paste0(opt$ldak, ' --calc-weights-all ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
-system(paste0('mkdir ', tmp_dir, '/bld'))
-system(paste0('cp ', opt$ldak_tag, '/* ', tmp_dir, '/bld/'))
-system(paste0('mv ', tmp_dir, '/sections/weights.short ', tmp_dir,'/bld/bld65'))
-
-# Calculate taggings
-if(length(CHROMS) != 1){
-  system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --save-matrix YES --max-threads ', opt$n_cores))
 } else {
-  system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --chr ', CHROMS, ' --save-matrix YES --max-threads ', opt$n_cores))
+
+  ref_files<-list.files(opt$quickprs_ldref)
+  cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files) & !grepl('subset', ref_files)])
+  ld_ref_path <- paste0(opt$quickprs_ldref,'/',cor_file_prefix)
+  
 }
 
-# Calculate Per-Predictor Heritabilities.
-system(paste0(opt$ldak, ' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', tmp_dir, '/bld.ldak.tagging --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --matrix ', tmp_dir, '/bld.ldak.matrix --max-threads ', opt$n_cores))
-
-ldak_res_her<-fread(paste0(tmp_dir,'/bld.ldak.hers'))
-
-log_add(log_file = log_file, message = paste0('SNP-based heritability estimated to be ',ldak_res_her$Heritability[nrow(ldak_res_her)]," (SD=", ldak_res_her$SD[nrow(ldak_res_her)],")."))
-
-# Identify SNPs in high LD regions
-system(paste0(opt$ldak, ' --cut-genes ', tmp_dir, '/highld --bfile ', tmp_dir, '/ref_merge --genefile ', opt$ldak_highld, ' --max-threads ', opt$n_cores))
-
-###################
-# Run using full reference.
-###################
-
-log_add(log_file = log_file, message = 'Running using full reference.')
-
-# Calculate predictor-predictor correlations
-log_add(log_file = log_file, message = 'Calculating predictor-predictor correlations.')
-full_cors <- ldak_pred_cor(bfile = paste0(tmp_dir, '/ref_merge'), ldak = opt$ldak, n_cores = opt$n_cores, chr = CHROMS)
-
+############
 # Run MegaPRS
+############
+
+# Note. MegaPRS by default runs pseudo CV to identify the best model, and then 
+# only produces that model using the full sumstats. I would like to output 
+# weights from all models, but also use pseudo CV to identify the best model.
+# As a temporary work around I will run MegaPRS twice with and without the CV
+# --skip-cv YES
+
 log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
-system(paste0(opt$ldak, ' --mega-prs ', tmp_dir, '/mega_full --model ', opt$prs_model, ' --bfile ', tmp_dir, '/ref_merge --cors ', full_cors, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --one-sums YES --window-cm 1 --allow-ambiguous YES --max-threads ', opt$n_cores))
+
+system(paste0(
+  opt$ldak, ' ',
+  '--mega-prs ', tmp_dir, '/mega_full ',
+  '--model ', opt$prs_model, ' ',
+  '--cors ', ld_ref_path, ' ',
+  '--summary ', tmp_dir, '/GWAS_sumstats_temp.txt ',
+  '--skip-cv NO ',
+  '--check-sums NO ',
+  '--max-threads ', opt$n_cores))
+
+system(paste0(
+  opt$ldak, ' ',
+  '--mega-prs ', tmp_dir, '/mega_full ',
+  '--model ', opt$prs_model, ' ',
+  '--cors ', ld_ref_path, ' ',
+  '--summary ', tmp_dir, '/GWAS_sumstats_temp.txt ',
+  '--skip-cv YES ',
+  '--check-sums NO ',
+  '--max-threads ', opt$n_cores))
 
 # Save the parameters file
 system(paste0('cp ', tmp_dir, '/mega_full.parameters ', opt$output, '.model_param.txt'))
 
-# Sum of per SNP heritability is different from SNP-heritability, due to removal of variants with non-positive heritability
-
-################
-# Run using subset reference for pseudovalidation
-################
-
-log_add(log_file = log_file, message = 'Creating pseudosummaries.')
-
-# Split reference into three
-system(paste0("awk < ", tmp_dir, "/ref_merge.fam '(NR%3==1){print $0 > \"", tmp_dir, "/keepa\"}(NR%3==2){print $0 > \"", tmp_dir, "/keepb\"}(NR%3==0){print $0 > \"", tmp_dir, "/keepc\"}'"))
-
-# Create pseudo summaries
-system(paste0(opt$ldak, ' --pseudo-summaries ', tmp_dir, '/GWAS_sumstats_temp.pseudo --bfile ', tmp_dir, '/ref_merge --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --training-proportion .9 --keep ', tmp_dir, '/keepa --allow-ambiguous YES --max-threads ', opt$n_cores))
-
-# Calculate predictor-predictor correlations
-log_add(log_file = log_file, message = 'Calculating predictor-predictor correlations.')
-subset_cors <- ldak_pred_cor(bfile = paste0(tmp_dir, '/ref_merge'), keep = paste0(tmp_dir, '/keepb'), ldak = opt$ldak, n_cores = opt$n_cores, chr = CHROMS)
-
-# Run megaPRS
-log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
-system(paste0(opt$ldak, ' --mega-prs ', tmp_dir, '/mega_subset --model ', opt$prs_model, ' --bfile ', tmp_dir, '/ref_merge --cors ', subset_cors, ' --ind-hers ', tmp_dir, '/bld.ldak.ind.hers --summary ', tmp_dir, '/GWAS_sumstats_temp.pseudo.train.summaries --one-sums YES --window-cm 1 --allow-ambiguous YES --max-threads ', opt$n_cores))
-
-######
-# Perform pseudovalidation
-######
-
-log_add(log_file = log_file, message = 'Running pseudovalidation.')
-
-if(file.exists(paste0(opt$output_dir,'/highld/genes.predictors.used'))){
-  system(paste0(opt$ldak, ' --calc-scores ', tmp_dir, '/mega_subset --bfile ', tmp_dir, '/ref_merge --scorefile ', tmp_dir, '/mega_subset.effects --summary ', tmp_dir, '/GWAS_sumstats_temp.pseudo.test.summaries --power 0 --final-effects ', tmp_dir, '/mega_subset.effects --keep ', tmp_dir, '/keepc --allow-ambiguous YES --exclude ', tmp_dir,'/highld/genes.predictors.used --max-threads ', opt$n_cores))
-} else {
-  system(paste0(opt$ldak, ' --calc-scores ', tmp_dir, '/mega_subset --bfile ', tmp_dir, '/ref_merge --scorefile ', tmp_dir, '/mega_subset.effects --summary ', tmp_dir, '/GWAS_sumstats_temp.pseudo.test.summaries --power 0 --final-effects ', tmp_dir, '/mega_subset.effects --keep ', tmp_dir, '/keepc --allow-ambiguous YES --max-threads ', opt$n_cores))
-}
+# Save the pseudosummary results
+system(paste0('cp ',tmp_dir,'/mega_full.cors ',opt$output,'.pseudoval.txt'))
 
 # Identify the best fitting model
-ldak_res_cors <- fread(paste0(tmp_dir, '/mega_subset.cors'), nThread = opt$n_cores)
-best_score <- ldak_res_cors[ldak_res_cors$V2 == max(ldak_res_cors$V2),]
+ldak_res_cors <- fread(paste0(tmp_dir, '/mega_full.cors'), nThread = opt$n_cores)
+best_score <- ldak_res_cors[which.max(ldak_res_cors$Correlation),]
 
-# Save the pseudovalidation results
-system(paste0('cp ', tmp_dir, '/mega_subset.cors ', opt$output, '.pseudoval.txt'))
-log_add(log_file = log_file, message = paste0('Model ', gsub('Score_','',best_score$V1[1]),' is identified as the best with correlation of ', best_score$V2))
+log_add(log_file = log_file, message = paste0('Model ', gsub('Score_','',best_score$Model[1]),' is identified as the best with correlation of ', best_score$Correlation[1]))
 
 ######
 # Format final score file
@@ -249,11 +214,7 @@ log_add(log_file = log_file, message = paste0('Model ', gsub('Score_','',best_sc
 
 # Read in the scores
 score <- fread(paste0(tmp_dir,'/mega_full.effects'), nThread = opt$n_cores)
-
-# Change IDs to RSIDs
-ref_pvar <- read_pvar(dat = opt$ref_plink_chr, chr = CHROMS)
-ref_pvar$Predictor<-paste0(ref_pvar$CHR,':',ref_pvar$BP)
-score<-merge(score, ref_pvar[,c('Predictor','SNP'), with=F], by='Predictor')
+names(score)[1]<-'SNP'
 score<-score[, c('SNP', 'A1', 'A2', names(score)[grepl('Model', names(score))]), with=F]
 names(score)[grepl('Model', names(score))]<-paste0('SCORE_ldak_',names(score)[grepl('Model', names(score))])
 

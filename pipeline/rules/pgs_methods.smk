@@ -387,6 +387,15 @@ rule prep_pgs_lassosum2:
 # LDAK MegaPRS
 ##
 
+def prep_pgs_megaprs_input(name):
+    inputs = []
+    if (config.get("megaprs_ref") and config["megaprs_ref"] == "quickprs"):
+        ref_path=get_quickprs_ldref_path(name, gwas_list_df, resdir)
+        inputs.append(ref_path)
+    else:
+        inputs.extend(rules.download_breakpoints.output)
+    return inputs
+    
 rule prep_pgs_megaprs_i:
   resources:
     mem_mb=20000,
@@ -394,10 +403,8 @@ rule prep_pgs_megaprs_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    rules.download_ldak_highld.output,
-    rules.download_ldak.output,
-    rules.download_ldak_map.output,
-    rules.download_ldak_bld.output,
+    rules.download_ldak_repo.output,
+    lambda w: prep_pgs_megaprs_input(w),
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz"
@@ -409,6 +416,14 @@ rule prep_pgs_megaprs_i:
     "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    breakpoints = lambda w: f"{resdir}/data/breakpoints/berisa.txt"
+        if not config.get("megaprs_ref") or config["megaprs_ref"] == "NA"
+        else "NA",
+    quickprs_ldref = lambda w: (
+        f"{quickprs_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}"
+        if config.get("megaprs_ref") and config["megaprs_ref"] == "quickprs"
+        else "NA"
+    ),
     testing=config["testing"]
   shell:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
@@ -416,10 +431,9 @@ rule prep_pgs_megaprs_i:
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --ldak {resdir}/software/ldak/ldak5.1.linux \
-      --ldak_map {resdir}/data/ldak_map/genetic_map_b37 \
-      --ldak_tag {resdir}/data/ldak_bld \
-      --ldak_highld {resdir}/data/ldak_highld/highld.txt \
+      --ldak {resdir}/software/ldak_repo/ldak6.1.beta \
+      --breakpoints {params.breakpoints} \
+      --quickprs_ldref {params.quickprs_ldref} \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
@@ -427,48 +441,6 @@ rule prep_pgs_megaprs_i:
 
 rule prep_pgs_megaprs:
   input: expand(f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
-
-rule prep_pgs_megaprs6_i:
-  resources:
-    mem_mb=20000,
-    time_min=2800
-  threads: config['cores_prep_pgs']
-  input:
-    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    rules.download_ldak_highld.output,
-    rules.download_ldak_repo.output,
-    rules.download_ldak_map.output,
-    rules.download_ldak_bld.output,
-    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
-  output:
-    f"{outdir}/reference/pgs_score_files/megaprs6/{{gwas}}/ref-{{gwas}}.score.gz"
-  benchmark:
-    f"{outdir}/reference/benchmarks/prep_pgs_megaprs6_i-{{gwas}}.txt"
-  log:
-    f"{outdir}/reference/logs/prep_pgs_megaprs6_i-{{gwas}}.log"
-  conda:
-    "../envs/analysis.yaml"
-  params:
-    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    testing=config["testing"]
-  shell:
-    "Rscript ../Scripts/pgs_methods/megaprs.R \
-      --ref_plink_chr {refdir}/ref.chr \
-      --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
-      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --ldak {resdir}/software/ldak_repo/ldak6.1.linux \
-      --ldak_map {resdir}/data/ldak_map/genetic_map_b37 \
-      --ldak_tag {resdir}/data/ldak_bld \
-      --ldak_highld {resdir}/data/ldak_highld/highld.txt \
-      --prs_model bayesr \
-      --n_cores {threads} \
-      --output {outdir}/reference/pgs_score_files/megaprs6/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data {refdir}/ref.pop.txt \
-      --test {params.testing} > {log} 2>&1"
-
-rule prep_pgs_megaprs6:
-  input: expand(f"{outdir}/reference/pgs_score_files/megaprs6/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # LDAK QuickPRS
@@ -489,10 +461,7 @@ rule prep_pgs_quickprs_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     lambda w: get_quickprs_ldref_path(w, gwas_list_df, resdir),
-    rules.download_ldak_highld.output,
-    rules.download_ldak5_2.output,
-    rules.download_ldak_map.output,
-    rules.download_ldak_bld.output,
+    rules.download_ldak_repo.output,
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz"
@@ -511,7 +480,7 @@ rule prep_pgs_quickprs_i:
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
+      --ldak {resdir}/software/ldak_repo/ldak6.1.beta \
       --quickprs_ldref {quickprs_ldref}/{params.population} \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \

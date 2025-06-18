@@ -413,28 +413,6 @@ dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats
   return(dbslmm_all)
 }
 
-# Calculate predictor correlations using LDAK
-ldak_pred_cor<-function(bfile, ldak, n_cores, chr = 1:22, keep = NULL){
-  tmp_dir<-tempdir()
-  tmp_file<-tempfile()
-
-  ldak_opt <- NULL
-  if(!is.null(keep)){
-    ldak_opt <- paste0(ldak_opt, '--keep ', keep, ' ')
-  }
-  if(length(chr) != 1){
-    for(chr_i in chr){
-      system(paste0(ldak, ' --calc-cors ', tmp_dir, '/cors_full', chr_i, ' --bfile ', bfile, ' ', ldak_opt,'--window-cm 3 --chr ', chr_i, ' --max-threads ', n_cores))
-    }
-    write.table(paste0(tmp_dir, '/cors_full', chr), paste0(tmp_dir, '/cors_list.txt'), col.names=F, row.names=F, quote=F)
-    system(paste0(ldak,' --join-cors ', tmp_file, ' --corslist ', tmp_dir, '/cors_list.txt --max-threads ', n_cores))
-  } else {
-    system(paste0(ldak,' --calc-cors ', tmp_file, ' --bfile ', bfile, ' ', ldak_opt,'--window-cm 3 --chr ', chr, ' --max-threads ', n_cores))
-  }
-
-  return(tmp_file)
-}
-
 # Read in external score file
 read_score <- function(score, chr = 1:22, log_file = NULL){
 	# Read in score file

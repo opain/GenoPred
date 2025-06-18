@@ -316,7 +316,7 @@ if 'sbayesr' in config['pgs_methods']:
 # Set quickprs reference path
 if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickprs" in config["pgs_methods"]:
   if config['quickprs_ldref'] == 'NA':
-    quickprs_ldref=f"{resdir}/data/quickprs"
+    quickprs_ldref=f"{resdir}/data/quickprs_ldak6"
     
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR', 'EAS', 'AFR', 'CSA', 'AMR', 'MID'}
@@ -1007,7 +1007,7 @@ rule download_ldak:
 # Download LDAK v6
 rule download_ldak_repo:
   output:
-    f"{resdir}/software/ldak_repo/ldak6.1.linux"
+    f"{resdir}/software/ldak_repo/ldak6.1.beta"
   benchmark:
     f"{resdir}/data/benchmarks/download_ldak_repo.txt"
   log:
@@ -1018,8 +1018,8 @@ rule download_ldak_repo:
       rm -r -f {resdir}/software/ldak_repo; \
       git clone https://github.com/dougspeed/LDAK {resdir}/software/ldak_repo; \
       cd {resdir}/software/ldak_repo; \
-      git reset --hard ecbe591137ebf6e8efd7bbf924b244cef506f7c3; \
-      chmod a+x ldak6.1.linux
+      git reset --hard 9bff74b5a999492cf17fe5dea19a81f274062fe3; \
+      chmod a+x ldak6.1.beta
     }} > {log} 2>&1
     """
 
@@ -1078,6 +1078,23 @@ rule download_ldak_highld:
     }} > {log} 2>&1
     """
 
+# Download breakpoints data for LDAK
+rule download_breakpoints:
+  output:
+    f"{resdir}/data/breakpoints/berisa.txt"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_breakpoints.txt"
+  log:
+    f"{resdir}/data/logs/download_breakpoints.log"
+  shell:
+    """
+    {{
+      rm -r {resdir}/data/breakpoints; \
+      mkdir -p {resdir}/data/breakpoints; \
+      wget --no-check-certificate -O {resdir}/data/breakpoints/berisa.txt https://genetics.ghpc.au.dk/doug/berisa.txt
+    }} > {log} 2>&1
+    """
+
 # Download LDAK V5.2 for QuickPRS
 # Only this version works for QuickPRS
 rule download_ldak5_2:
@@ -1099,17 +1116,15 @@ rule download_ldak5_2:
 
 # Download QuickPRS reference data
 quickprs_ref_gdrive = {
-    'EUR': '10fuqn6X23dA9WKjQd9xs7xUDiFjTwfz9',
-    'EAS': '1m1OI9HpHbVcX88YvtIt80-1zonSWrZP_',
-    'AFR': '11NoeBLOC-YsxrnRPa0TOPsxywZXCWbP3',
-    'CSA': '10ENLyjnMNndBM8NtXy-BVmroP5m4qgtg',
-    'AMR': '1bmnbWPw8MzVwFYw9F4TcGOVxxay20uOS',
-    'MID': '16MuxjIi1Eb_kyf9HZgpBwRA1cbP_yE5U'
+    'EUR': 'https://genetics.ghpc.au.dk/doug/Correlations/HAPMAP.UK.zip',
+    'EAS': 'https://genetics.ghpc.au.dk/doug/Correlations/HAPMAP.EAS.zip',
+    'AFR': 'https://genetics.ghpc.au.dk/doug/Correlations/HAPMAP.AFR.zip',
+    'CSA': 'https://genetics.ghpc.au.dk/doug/Correlations/HAPMAP.SAS.zip'
 }
 
 rule download_quickprs_ref:
   output:
-    f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin"
+    f"{resdir}/data/quickprs_ldak6/{{population}}/{{population}}.cors.bin"
   benchmark:
     f"{resdir}/data/benchmarks/download_quickprs_ref-{{population}}.txt"
   log:
@@ -1119,17 +1134,24 @@ rule download_quickprs_ref:
   shell:
     """
     {{
-      mkdir -p {resdir}/data/quickprs; \
-      rm -r -f {resdir}/data/quickprs/{wildcards.population}; \
-      gdown {params.id} -O {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz; \
-      tar -zxvf {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz -C {resdir}/data/quickprs/; \
-      rm {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz
+      mkdir -p {resdir}/data/quickprs_ldak6; \
+      rm -r -f {resdir}/data/quickprs_ldak6/{wildcards.population}; \
+      mkdir -p {resdir}/data/quickprs_ldak6/{wildcards.population}; \
+      wget --no-check-certificate -O {resdir}/data/quickprs_ldak6/ldak_quickprs_hm3_{wildcards.population}.zip {params.id}; \
+      unzip {resdir}/data/quickprs_ldak6/ldak_quickprs_hm3_{wildcards.population}.zip -d {resdir}/data/quickprs_ldak6/{wildcards.population}; \
+      cd {resdir}/data/quickprs_ldak6/{wildcards.population}; \
+      for f in *; do \
+        suffix="${{f##*.}}"; \
+        newname="{wildcards.population}.cors.$suffix"; \
+        mv "$f" "$newname"; \
+      done; \
+      rm ../ldak_quickprs_hm3_{wildcards.population}.zip
     }} > {log} 2>&1
     """
 
 rule download_quickprs_ref_all:
   input:
-    lambda w: expand(f"{resdir}/data/quickprs/{{population}}/{{population}}.cors.bin", population=['EUR', 'EAS', 'AFR'])
+    lambda w: expand(f"{resdir}/data/quickprs_ldak6/{{population}}/{{population}}.cors.bin", population=['EUR', 'EAS', 'AFR'])
 
 # Download QuickPRS reference data that has been subset for LEOPARD
 quickprs_leopard_ref_gdrive = {

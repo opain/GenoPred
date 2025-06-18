@@ -23,15 +23,13 @@ option_list = list(
   make_option("--sumstats", action="store", default=NA, type='character',
               help="GWAS summary statistics [optional]"),
   make_option("--ldak", action="store", default=NA, type='character',
-              help="Path to ldak v5.2 executable [required]"),
+              help="Path to ldak v6.1 executable [required]"),
   make_option("--quickprs_ldref", action="store", default=NA, type='character',
               help="Path to folder containing ldak quickprs reference [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
               help="Number of cores for parallel computing [optional]"),
   make_option("--prs_model", action="store", default='bayesr', type='character',
               help="Model used for deriving SNP-weights [optional]"),
-  make_option("--genomic_control", action="store", default=F, type='logical',
-              help="Logical indicating whether genomic control was applied to GWAS [optional]"),
   make_option("--test", action="store", default=NA, type='character',
               help="Specify number of SNPs to include [optional]")
 )
@@ -92,26 +90,10 @@ log_add(log_file = log_file, message = 'Reading in GWAS.')
 # Read in, check and format GWAS summary statistics
 gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N','FREQ','REF.FREQ'))
 
-# Check allele frequency difference
-ref_psam<-fread(paste0(opt$ref_plink_chr, CHROMS[1],'.psam'))
-names(ref_psam)<-gsub('\\#', '', names(ref_psam))
-
-if(!is.null(opt$ref_keep)){
-  ref_keep <- fread(opt$ref_keep, header=F)$V1
-  ref_psam <- ref_psam[ref_psam$IID %in% ref_keep,]
-}
-
-ref_n <- nrow(ref_psam)
-
-gwas$FREQ_LRT_P <- lrt_af_dual(p1 = gwas$FREQ, n1 = gwas$N, p0 = gwas$REF.FREQ, n0 = ref_n)$p
-log_add(log_file = log_file, message = paste0('Removed ', sum(gwas$FREQ_LRT_P < 1e-6), " variants due to significant difference in allele frequency to reference (P < 1e-6)."))
-gwas <- gwas[!(gwas$FREQ_LRT_P < 1e-6),]
-
 # Format for LDAK
 snplist <- gwas$SNP
 gwas$Z <- gwas$BETA / gwas$SE
-gwas$Predictor<-paste0(gwas$CHR, ':', gwas$BP)
-gwas<-gwas[,c('Predictor','A1','A2','N','Z','FREQ')]
+gwas<-gwas[,c('SNP','A1','A2','N','Z','FREQ')]
 names(gwas)<-c('Predictor','A1','A2','n','Z','A1Freq')
 
 # Check overlap between GWAS and LDAK reference
@@ -135,34 +117,22 @@ if(!is.na(opt$test)){
 }
 
 ############
-# Estimate Per-Predictor Heritabilities
+# Run QuickPRS
 ############
 
-# Calculate Per-Predictor Heritabilities.
 ref_files<-list.files(opt$quickprs_ldref)
 
-tagging_file<-ref_files[grepl('quickprs.tagging',ref_files)]
-matrix_file<-ref_files[grepl('quickprs.matrix',ref_files)]
-
-if(opt$genomic_control == F){
-  system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --tagfile ', opt$quickprs_ldref, '/', tagging_file, ' --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --matrix ', opt$quickprs_ldref, '/', matrix_file, ' --max-threads ', opt$n_cores, ' --check-sums NO'))
-} else{
-  system(paste0(opt$ldak,' --sum-hers ', tmp_dir, '/bld.ldak --genomic-control YES --tagfile ', opt$quickprs_ldref, '/', tagging_file, ' --summary ', tmp_dir, '/GWAS_sumstats_temp.txt --matrix ', opt$quickprs_ldref, '/', matrix_file, ' --max-threads ', opt$n_cores, ' --check-sums NO'))
-}
-
-ldak_res_her<-fread(paste0(tmp_dir,'/bld.ldak.hers'))
-
-log_add(log_file = log_file, message = paste0('SNP-based heritability estimated to be ',ldak_res_her$Heritability[nrow(ldak_res_her)]," (SD=", ldak_res_her$SD[nrow(ldak_res_her)],")."))
-
-######
-# Estimate effect sizes for training and full prediction models.
-######
-
+log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
 cor_file_prefix<-gsub('.cors.bin','',ref_files[grepl('.cors.bin',ref_files) & !grepl('subset', ref_files)])
 
-log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
-
-system(paste0(opt$ldak,' --mega-prs ',tmp_dir,'/mega_full --model ',opt$prs_model,' --cors ',opt$quickprs_ldref,'/',cor_file_prefix,' --ind-hers ',tmp_dir,'/bld.ldak.ind.hers --summary ',tmp_dir,'/GWAS_sumstats_temp.txt --high-LD ',opt$quickprs_ldref,'/highld.snps --cv-proportion 0.1 --window-cm 1 --max-threads ',opt$n_cores,' --extract ',tmp_dir,'/GWAS_sumstats_temp.txt'))
+system(paste0(
+  opt$ldak,' ',
+  '--quick-prs ',tmp_dir,'/mega_full ',
+  '--model ',opt$prs_model, ' ',
+  '--summary ', tmp_dir, '/GWAS_sumstats_temp.txt ',
+  '--cors ',opt$quickprs_ldref,'/',cor_file_prefix, ' ',
+  '--max-threads ', opt$n_cores, ' ',
+  '--check-sums NO'))
 
 # Save the parameters file
 system(paste0('cp ',tmp_dir,'/mega_full.parameters ',opt$output,'.model_param.txt'))
@@ -182,11 +152,7 @@ log_add(log_file = log_file, message = paste0('Model ', gsub('Score_','',best_sc
 
 # Read in the scores
 score <- fread(paste0(tmp_dir,'/mega_full.effects'), nThread = opt$n_cores)
-
-# Change IDs to RSIDs
-ref_pvar <- read_pvar(dat = opt$ref_plink_chr, chr = CHROMS)
-ref_pvar$Predictor<-paste0(ref_pvar$CHR,':',ref_pvar$BP)
-score<-merge(score, ref_pvar[,c('Predictor','SNP'), with=F], by='Predictor')
+names(score)[1]<-'SNP'
 score<-score[, c('SNP', 'A1', 'A2', names(score)[grepl('Model', names(score))]), with=F]
 names(score)[grepl('Model', names(score))]<-'SCORE_quickprs'
 
@@ -206,7 +172,6 @@ system(paste0('gzip ',opt$output,'.score'))
 if(!is.na(opt$test)){
   test_finish(log_file = log_file, test_start.time = test_start.time)
 }
-
 
 ####
 # Calculate mean and sd of polygenic scores
