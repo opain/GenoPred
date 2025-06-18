@@ -26,6 +26,8 @@ option_list = list(
               help="Path to ldak v6.1 executable [required]"),
   make_option("--breakpoints", action="store", default=NULL, type='character',
               help="Path to breakpoints file [required]"),
+  make_option("--annot", action="store", default=NULL, type='character',
+              help="Path to annotations prefix [required]"),
   make_option("--quickprs_ldref", action="store", default=NA, type='character',
               help="Path to folder containing ldak quickprs reference [required]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
@@ -60,7 +62,9 @@ if(is.null(opt$output)){
 if(is.null(opt$ldak)){
   stop('--ldak must be specified.\n')
 }
-
+if(is.null(opt$annot)){
+  stop('--annot must be specified.\n')
+}
 if(!is.na(opt$quickprs_ldref) && opt$quickprs_ldref == 'NA'){
   opt$quickprs_ldref<-NA
 }
@@ -125,15 +129,6 @@ if(!is.na(opt$quickprs_ldref)){
 
 fwrite(gwas, paste0(tmp_dir,'/GWAS_sumstats_temp.txt'), sep=' ')
 
-###
-# Merge the per chromosome reference genetic data and subset opt$ref_keep
-###
-
-log_add(log_file = log_file, message = 'Merging per chromosome reference data.')
-
-# Save in plink1 format for MegaPRS
-plink_merge(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, extract = snplist, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
-
 # Record start time for test
 if(!is.na(opt$test)){
   test_start.time <- test_start(log_file = log_file)
@@ -144,6 +139,11 @@ if(!is.na(opt$test)){
 ############
 
 if(is.na(opt$quickprs_ldref)){
+  
+  log_add(log_file = log_file, message = 'Merging per chromosome reference data.')
+  
+  # Save in plink1 format and merge
+  plink_merge(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, extract = snplist, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
   
   log_add(log_file = log_file, message = 'Calculating predictor-predictor correlations.')
   
@@ -182,6 +182,8 @@ system(paste0(
   '--model ', opt$prs_model, ' ',
   '--cors ', ld_ref_path, ' ',
   '--summary ', tmp_dir, '/GWAS_sumstats_temp.txt ',
+  '--annotation-number 86 ',
+  '--annotation-prefix ', opt$annot, ' ',
   '--skip-cv NO ',
   '--check-sums NO ',
   '--max-threads ', opt$n_cores))
@@ -192,6 +194,8 @@ system(paste0(
   '--model ', opt$prs_model, ' ',
   '--cors ', ld_ref_path, ' ',
   '--summary ', tmp_dir, '/GWAS_sumstats_temp.txt ',
+  '--annotation-number 86 ',
+  '--annotation-prefix ', opt$annot, ' ',
   '--skip-cv YES ',
   '--check-sums NO ',
   '--max-threads ', opt$n_cores))

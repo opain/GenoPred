@@ -1061,6 +1061,25 @@ rule download_ldak_bld:
     }} > {log} 2>&1
     """
     
+# Download LDAK bld snp annotations
+rule download_ldak_baseline_ld:
+  output:
+    f"{resdir}/data/ldak_baseline_ld/BaselineLD.names"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_ldak_baseline_ld.txt"
+  log:
+    f"{resdir}/data/logs/download_ldak_baseline_ld.log"
+  shell:
+    """
+    {{
+      rm -r {resdir}/data/ldak_baseline_ld; \
+      mkdir -p {resdir}/data/ldak_baseline_ld; \
+      wget --no-check-certificate -O {resdir}/data/ldak_baseline_ld/BaselineLD.zip https://genetics.ghpc.au.dk/doug/BaselineLD.zip; \
+      unzip {resdir}/data/ldak_baseline_ld/BaselineLD.zip -d {resdir}/data/ldak_baseline_ld/; \
+      rm {resdir}/data/ldak_baseline_ld/BaselineLD.zip
+    }} > {log} 2>&1
+    """
+
 # Download LDAK high ld regions file
 rule download_ldak_highld:
   output:

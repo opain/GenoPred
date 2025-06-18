@@ -404,6 +404,7 @@ rule prep_pgs_megaprs_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldak_repo.output,
+    rules.download_ldak_baseline_ld.output,
     lambda w: prep_pgs_megaprs_input(w),
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
@@ -433,6 +434,7 @@ rule prep_pgs_megaprs_i:
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ldak {resdir}/software/ldak_repo/ldak6.1.beta \
       --breakpoints {params.breakpoints} \
+      --annot {resdir}/data/ldak_baseline_ld/BaselineLD \
       --quickprs_ldref {params.quickprs_ldref} \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
