@@ -18,8 +18,10 @@ option_list = list(
 	    help="Path PLINK v2 software binary [optional]"),
 	make_option("--output", action="store", default=NULL, type='character',
 			help="Path for output files [required]"),
-  make_option("--n_cores", action="store", default=1, type='numeric',
-	    help="Number of cores to use [optional]"),
+	make_option("--n_cores", action="store", default=1, type='numeric',
+      help="Number of cores to use [optional]"),
+	make_option("--pseudo_only", action="store", default=F, type='logical',
+      help="Logical indicating whether only pseudovalidated model should be output [optional]"),
 	make_option("--test", action="store", default=NA, type='character',
 	    help="Specify number of SNPs to include [optional]"),
 	make_option("--sumstats", action="store", default=NULL, type='character',
@@ -143,7 +145,7 @@ out <- lassosum.pipeline(
 # Change working directory back to the original
 setwd(orig_wd)
 
-# Write out a score file
+# Format score file
 score_file <- data.table(SNP = gwas$SNP[out$sumstats$order], out$sumstats[c('A1', 'A2')])
 
 for(i in 1:length(out$s)){
@@ -153,21 +155,6 @@ for(i in 1:length(out$s)){
     score_file<-cbind(score_file, score_file_tmp)
   }
 }
-
-# Flip effects to match reference alleles
-ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
-score_new <- map_score(ref = ref, score = score_file)
-
-# Reduce number of significant figures to save space
-score_new[, (4:ncol(score_new)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_new)]
-
-fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
-
-if(file.exists(paste0(opt$output,'.score.gz'))){
-  system(paste0('rm ',opt$output,'.score.gz'))
-}
-
-system(paste0('gzip ',opt$output,'.score'))
 
 #####
 # Perform pseudovalidation
@@ -190,7 +177,26 @@ log_add(log_file = log_file, message = c(
   paste0('s = ', out2$s),
   paste0('lambda = ', out2$lambda),
   paste0('value = ', v$validation.table$value[v$validation.table$lambda == v$best.lambda & v$validation.table$s == v$best.s])
-  ))
+))
+
+if(opt$pseudo_only){
+  score_file <- score_file[, c('SNP','A1','A2',paste0('SCORE_s', out2$s, '_lambda', out2$lambda)), with=F]
+}
+
+# Flip effects to match reference alleles
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+score_new <- map_score(ref = ref, score = score_file)
+
+# Reduce number of significant figures to save space
+score_new[, (4:ncol(score_new)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_new)]
+
+fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+
+if(file.exists(paste0(opt$output,'.score.gz'))){
+  system(paste0('rm ',opt$output,'.score.gz'))
+}
+
+system(paste0('gzip ',opt$output,'.score'))
 
 # Record end time of test
 if(!is.na(opt$test)){
