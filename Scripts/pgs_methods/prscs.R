@@ -97,14 +97,27 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
-gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('SNP','A1','A2','BETA','SE','N'))
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','A1','A2','BETA','SE','N'))
+
+# Subset CHROMS object to chr present
+gwas_CHROMS <- unique(gwas$CHR)
+gwas$CHR <- NULL
 
 # Store average sample size
 gwas_N <- round(mean(gwas$N), 0)
 
 fwrite(gwas, paste0(tmp_dir, '/GWAS_sumstats_temp.txt'), sep=' ')
 
+# Create a temporary reference bim files for PRS-CS to match to
+pvar <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
+pvar <- pvar[pvar$SNP %in% gwas$SNP,]
+pvar$POS<-0
+for(i in gwas_CHROMS){
+  write.table(pvar[pvar$CHR == i, c('CHR','SNP','POS','BP','A1','A2'), with=F], paste0(tmp_dir,'/ref.chr',i,'.bim'), col.names=F, row.names=F, quote=F)
+}
+
 rm(gwas)
+rm(pvar)
 gc()
 
 # Record start time for test
@@ -116,19 +129,9 @@ if(!is.na(opt$test)){
 # Process sumstats using PRSsc
 #####
 
-# Create a temporary reference bim files for PRS-CS to match to
-pvar <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
-pvar$POS<-0
-for(i in CHROMS){
-  write.table(pvar[pvar$CHR == i, c('CHR','SNP','POS','BP','A1','A2'), with=F], paste0(tmp_dir,'/ref.chr',i,'.bim'), col.names=F, row.names=F, quote=F)
-}
-
-rm(pvar)
-gc()
-
 # Make a data.frame listing chromosome and phi combinations
 jobs<-NULL
-for(i in CHROMS){
+for(i in gwas_CHROMS){
   jobs<-rbind(jobs, data.frame(CHR=i, phi=phi_param))
 }
 
@@ -165,7 +168,7 @@ log <- foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(presche
 score_all<-NULL
 for(phi_i in phi_param){
   score_phi<-NULL
-  for(i in CHROMS){
+  for(i in gwas_CHROMS){
     score_phi_i<-fread(paste0(tmp_dir,'/_pst_eff_a1_b0.5_phi',phi_i,'_chr',i,'.txt'))
     score_phi<-rbind(score_phi, score_phi_i)
   }

@@ -30,6 +30,8 @@ option_list = list(
               help="Path to ldak tagging data [required]"),
   make_option("--ldak_highld", action="store", default=NULL, type='character',
               help="Path to ldak highld data [required]"),
+  make_option("--pseudo_only", action="store", default=F, type='logical',
+              help="Logical indicating whether only pseudovalidated model should be output [optional]"),
   make_option("--n_cores", action="store", default=1, type='numeric',
               help="Number of cores for parallel computing [optional]"),
   make_option("--prs_model", action="store", default='mega', type='character',
@@ -99,9 +101,10 @@ log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
 gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','BP','SNP','A1','A2','BETA','SE','N','FREQ','REF.FREQ'))
+GWAS_CHROMS<-unique(gwas$CHR)
 
 # Check allele frequency difference
-ref_psam<-fread(paste0(opt$ref_plink_chr, CHROMS[1],'.psam'))
+ref_psam<-fread(paste0(opt$ref_plink_chr, GWAS_CHROMS[1],'.psam'))
 names(ref_psam)<-gsub('\\#', '', names(ref_psam))
 
 if(!is.null(opt$ref_keep)){
@@ -131,7 +134,7 @@ fwrite(gwas, paste0(tmp_dir,'/GWAS_sumstats_temp.txt'), sep=' ')
 log_add(log_file = log_file, message = 'Merging per chromosome reference data.')
 
 # Save in plink1 format for MegaPRS
-plink_merge(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, extract = snplist, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
+plink_merge(pfile = opt$ref_plink_chr, chr = GWAS_CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, extract = snplist, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
 
 # Record start time for test
 if(!is.na(opt$test)){
@@ -168,10 +171,10 @@ system(paste0('cp ', opt$ldak_tag, '/* ', tmp_dir, '/bld/'))
 system(paste0('mv ', tmp_dir, '/sections/weights.short ', tmp_dir,'/bld/bld65'))
 
 # Calculate taggings
-if(length(CHROMS) != 1){
+if(length(GWAS_CHROMS) != 1){
   system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --save-matrix YES --max-threads ', opt$n_cores))
 } else {
-  system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --chr ', CHROMS, ' --save-matrix YES --max-threads ', opt$n_cores))
+  system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --chr ', GWAS_CHROMS, ' --save-matrix YES --max-threads ', opt$n_cores))
 }
 
 # Calculate Per-Predictor Heritabilities.
@@ -192,7 +195,7 @@ log_add(log_file = log_file, message = 'Running using full reference.')
 
 # Calculate predictor-predictor correlations
 log_add(log_file = log_file, message = 'Calculating predictor-predictor correlations.')
-full_cors <- ldak_pred_cor(bfile = paste0(tmp_dir, '/ref_merge'), ldak = opt$ldak, n_cores = opt$n_cores, chr = CHROMS)
+full_cors <- ldak_pred_cor(bfile = paste0(tmp_dir, '/ref_merge'), ldak = opt$ldak, n_cores = opt$n_cores, chr = GWAS_CHROMS)
 
 # Run MegaPRS
 log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
@@ -217,7 +220,7 @@ system(paste0(opt$ldak, ' --pseudo-summaries ', tmp_dir, '/GWAS_sumstats_temp.ps
 
 # Calculate predictor-predictor correlations
 log_add(log_file = log_file, message = 'Calculating predictor-predictor correlations.')
-subset_cors <- ldak_pred_cor(bfile = paste0(tmp_dir, '/ref_merge'), keep = paste0(tmp_dir, '/keepb'), ldak = opt$ldak, n_cores = opt$n_cores, chr = CHROMS)
+subset_cors <- ldak_pred_cor(bfile = paste0(tmp_dir, '/ref_merge'), keep = paste0(tmp_dir, '/keepb'), ldak = opt$ldak, n_cores = opt$n_cores, chr = GWAS_CHROMS)
 
 # Run megaPRS
 log_add(log_file = log_file, message = paste0('Running MegaPRS: ',opt$prs_model,' model.'))
@@ -255,6 +258,13 @@ ref_pvar <- read_pvar(dat = opt$ref_plink_chr, chr = CHROMS)
 ref_pvar$Predictor<-paste0(ref_pvar$CHR,':',ref_pvar$BP)
 score<-merge(score, ref_pvar[,c('Predictor','SNP'), with=F], by='Predictor')
 score<-score[, c('SNP', 'A1', 'A2', names(score)[grepl('Model', names(score))]), with=F]
+
+print(head(score))
+
+if(opt$pseudo_only){
+  score <- score[,c('SNP','A1','A2', paste0('Model', gsub('Score_','',best_score$V1[1]))), with = F]
+}
+
 names(score)[grepl('Model', names(score))]<-paste0('SCORE_ldak_',names(score)[grepl('Model', names(score))])
 
 # Flip effects to match reference alleles

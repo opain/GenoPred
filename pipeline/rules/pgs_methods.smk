@@ -277,7 +277,8 @@ rule prep_pgs_lassosum_i:
     "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    testing=config["testing"]
+    testing=config["testing"],
+    pseudo_only_flag = lambda wildcards: "T" if config.get("lassosum_pseudo_only", False) else "F"
   shell:
     "Rscript ../Scripts/pgs_methods/lassosum.R \
      --ref_plink_chr {refdir}/ref.chr \
@@ -288,6 +289,7 @@ rule prep_pgs_lassosum_i:
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
      --n_cores {threads} \
      --pop_data {refdir}/ref.pop.txt \
+     --pseudo_only {params.pseudo_only_flag} \
      --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_lassosum:
@@ -409,7 +411,8 @@ rule prep_pgs_megaprs_i:
     "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    testing=config["testing"]
+    testing=config["testing"],
+    pseudo_only_flag = lambda wildcards: "T" if config.get("megaprs_pseudo_only", False) else "F"
   shell:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir}/ref.chr \
@@ -423,6 +426,7 @@ rule prep_pgs_megaprs_i:
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
+      --pseudo_only {params.pseudo_only_flag} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_megaprs:

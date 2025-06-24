@@ -105,6 +105,7 @@ log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
 sumstats <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','BP','A1','A2','BETA','SE','N','P'))
+GWAS_CHROMS<-unique(sumstats$CHR)
 
 # Update header for bigsnpr
 names(sumstats)<-c('chr','rsid','pos','a1','a0','beta','beta_se','n_eff','p')
@@ -183,7 +184,7 @@ if(ldsc[["h2"]] < 0.05){
 log_add(log_file = log_file, message = 'Creating genome-wide sparse matrix.')
 
 # Create genome-wide sparse LD matrix
-for (chr in CHROMS) {
+for (chr in GWAS_CHROMS) {
   ## indices in 'sumstats'
   ind.chr <- which(sumstats$chr == chr)
   ## indices in 'map'
