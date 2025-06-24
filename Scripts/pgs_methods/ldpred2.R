@@ -31,7 +31,9 @@ option_list = list(
   make_option("--seed", action="store", default=1, type='numeric',
       help="Set seed to ensure reproducibility  [optional]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
-      help="GWAS summary statistics [required]")
+      help="GWAS summary statistics [required]"),
+  make_option("--h2", action="store", default=NULL, type='numeric',
+              help="SNP-based heritability [optional]")
 )
 
 opt = parse_args(OptionParser(option_list = option_list))
@@ -59,6 +61,9 @@ if(is.null(opt$pop_data)){
 }
 if(is.null(opt$output)){
   stop('--output must be specified.\n')
+}
+if(is.null(opt$h2)){
+  stop('--h2 must be specified.\n')
 }
 
 # Create output directory
@@ -172,13 +177,19 @@ if(sum(is_bad) > (length(is_bad)*0.5)){
 # Estimate heritability
 #######
 
-ldsc <- with(sumstats, snp_ldsc(ld, nrow(map), chi2 = (beta / beta_se)^2, sample_size = n_eff, blocks = NULL))
+if(file.exists(opt$h2)){
+  opt$h2<-read.table(opt$h2, header=F)$V1
+} else {
+  opt$h2<-0.05
+}
 
-log_add(log_file = log_file, message = paste0('Estimated SNP-based heritability = ', ldsc[["h2"]]))
-
-if(ldsc[["h2"]] < 0.05){
-  ldsc[["h2"]] <- 0.05
+if(opt$h2 < 0.05){
+  opt$h2 <- 0.05
   log_add(log_file = log_file, message = 'SNP-based heritability was set to 0.05.')
+}
+if(opt$h2 > 1){
+  opt$h2 <- 1
+  log_add(log_file = log_file, message = 'SNP-based heritability was set to 1')
 }
 
 log_add(log_file = log_file, message = 'Creating genome-wide sparse matrix.')
@@ -194,7 +205,7 @@ for (chr in GWAS_CHROMS) {
 
   corr0 <- readRDS(paste0(opt$ldpred2_ref_dir, '/LD_with_blocks_chr', chr, '.rds'))[ind.chr3, ind.chr3]
 
-  if (chr == CHROMS[1]) {
+  if (chr == GWAS_CHROMS[1]) {
     corr <- as_SFBM(corr0, paste0(tmp_dir, '/LD_GW_sparse'), compact = TRUE)
   } else {
     corr$add_columns(corr0, nrow(corr))
@@ -215,7 +226,7 @@ set.seed(opt$seed)
 #####
 
 if('inf' %in% opt$model){
-  beta_inf <- snp_ldpred2_inf(corr, sumstats, ldsc[["h2"]])
+  beta_inf <- snp_ldpred2_inf(corr, sumstats, opt$h2)
 
   log_add(log_file = log_file, message = paste0('Infintesimal model complete at ',as.character(Sys.time())))
 }
@@ -227,7 +238,7 @@ if('inf' %in% opt$model){
 if('grid' %in% opt$model){
 
   # Create hyperparameter grid
-  h2_seq <- round(ldsc[["h2"]] * c(0.7, 1, 1.4), 4)
+  h2_seq <- round(opt$h2 * c(0.7, 1, 1.4), 4)
   p_seq <- signif(seq_log(1e-5, 1, length.out = 21), 2)
   params <- expand.grid(p = p_seq, h2 = h2_seq, sparse = c(FALSE, TRUE))
 
@@ -253,7 +264,7 @@ if('auto' %in% opt$model){
 
   for(coef_shrink_i in coef_shrink){
     multi_auto <- snp_ldpred2_auto(
-      corr, sumstats, h2_init = ldsc[["h2"]],
+      corr, sumstats, h2_init = opt$h2,
       vec_p_init = seq_log(1e-4, 0.2, length.out = 30), ncores = opt$n_cores,
       allow_jump_sign = FALSE, shrink_corr = coef_shrink_i)
 
@@ -356,7 +367,7 @@ if(opt$inference){
   log_add(log_file = log_file, message = 'Performing inference...')
   coef_shrink_i
   multi_auto <- snp_ldpred2_auto(
-    corr, sumstats, h2_init = ldsc[["h2"]],
+    corr, sumstats, h2_init = opt$h2,
     vec_p_init = seq_log(1e-4, 0.2, length.out = 50), ncores = opt$n_cores,
     burn_in = 500, num_iter = 500, report_step = 20,
     allow_jump_sign = FALSE, shrink_corr = coef_shrink_i)

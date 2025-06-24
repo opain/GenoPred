@@ -273,7 +273,7 @@ if config['ldpred2_ldref'] == 'NA':
 else:
   ldpred2_ldref=config['ldpred2_ldref']
 
-# Check the ldpred2 ldref data is present for the required populations in the pgwas_list
+# Check the ldpred2 ldref data is present for the required populations in the gwas_list
 if 'ldpred2' in config['pgs_methods']:
   for pop in gwas_list_df['population'].unique():
     path = f"{ldpred2_ldref}/{pop}"
@@ -292,26 +292,17 @@ if 'ldpred2' in config['pgs_methods']:
 
 # Set sbayesr reference path
 if config['sbayesr_ldref'] == 'NA':
-  sbayesr_ldref=f"{resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr"
+  sbayesr_ldref=f"{resdir}/data/gctb_ref"
 else:
   sbayesr_ldref=config['sbayesr_ldref']
 
 # Check the sbayesr ldref data is present for the required populations in the gwas_list
 if 'sbayesr' in config['pgs_methods']:
   for pop in gwas_list_df['population'].unique():
-    path = f"{sbayesr_ldref}/{pop}"
-    # Check if map.rds file exists
-    map_file = os.path.join(path, "map.rds")
-    if not os.path.exists(map_file):
-      print(f"File not found: {map_file}")
-      raise FileNotFoundError(f"Required file not found: {map_file}. SBayesR reference data must include map.rds for all populations.")
-
-    # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
-    for chr in range(1, 23):
-      ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
-      if not os.path.exists(ld_file):
-        print(f"File not found: {ld_file}")
-        raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
+    bin_file = f"{sbayesr_ldref}/{pop}/{pop}.chr22.ldm.sparse.bin"
+    if not os.path.exists(bin_file):
+      print(f"File not found: {bin_file}")
+      raise FileNotFoundError(f"Required file not found: {bin_file}. SBayesR reference data must include all populations in gwas_list.")
 
 # Set quickprs reference path
 if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickprs" in config["pgs_methods"]:
@@ -816,7 +807,7 @@ rule download_prscs_snp_data_1kg:
 # Download gctb reference
 rule download_gctb_ref:
   output:
-    directory(f"{resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse")
+    directory(f"{resdir}/data/gctb_ref/EUR")
   benchmark:
     f"{resdir}/data/benchmarks/download_gctb_ref.txt"
   log:
@@ -827,14 +818,16 @@ rule download_gctb_ref:
       mkdir -p {resdir}/data/gctb_ref; \
       wget --no-check-certificate -O {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; \
       unzip {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip -d {resdir}/data/gctb_ref; \
+      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse {resdir}/data/gctb_ref/EUR
       for chr in $(seq 1 22);do \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.ldm.sparse.bin; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.ldm.sparse.info; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.log; \
       done; \
       rm {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip
     }} > {log} 2>&1
     """
+
 # Download GCTB
 rule download_gctb_software:
   output:
@@ -1239,7 +1232,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@f462267c07cf43440aaf91c53c2af3605fec1b5f\")'
     }} > {log} 2>&1
     """
 

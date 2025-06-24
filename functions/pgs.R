@@ -98,7 +98,18 @@ list_score_files <- function(config){
   combos <- data.table(combos)
   combos <- combos[, lapply(.SD, as.character)]
   
-  return(combos)
+  # Remove score files where .score.gz does not exist
+  combos_keep <- NULL
+  for(i in 1:nrow(combos)){
+    score_i <- paste0(outdir, '/reference/pgs_score_files/', combos$method[i],'/', combos$name[i],'/ref-',combos$name[i], '.score.gz')
+    if(file.exists(score_i)){
+      combos_keep <- rbind(combos_keep, combos[i,])
+    } else {
+      cat0('No score file present for ', combos$method[i],' - ', combos$name[i],'. Check logs for reason.\n')
+    }
+  }
+  
+  return(combos_keep)
 }
 
 # Flip effects in score file to match A1 reference
@@ -314,7 +325,7 @@ read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, r
 }
 
 # Run LDSC
-ldsc <- function(sumstats, ldsc, hm3_snplist, munge_sumstats, ld_scores, pop_prev = NULL, sample_prev = NULL, log_file = NULL){
+ldsc <- function(sumstats, ldsc, hm3_snplist, munge_sumstats, ld_scores, log_file = NULL){
   tmp_dir<-tempdir()
 
   # Munge the sumstats
@@ -324,31 +335,43 @@ ldsc <- function(sumstats, ldsc, hm3_snplist, munge_sumstats, ld_scores, pop_pre
   sumstats_path <- file.path(tmp_dir,'/munged.sumstats.gz')
   output_path <- file.path(tmp_dir, '/ldsc')
 
-  # Run the appropriate LDSC command based on the availability of prevalence data
-  if(!is.null(pop_prev) && !is.null(sample_prev)) {
-    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld ', ld_scores, ' --w-ld ', ld_scores, ' --out ', output_path, ' --samp-prev ', sample_prev, ' --pop-prev ', pop_prev))
-    scale_type <- "Liability"
-  } else {
-    system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld ', ld_scores, ' --w-ld ', ld_scores, ' --out ', output_path))
-    scale_type <- "Observed"
-  }
+  # Run LDSC
+  system(paste0(ldsc, ' --h2 ', sumstats_path, ' --ref-ld ', ld_scores, ' --w-ld ', ld_scores, ' --out ', output_path))
 
-  # Read the log file and extract heritability
+  # Read the log file
   ldsc_log <- readLines(paste0(tmp_dir, '/ldsc.log'))
-  pattern <- paste0('Total ', scale_type, ' scale h2: ')
-  ldsc_h2 <- gsub(pattern, '', ldsc_log[grepl(pattern, ldsc_log)])
-
+  
+  # Extract Total Observed h² and SE
+  h2_line <- grep("^Total Observed scale h2:", ldsc_log, value = TRUE)
+  h2_parts <- regmatches(h2_line, regexec("h2:\\s+([0-9.]+)\\s+\\(([0-9.]+)\\)", h2_line))[[1]]
+  h2 <- as.numeric(h2_parts[2])
+  h2_se <- as.numeric(h2_parts[3])
+  
+  # Extract lambda GC
+  lambda_line <- grep("^Lambda GC:", ldsc_log, value = TRUE)
+  lambda_gc <- as.numeric(sub("Lambda GC:\\s+", "", lambda_line))
+  
+  # Extract intercept and its SE
+  intercept_line <- grep("^Intercept:", ldsc_log, value = TRUE)
+  intercept_parts <- regmatches(intercept_line, regexec("Intercept:\\s+([0-9.]+)\\s+\\(([0-9.]+)\\)", intercept_line))[[1]]
+  intercept <- as.numeric(intercept_parts[2])
+  intercept_se <- as.numeric(intercept_parts[3])
+  
+  # Return as a data frame
+  results <- data.frame(
+    h2 = h2,
+    h2_se = h2_se,
+    lambda_gc = lambda_gc,
+    intercept = intercept,
+    intercept_se = intercept_se
+  )
+  
   # Log the heritability estimate
-  log_add(log_file = log_file, message = paste0('SNP-heritability estimate on the ', tolower(scale_type), ' scale = ', ldsc_h2, '.'))
-
-  # Process and return the heritability estimate
-  ldsc_h2 <- as.numeric(sub(' .*', '', ldsc_h2))
-  if(!is.na(ldsc_h2) && ldsc_h2 > 1){
-    ldsc_h2 <- 1
-    log_add(log_file = log_file, message = paste0('Setting SNP-heritability estimate to 1.'))
-  }
-
-  return(ldsc_h2)
+  log_add(log_file = log_file, message = paste0('SNP-heritability estimate on the observed scale = ', results$h2, " (", results$h2_se, ")."))
+  log_add(log_file = log_file, message = paste0('LDSC intercept = ', results$intercept, " (", results$intercept_se, ")."))
+  log_add(log_file = log_file, message = paste0('Lambda GC = ', results$lambda_gc, "."))
+  
+  return(results)
 }
 
 # Match A1 and A2 match a reference
