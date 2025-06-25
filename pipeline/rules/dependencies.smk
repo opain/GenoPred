@@ -435,7 +435,7 @@ def check_pgs_methods(x):
         return
 
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "xwing", "prscsx", "bridgeprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr", "xwing", "prscsx", "bridgeprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
@@ -449,7 +449,7 @@ check_pgs_methods(config['pgs_methods'])
 # Check valid tlprs_methods are specified
 def check_tlprs_methods(config):
     valid_tlprs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs"
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "sdpr", "megaprs", "quickprs"
     }
 
     # Check if 'tlprs_methods' is empty
@@ -466,7 +466,7 @@ check_tlprs_methods(config)
 # Check valid leopard_methods are specified
 def check_leopard_methods(config):
     valid_leopard_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs","quickprs"
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr"
     }
 
     # Check if 'leopard_methods' is empty
@@ -1214,6 +1214,24 @@ rule install_lassosum:
     """
     {{
       Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'
+    }} > {log} 2>&1
+    """
+
+# install sdpr
+rule install_sdpr:
+  output:
+    touch(f"{resdir}/software/install_sdpr.done")
+  benchmark:
+    f"{resdir}/data/benchmarks/install_sdpr.txt"
+  log:
+    f"{resdir}/data/logs/install_sdpr.log"
+  shell:
+    """
+    {{
+      rm -r -f resources/software/sdpr; \
+      git clone https://github.com/eldronzhou/SDPR {resdir}/software/sdpr; \
+      cd resources/software/sdpr; \
+      git reset --hard 0bb6481802903452272ef6f0a8c5bbf4b362fe9d
     }} > {log} 2>&1
     """
 

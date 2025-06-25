@@ -1,16 +1,16 @@
 #!/usr/bin/Rscript
 
 # Identify score files (name and method combinations)
-list_score_files <- function(config){
+list_score_files <- function(config, quiet = F){
 
   combos<-NULL
 
   # Read in gwas_list
-  gwas_list <- read_param(config = config, param = 'gwas_list')
+  gwas_list <- read_param(config = config, param = 'gwas_list', quiet = quiet)
 
   if(!is.null(gwas_list)){
     # Identify PGS methods to be included
-    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F, quiet = quiet)
 
     # Remove methods that are applied to groups of gwas
     pgs_methods_list <- pgs_methods_list[!(pgs_methods_list %in% pgs_group_methods)]
@@ -26,9 +26,9 @@ list_score_files <- function(config){
   }
 
   # Read in score_list
-  score_list <- read_param(config = config, param = 'score_list')
+  score_list <- read_param(config = config, param = 'score_list', quiet = quiet)
 
-  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F, quiet = quiet)
 
   if(!is.null(score_list)){
     # Read in score_reporter output
@@ -45,7 +45,7 @@ list_score_files <- function(config){
   }
 
   # Read in gwas_groups
-  gwas_groups <- read_param(config = config, param = 'gwas_groups')
+  gwas_groups <- read_param(config = config, param = 'gwas_groups', quiet = quiet)
 
   # Methods implemented when GWAS groups contains only 2 GWAS
   if(!is.null(gwas_groups)){
@@ -53,7 +53,7 @@ list_score_files <- function(config){
     gwas_groups_2 <- gwas_groups[sapply(gwas_groups$gwas, function(x) sum(strsplit(x, ",")[[1]] != "") == 2), ]
     
     # Identify PGS methods to be included
-    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F, quiet = quiet)
 
     # Retain methods that are applied to groups with only 2 gwas
     pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% c('prscsx', 'xwing'))]
@@ -62,13 +62,13 @@ list_score_files <- function(config){
     combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = pgs_methods_list))
     
     # For TL-PRS, list combos for tlprs_methods
-    tlprs_methods<-read_param(config = config, param = 'tlprs_methods', return_obj = F)
+    tlprs_methods<-read_param(config = config, param = 'tlprs_methods', return_obj = F, quiet = quiet)
     if(length(tlprs_methods) > 1 || !is.na(tlprs_methods)){
       combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = paste0('tlprs_', tlprs_methods)))
     }
     
     # For LEOPARD, list combos for leopard_methods
-    leopard_methods<-read_param(config = config, param = 'leopard_methods', return_obj = F)
+    leopard_methods<-read_param(config = config, param = 'leopard_methods', return_obj = F, quiet = quiet)
     if(length(leopard_methods) > 1 || !is.na(leopard_methods)){
       combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = paste0(leopard_methods,'_multi')))
     }
@@ -80,7 +80,7 @@ list_score_files <- function(config){
     gwas_groups_more <- gwas_groups[sapply(gwas_groups$gwas, function(x) sum(strsplit(x, ",")[[1]] != "") > 2), ]
     
     # Identify PGS methods to be included
-    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+    pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F, quiet = quiet)
     
     # Retain methods that are applied to groups with only 2 gwas
     pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% c('prscsx'))]
@@ -105,7 +105,9 @@ list_score_files <- function(config){
     if(file.exists(score_i)){
       combos_keep <- rbind(combos_keep, combos[i,])
     } else {
-      cat0('No score file present for ', combos$method[i],' - ', combos$name[i],'. Check logs for reason.\n')
+      if(quiet == F){
+        cat0('No score file present for ', combos$method[i],' - ', combos$name[i],'. Check logs for reason.\n')
+      }
     }
   }
   
@@ -814,3 +816,11 @@ lrt_af_dual <- function(p1, n1, p0, n0) {
   
   return(list(stat = stat, p = pval))
 }
+
+# New version of lassosum p2cor function that allows for increased precision
+z2cor<-function(z, n){
+  t <- qt(pnorm(abs(z), lower.tail = FALSE, log.p = TRUE), df = n,
+          lower.tail = FALSE, log.p = TRUE) * sign(z)
+  return(t/sqrt(n - 2 + t^2))
+}
+

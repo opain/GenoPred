@@ -369,6 +369,55 @@ rule prep_pgs_lassosum:
   input: expand(f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
+# SDPR
+##
+
+rule prep_pgs_sdpr_i:
+  resources:
+    mem_mb=10000
+  threads: config['cores_prep_pgs']
+  input:
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    rules.install_sdpr.output,
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+  output:
+    f"{outdir}/reference/pgs_score_files/sdpr/{{gwas}}/ref-{{gwas}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_sdpr_i-{{gwas}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_sdpr_i-{{gwas}}.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    testing=config["testing"]
+  shell:
+    """
+    export MKL_NUM_THREADS=1; \
+    export NUMEXPR_NUM_THREADS=1; \
+    export OMP_NUM_THREADS=1; \
+    export OPENBLAS_NUM_THREADS=1; \
+
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/MKL/lib; \
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/gsl/lib; \
+
+    Rscript ../Scripts/pgs_methods/sdpr.R \
+         --ref_plink_chr {refdir}/ref.chr \
+         --ref_keep {refdir}/keep_files/{params.population}.keep \
+         --gwas_pop {params.population} \
+         --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+         --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+         --output {outdir}/reference/pgs_score_files/sdpr/{wildcards.gwas}/ref-{wildcards.gwas} \
+         --n_cores {threads} \
+         --pop_data {refdir}/ref.pop.txt \
+         --sdpr {resdir}/software/sdpr/SDPR \
+         --test {params.testing} > {log} 2>&1
+    """
+
+rule prep_pgs_sdpr:
+  input: expand(f"{outdir}/reference/pgs_score_files/sdpr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+
+##
 # LDpred2
 ##
 
@@ -718,7 +767,6 @@ rule prep_pgs_external_i:
       --score {params.score} \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
-      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_external:
@@ -1115,6 +1163,8 @@ if 'xwing' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_xwing.input)
 if 'bridgeprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_bridgeprs.input)
+if 'sdpr' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_sdpr.input)
 
 rule prep_pgs:
   input:
