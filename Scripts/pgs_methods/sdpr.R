@@ -99,22 +99,11 @@ fwrite(gwas, paste0(tmp_dir,'/sumstats.txt'), row.names=F, quote=F, sep=' ', na=
 write.table(gwas$SNP, paste0(tmp_dir,'/sumstats.extract'), col.names=F, row.names=F, quote=F)
 
 ###
-# Create LD reference data
-###
-
-log_add(log_file = log_file, message = 'Preparing reference data.')
-
-dir.create(paste0(tmp_dir, '/ref_ld'))
-dir.create(paste0(tmp_dir, '/ref_mat'))
-for(i in GWAS_CHROMS){
-  system(paste0(opt$plink2, ' --pfile ', opt$ref_plink_chr, i, ' --keep ', opt$ref_keep,' --extract ', tmp_dir, '/sumstats.extract --make-bed --out ', tmp_dir, '/ref_ld/chr', i))
-  system(paste0(opt$sdpr, ' -make_ref -ref_prefix ', tmp_dir, '/ref_ld/chr', i,' -r2 0.1 -chr ', i,' -ref_dir ', tmp_dir, '/ref_mat/'))
-}
-
-###
 # Run SDPR
 ###
 
+dir.create(paste0(tmp_dir, '/ref_ld'))
+dir.create(paste0(tmp_dir, '/ref_mat'))
 dir.create(paste0(tmp_dir, '/result'))
 
 log_add(log_file = log_file, message = 'Running SDPR.')
@@ -122,34 +111,57 @@ log_add(log_file = log_file, message = 'Running SDPR.')
 score <- NULL
 h2_total <- 0
 
+run_sdpr <- function(chr, r2 = 0.1) {
+  # Build LD reference
+  system(paste0(
+    opt$sdpr, ' -make_ref -ref_prefix ', tmp_dir, '/ref_ld/chr', chr,
+    ' -r2 ', r2,
+    ' -chr ', chr,
+    ' -ref_dir ', tmp_dir, '/ref_mat/'
+  ))
+  
+  # Run SDPR and return output
+  system(paste0(
+    opt$sdpr,
+    ' -mcmc -ref_dir ', tmp_dir, '/ref_mat/',
+    ' -ss ', tmp_dir, '/sumstats.txt',
+    ' -N ', round(gwas_N, 0),
+    ' -chr ', chr,
+    ' -out ', tmp_dir, '/result/SDPR_chr', chr, '.txt'
+  ), intern = TRUE)
+}
+
 for (i in GWAS_CHROMS) {
   message("Running SDPR on chr", i)
   
-  # Run SDPR and capture output as character vector
-  sdpr_output <- system(
-    paste0(opt$sdpr,
-           ' -mcmc -ref_dir ', tmp_dir, '/ref_mat/',
-           ' -ss ', tmp_dir, '/sumstats.txt',
-           ' -N ', round(gwas_N, 0),
-           ' -chr ', i,
-           ' -out ', tmp_dir, '/result/SDPR_chr', i, '.txt'),
-    intern = TRUE
-  )
-  
-  # Extract h2 from the final line (e.g., "h2: 0.075861 max: 0.446189")
-  h2_line <- sdpr_output[grepl("^h2:", sdpr_output)]
-  if (length(h2_line) == 1) {
-    h2_val <- as.numeric(sub("h2: ([0-9.]+).*", "\\1", h2_line))
-    h2_total <- h2_total + h2_val
-  } else {
-    warning("Could not extract h2 from chromosome ", i)
+  # Build LD reference
+  system(paste0(
+    opt$plink2, ' --pfile ', opt$ref_plink_chr, i,
+    ' --keep ', opt$ref_keep,
+    ' --extract ', tmp_dir, '/sumstats.extract',
+    ' --make-bed --out ', tmp_dir, '/ref_ld/chr', i
+  ))
+
+  r2<-0.1
+  while(i){
+    sdpr_output <- run_sdpr(i, r2 = r2)
+    h2_line <- sdpr_output[grepl("^h2:", sdpr_output)]
+    if (!grepl('h2: -nan', h2_line)) {
+      break
+    }
+    
+    log_add(log_file = log_file, message = paste0("SDPR failed on chr ", i, " even with r2=", r2, "."))
+    r2 <- r2 + 0.1
   }
   
-  # Read the final SDPR output score file
-  score <- rbind(
-    score,
-    fread(paste0(tmp_dir, '/result/SDPR_chr', i, '.txt'))
-  )
+  # Parse and sum heritability
+  h2_val <- as.numeric(sub("h2: ([0-9.]+).*", "\\1", h2_line))
+  h2_total <- h2_total + h2_val
+  
+  # Load the score output
+  score_file <- paste0(tmp_dir, '/result/SDPR_chr', i, '.txt')
+  score <- rbind(score, fread(score_file))
+
 }
 
 log_add(log_file = log_file, message = paste0('SNP-based heritability = ', h2_total, '.'))
@@ -157,8 +169,8 @@ log_add(log_file = log_file, message = paste0('SNP-based heritability = ', h2_to
 # Insert A2 info
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
 score <- merge(score, ref, by = c('SNP','A1'))
-names(score)[names(score) == 'beta'] <- 'SDPR'
-score <- score[, c('SNP','A1','A2','SDPR'), with=F]
+names(score)[names(score) == 'beta'] <- 'SCORE_SDPR'
+score <- score[, c('SNP','A1','A2','SCORE_SDPR'), with=F]
 
 # Flip effects to match reference alleles
 score <- map_score(ref = ref, score = score)
