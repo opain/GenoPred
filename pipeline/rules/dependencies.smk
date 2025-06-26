@@ -893,10 +893,11 @@ rule download_sbayesrc_annot:
     """
 
 # Download SBayesRC reference data
+# Using the version from my paper rather than that released by developers as AFR link is broken.
 sbayesrc_ref_urls = {
-    'EUR': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbEUR_HM3.zip',
-    'EAS': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbEAS_HM3.zip',
-    'AFR': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbAFR_HM3.zip'
+    'EUR': '1O05z8nQhPqATuhfQvhJq7LEuxS0bzlXm',
+    'EAS': '1eUtC9JEodJf2tnDFbU-xabO_UwL2JutF',
+    'AFR': '1osaNy_EyFAoIQd2ZNOoRJbZsr9Vwr9NP'
 }
 
 rule download_sbayesrc_ref:
@@ -907,16 +908,15 @@ rule download_sbayesrc_ref:
   log:
     f"{resdir}/data/logs/download_sbayesrc_ref-{{population}}.log"
   params:
-    url=lambda w: sbayesrc_ref_urls.get(w.population)
+    id=lambda w: sbayesrc_ref_urls.get(w.population)
   shell:
     """
     {{
       mkdir -p {resdir}/data/sbayesrc_ref; \
       rm -r -f {resdir}/data/sbayesrc_ref/{wildcards.population}; \
-      wget --no-check-certificate -O {resdir}/data/sbayesrc_ref/{wildcards.population}.zip {params.url}; \
-      unzip {resdir}/data/sbayesrc_ref/{wildcards.population}.zip -d {resdir}/data/sbayesrc_ref/{wildcards.population}; \
-      rm {resdir}/data/sbayesrc_ref/{wildcards.population}.zip; \
-      mv {resdir}/data/sbayesrc_ref/{wildcards.population}/ukb{wildcards.population}_HM3/* {resdir}/data/sbayesrc_ref/{wildcards.population}/
+      gdown {params.id} -O {resdir}/data/sbayesrc_ref/{wildcards.population}.zip; \
+      unzip {resdir}/data/sbayesrc_ref/{wildcards.population}.zip -d {resdir}/data/sbayesrc_ref/; \
+      rm {resdir}/data/sbayesrc_ref/{wildcards.population}.zip
     }} > {log} 2>&1
     """
 
