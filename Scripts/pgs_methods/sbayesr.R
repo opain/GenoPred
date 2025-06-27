@@ -91,8 +91,9 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
-gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('SNP','A1','A2','FREQ','BETA','SE','P','N'))
-
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','A1','A2','FREQ','BETA','SE','P','N'))
+GWAS_CHROMS<-unique(gwas$CHR)
+gwas$CHR<-NULL
 ###
 # Change to COJO format
 ###
@@ -144,7 +145,7 @@ if(per_var_N == F & opt$impute_N == T){
   sbayesr_opt <- paste0(sbayesr_opt, '--impute-n ')
 }
 
-error<-foreach(i = CHROMS, .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
+error<-foreach(i = GWAS_CHROMS, .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
   log <- system(paste0(opt$gctb, ' --sbayes R --ldm ', opt$ld_matrix_chr, i, '.ldm.sparse --pi 0.95,0.02,0.02,0.01 --gamma 0.0,0.01,0.1,1 --gwas-summary ', tmp_dir, '/GWAS_sumstats_COJO.txt --chain-length 10000 ', sbayesr_opt, '--exclude-mhc --burn-in 2000 --out-freq 1000 --out ', tmp_dir, '/GWAS_sumstats_SBayesR.chr', i),  intern = T)
 
   # Check whether the analysis converged
@@ -173,7 +174,7 @@ if(sum(grepl('Error', error$Log) == T) > 1){
 
 # Combine per chromosome snpRes files
 snpRes<-NULL
-for(i in CHROMS){
+for(i in GWAS_CHROMS){
   snpRes <- rbind(snpRes, fread(paste0(tmp_dir, '/GWAS_sumstats_SBayesR.chr', i, '.snpRes')))
 }
 
@@ -199,14 +200,14 @@ if(!is.na(opt$test)){
 
 # Combine per chromosome parRes files
 parRes_mcmc <- list()
-for(i in CHROMS){
+for(i in GWAS_CHROMS){
 	parRes_mcmc[[i]] <- fread(paste0(tmp_dir, '/GWAS_sumstats_SBayesR.chr', i, '.mcmcsamples.Par'))
 }
 
 parRes <- NULL
 for(par in names(parRes_mcmc[[i]])){
 	parRes_mcmc_par <- NULL
-	for(i in CHROMS){
+	for(i in GWAS_CHROMS){
 		parRes_mcmc_par <- cbind(parRes_mcmc_par, parRes_mcmc[[i]][[par]])
 	}
 

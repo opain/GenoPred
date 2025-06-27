@@ -277,7 +277,8 @@ rule prep_pgs_lassosum_i:
     "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    testing=config["testing"]
+    testing=config["testing"],
+    pseudo_only_flag = lambda wildcards: "T" if config.get("lassosum_pseudo_only", False) else "F"
   shell:
     "Rscript ../Scripts/pgs_methods/lassosum.R \
      --ref_plink_chr {refdir}/ref.chr \
@@ -288,6 +289,7 @@ rule prep_pgs_lassosum_i:
      --output {outdir}/reference/pgs_score_files/lassosum/{wildcards.gwas}/ref-{wildcards.gwas} \
      --n_cores {threads} \
      --pop_data {refdir}/ref.pop.txt \
+     --pseudo_only {params.pseudo_only_flag} \
      --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_lassosum:
@@ -341,6 +343,49 @@ rule prep_pgs_ldpred2:
   input: expand(f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
+# lassosum2
+##
+
+rule prep_pgs_lassosum2_i:
+  resources:
+    mem_mb=30000,
+    time_min=2800
+  threads: config['cores_prep_pgs']
+  input:
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    lambda w: f"{ldpred2_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+  output:
+    f"{outdir}/reference/pgs_score_files/lassosum2/{{gwas}}/ref-{{gwas}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_lassosum2_i-{{gwas}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_lassosum2_i-{{gwas}}.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
+    binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
+    testing=config["testing"]
+  shell:
+    "export OPENBLAS_NUM_THREADS=1; \
+    Rscript ../Scripts/pgs_methods/lassosum2.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
+      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+      --n_cores {threads} \
+      --output {outdir}/reference/pgs_score_files/lassosum2/{wildcards.gwas}/ref-{wildcards.gwas} \
+      --pop_data {refdir}/ref.pop.txt \
+      --binary {params.binary} \
+      --sample_prev {params.sampling} \
+      --test {params.testing} > {log} 2>&1"
+
+rule prep_pgs_lassosum2:
+  input: expand(f"{outdir}/reference/pgs_score_files/lassosum2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+
+##
 # LDAK MegaPRS
 ##
 
@@ -366,7 +411,8 @@ rule prep_pgs_megaprs_i:
     "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    testing=config["testing"]
+    testing=config["testing"],
+    pseudo_only_flag = lambda wildcards: "T" if config.get("megaprs_pseudo_only", False) else "F"
   shell:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir}/ref.chr \
@@ -380,6 +426,7 @@ rule prep_pgs_megaprs_i:
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/megaprs/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
+      --pseudo_only {params.pseudo_only_flag} \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_megaprs:
@@ -489,7 +536,7 @@ rule prep_pgs_sbayesrc_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/ldm.info",
+    lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/block148.eigen.bin",
     rules.download_gctb252_software.output,
     rules.download_sbayesrc_annot.output,
     rules.install_genoutils_sbayesrc.output,
@@ -626,6 +673,7 @@ rule leopard_quickprs_i:
     lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{quickprs_multi_ldref}/{{population}}/{{population}}.subset_1.bed", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    rules.download_xwing_software.output,
     rules.download_ldak_highld.output,
     rules.download_ldak5_2.output,
     rules.download_ldak_map.output,
@@ -666,7 +714,7 @@ rule leopard_quickprs:
 ####
 
 # Define the single_source methods that can be applied to non-EUR data
-single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs"}
+single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs"}
 
 # Find which single source methods have been requested
 requested_single_source_methods = list(single_source_methods.intersection(pgs_methods_all))
@@ -961,6 +1009,8 @@ if 'lassosum' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_lassosum.input)
 if 'ldpred2' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_ldpred2.input)
+if 'lassosum2' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_lassosum2.input)
 if 'megaprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_megaprs.input)
 if 'quickprs' in pgs_methods_all:

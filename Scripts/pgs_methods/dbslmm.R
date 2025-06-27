@@ -167,10 +167,10 @@ if(any(ldsc_h2*opt$h2f > 1)){
 # Save in plink1 format for DBSLMM
 if(!is.null(opt$ref_keep)){
   log_add(log_file = log_file, message = 'ref_keep used to subset reference genotype data.')
-  plink_subset(pfile = opt$ref_plink_chr, make_bed = T, out = paste0(tmp_dir,'/ref_subset_chr'), plink2 = opt$plink2, chr = CHROMS, keep = opt$ref_keep, memory = opt$memory)
+  plink_subset(pfile = opt$ref_plink_chr, make_bed = T, out = paste0(tmp_dir,'/ref_subset_chr'), extract = gwas$SNP, plink2 = opt$plink2, chr = CHROMS, keep = opt$ref_keep, memory = opt$memory)
   opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset_chr')
 } else {
-  plink_subset(pfile = opt$ref_plink_chr, make_bed = T, out = paste0(tmp_dir,'/ref_subset_chr'), plink2 = opt$plink2, chr = CHROMS, memory = opt$memory)
+  plink_subset(pfile = opt$ref_plink_chr, make_bed = T, out = paste0(tmp_dir,'/ref_subset_chr'), extract = gwas$SNP, plink2 = opt$plink2, chr = CHROMS, memory = opt$memory)
   opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset_chr')
 }
 

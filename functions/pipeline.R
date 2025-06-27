@@ -369,6 +369,10 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   if(pgs_method == 'ldpred2'){
     pseudo_val <- 'beta_auto'
   }
+  if(pgs_method == 'lassosum2'){
+    col_names <- names(fread(paste0(outdir,'/reference/pgs_score_files/',pgs_method,'/',gwas,'/ref-',gwas,'.score.gz'), nrows = 0))
+    pseudo_val <- gsub('SCORE_', '', col_names[length(col_names)])
+  }
   if(pgs_method == 'prscs'){
     pseudo_val <- 'phi_auto'
   }

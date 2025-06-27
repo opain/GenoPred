@@ -27,6 +27,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
+library(bigstatsr)
 source('../functions/misc.R')
 source_all('../functions')
 library(foreach)
@@ -180,30 +181,40 @@ for(chr_i in CHROMS){
       score = paste0(tmp_dir,'/all_score.txt'),
       keep = opt$target_keep,
       frq = opt$ref_freq_chr,
-      threads = opt$n_cores
+      threads = opt$n_cores,
+      fbm = T
     )
 
   # Sum scores across chromosomes
   if(chr_i == CHROMS[1]){
-    scores_ids <- scores_i[, 1:2, with = F]
-    current_scores <- as.matrix(scores_i[, -1:-2, with = FALSE])
-    scores <- current_scores
-  } else {
-    current_scores <- as.matrix(scores_i[, -1:-2, with = FALSE])
-    scores <- scores + current_scores
+    scores_ids <- scores_i$ids
+    cols <- scores_i$cols
+    
+    # Initialize a FBM (backed on disk) for running PGS sum
+    file.remove(paste0(tmp_dir, '/PGS_fbm.bk'))
+    scores <- FBM(
+      nrow = nrow(scores_ids),
+      ncol = length(cols),
+      backingfile = paste0(tmp_dir, '/PGS_fbm'),
+      init = 0
+    )
   }
-
-  system(paste0('rm ', tmp_dir, '/all_score.txt'))
-  system(paste0('rm ', tmp_dir, '/row_index.txt'))
-  system(paste0('rm ', tmp_dir, '/map.txt'))
+  
+  # In-place addition: for each score column
+  for (j in cols) {
+    scores[, which(cols == j)] <- scores[, which(cols == j)] + scores_i$scores[,which(scores_i$cols == j)]
+  }
+  
+  file.remove(scores_i$scores$backingfile,
+              scores_i$scores$rds)
   rm(scores_i)
-  rm(current_scores)
   gc()
 }
 
 # Combine score with IDs
-scores<-data.table(scores_ids,
-                   scores)
+scores <- as.data.table(matrix(scores[,], ncol = length(cols)))
+setnames(scores, cols)
+scores <- cbind(scores_ids, scores)
 
 ###
 # Scale the polygenic scores based on the reference

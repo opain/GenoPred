@@ -1,5 +1,16 @@
-def ancestry_munge(x, scaling='continuous'):
-    # Ensure scaling is a list
+def ancestry_munge(x, scaling=['continuous'], target_populations=None):
+    """
+    Process ancestry report and return list of populations based on scaling type and target population filter.
+
+    Parameters:
+    - x (str): Name of the ancestry checkpoint
+    - scaling (list): ['discrete', 'continuous'] specifying how to scale ancestry effects
+    - target_populations (list or None): Optional list of population codes to include (e.g., ['EUR', 'EAS'])
+
+    Returns:
+    - list: A list of populations to be used
+    """
+
     if not isinstance(scaling, list):
         raise ValueError("The scaling parameter must be a list (e.g., ['discrete', 'continuous']).")
 
@@ -9,23 +20,28 @@ def ancestry_munge(x, scaling='continuous'):
 
     # Read ancestry report
     ancestry_report_df = pd.read_table(checkpoint_output, sep=' ')
-
+    available_populations = ancestry_report_df['population'].tolist()
+    
     # Extract population list
     population_list = ancestry_report_df['population'].tolist()
 
+    # Filter based on target_populations if specified
+    if target_populations not in [None, "NA"]:
+        missing = [pop for pop in target_populations if pop not in available_populations]
+        if missing:
+            print(f"[ancestry_munge] The following target populations were not found in ancestry report: {missing}")
+        population_list = [pop for pop in target_populations if pop in available_populations]
+    else:
+        population_list = available_populations
+
     # Handle scaling logic
     if 'continuous' in scaling and 'discrete' not in scaling:
-        # Only continuous scaling
         return ['TRANS']
     elif 'continuous' in scaling and 'discrete' in scaling:
-        # Both continuous and discrete scaling
-        population_list.append('TRANS')
-        return population_list
+        return population_list + ['TRANS']
     elif 'discrete' in scaling and 'continuous' not in scaling:
-        # Only discrete scaling
         return population_list
     else:
-        # Raise an error for invalid scaling input
         raise ValueError("Invalid value for scaling. Must include 'continuous', 'discrete', or both.")
 
 # Define which pgs_methods are can be applied to any GWAS population
@@ -106,7 +122,7 @@ rule target_pgs_i:
 
 rule target_pgs_all:
   input:
-    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{population}}.done", name=w.name, population = ancestry_munge(w.name, scaling = config["pgs_scaling"]))
+    lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{population}}.done", name=w.name, population = ancestry_munge(w.name, scaling = config["pgs_scaling"], target_populations = config['target_populations']))
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done")
 
