@@ -536,7 +536,7 @@ rule prep_pgs_sbayesrc_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/ldm.info",
+    lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/block148.eigen.bin",
     rules.download_gctb252_software.output,
     rules.download_sbayesrc_annot.output,
     rules.install_genoutils_sbayesrc.output,
@@ -673,6 +673,7 @@ rule leopard_quickprs_i:
     lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{quickprs_multi_ldref}/{{population}}/{{population}}.subset_1.bed", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
+    rules.download_xwing_software.output,
     rules.download_ldak_highld.output,
     rules.download_ldak5_2.output,
     rules.download_ldak_map.output,
