@@ -274,22 +274,22 @@ if config['ldpred2_ldref'] == 'NA':
 else:
   ldpred2_ldref=config['ldpred2_ldref']
 
-# Check the ldpred2 ldref data is present for the required populations in the pgwas_list
-if 'ldpred2' in config['pgs_methods']:
-  for pop in gwas_list_df['population'].unique():
-    path = f"{ldpred2_ldref}/{pop}"
-    # Check if map.rds file exists
-    map_file = os.path.join(path, "map.rds")
-    if not os.path.exists(map_file):
-      print(f"File not found: {map_file}")
-      raise FileNotFoundError(f"Required file not found: {map_file}. LDpred2 reference data must include map.rds for all populations.")
-
-    # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
-    for chr in range(1, 23):
-      ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
-      if not os.path.exists(ld_file):
-        print(f"File not found: {ld_file}")
-        raise FileNotFoundError(f"Required file not found: {ld_file}. LDpred2 reference data must include files for all chromosomes.")
+  # Check the ldpred2 ldref data is present for the required populations in the gwas_list
+  if 'ldpred2' in config['pgs_methods']:
+    for pop in gwas_list_df['population'].unique():
+      path = f"{ldpred2_ldref}/{pop}"
+      # Check if map.rds file exists
+      map_file = os.path.join(path, "map.rds")
+      if not os.path.exists(map_file):
+        print(f"File not found: {map_file}")
+        raise FileNotFoundError(f"Required file not found: {map_file}. LDpred2 reference data must include map.rds for all populations.")
+  
+      # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
+      for chr in range(1, 23):
+        ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
+        if not os.path.exists(ld_file):
+          print(f"File not found: {ld_file}")
+          raise FileNotFoundError(f"Required file not found: {ld_file}. LDpred2 reference data must include files for all chromosomes.")
 
 # Set sbayesr reference path
 if config['sbayesr_ldref'] == 'NA':
@@ -297,22 +297,22 @@ if config['sbayesr_ldref'] == 'NA':
 else:
   sbayesr_ldref=config['sbayesr_ldref']
 
-# Check the sbayesr ldref data is present for the required populations in the gwas_list
-if 'sbayesr' in config['pgs_methods']:
-  for pop in gwas_list_df['population'].unique():
-    path = f"{sbayesr_ldref}/{pop}"
-    # Check if map.rds file exists
-    map_file = os.path.join(path, "map.rds")
-    if not os.path.exists(map_file):
-      print(f"File not found: {map_file}")
-      raise FileNotFoundError(f"Required file not found: {map_file}. SBayesR reference data must include map.rds for all populations.")
-
-    # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
-    for chr in range(1, 23):
-      ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
-      if not os.path.exists(ld_file):
-        print(f"File not found: {ld_file}")
-        raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
+  # Check the sbayesr ldref data is present for the required populations in the gwas_list
+  if 'sbayesr' in config['pgs_methods']:
+    for pop in gwas_list_df['population'].unique():
+      path = f"{sbayesr_ldref}/{pop}"
+      # Check if map.rds file exists
+      map_file = os.path.join(path, "map.rds")
+      if not os.path.exists(map_file):
+        print(f"File not found: {map_file}")
+        raise FileNotFoundError(f"Required file not found: {map_file}. SBayesR reference data must include map.rds for all populations.")
+  
+      # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
+      for chr in range(1, 23):
+        ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
+        if not os.path.exists(ld_file):
+          print(f"File not found: {ld_file}")
+          raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
 
 # Set quickprs reference path
 if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickprs" in config["pgs_methods"]:
