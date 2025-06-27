@@ -100,7 +100,8 @@ def check_config_parameters(config):
 
     missing_params = []
     for param in required_params:
-        if config.get(param) is None:
+        val = config.get(param)
+        if val is None or (param == "config_file" and val == "NA"):
             missing_params.append(param)
 
     if missing_params:
@@ -1036,9 +1037,9 @@ rule download_ldak_map:
     {{
       rm -r {resdir}/data/ldak_map; \
       mkdir -p {resdir}/data/ldak_map; \
-      wget --no-check-certificate -O {resdir}/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; \
-      unzip {resdir}/data/ldak_map/genetic_map_b37.zip -d {resdir}/data/ldak_map/; \
-      rm {resdir}/data/ldak_map/genetic_map_b37.zip
+      gdown 1mtw5Mx-F-Ws7lKLFqMh6nN4OrDGZTkZG -O {resdir}/data/ldak_map.tar.gz; \
+      tar -zxvf {resdir}/data/ldak_map.tar.gz -C {resdir}/data/; \
+      rm {resdir}/data/ldak_map.tar.gz
     }} > {log} 2>&1
     """
     
