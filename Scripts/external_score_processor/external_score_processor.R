@@ -8,8 +8,6 @@ option_list = list(
 		help="Path to per chromosome reference PLINK files [required]"),
 	make_option("--ref_pcs", action="store", default=NULL, type='character',
 	  help="Reference PCs for continuous ancestry correction [optional]"),
-	make_option("--pop_data", action="store", default=NULL, type='character',
-		help="File containing the population code and location of the keep file [required]"),
 	make_option("--plink2", action="store", default='plink2', type='character',
 		help="Path PLINKv2 software binary [optional]"),
 	make_option("--output", action="store", default=NULL, type='character',
@@ -32,9 +30,7 @@ source_all('../functions')
 if(is.null(opt$ref_plink_chr)){
   stop('--ref_plink_chr must be specified.\n')
 }
-if(is.null(opt$pop_data)){
-  stop('--pop_data must be specified.\n')
-}
+
 if(is.null(opt$output)){
   stop('--output must be specified.\n')
 }
@@ -143,7 +139,7 @@ if(chr_bp_avail){
 	}
 
 	if(!is.na(target_build)){
-		for(i in chrs){
+		for(i in unique(score$CHR)){
 			# Read reference data
 			ref_i<-readRDS(file = paste0(ref_rds,i,'.rds'))
 
@@ -174,7 +170,7 @@ if(chr_bp_avail){
 			matched<-rbind(matched, flipped)
 
 			# Retain reference SNP and REF.FREQ data
-			matched<-matched[, names(matched) %in% c('CHR','BP','A1','A2','effect_weight'), with=F]
+			matched<-matched[, names(matched) %in% c('CHR','BP','REF.SNP', 'A1','A2','effect_weight'), with=F]
 			names(matched)[names(matched) == 'REF.SNP']<-'SNP'
 
 			targ_matched<-rbind(targ_matched, matched)
@@ -242,6 +238,10 @@ if(nrow(targ_matched) < 0.75*n_snp_orig){
 	# Format as score file for GenoPred
 	####
 
+  score <- targ_matched
+  
+  print(head(targ_matched))
+  
 	score$CHR <- NULL
 	score$BP <- NULL
 	score <- score[, c('SNP','A1','A2','effect_weight'), with = F]
@@ -258,29 +258,6 @@ if(nrow(targ_matched) < 0.75*n_snp_orig){
 	}
 
 	system(paste0('gzip ',opt$output,'.score'))
-
-	####
-	# Calculate mean and sd of polygenic scores
-	####
-
-	log_add(log_file = log_file, message = 'Calculating polygenic scores in reference.')
-
-	# Calculate scores in the full reference
-	ref_pgs <- plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.score.gz'))
-
-	if(!is.null(opt$ref_pcs)){
-	  log_add(log_file = log_file, message = 'Deriving trans-ancestry PGS models...')
-	  # Derive trans-ancestry PGS models and estimate PGS residual scale
-	  model_trans_pgs(scores=ref_pgs, pcs=opt$ref_pcs, output=opt$output)
-	}
-	
-	# Calculate scale within each reference population
-	pop_data <- read_pop_data(opt$pop_data)
-
-	for(pop_i in unique(pop_data$POP)){
-  	ref_pgs_scale_i <- score_mean_sd(scores = ref_pgs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  	fwrite(ref_pgs_scale_i, paste0(opt$output, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
-	}
 }
 
 end.time <- Sys.time()

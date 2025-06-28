@@ -22,6 +22,8 @@ option_list = list(
       help="Number of cores to use [optional]"),
 	make_option("--pseudo_only", action="store", default=F, type='logical',
       help="Logical indicating whether only pseudovalidated model should be output [optional]"),
+	make_option("--sdpr", action="store", default=F, type='character',
+      help="Path to SDPR binary [required]"),
 	make_option("--test", action="store", default=NA, type='character',
 	    help="Specify number of SNPs to include [optional]"),
 	make_option("--sumstats", action="store", default=NULL, type='character',
@@ -68,7 +70,7 @@ tmp_dir<-tempdir()
 
 # Initiate log file
 log_file <- paste0(opt$output,'.log')
-log_header(log_file = log_file, opt = opt, script = 'lassosum.R', start.time = start.time)
+log_header(log_file = log_file, opt = opt, script = 'sdpr.R', start.time = start.time)
 
 # If testing, change CHROMS to chr value
 if(!is.na(opt$test) && opt$test == 'NA'){
@@ -85,114 +87,98 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
-gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','BP','A1','A2','BETA','SE','N'))
-
-# Store average sample size
-gwas_N <- mean(gwas$N)
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','A1','A2','BETA','SE','N'))
 
 GWAS_CHROMS <- unique(gwas$CHR)
+gwas_N <- mean(gwas$N)
+
+# Format for SDPR
+gwas$Z <- gwas$BETA/gwas$SE
+gwas<-gwas[, c('SNP','A1','A2','Z'), with = F]
+fwrite(gwas, paste0(tmp_dir,'/sumstats.txt'), row.names=F, quote=F, sep=' ', na='NA')
+write.table(gwas$SNP, paste0(tmp_dir,'/sumstats.extract'), col.names=F, row.names=F, quote=F)
 
 ###
-# Merge the per chromosome reference genetic data and subset opt$ref_keep
+# Run SDPR
 ###
 
-log_add(log_file = log_file, message = 'Merging per chromosome reference data.')
+dir.create(paste0(tmp_dir, '/ref_ld'))
+dir.create(paste0(tmp_dir, '/ref_mat'))
+dir.create(paste0(tmp_dir, '/result'))
 
-# Save in plink1 format for lassosum
-plink_merge(pfile = opt$ref_plink_chr, chr = GWAS_CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, extract = gwas$SNP, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
+log_add(log_file = log_file, message = 'Running SDPR.')
 
-# Record start time for test
-if(!is.na(opt$test)){
-  test_start.time <- test_start(log_file = log_file)
+score <- NULL
+h2_total <- 0
+
+run_sdpr <- function(chr, r2 = 0.1) {
+  # Build LD reference
+  system(paste0(
+    opt$sdpr, ' -make_ref -ref_prefix ', tmp_dir, '/ref_ld/chr', chr,
+    ' -r2 ', r2,
+    ' -chr ', chr,
+    ' -ref_dir ', tmp_dir, '/ref_mat/'
+  ))
+  
+  # Run SDPR and return output
+  system(paste0(
+    opt$sdpr,
+    ' -mcmc -ref_dir ', tmp_dir, '/ref_mat/',
+    ' -ss ', tmp_dir, '/sumstats.txt',
+    ' -N ', round(gwas_N, 0),
+    ' -chr ', chr,
+    ' -out ', tmp_dir, '/result/SDPR_chr', chr, '.txt'
+  ), intern = TRUE)
 }
 
-#####
-# Calculate correlation between SNP and phenotype
-#####
+for (i in GWAS_CHROMS) {
+  message("Running SDPR on chr", i)
+  
+  # Build LD reference
+  system(paste0(
+    opt$plink2, ' --pfile ', opt$ref_plink_chr, i,
+    ' --keep ', opt$ref_keep,
+    ' --extract ', tmp_dir, '/sumstats.extract',
+    ' --make-bed --out ', tmp_dir, '/ref_ld/chr', i
+  ))
 
-cor<-z2cor(z=gwas$BETA/gwas$SE, n = gwas_N)
-
-#####
-# Perform lassosum to shrink effects using a range of parameters
-#####
-
-log_add(log_file = log_file, message = 'Running lassosum pipeline.')
-
-# Change directory to lassosum package for access to LDblock data
-setwd(system.file("data", package="lassosum"))
-
-# Identify LD block data to be used
-if(opt$gwas_pop %in% c('EUR','AFR')){
-  ld_block_dat <- paste0(opt$gwas_pop,'.hg19')
-}
-if(opt$gwas_pop %in% 'EAS'){
-  ld_block_dat <- 'ASN.hg19'
-}
-if(opt$gwas_pop %in% c('AMR','SAS')){
-  ld_block_dat <- 'EUR.hg19'
-  log_add(log_file = log_file, message = 'Using LD block data for EUR.')
-}
-
-# Run pipeline
-out <- lassosum.pipeline(
-  cor = cor,
-  chr = gwas$CHR,
-  pos = gwas$BP,
-  A1 = gwas$A1,
-  A2 = gwas$A2,
-  ref.bfile = paste0(tmp_dir, '/ref_merge'),
-  LDblocks = ld_block_dat,
-  cluster = cl)
-
-# Change working directory back to the original
-setwd(orig_wd)
-
-# Format score file
-score_file <- data.table(SNP = gwas$SNP[out$sumstats$order], out$sumstats[c('A1', 'A2')])
-
-for(i in 1:length(out$s)){
-  for(k in 1:length(out$lambda)){
-    score_file_tmp<-data.table(out$beta[[i]][,k])
-    names(score_file_tmp)<-paste0('SCORE_s', out$s[i], '_lambda', out$lambda[k])
-    score_file<-cbind(score_file, score_file_tmp)
+  r2<-0.1
+  while(i){
+    sdpr_output <- run_sdpr(i, r2 = r2)
+    h2_line <- sdpr_output[grepl("^h2:", sdpr_output)]
+    if (!grepl('h2: -nan', h2_line)) {
+      break
+    }
+    
+    log_add(log_file = log_file, message = paste0("SDPR failed on chr ", i, " even with r2=", r2, "."))
+    r2 <- r2 + 0.1
   }
+  
+  # Parse and sum heritability
+  h2_val <- as.numeric(sub("h2: ([0-9.]+).*", "\\1", h2_line))
+  h2_total <- h2_total + h2_val
+  
+  # Load the score output
+  score_file <- paste0(tmp_dir, '/result/SDPR_chr', i, '.txt')
+  score <- rbind(score, fread(score_file))
+
 }
 
-#####
-# Perform pseudovalidation
-#####
+log_add(log_file = log_file, message = paste0('SNP-based heritability = ', h2_total, '.'))
 
-log_add(log_file = log_file, message = 'Performing pseudovalidation.')
-
-# Change directory to lassosum package for access to LDblock data
-setwd(system.file("data", package="lassosum"))
-# Run pseudovalidation
-v <- pseudovalidate(out, plot = F)
-# Change working directory back to the original
-setwd(orig_wd)
-
-# Subset the validated lassosum model
-out2 <- subset(out, s=v$best.s, lambda=v$best.lambda)
-
-log_add(log_file = log_file, message = c(
-  'Pseudovalidated parameters:',
-  paste0('s = ', out2$s),
-  paste0('lambda = ', out2$lambda),
-  paste0('value = ', v$validation.table$value[v$validation.table$lambda == v$best.lambda & v$validation.table$s == v$best.s])
-))
-
-if(opt$pseudo_only){
-  score_file <- score_file[, c('SNP','A1','A2',paste0('SCORE_s', out2$s, '_lambda', out2$lambda)), with=F]
-}
+# Insert A2 info
+ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
+score <- merge(score, ref, by = c('SNP','A1'))
+names(score)[names(score) == 'beta'] <- 'SCORE_SDPR'
+score <- score[, c('SNP','A1','A2','SCORE_SDPR'), with=F]
 
 # Flip effects to match reference alleles
-ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
-score_new <- map_score(ref = ref, score = score_file)
+score <- map_score(ref = ref, score = score)
 
 # Reduce number of significant figures to save space
-score_new[, (4:ncol(score_new)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_new)]
+score[, (4:ncol(score)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score)]
 
-fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+fwrite(score, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))

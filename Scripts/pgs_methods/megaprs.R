@@ -167,14 +167,41 @@ log_add(log_file = log_file, message = 'Estimating per-predictor heritabilities.
 system(paste0(opt$ldak, ' --cut-weights ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
 system(paste0(opt$ldak, ' --calc-weights-all ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
 system(paste0('mkdir ', tmp_dir, '/bld'))
-system(paste0('cp ', opt$ldak_tag, '/* ', tmp_dir, '/bld/'))
-system(paste0('mv ', tmp_dir, '/sections/weights.short ', tmp_dir,'/bld/bld65'))
+for(i in list.files(opt$ldak_tag)){
+  system(paste0('ln -s ', getwd(), '/', opt$ldak_tag, '/', i, ' ', tmp_dir, '/bld/', i))
+}
+system(paste0('ln -s ', tmp_dir, '/sections/weights.short ', tmp_dir,'/bld/bld65'))
+
+# Remove annotations that contain no variants in sumstats
+# NOTE. Ignoring missing annotations could be a suggested improvement to MegaPRS
+# Initialise
+kept <- c()
+new_index <- 1
+
+# Filter and renumber annotation files
+for (i in 1:65) {
+  print(i)
+  bld_path <- file.path(tmp_dir, "bld", paste0("bld", i))
+  bld_i <- fread(bld_path, header = FALSE)$V1
+  if (any(bld_i %in% gwas$Predictor)) {
+    new_path <- file.path(tmp_dir, "bld", paste0("bld", new_index))
+    file.rename(bld_path, new_path)
+    kept <- c(kept, new_index)
+    new_index <- new_index + 1
+  } else {
+    file.remove(bld_path)  # optional: remove unused files
+    log_add(log_file = log_file, message = paste0("Annotation file ", i, " was removed as no overlap with GWAS"))
+  }
+}
+
+# Number of valid annotations
+n_valid <- length(kept)
 
 # Calculate taggings
 if(length(GWAS_CHROMS) != 1){
-  system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --save-matrix YES --max-threads ', opt$n_cores))
+  system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number ', n_valid, ' --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --save-matrix YES --max-threads ', opt$n_cores))
 } else {
-  system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number 65 --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --chr ', GWAS_CHROMS, ' --save-matrix YES --max-threads ', opt$n_cores))
+  system(paste0(opt$ldak, ' --calc-tagging ', tmp_dir, '/bld.ldak --bfile ', tmp_dir, '/ref_merge --ignore-weights YES --power -.25 --annotation-number ', n_valid, ' --annotation-prefix ', tmp_dir, '/bld/bld --window-cm 1 --chr ', GWAS_CHROMS, ' --save-matrix YES --max-threads ', opt$n_cores))
 }
 
 # Calculate Per-Predictor Heritabilities.
@@ -258,8 +285,6 @@ ref_pvar <- read_pvar(dat = opt$ref_plink_chr, chr = CHROMS)
 ref_pvar$Predictor<-paste0(ref_pvar$CHR,':',ref_pvar$BP)
 score<-merge(score, ref_pvar[,c('Predictor','SNP'), with=F], by='Predictor')
 score<-score[, c('SNP', 'A1', 'A2', names(score)[grepl('Model', names(score))]), with=F]
-
-print(head(score))
 
 if(opt$pseudo_only){
   score <- score[,c('SNP','A1','A2', paste0('Model', gsub('Score_','',best_score$V1[1]))), with = F]

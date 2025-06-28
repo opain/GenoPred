@@ -73,7 +73,7 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
         }
         file_i<-paste0(outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, '.profiles')
         if(pseudo_only){
-          pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i)
+          pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i, quiet = T)
 
           score_header <-
             fread(file_i, nrows = 1)
@@ -172,7 +172,7 @@ read_pgs_2 <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop
         }
         file_i<-paste0(outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, part, '.profiles')
         if(pseudo_only){
-          pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i)
+          pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i, quiet = T)
           
           score_header <-
             fread(file_i, nrows = 1)
@@ -192,7 +192,7 @@ read_pgs_2 <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop
 }
 
 # Create function to read in parameters in the config file
-read_param <- function(config, param, return_obj = T){
+read_param <- function(config, param, return_obj = T, quiet = F){
   library(yaml)
 
   # Read in the config file
@@ -203,10 +203,14 @@ read_param <- function(config, param, return_obj = T){
     config_file <- read_yaml('config.yaml')
 
     if(all(names(config_file) != param)){
-      cat(param, 'parameter is not present in user specified config file or default config file.\n')
+      if(quiet == F){
+        cat(param, 'parameter is not present in user specified config file or default config file.\n')
+      }
       return(NULL)
     } else {
-      cat(param, 'parameter is not present in user specified config file, so will use value in default config file.\n')
+      if(quiet == F){
+        cat(param, 'parameter is not present in user specified config file, so will use value in default config file.\n')
+      }
     }
   }
 
@@ -224,7 +228,7 @@ read_param <- function(config, param, return_obj = T){
   # If refdir, and NA, set to '<resdir>/data/ref'
   if(param == 'refdir'){
     if(is.na(file)){
-      resdir <- read_param(config = config, param = 'resdir', return_obj = F)
+      resdir <- read_param(config = config, param = 'resdir', return_obj = F, quiet = quiet)
       file <- paste0(resdir, '/data/ref')
     }
   }
@@ -277,7 +281,7 @@ read_ancestry <- function(config, name){
 }
 
 # Return score corresponding to pseudovalidation
-find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
+find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL, quiet = F){
 
   if(length(pgs_method) > 1){
     stop('Only one pgs_method can be specified at a time')
@@ -293,10 +297,10 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   }
 
   # Read in gwas_list
-  gwas_list <- read_param(config = config, param = 'gwas_list')
+  gwas_list <- read_param(config = config, param = 'gwas_list', quiet = quiet)
 
   # Read in gwas_groups
-  gwas_groups <- read_param(config = config, param = 'gwas_groups')
+  gwas_groups <- read_param(config = config, param = 'gwas_groups', quiet = quiet)
 
   # If pgs_method is multi-source, subset gwas_list to gwas in relevant group
   if(grepl(paste0('^', pgs_group_methods, '$', collapse = '|'), pgs_method) | grepl('_multi$', pgs_method)){
@@ -304,7 +308,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   }
 
   # Identify score files
-  score_file_list <- list_score_files(config)
+  score_file_list <- list_score_files(config, quiet = quiet)
 
   # Subset requested gwas
   if(!is.null(gwas)){
@@ -323,7 +327,7 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   }
 
   # Find outdir
-  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F, quiet = quiet)
 
   # If TLPRS, find pseudo param, and then edit value for TLPRS
   tlprs <- ifelse(grepl('tlprs', pgs_method), T, F)
@@ -354,6 +358,9 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL){
   # Pseudoval only methods
   if(pgs_method == 'sbayesr'){
     pseudo_val <- 'SBayesR'
+  } 
+  if(pgs_method == 'sdpr'){
+    pseudo_val <- 'SDPR'
   }
   if(pgs_method == 'sbayesrc'){
     pseudo_val <- 'SBayesRC'
@@ -483,7 +490,7 @@ read_reference_pgs <- function(config){
           outdir, '/reference/pgs_score_files/', pgs_method_i, '/',  gwas_i, '/ref-', gwas_i, '-TRANS.profiles'
         )
       )
-    pseudo_param <- find_pseudo(config = config, gwas = gwas_i, pgs_method = pgs_method_i, target_pop = 'TRANS')
+    pseudo_param <- find_pseudo(config = config, gwas = gwas_i, pgs_method = pgs_method_i, target_pop = 'TRANS', quiet =T)
     pgs[[gwas_i]][[pgs_method_i]]<-pgs[[gwas_i]][[pgs_method_i]][,c('FID','IID',paste0('SCORE_',pseudo_param)), with=F]
   }
   

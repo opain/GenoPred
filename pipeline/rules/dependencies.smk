@@ -338,7 +338,6 @@ else:
         if not os.path.exists(ld_file):
           print(f"File not found: {ld_file}")
           raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
-
 # Set quickprs reference path
 if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickprs" in config["pgs_methods"]:
   if config['quickprs_ldref'] == 'NA':
@@ -470,7 +469,7 @@ def check_pgs_methods(x):
         return
 
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "xwing", "prscsx", "bridgeprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr", "xwing", "prscsx", "bridgeprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
@@ -484,7 +483,7 @@ check_pgs_methods(config['pgs_methods'])
 # Check valid tlprs_methods are specified
 def check_tlprs_methods(config):
     valid_tlprs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs"
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "sdpr", "megaprs", "quickprs"
     }
 
     # Check if 'tlprs_methods' is empty
@@ -501,7 +500,7 @@ check_tlprs_methods(config)
 # Check valid leopard_methods are specified
 def check_leopard_methods(config):
     valid_leopard_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs","quickprs"
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr"
     }
 
     # Check if 'leopard_methods' is empty
@@ -842,7 +841,7 @@ rule download_prscs_snp_data_1kg:
 # Download gctb reference
 rule download_gctb_ref:
   output:
-    directory(f"{resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse")
+    directory(f"{resdir}/data/gctb_ref/EUR")
   benchmark:
     f"{resdir}/data/benchmarks/download_gctb_ref.txt"
   log:
@@ -853,14 +852,16 @@ rule download_gctb_ref:
       mkdir -p {resdir}/data/gctb_ref; \
       wget --no-check-certificate -O {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; \
       unzip {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip -d {resdir}/data/gctb_ref; \
+      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse {resdir}/data/gctb_ref/EUR
       for chr in $(seq 1 22);do \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.ldm.sparse.bin; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.ldm.sparse.info; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.log; \
       done; \
       rm {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip
     }} > {log} 2>&1
     """
+
 # Download GCTB
 rule download_gctb_software:
   output:
@@ -1251,6 +1252,24 @@ rule install_lassosum:
     }} > {log} 2>&1
     """
 
+# install sdpr
+rule install_sdpr:
+  output:
+    touch(f"{resdir}/software/install_sdpr.done")
+  benchmark:
+    f"{resdir}/data/benchmarks/install_sdpr.txt"
+  log:
+    f"{resdir}/data/logs/install_sdpr.log"
+  shell:
+    """
+    {{
+      rm -r -f resources/software/sdpr; \
+      git clone https://github.com/eldronzhou/SDPR {resdir}/software/sdpr; \
+      cd resources/software/sdpr; \
+      git reset --hard 0bb6481802903452272ef6f0a8c5bbf4b362fe9d
+    }} > {log} 2>&1
+    """
+
 # Install GenoUtils
 rule install_genoutils:
   input:
@@ -1266,7 +1285,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@f462267c07cf43440aaf91c53c2af3605fec1b5f\")'
     }} > {log} 2>&1
     """
 
