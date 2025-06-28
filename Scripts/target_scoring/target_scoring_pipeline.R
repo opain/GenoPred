@@ -212,7 +212,7 @@ for(chr_i in CHROMS){
 }
 
 # Combine score with IDs
-scores <- as.data.table(scores[,])
+scores <- as.data.table(matrix(scores[,], ncol = length(cols)))
 setnames(scores, cols)
 scores <- cbind(scores_ids, scores)
 

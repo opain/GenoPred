@@ -100,12 +100,16 @@ def check_config_parameters(config):
 
     missing_params = []
     for param in required_params:
-        if config.get(param) is None:
+        val = config.get(param)
+        if val is None:
             missing_params.append(param)
 
     if missing_params:
         print("Error: Missing parameters in user-specified and default config files:", missing_params)
         sys.exit(1)
+        
+    if config.get("config_file") == "NA":
+        print("Warning: No user specified config file was provided.")
 
 # Check the config
 check_config_parameters(config)
@@ -270,40 +274,70 @@ else:
 # Set ldpred2 reference path
 if config['ldpred2_ldref'] == 'NA':
   ldpred2_ldref=f"{resdir}/data/ldpred2_ref"
+    
+  if 'ldpred2' in config['pgs_methods']:
+    # Check if gwas_list contains invalid populations
+    valid_pops = {'EUR'}
+    invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
+  
+    if invalid_pops:
+      raise ValueError(
+        f"Default ldpred2 reference data is only available for EUR populations. For other populations, please provide your own ldpred2 reference data using the ldpred2_ldref parameter. Download links to LDpred2 reference data for EUR, EAS and AFR populations can be found in this section of the website: https://opain.github.io/GenoPred/pipeline_readme.html#Specifying_alternative_reference_data_for_PGS_methods"
+      )
+
 else:
   ldpred2_ldref=config['ldpred2_ldref']
 
-# Check the ldpred2 ldref data is present for the required populations in the gwas_list
-if 'ldpred2' in config['pgs_methods']:
-  for pop in gwas_list_df['population'].unique():
-    path = f"{ldpred2_ldref}/{pop}"
-    # Check if map.rds file exists
-    map_file = os.path.join(path, "map.rds")
-    if not os.path.exists(map_file):
-      print(f"File not found: {map_file}")
-      raise FileNotFoundError(f"Required file not found: {map_file}. LDpred2 reference data must include map.rds for all populations.")
-
-    # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
-    for chr in range(1, 23):
-      ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
-      if not os.path.exists(ld_file):
-        print(f"File not found: {ld_file}")
-        raise FileNotFoundError(f"Required file not found: {ld_file}. LDpred2 reference data must include files for all chromosomes.")
+  # Check the ldpred2 ldref data is present for the required populations in the gwas_list
+  if 'ldpred2' in config['pgs_methods']:
+    for pop in gwas_list_df['population'].unique():
+      path = f"{ldpred2_ldref}/{pop}"
+      # Check if map.rds file exists
+      map_file = os.path.join(path, "map.rds")
+      if not os.path.exists(map_file):
+        print(f"File not found: {map_file}")
+        raise FileNotFoundError(f"Required file not found: {map_file}. LDpred2 reference data must include map.rds for all populations.")
+  
+      # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
+      for chr in range(1, 23):
+        ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
+        if not os.path.exists(ld_file):
+          print(f"File not found: {ld_file}")
+          raise FileNotFoundError(f"Required file not found: {ld_file}. LDpred2 reference data must include files for all chromosomes.")
 
 # Set sbayesr reference path
 if config['sbayesr_ldref'] == 'NA':
-  sbayesr_ldref=f"{resdir}/data/gctb_ref"
+  sbayesr_ldref=f"{resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr"
+  
+  if 'sbayesr' in config['pgs_methods']:
+    # Check if gwas_list contains invalid populations
+    valid_pops = {'EUR'}
+    invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
+  
+    if invalid_pops:
+      raise ValueError(
+        f"Default sbayesr reference data is only available for EUR populations. For other populations, please provide your own sbayesr reference data using the sbayesr_ldref parameter."
+      )
+
 else:
   sbayesr_ldref=config['sbayesr_ldref']
 
-# Check the sbayesr ldref data is present for the required populations in the gwas_list
-if 'sbayesr' in config['pgs_methods']:
-  for pop in gwas_list_df['population'].unique():
-    bin_file = f"{sbayesr_ldref}/{pop}/{pop}.chr22.ldm.sparse.bin"
-    if not os.path.exists(bin_file):
-      print(f"File not found: {bin_file}")
-      raise FileNotFoundError(f"Required file not found: {bin_file}. SBayesR reference data must include all populations in gwas_list.")
-
+  # Check the sbayesr ldref data is present for the required populations in the gwas_list
+  if 'sbayesr' in config['pgs_methods']:
+    for pop in gwas_list_df['population'].unique():
+      path = f"{sbayesr_ldref}/{pop}"
+      # Check if map.rds file exists
+      map_file = os.path.join(path, "map.rds")
+      if not os.path.exists(map_file):
+        print(f"File not found: {map_file}")
+        raise FileNotFoundError(f"Required file not found: {map_file}. SBayesR reference data must include map.rds for all populations.")
+  
+      # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
+      for chr in range(1, 23):
+        ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
+        if not os.path.exists(ld_file):
+          print(f"File not found: {ld_file}")
+          raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
 # Set quickprs reference path
 if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickprs" in config["pgs_methods"]:
   if config['quickprs_ldref'] == 'NA':
@@ -879,17 +913,18 @@ rule download_sbayesrc_annot:
     {{
       rm -r -f {resdir}/data/sbayesrc_annot; \
       mkdir -p {resdir}/data/sbayesrc_annot; \
-      wget --no-check-certificate -O {resdir}/data/sbayesrc_annot/annot_baseline2.2.zip https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/Annotation/annot_baseline2.2.zip; \
+      gdown 1-dUPvduYB1zZewsItCNKcM7RvOAOojlP -O {resdir}/data/sbayesrc_annot/annot_baseline2.2.zip; \
       unzip {resdir}/data/sbayesrc_annot/annot_baseline2.2.zip -d {resdir}/data/sbayesrc_annot; \
       rm {resdir}/data/sbayesrc_annot/annot_baseline2.2.zip
     }} > {log} 2>&1
     """
 
 # Download SBayesRC reference data
-sbayesrc_ref_urls = {
-    'EUR': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbEUR_HM3.zip',
-    'EAS': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbEAS_HM3.zip',
-    'AFR': 'https://sbayes.pctgplots.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbAFR_HM3.zip'
+# Links to developer gdrive
+sbayesrc_ref_dev_urls = {
+    'EUR': '1HkxMT2UJKK__TfqNcZQoO7Q9XGnVtI28',
+    'EAS': '1qytY1H3ZracD2OoyqjsPjsTjxl9qdQ-c',
+    'AFR': '1kPOp2mc1odJBInd66sC40aKNwOhC--5A'
 }
 
 rule download_sbayesrc_ref:
@@ -900,16 +935,16 @@ rule download_sbayesrc_ref:
   log:
     f"{resdir}/data/logs/download_sbayesrc_ref-{{population}}.log"
   params:
-    url=lambda w: sbayesrc_ref_urls.get(w.population)
+    id=lambda w: sbayesrc_ref_dev_urls.get(w.population)
   shell:
     """
     {{
       mkdir -p {resdir}/data/sbayesrc_ref; \
       rm -r -f {resdir}/data/sbayesrc_ref/{wildcards.population}; \
-      wget --no-check-certificate -O {resdir}/data/sbayesrc_ref/{wildcards.population}.zip {params.url}; \
-      unzip {resdir}/data/sbayesrc_ref/{wildcards.population}.zip -d {resdir}/data/sbayesrc_ref/{wildcards.population}; \
-      rm {resdir}/data/sbayesrc_ref/{wildcards.population}.zip; \
-      mv {resdir}/data/sbayesrc_ref/{wildcards.population}/ukb{wildcards.population}_HM3/* {resdir}/data/sbayesrc_ref/{wildcards.population}/
+      gdown {params.id} -O {resdir}/data/sbayesrc_ref/{wildcards.population}.xz; \
+      tar -xJf {resdir}/data/sbayesrc_ref/{wildcards.population}.xz -C {resdir}/data/sbayesrc_ref/; \
+      mv {resdir}/data/sbayesrc_ref/ukb{wildcards.population}_HM3 {resdir}/data/sbayesrc_ref/{wildcards.population}; \
+      rm {resdir}/data/sbayesrc_ref/{wildcards.population}.xz
     }} > {log} 2>&1
     """
 
@@ -1029,9 +1064,9 @@ rule download_ldak_map:
     {{
       rm -r {resdir}/data/ldak_map; \
       mkdir -p {resdir}/data/ldak_map; \
-      wget --no-check-certificate -O {resdir}/data/ldak_map/genetic_map_b37.zip https://www.dropbox.com/s/slchsd0uyd4hii8/genetic_map_b37.zip; \
-      unzip {resdir}/data/ldak_map/genetic_map_b37.zip -d {resdir}/data/ldak_map/; \
-      rm {resdir}/data/ldak_map/genetic_map_b37.zip
+      gdown 1mtw5Mx-F-Ws7lKLFqMh6nN4OrDGZTkZG -O {resdir}/data/ldak_map.tar.gz; \
+      tar -zxvf {resdir}/data/ldak_map.tar.gz -C {resdir}/data/; \
+      rm {resdir}/data/ldak_map.tar.gz
     }} > {log} 2>&1
     """
     
@@ -1171,7 +1206,7 @@ rule download_default_ref:
     {{
       rm -r {resdir}/data/ref; \
       mkdir -p {resdir}/data/ref; \
-      gdown --id 1vYH6V-7F68Ji1vy9TaH0ysjmdYJFef-f -O resources/data/ref/genopred_1kg_hgdp.tar.gz; \
+      gdown --id 1vYH6V-7F68Ji1vy9TaH0ysjmdYJFef-f -O {resdir}/data/ref/genopred_1kg_hgdp.tar.gz; \
       tar -xzvf {resdir}/data/ref/genopred_1kg_hgdp.tar.gz -C {resdir}/data/ref/; \
       mv {resdir}/data/ref/ref/* {resdir}/data/ref/; \
       rm -r {resdir}/data/ref/ref; \
@@ -1315,19 +1350,19 @@ rule download_xwing_software:
     rules.install_xpass.output,
     rules.install_genoutils_xwing.output
   output:
-    "resources/software/xwing/block_partition.txt"
+    f"{resdir}/software/xwing/block_partition.txt"
   conda:
     "../envs/xwing.yaml"
   benchmark:
-    "resources/data/benchmarks/download_xwing_software.txt"
+    f"{resdir}/data/benchmarks/download_xwing_software.txt"
   log:
-    "resources/data/logs/download_xwing_software.log"
+    f"{resdir}/data/logs/download_xwing_software.log"
   shell:
     """
     {{
-      rm -r -f resources/software/xwing; \
-      git clone https://github.com/opain/X-Wing resources/software/xwing; \
-      cd resources/software/xwing; \
+      rm -r -f {resdir}/software/xwing; \
+      git clone https://github.com/opain/X-Wing {resdir}/software/xwing; \
+      cd {resdir}/software/xwing; \
       git reset --hard e9fcc264266e0e884323311816bfe20053fd3f7a
     }} > {log} 2>&1
     """
