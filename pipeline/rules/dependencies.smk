@@ -101,12 +101,15 @@ def check_config_parameters(config):
     missing_params = []
     for param in required_params:
         val = config.get(param)
-        if val is None or (param == "config_file" and val == "NA"):
+        if val is None:
             missing_params.append(param)
 
     if missing_params:
         print("Error: Missing parameters in user-specified and default config files:", missing_params)
         sys.exit(1)
+        
+    if config.get("config_file") == "NA":
+        print("Warning: No user specified config file was provided.")
 
 # Check the config
 check_config_parameters(config)
