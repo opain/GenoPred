@@ -37,9 +37,6 @@ library(GenoUtils)
 library(data.table)
 source('../functions/misc.R')
 source_all('../functions')
-library(lassosum)
-library(parallel)
-cl <- makeCluster(opt$n_cores)
 
 # Store original working directory
 orig_wd<-getwd()

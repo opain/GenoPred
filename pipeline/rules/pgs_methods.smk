@@ -398,8 +398,8 @@ rule prep_pgs_sdpr_i:
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
 
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/MKL/lib; \
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/gsl/lib; \
+    export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/MKL/lib; \
+    export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/gsl/lib; \
 
     Rscript ../Scripts/pgs_methods/sdpr.R \
          --ref_plink_chr {refdir}/ref.chr \
