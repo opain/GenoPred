@@ -852,7 +852,7 @@ rule leopard_quickprs:
 single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs"}
 
 # Find which single source methods have been requested
-requested_single_source_methods = list(single_source_methods.intersection(pgs_methods_all))
+requested_single_source_methods = list(single_source_methods.intersection(config["leopard_methods"]))
 
 rule prep_pgs_multi_i:
   input:
