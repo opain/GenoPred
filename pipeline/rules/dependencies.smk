@@ -1285,7 +1285,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@f462267c07cf43440aaf91c53c2af3605fec1b5f\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@ff3e64d543ecd82af06c2c91ec44ec5f01d83487\")'
     }} > {log} 2>&1
     """
 
