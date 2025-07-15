@@ -991,6 +991,8 @@ rule install_genoutils_sbayesrc:
     """
 
 # Download LDpred2 reference
+# This is the file from https://figshare.com/ndownloader/articles/19213299/versions/2, shared by the ldpred2 developer
+# However, direct downloads from figshare were either slow or blocked so using gdrive instead
 rule download_ldpred2_ref:
   output:
     f"{resdir}/data/ldpred2_ref/EUR/map.rds"
@@ -1001,17 +1003,17 @@ rule download_ldpred2_ref:
   shell:
     """
     {{
-      mkdir -p {resdir}/data/ldpred2_ref/EUR; \
-      wget --no-check-certificate -O {resdir}/data/ldpred2_ref/EUR/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
-      unzip {resdir}/data/ldpred2_ref/EUR/download.zip -d {resdir}/data/ldpred2_ref/EUR/; \
-      rm {resdir}/data/ldpred2_ref/EUR/download.zip; \
-      unzip {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/EUR/; \
-      mv {resdir}/data/ldpred2_ref/EUR/ldref/* {resdir}/data/ldpred2_ref/EUR/; \
-      rm {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip; \
+      mkdir -p {resdir}/data/ldpred2_ref/EUR && \
+      gdown 1kicPiSl19l4g8GEMdOw1Ntw1jgXjmIt5 -O {resdir}/data/ldpred2_ref/EUR/download.zip; \
+      unzip -o {resdir}/data/ldpred2_ref/EUR/download.zip -d {resdir}/data/ldpred2_ref/EUR/ && \
+      rm {resdir}/data/ldpred2_ref/EUR/download.zip && \
+      unzip -o {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/EUR/ && \
+      mv {resdir}/data/ldpred2_ref/EUR/ldref/* {resdir}/data/ldpred2_ref/EUR/ && \
+      rm {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip && \
       rm -r {resdir}/data/ldpred2_ref/EUR/ldref
     }} > {log} 2>&1
     """
-    
+
 # Download LDAK
 rule download_ldak:
   output:
