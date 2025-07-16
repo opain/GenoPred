@@ -438,7 +438,7 @@ test_that("Modify pgs_methods and check jobs to be rerun", {
   to_do<-gsub(' .*','', log[(grep('^Job stats:', log)[2]+3):(grep('^Reasons:', log)-3)])
 
   # Check additional output from format_target_i etc. are required
-  expect_true(all(c("download_dbslmm", "download_hm3_snplist", "download_ld_blocks", "download_ldsc", "download_ldscores_panukb", "download_plink", "indiv_report_i", "output_all", "prep_pgs_dbslmm_i", "sample_report_i", "target_pgs_all", "target_pgs_i") %in% to_do), log)
+  expect_true(all(c("download_dbslmm", "download_hm3_snplist", "download_ld_blocks", "download_ldsc", "download_ldscores_panukb", "download_plink", "indiv_report_i", "ldsc_i", "output_all", "prep_pgs_dbslmm_i", "ref_pgs", "sample_report_i", "target_pgs_all", "target_pgs_i") %in% to_do), log)
 })
 
 ######
@@ -470,7 +470,7 @@ test_that("Check jobs to be run when no score_list", {
   to_do<-gsub(' .*','', log[(grep('^Job stats:', log)[2]+3):(grep('^Reasons:', log)-3)])
 
   # Check additional output from format_target_i etc. are required
-  expect_true(all(c("ancestry_inference_i", "ancestry_reporter", "format_target_all", "format_target_i", "output_all", "sample_report_i", "sumstat_prep_i", "target_pgs_all") %in% to_do), log)
+  expect_true(all(c("ancestry_inference_i", "ancestry_reporter", "format_target_all", "format_target_i", "output_all", "prep_pgs_lassosum_i", "prep_pgs_ptclump_i", "ref_pca_i", "sample_report_i", "sumstat_prep_i", "target_pgs_all") %in% to_do), log)
 })
 
 ######
@@ -486,7 +486,7 @@ test_that("Check jobs to be run when no gwas_list", {
   to_do<-gsub(' .*','', log[(grep('^Job stats:', log)[2]+3):(grep('^Reasons:', log)-3)])
 
   # Check additional output from format_target_i etc. are required
-  expect_true(all(c("ancestry_inference_i", "ancestry_reporter", "format_target_all", "format_target_i", "output_all", "prep_pgs_external_i", "sample_report_i", "score_reporter", "target_pgs_all") %in% to_do), log)
+  expect_true(all(c("ancestry_inference_i", "ancestry_reporter", "format_target_all", "format_target_i", "output_all", "prep_pgs_external_i", "ref_pca_i", "sample_report_i", "score_reporter", "target_pgs_all") %in% to_do), log)
 })
 
 ######

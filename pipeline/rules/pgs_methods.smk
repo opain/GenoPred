@@ -188,6 +188,7 @@ rule prep_pgs_dbslmm_i:
         else f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done"
     ),
     rules.download_ld_blocks.output,
+    rules.download_dbslmm.output,
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz"
