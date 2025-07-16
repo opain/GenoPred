@@ -275,35 +275,35 @@ else:
 if config['ldpred2_ldref'] == 'NA':
   ldpred2_ldref=f"{resdir}/data/ldpred2_ref"
     
-  if 'ldpred2' in config['pgs_methods']:
+  if 'ldpred2' in config['pgs_methods'] or 'lassosum2' in config['pgs_methods']:
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
   
     if invalid_pops:
       raise ValueError(
-        f"Default ldpred2 reference data is only available for EUR populations. For other populations, please provide your own ldpred2 reference data using the ldpred2_ldref parameter. Download links to LDpred2 reference data for EUR, EAS and AFR populations can be found in this section of the website: https://opain.github.io/GenoPred/pipeline_readme.html#Specifying_alternative_reference_data_for_PGS_methods"
+        f"Default ldpred2/lassosum2 reference data is only available for EUR populations. For other populations, please provide your own ldpred2/lassosum2 reference data using the ldpred2_ldref parameter. Download links to ldpred2/lassosum2 reference data for EUR, EAS and AFR populations can be found in this section of the website: https://opain.github.io/GenoPred/pipeline_readme.html#Specifying_alternative_reference_data_for_PGS_methods"
       )
 
 else:
   ldpred2_ldref=config['ldpred2_ldref']
 
   # Check the ldpred2 ldref data is present for the required populations in the gwas_list
-  if 'ldpred2' in config['pgs_methods']:
+  if 'ldpred2' in config['pgs_methods'] or 'lassosum2' in config['pgs_methods']:
     for pop in gwas_list_df['population'].unique():
       path = f"{ldpred2_ldref}/{pop}"
       # Check if map.rds file exists
       map_file = os.path.join(path, "map.rds")
       if not os.path.exists(map_file):
         print(f"File not found: {map_file}")
-        raise FileNotFoundError(f"Required file not found: {map_file}. LDpred2 reference data must include map.rds for all populations.")
+        raise FileNotFoundError(f"Required file not found: {map_file}. ldpred2/lassosum2 reference data must include map.rds for all populations.")
   
       # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
       for chr in range(1, 23):
         ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
         if not os.path.exists(ld_file):
           print(f"File not found: {ld_file}")
-          raise FileNotFoundError(f"Required file not found: {ld_file}. LDpred2 reference data must include files for all chromosomes.")
+          raise FileNotFoundError(f"Required file not found: {ld_file}. ldpred2/lassosum2 reference data must include files for all chromosomes.")
 
 # Set sbayesr reference path
 if config['sbayesr_ldref'] == 'NA':
@@ -338,7 +338,6 @@ else:
         if not os.path.exists(ld_file):
           print(f"File not found: {ld_file}")
           raise FileNotFoundError(f"Required file not found: {ld_file}. SBayesR reference data must include files for all chromosomes.")
-
 # Set quickprs reference path
 if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickprs" in config["pgs_methods"]:
   if config['quickprs_ldref'] == 'NA':
@@ -470,7 +469,7 @@ def check_pgs_methods(x):
         return
 
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "xwing", "prscsx", "bridgeprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr", "xwing", "prscsx", "bridgeprs"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
@@ -484,7 +483,7 @@ check_pgs_methods(config['pgs_methods'])
 # Check valid tlprs_methods are specified
 def check_tlprs_methods(config):
     valid_tlprs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs"
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "sdpr", "megaprs", "quickprs"
     }
 
     # Check if 'tlprs_methods' is empty
@@ -501,7 +500,7 @@ check_tlprs_methods(config)
 # Check valid leopard_methods are specified
 def check_leopard_methods(config):
     valid_leopard_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs","quickprs"
+        "ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr"
     }
 
     # Check if 'leopard_methods' is empty
@@ -842,7 +841,7 @@ rule download_prscs_snp_data_1kg:
 # Download gctb reference
 rule download_gctb_ref:
   output:
-    directory(f"{resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse")
+    directory(f"{resdir}/data/gctb_ref/EUR")
   benchmark:
     f"{resdir}/data/benchmarks/download_gctb_ref.txt"
   log:
@@ -853,14 +852,16 @@ rule download_gctb_ref:
       mkdir -p {resdir}/data/gctb_ref; \
       wget --no-check-certificate -O {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip https://zenodo.org/record/3350914/files/ukbEURu_hm3_sparse.zip?download=1; \
       unzip {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip -d {resdir}/data/gctb_ref; \
+      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse {resdir}/data/gctb_ref/EUR
       for chr in $(seq 1 22);do \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.bin; \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr${{chr}}.ldm.sparse.info; \
-      mv {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log {resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_sparse_chr${{chr}}.log; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.bin {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.ldm.sparse.bin; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k.ldm.sparse.info {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.ldm.sparse.info; \
+      mv {resdir}/data/gctb_ref/EUR/ukbEURu_hm3_chr${{chr}}_v3_50k_sparse.log {resdir}/data/gctb_ref/EUR/EUR.chr${{chr}}.log; \
       done; \
       rm {resdir}/data/gctb_ref/ukbEURu_hm3_sparse.zip
     }} > {log} 2>&1
     """
+
 # Download GCTB
 rule download_gctb_software:
   output:
@@ -990,6 +991,8 @@ rule install_genoutils_sbayesrc:
     """
 
 # Download LDpred2 reference
+# This is the file from https://figshare.com/ndownloader/articles/19213299/versions/2, shared by the ldpred2 developer
+# However, direct downloads from figshare were either slow or blocked so using gdrive instead
 rule download_ldpred2_ref:
   output:
     f"{resdir}/data/ldpred2_ref/EUR/map.rds"
@@ -1000,17 +1003,17 @@ rule download_ldpred2_ref:
   shell:
     """
     {{
-      mkdir -p {resdir}/data/ldpred2_ref/EUR; \
-      wget --no-check-certificate -O {resdir}/data/ldpred2_ref/EUR/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
-      unzip {resdir}/data/ldpred2_ref/EUR/download.zip -d {resdir}/data/ldpred2_ref/EUR/; \
-      rm {resdir}/data/ldpred2_ref/EUR/download.zip; \
-      unzip {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/EUR/; \
-      mv {resdir}/data/ldpred2_ref/EUR/ldref/* {resdir}/data/ldpred2_ref/EUR/; \
-      rm {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip; \
+      mkdir -p {resdir}/data/ldpred2_ref/EUR && \
+      gdown 1kicPiSl19l4g8GEMdOw1Ntw1jgXjmIt5 -O {resdir}/data/ldpred2_ref/EUR/download.zip; \
+      unzip -o {resdir}/data/ldpred2_ref/EUR/download.zip -d {resdir}/data/ldpred2_ref/EUR/ && \
+      rm {resdir}/data/ldpred2_ref/EUR/download.zip && \
+      unzip -o {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/EUR/ && \
+      mv {resdir}/data/ldpred2_ref/EUR/ldref/* {resdir}/data/ldpred2_ref/EUR/ && \
+      rm {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip && \
       rm -r {resdir}/data/ldpred2_ref/EUR/ldref
     }} > {log} 2>&1
     """
-    
+
 # Download LDAK
 rule download_ldak:
   output:
@@ -1251,6 +1254,24 @@ rule install_lassosum:
     }} > {log} 2>&1
     """
 
+# install sdpr
+rule install_sdpr:
+  output:
+    touch(f"{resdir}/software/install_sdpr.done")
+  benchmark:
+    f"{resdir}/data/benchmarks/install_sdpr.txt"
+  log:
+    f"{resdir}/data/logs/install_sdpr.log"
+  shell:
+    """
+    {{
+      rm -r -f resources/software/sdpr; \
+      git clone https://github.com/eldronzhou/SDPR {resdir}/software/sdpr; \
+      cd resources/software/sdpr; \
+      git reset --hard 0bb6481802903452272ef6f0a8c5bbf4b362fe9d
+    }} > {log} 2>&1
+    """
+
 # Install GenoUtils
 rule install_genoutils:
   input:
@@ -1266,7 +1287,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@ff3e64d543ecd82af06c2c91ec44ec5f01d83487\")'
     }} > {log} 2>&1
     """
 

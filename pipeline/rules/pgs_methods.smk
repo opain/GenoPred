@@ -71,6 +71,46 @@ rule sumstat_prep:
   input: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=gwas_list_df['name'])
 
 ##
+# LDSC
+##
+
+rule ldsc_i:
+  input:
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    rules.download_ldscores_panukb.output,
+    rules.download_ldsc.output,
+    rules.download_hm3_snplist.output
+  output:
+    f"{outdir}/reference/ldsc/{{gwas}}/{{gwas}}.hsq_obs"
+  conda:
+    "../envs/analysis.yaml"
+  benchmark:
+    f"{outdir}/reference/benchmarks/ldsc-{{gwas}}.txt"
+  log:
+    f"{outdir}/reference/logs/ldsc-{{gwas}}.log"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
+    prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
+    testing=config["testing"]
+  shell:
+    "Rscript ../Scripts/ldsc/ldsc.R \
+      --ref_plink_chr {refdir}/ref.chr \
+      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+      --munge_sumstats {resdir}/software/ldsc/munge_sumstats.py \
+      --ldsc {resdir}/software/ldsc/ldsc.py \
+      --ld_scores {resdir}/data/ld_scores/UKBB.{params.population}.rsid \
+      --hm3_snplist {resdir}/data/hm3_snplist/w_hm3.snplist \
+      --hm3_no_mhc T \
+      --sample_prev {params.sampling} \
+      --pop_prev {params.prevalence} \
+      --output {outdir}/reference/ldsc/{wildcards.gwas}/{wildcards.gwas} \
+      --test {params.testing} > {log} 2>&1"
+
+rule ldsc:
+  input: expand(f"{outdir}/reference/ldsc/{{gwas}}/{{gwas}}.hsq_obs", gwas=gwas_list_df['name'])
+
+##
 # pT+clump (sparse, nested)
 ##
 
@@ -108,6 +148,28 @@ rule prep_pgs_ptclump:
 # DBSLMM
 ##
 
+# Create function return SNP-h2
+def h2_file(w, gwas_list_df, outdir, config, force_observed=False):
+    gwas_name = w.gwas
+    method = config.get("h2_method", "ldsc")
+
+    # Lookup row for prevalence info
+    gwas_row = gwas_list_df.loc[gwas_list_df["name"] == gwas_name]
+
+    # Use observed if forced, or if prevalence info is missing
+    if force_observed or gwas_row["sampling"].isna().any() or gwas_row["prevalence"].isna().any():
+        scale = "obs"
+    else:
+        scale = "liab"
+    
+    # Construct path
+    if method == "ldsc":
+        return f"{outdir}/reference/ldsc/{gwas_name}/{gwas_name}.hsq_{scale}"
+    elif method == "sbayesr":
+        return f"{outdir}/reference/pgs_score_files/sbayesr/{gwas_name}/ref-{gwas_name}.hsq_{scale}"
+    else:
+        raise ValueError(f"Unknown h2_method: {method}")
+        
 # Create function to specify LD block data from EUR if the GWAS population is CSA, AMR or MID
 def set_ld_blocks_pop(population):
   if population in ['CSA', 'AMR', 'MID']:
@@ -120,11 +182,13 @@ rule prep_pgs_dbslmm_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_plink.output,
-    rules.download_ldscores_panukb.output,
-    rules.download_ldsc.output,
-    rules.download_hm3_snplist.output,
-    rules.download_dbslmm.output,
+    lambda w: (
+        f"{outdir}/reference/ldsc/{w.gwas}/{w.gwas}.hsq_obs"
+        if config["h2_method"] == "ldsc"
+        else f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done"
+    ),
     rules.download_ld_blocks.output,
+    rules.download_dbslmm.output,
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz"
@@ -137,8 +201,7 @@ rule prep_pgs_dbslmm_i:
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     ld_block_pop= lambda w: set_ld_blocks_pop(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0]),
-    sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
-    prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
+    h2 = lambda w: h2_file(w, gwas_list_df, outdir, config),
     h2f= ",".join(map(str, config["dbslmm_h2f"])),
     testing=config["testing"]
   shell:
@@ -150,13 +213,7 @@ rule prep_pgs_dbslmm_i:
       --ld_blocks {resdir}/data/ld_blocks/{params.ld_block_pop} \
       --plink {resdir}/software/plink/plink \
       --dbslmm {resdir}/software/dbslmm/software \
-      --munge_sumstats {resdir}/software/ldsc/munge_sumstats.py \
-      --ldsc {resdir}/software/ldsc/ldsc.py \
-      --ld_scores {resdir}/data/ld_scores/UKBB.{params.population}.rsid \
-      --hm3_snplist {resdir}/data/hm3_snplist/w_hm3.snplist \
-      --hm3_no_mhc T \
-      --sample_prev {params.sampling} \
-      --pop_prev {params.prevalence} \
+      --h2 {params.h2} \
       --output {outdir}/reference/pgs_score_files/dbslmm/{wildcards.gwas}/ref-{wildcards.gwas} \
       --n_cores {threads} \
       --pop_data {refdir}/ref.pop.txt \
@@ -225,12 +282,17 @@ rule prep_pgs_sbayesr_i:
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
-    lambda w: f"{sbayesr_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
-    rules.download_gctb_ref.output,
+    lambda w: (
+      f"{sbayesr_ldref}/" +
+      gwas_list_df.loc[gwas_list_df['name'] == f"{w.gwas}", 'population'].iloc[0] +
+      "/" +
+      gwas_list_df.loc[gwas_list_df['name'] == f"{w.gwas}", 'population'].iloc[0] +
+      ".chr22.ldm.sparse.bin"
+    ),
     rules.download_gctb_software.output,
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
-    f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz"
+    touch(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
@@ -238,23 +300,35 @@ rule prep_pgs_sbayesr_i:
   log:
     f"{outdir}/reference/logs/prep_pgs_sbayesr_i-{{gwas}}.log"
   params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
+    prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/sbayesr.R \
+    """
+    (
+      rm -r -f {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}; \
+      Rscript ../Scripts/pgs_methods/sbayesr.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb/gctb_2.03beta_Linux/gctb \
-      --ld_matrix_chr {sbayesr_ldref} \
+      --ld_matrix_chr {sbayesr_ldref}/{params.population}/{params.population}.chr \
       --robust T \
+      --sample_prev {params.sampling} \
+      --pop_prev {params.prevalence} \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
-      --test {params.testing} > {log} 2>&1"
+      --test {params.testing} > {log} 2>&1
+    ) || (
+      echo SBayesR failed for {wildcards.gwas}
+    )
+    """
 
 rule prep_pgs_sbayesr:
-  input: expand(f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df_eur['name'])
-
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done", gwas=gwas_list_df['name'])
+    
 ##
 # lassosum
 ##
@@ -296,6 +370,55 @@ rule prep_pgs_lassosum:
   input: expand(f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
+# SDPR
+##
+
+rule prep_pgs_sdpr_i:
+  resources:
+    mem_mb=10000
+  threads: config['cores_prep_pgs']
+  input:
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    rules.install_sdpr.output,
+    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+  output:
+    f"{outdir}/reference/pgs_score_files/sdpr/{{gwas}}/ref-{{gwas}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_sdpr_i-{{gwas}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_sdpr_i-{{gwas}}.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    testing=config["testing"]
+  shell:
+    """
+    export MKL_NUM_THREADS=1; \
+    export NUMEXPR_NUM_THREADS=1; \
+    export OMP_NUM_THREADS=1; \
+    export OPENBLAS_NUM_THREADS=1; \
+
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/MKL/lib; \
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/gsl/lib; \
+
+    Rscript ../Scripts/pgs_methods/sdpr.R \
+         --ref_plink_chr {refdir}/ref.chr \
+         --ref_keep {refdir}/keep_files/{params.population}.keep \
+         --gwas_pop {params.population} \
+         --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+         --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+         --output {outdir}/reference/pgs_score_files/sdpr/{wildcards.gwas}/ref-{wildcards.gwas} \
+         --n_cores {threads} \
+         --pop_data {refdir}/ref.pop.txt \
+         --sdpr {resdir}/software/sdpr/SDPR \
+         --test {params.testing} > {log} 2>&1
+    """
+
+rule prep_pgs_sdpr:
+  input: expand(f"{outdir}/reference/pgs_score_files/sdpr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+
+##
 # LDpred2
 ##
 
@@ -307,6 +430,11 @@ rule prep_pgs_ldpred2_i:
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     lambda w: f"{ldpred2_ldref}/" + gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0] + "/map.rds",
+    lambda w: (
+        f"{outdir}/reference/ldsc/{w.gwas}/{w.gwas}.hsq_obs"
+        if config["h2_method"] == "ldsc"
+        else f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done"
+    ),
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
     f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz"
@@ -322,6 +450,7 @@ rule prep_pgs_ldpred2_i:
     inference=",".join(map(str, config["ldpred2_inference"])),
     sampling= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0],
     binary=lambda w: 'T' if not pd.isna(gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'sampling'].iloc[0]) else 'F',
+    h2 = lambda w: h2_file(w, gwas_list_df, outdir, config, force_observed = True),
     testing=config["testing"]
   shell:
     "export OPENBLAS_NUM_THREADS=1; \
@@ -333,6 +462,7 @@ rule prep_pgs_ldpred2_i:
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/ldpred2/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
+      --h2 {params.h2} \
       --model {params.model} \
       --binary {params.binary} \
       --inference {params.inference} \
@@ -499,7 +629,7 @@ rule prep_pgs_quickprs_i:
     rules.download_ldak_bld.output,
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
-    f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz"
+    touch(f"{outdir}/reference/target_checks/prep_pgs_quickprs_i-{{gwas}}.done")
   benchmark:
     f"{outdir}/reference/benchmarks/prep_pgs_quickprs_i-{{gwas}}.txt"
   log:
@@ -510,20 +640,27 @@ rule prep_pgs_quickprs_i:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/quickprs.R \
-      --ref_plink_chr {refdir}/ref.chr \
-      --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
-      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
-      --quickprs_ldref {quickprs_ldref}/{params.population} \
-      --n_cores {threads} \
-      --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \
-      --pop_data {refdir}/ref.pop.txt \
-      --test {params.testing} > {log} 2>&1"
+    """
+    (
+    rm -r -f {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}; \
+    Rscript ../Scripts/pgs_methods/quickprs.R \
+    --ref_plink_chr {refdir}/ref.chr \
+    --ref_keep {refdir}/keep_files/{params.population}.keep \
+    --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+    --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+    --ldak {resdir}/software/ldak5.2/ldak5.2.linux \
+    --quickprs_ldref {quickprs_ldref}/{params.population} \
+    --n_cores {threads} \
+    --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \
+    --pop_data {refdir}/ref.pop.txt \
+    --test {params.testing} > {log} 2>&1
+    ) || (
+      echo QuickPRS failed for {wildcards.gwas}
+    )
+    """
 
 rule prep_pgs_quickprs:
-  input: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_quickprs_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # SBayesRC
@@ -631,7 +768,6 @@ rule prep_pgs_external_i:
       --score {params.score} \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
-      --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_external:
@@ -1029,6 +1165,8 @@ if 'xwing' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_xwing.input)
 if 'bridgeprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_bridgeprs.input)
+if 'sdpr' in pgs_methods_all:
+  pgs_methods_input.append(rules.prep_pgs_sdpr.input)
 
 rule prep_pgs:
   input:

@@ -49,16 +49,33 @@ jobs:
           echo "::set-output name=tag::${{ github.event.inputs.tag || github.sha }}"
         fi
 
-    - name: Set up Docker Buildx
+    - name: Build docker container
       run: |
         docker buildx build --platform linux/amd64 -f $DOCKERFILE_PATH -t $DOCKER_IMAGE_NAME:latest -t $DOCKER_IMAGE_NAME:${{ steps.set_tag.outputs.tag }} --push .
 
+    - name: Clean up Docker build artifacts
+      run: |
+        docker system prune -af
+  
     - name: Setup Apptainer
       uses: eWaterCycle/setup-apptainer@v2.0.0
 
+    - name: Configure Singularity temp directories
+      run: |
+        # create a temp area inside the GitHub runner's large temp folder
+        mkdir -p $RUNNER_TEMP/singularity
+        echo "APPTAINER_TMPDIR=$RUNNER_TEMP/singularity" >> $GITHUB_ENV
+        # optional: keep a separate cache dir
+        mkdir -p $RUNNER_TEMP/singularity/cache
+        echo "APPTAINER_CACHEDIR=$RUNNER_TEMP/singularity/cache" >> $GITHUB_ENV
+        
+    - name: Check free space
+      run: |
+        df -h
+  
     - name: Convert Docker Image to Singularity SIF
       run: |
-        apptainer pull image.sif docker://${DOCKER_IMAGE_NAME}:latest
+        apptainer pull --disable-cache --tmpdir $RUNNER_TEMP/singularity image.sif docker://${DOCKER_IMAGE_NAME}:latest
 
     - name: Install expect
       run: |

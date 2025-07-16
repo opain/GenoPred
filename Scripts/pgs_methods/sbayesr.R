@@ -30,6 +30,10 @@ option_list = list(
       help="Force robust GCTB parameterisation [optional]"),
   make_option("--test", action="store", default=NA, type='character',
       help="Specify number of SNPs to include [optional]"),
+  make_option("--pop_prev", action="store", default=NULL, type='numeric',
+      help="Population prevelance (if binary) [optional]"),
+  make_option("--sample_prev", action="store", default=NULL, type='numeric',
+      help="Sampling ratio in GWAS [optional]"),
   make_option("--ld_matrix_chr", action="store", default=NULL, type='character',
       help="Path to per chromosome shrunk sparse LD matrix from GCTB [required]")
 )
@@ -63,6 +67,15 @@ if(is.null(opt$gctb)){
 }
 if(is.null(opt$ld_matrix_chr)){
   stop('--ld_matrix_chr must be specified.\n')
+}
+if(is.na(as.numeric(opt$sample_prev))){
+  opt$sample_prev<-NULL
+}
+if(is.na(as.numeric(opt$pop_prev))){
+  opt$pop_prev<-NULL
+}
+if(any(!is.null(c(opt$sample_prev, opt$pop_prev))) & any(is.null(c(opt$sample_prev, opt$pop_prev)))){
+  stop('If either sample_prev or pop_prev are specified, both must be specified.')
 }
 
 # Create output directory
@@ -222,6 +235,17 @@ for(par in names(parRes_mcmc[[i]])){
 
 write.table(parRes, paste0(opt$output_dir,'/GWAS_sumstats_SBayesR.GW.parRes'), col.names=T, row.names=F, quote=F)
 log_add(log_file = log_file, message = paste0('SNP-heritability estimate is ',parRes[parRes$Par == 'hsq', names(parRes) == 'Mean']," (SD=",parRes[parRes$Par == 'hsq', names(parRes) == 'SD'],")."))
+
+write.table(parRes[parRes$Par == 'hsq', names(parRes) == 'Mean'], paste0(opt$output,'.hsq_obs'), col.names=F, row.names = F, quote = F)
+
+# Convert the SNP-heritability to the liability scale
+if(!is.null(opt$pop_prev) && !is.null(opt$sample_prev)) {
+  h2_liab <- h2l_R2(k = opt$pop_prev, r2 = parRes[parRes$Par == 'hsq', names(parRes) == 'Mean'], p = opt$sample_prev)
+  h2_liab_se <- h2l_R2(k = opt$pop_prev, r2 = parRes[parRes$Par == 'hsq', names(parRes) == 'SD'], p = opt$sample_prev)
+  log_add(log_file = log_file, message = paste0('SNP-heritability estimate on the liability scale = ', round(h2_liab, 4), " (", round(h2_liab_se, 4), ")."))
+  
+  write.table(h2_liab, paste0(opt$output,'.hsq_liab'), col.names=F, row.names = F, quote = F)
+}
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

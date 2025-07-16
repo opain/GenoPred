@@ -5,6 +5,7 @@ if 'target_list' in config and config["target_list"] != 'NA':
   output_all_input.append(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done")
 
 if 'gwas_list' in config and config["gwas_list"] != 'NA':
+  output_all_input.append(rules.prep_pgs.input)
   output_all_input.append(rules.sumstat_prep.input)
   label_list = pd.concat([label_list, gwas_list_df['label']])
 

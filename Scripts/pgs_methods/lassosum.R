@@ -85,10 +85,12 @@ if(!is.na(opt$test)){
 log_add(log_file = log_file, message = 'Reading in GWAS.')
 
 # Read in, check and format GWAS summary statistics
-gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','BP','A1','A2','BETA','P','N'))
+gwas <- read_sumstats(sumstats = opt$sumstats, chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','BP','A1','A2','BETA','SE','N'))
 
 # Store average sample size
 gwas_N <- mean(gwas$N)
+
+GWAS_CHROMS <- unique(gwas$CHR)
 
 ###
 # Merge the per chromosome reference genetic data and subset opt$ref_keep
@@ -97,7 +99,7 @@ gwas_N <- mean(gwas$N)
 log_add(log_file = log_file, message = 'Merging per chromosome reference data.')
 
 # Save in plink1 format for lassosum
-plink_merge(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, extract = gwas$SNP, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
+plink_merge(pfile = opt$ref_plink_chr, chr = GWAS_CHROMS, plink2 = opt$plink2, keep = opt$ref_keep, extract = gwas$SNP, make_bed =T, out = paste0(tmp_dir, '/ref_merge'))
 
 # Record start time for test
 if(!is.na(opt$test)){
@@ -108,7 +110,7 @@ if(!is.na(opt$test)){
 # Calculate correlation between SNP and phenotype
 #####
 
-cor <- p2cor(p = gwas$P, n = gwas_N, sign = gwas$BETA)
+cor<-z2cor(z=gwas$BETA/gwas$SE, n = gwas_N)
 
 #####
 # Perform lassosum to shrink effects using a range of parameters
