@@ -29,7 +29,7 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
-
+      
     - name: Export Secrets to Environment
       run: |
         echo "SINGULARITY_LIBRARY_TOKEN=${{ secrets.SINGULARITY_LIBRARY_TOKEN }}" >> $GITHUB_ENV
@@ -53,30 +53,29 @@ jobs:
       run: |
         docker buildx build --platform linux/amd64 -f $DOCKERFILE_PATH -t $DOCKER_IMAGE_NAME:latest -t $DOCKER_IMAGE_NAME:${{ steps.set_tag.outputs.tag }} --push .
 
-    - name: Clean up Docker build artifacts
-      run: |
-        docker system prune -af
-  
+    - name: Maximize build disk space
+      uses: easimon/maximize-build-space@v10
+      with:
+        root-reserve-mb: 512
+        swap-size-mb: 1024
+        remove-dotnet: 'true'
+          
     - name: Setup Apptainer
       uses: eWaterCycle/setup-apptainer@v2.0.0
 
     - name: Configure Singularity temp directories
       run: |
-        # create a temp area inside the GitHub runner's large temp folder
-        mkdir -p $RUNNER_TEMP/singularity
-        echo "APPTAINER_TMPDIR=$RUNNER_TEMP/singularity" >> $GITHUB_ENV
-        # optional: keep a separate cache dir
-        mkdir -p $RUNNER_TEMP/singularity/cache
-        echo "APPTAINER_CACHEDIR=$RUNNER_TEMP/singularity/cache" >> $GITHUB_ENV
-        
-    - name: Check free space
-      run: |
-        df -h
-  
+        mkdir -p "$GITHUB_WORKSPACE/.singularity/cache"
+        echo "APPTAINER_TMPDIR=$GITHUB_WORKSPACE/.singularity" >> $GITHUB_ENV
+        echo "APPTAINER_CACHEDIR=$GITHUB_WORKSPACE/.singularity/cache" >> $GITHUB_ENV
+    
     - name: Convert Docker Image to Singularity SIF
       run: |
-        apptainer pull --disable-cache --tmpdir $RUNNER_TEMP/singularity /mnt/genopred_image.sif docker://${DOCKER_IMAGE_NAME}:latest
-
+        apptainer pull --disable-cache \
+          --tmpdir "$GITHUB_WORKSPACE/.singularity" \
+          "$GITHUB_WORKSPACE/genopred_image.sif" \
+          docker://${DOCKER_IMAGE_NAME}:latest
+      
     - name: Install expect
       run: |
         sudo apt-get update
@@ -98,14 +97,17 @@ jobs:
         send -- "${{ secrets.SIGNING_KEY_PASSWORD }}\r"
         expect eof
         '
+        
     - name: Sign the Singularity Image
       run: |
-        expect -c '
-        spawn apptainer sign /mnt/genopred_image.sif
-        expect "Enter your key passphrase : "
-        send -- "${{ secrets.SIGNING_KEY_PASSWORD }}\r"
-        expect eof
-        '
+        SIF_PATH="$GITHUB_WORKSPACE/genopred_image.sif"
+        expect -c "
+          spawn apptainer sign \"$SIF_PATH\"
+          expect \"Enter your key passphrase : \"
+          send -- \"${{ secrets.SIGNING_KEY_PASSWORD }}\r\"
+          expect eof
+        "
+        
     - name: Create Token File
       run: echo "${{ secrets.SINGULARITY_LIBRARY_TOKEN }}" > tokenfile
 
@@ -117,7 +119,7 @@ jobs:
 
     - name: Push Singularity Image to Singularity Library
       run: |
-        apptainer push /mnt/genopred_image.sif $SINGULARITY_IMAGE_NAME:latest
+        apptainer push "$GITHUB_WORKSPACE/genopred_image.sif" "$SINGULARITY_IMAGE_NAME:latest"
 
     - name: Setup tmate session
       if: ${{ failure() }}
