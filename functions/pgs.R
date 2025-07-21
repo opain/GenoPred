@@ -31,13 +31,6 @@ list_score_files <- function(config, quiet = F){
   outdir <- read_param(config = config, param = 'outdir', return_obj = F, quiet = quiet)
 
   if(!is.null(score_list)){
-    # Read in score_reporter output
-    score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
-    score_list <- merge(score_list, score_reporter, by='name')
-
-    # Remove scores that did not pass ref harmonisation
-    score_list <- score_list[score_list$pass == T,]
-
     combos <- rbind(combos,
                     data.frame(
                       name = score_list$name,

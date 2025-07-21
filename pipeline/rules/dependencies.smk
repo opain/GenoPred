@@ -307,7 +307,7 @@ else:
 
 # Set sbayesr reference path
 if config['sbayesr_ldref'] == 'NA':
-  sbayesr_ldref=f"{resdir}/data/gctb_ref/ukbEURu_hm3_shrunk_sparse/ukbEURu_hm3_v3_50k_chr"
+  sbayesr_ldref=f"{resdir}/data/gctb_ref"
   
   if 'sbayesr' in config['pgs_methods']:
     # Check if gwas_list contains invalid populations

@@ -399,8 +399,8 @@ rule prep_pgs_sdpr_i:
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
 
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/MKL/lib; \
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/gsl/lib; \
+    export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/MKL/lib; \
+    export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/gsl/lib; \
 
     Rscript ../Scripts/pgs_methods/sdpr.R \
          --ref_plink_chr {refdir}/ref.chr \
@@ -853,7 +853,7 @@ rule leopard_quickprs:
 single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs"}
 
 # Find which single source methods have been requested
-requested_single_source_methods = list(single_source_methods.intersection(pgs_methods_all))
+requested_single_source_methods = list(single_source_methods.intersection(config["leopard_methods"]))
 
 rule prep_pgs_multi_i:
   input:
