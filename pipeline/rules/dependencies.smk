@@ -275,35 +275,35 @@ else:
 if config['ldpred2_ldref'] == 'NA':
   ldpred2_ldref=f"{resdir}/data/ldpred2_ref"
     
-  if 'ldpred2' in config['pgs_methods']:
+  if 'ldpred2' in config['pgs_methods'] or 'lassosum2' in config['pgs_methods']:
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
   
     if invalid_pops:
       raise ValueError(
-        f"Default ldpred2 reference data is only available for EUR populations. For other populations, please provide your own ldpred2 reference data using the ldpred2_ldref parameter. Download links to LDpred2 reference data for EUR, EAS and AFR populations can be found in this section of the website: https://opain.github.io/GenoPred/pipeline_readme.html#Specifying_alternative_reference_data_for_PGS_methods"
+        f"Default ldpred2/lassosum2 reference data is only available for EUR populations. For other populations, please provide your own ldpred2/lassosum2 reference data using the ldpred2_ldref parameter. Download links to ldpred2/lassosum2 reference data for EUR, EAS and AFR populations can be found in this section of the website: https://opain.github.io/GenoPred/pipeline_readme.html#Specifying_alternative_reference_data_for_PGS_methods"
       )
 
 else:
   ldpred2_ldref=config['ldpred2_ldref']
 
   # Check the ldpred2 ldref data is present for the required populations in the gwas_list
-  if 'ldpred2' in config['pgs_methods']:
+  if 'ldpred2' in config['pgs_methods'] or 'lassosum2' in config['pgs_methods']:
     for pop in gwas_list_df['population'].unique():
       path = f"{ldpred2_ldref}/{pop}"
       # Check if map.rds file exists
       map_file = os.path.join(path, "map.rds")
       if not os.path.exists(map_file):
         print(f"File not found: {map_file}")
-        raise FileNotFoundError(f"Required file not found: {map_file}. LDpred2 reference data must include map.rds for all populations.")
+        raise FileNotFoundError(f"Required file not found: {map_file}. ldpred2/lassosum2 reference data must include map.rds for all populations.")
   
       # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
       for chr in range(1, 23):
         ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
         if not os.path.exists(ld_file):
           print(f"File not found: {ld_file}")
-          raise FileNotFoundError(f"Required file not found: {ld_file}. LDpred2 reference data must include files for all chromosomes.")
+          raise FileNotFoundError(f"Required file not found: {ld_file}. ldpred2/lassosum2 reference data must include files for all chromosomes.")
 
 # Set sbayesr reference path
 if config['sbayesr_ldref'] == 'NA':
@@ -991,6 +991,8 @@ rule install_genoutils_sbayesrc:
     """
 
 # Download LDpred2 reference
+# This is the file from https://figshare.com/ndownloader/articles/19213299/versions/2, shared by the ldpred2 developer
+# However, direct downloads from figshare were either slow or blocked so using gdrive instead
 rule download_ldpred2_ref:
   output:
     f"{resdir}/data/ldpred2_ref/EUR/map.rds"
@@ -1001,17 +1003,17 @@ rule download_ldpred2_ref:
   shell:
     """
     {{
-      mkdir -p {resdir}/data/ldpred2_ref/EUR; \
-      wget --no-check-certificate -O {resdir}/data/ldpred2_ref/EUR/download.zip https://figshare.com/ndownloader/articles/19213299/versions/2; \
-      unzip {resdir}/data/ldpred2_ref/EUR/download.zip -d {resdir}/data/ldpred2_ref/EUR/; \
-      rm {resdir}/data/ldpred2_ref/EUR/download.zip; \
-      unzip {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/EUR/; \
-      mv {resdir}/data/ldpred2_ref/EUR/ldref/* {resdir}/data/ldpred2_ref/EUR/; \
-      rm {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip; \
+      mkdir -p {resdir}/data/ldpred2_ref/EUR && \
+      gdown 1kicPiSl19l4g8GEMdOw1Ntw1jgXjmIt5 -O {resdir}/data/ldpred2_ref/EUR/download.zip; \
+      unzip -o {resdir}/data/ldpred2_ref/EUR/download.zip -d {resdir}/data/ldpred2_ref/EUR/ && \
+      rm {resdir}/data/ldpred2_ref/EUR/download.zip && \
+      unzip -o {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/EUR/ && \
+      mv {resdir}/data/ldpred2_ref/EUR/ldref/* {resdir}/data/ldpred2_ref/EUR/ && \
+      rm {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip && \
       rm -r {resdir}/data/ldpred2_ref/EUR/ldref
     }} > {log} 2>&1
     """
-    
+
 # Download LDAK
 rule download_ldak:
   output:
@@ -1285,7 +1287,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9693ed157d88a9b3339da0077e1447eccbb94a6a\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@ff3e64d543ecd82af06c2c91ec44ec5f01d83487\")'
     }} > {log} 2>&1
     """
 

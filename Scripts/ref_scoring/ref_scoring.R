@@ -23,6 +23,7 @@ opt = parse_args(OptionParser(option_list=option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
+library(glm2)
 source('../functions/misc.R')
 source_all('../functions')
 library(foreach)

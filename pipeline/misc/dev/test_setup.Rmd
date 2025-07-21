@@ -277,12 +277,21 @@ write.table(config, 'misc/dev/test_data/config/config.yaml', col.names = F, row.
 Generate the reference data within the latest GenoPred container to ensure perfect reproduction.
 
 ```{bash}
-
-singularity shell \
-  --bind /scratch_tmp/prj/oliverpainfel:/scratch_tmp/prj/oliverpainfel \
-  --writable-tmpfs \
+# Convert to sandbox to avoid disk space issues
+singularity build \
+  --sandbox /users/k1806347/oliverpainfel/Software/singularity/genopred_sandbox \
   /users/k1806347/oliverpainfel/Software/singularity/genopred_pipeline_latest.sif
   
+mkdir /users/k1806347/oliverpainfel/Software/singularity/genopred_sandbox/users
+mkdir -p /users/k1806347/oliverpainfel/Software/singularity/genopred_sandbox/scratch/prj/oliverpainfel
+
+singularity shell \
+  --bind /scratch/prj/oliverpainfel:/scratch/prj/oliverpainfel \
+  --writable \
+  --cleanenv \
+  --containall \
+  /users/k1806347/oliverpainfel/Software/singularity/genopred_sandbox
+
 # Activate env and pull latest version from dev
 source /opt/mambaforge/etc/profile.d/conda.sh
 conda activate genopred
@@ -291,17 +300,26 @@ git checkout dev
 git pull
 
 # Had to update the outdir to avoid device limit in container
-# Set outdir to /scratch_tmp/prj/oliverpainfel/tmp/genopred_test
+# Set outdir to /scratch/prj/oliverpainfel/tmp/genopred_test
+cp misc/dev/test_data/config/config.yaml /scratch/prj/oliverpainfel/tmp/config.yaml
+sed -i \
+  's|misc/dev/test_data/output|/scratch/prj/oliverpainfel/tmp/genopred_test|g' \
+  /scratch/prj/oliverpainfel/tmp/config.yaml
+sed -i \
+  's|misc/dev/test_data/config/config.yaml|/scratch/prj/oliverpainfel/tmp/config.yaml|g' \
+  /scratch/prj/oliverpainfel/tmp/config.yaml
+
 snakemake \
--j1 \
---use-conda \
-output_all \
-/scratch_tmp/prj/oliverpainfel/tmp/genopred_test/reference/target_checks/example_plink2/indiv_report-4_EAS.4_EAS-report.done \
---configfile=/scratch_tmp/prj/oliverpainfel/tmp/config.yaml
+  -j1 \
+  --use-conda \
+  output_all \
+  /scratch/prj/oliverpainfel/tmp/genopred_test/reference/target_checks/example_plink2/indiv_report-4_EAS.4_EAS-report.done \
+  --configfile=/scratch/prj/oliverpainfel/tmp/config.yaml
 
 # Move output outside the container so it can be pushed to the repo
-mkdir /scratch_tmp/prj/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/dev/test_data/output
-cp -r /scratch_tmp/prj/oliverpainfel/tmp/genopred_test/* /scratch_tmp/prj/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/dev/test_data/output/
+rm -r /scratch/prj/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/dev/test_data/output
+mkdir /scratch/prj/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/dev/test_data/output
+cp -r /scratch/prj/oliverpainfel/tmp/genopred_test/* /scratch/prj/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/dev/test_data/output/
 
 ```
 

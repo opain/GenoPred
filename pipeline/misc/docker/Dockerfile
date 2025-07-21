@@ -10,10 +10,10 @@ RUN apt-get update && \
     echo 'exec /bin/tar --no-same-owner "$@"' >> /usr/local/bin/tar && \
     chmod +x /usr/local/bin/tar
 
-# Install Mambaforge
-RUN wget https://github.com/conda-forge/miniforge/releases/download/4.10.3-10/Mambaforge-4.10.3-10-Linux-x86_64.sh && \
-    bash Mambaforge-4.10.3-10-Linux-x86_64.sh -b -p /opt/mambaforge && \
-    rm Mambaforge-4.10.3-10-Linux-x86_64.sh
+# Install Miniforge
+RUN wget https://github.com/conda-forge/miniforge/releases/download/24.11.3-0/Miniforge3-24.11.3-0-Linux-x86_64.sh && \
+    bash Miniforge3-24.11.3-0-Linux-x86_64.sh -b -p /opt/miniforge && \
+    rm Miniforge3-24.11.3-0-Linux-x86_64.sh
 
 # Download GenoPred
 RUN mkdir -p /tools/GenoPred && \
@@ -22,20 +22,20 @@ RUN mkdir -p /tools/GenoPred && \
     git fetch --tags
 
 # Create genopred env
-RUN /opt/mambaforge/bin/conda init bash && \
-    echo "source /opt/mambaforge/etc/profile.d/conda.sh" >> /etc/bash.bashrc && \
-    . /opt/mambaforge/etc/profile.d/conda.sh && \
+RUN /opt/miniforge/bin/conda init bash && \
+    echo "source /opt/miniforge/etc/profile.d/conda.sh" >> /etc/bash.bashrc && \
+    . /opt/miniforge/etc/profile.d/conda.sh && \
     mamba env update -n genopred -f /tools/GenoPred/pipeline/envs/pipeline.yaml && \
     mamba clean -a -y
 
 # Run initial snakemake command to setup dependencies
-RUN /opt/mambaforge/bin/conda init bash && \
-    echo "source /opt/mambaforge/etc/profile.d/conda.sh" >> /etc/bash.bashrc && \
-    . /opt/mambaforge/etc/profile.d/conda.sh && \
+RUN /opt/miniforge/bin/conda init bash && \
+    echo "source /opt/miniforge/etc/profile.d/conda.sh" >> /etc/bash.bashrc && \
+    . /opt/miniforge/etc/profile.d/conda.sh && \
     conda activate genopred && \
     cd /tools/GenoPred/pipeline && \
     snakemake --restart-times 3 -j1 --use-conda --conda-frontend mamba install_r_packages resources/software/pgscatalog_utils/download_pgscatalog_utils.done && \
     mamba clean -a -y
 
 ENTRYPOINT ["/bin/bash"]
-CMD ["-c", "source /opt/mambaforge/etc/profile.d/conda.sh && conda init && source ~/.bashrc && conda activate genopred && cd /tools/GenoPred/pipeline && exec /bin/bash"]
+CMD ["-c", "source /opt/miniforge/etc/profile.d/conda.sh && conda init && source ~/.bashrc && conda activate genopred && cd /tools/GenoPred/pipeline && exec /bin/bash"]
