@@ -462,23 +462,48 @@ else:
 
 #####
 
+# Update config if cis_only == True
+cis_only = str(config.get("cis_only", "False")).lower() in ["true", "t", "yes", "1"]
+if cis_only:
+    config["ptclump_pts"] = ['0.001','0.05']
+    config["lassosum_pseudo_only"] = True
+    config["ldpred2_model"] = ['auto']
+    config["megaprs_pseudo_only"] = True
+    config["prscs_phi"] = ['auto']
+    config["dbslmm_h2f"] = ['1']
+
 # Check valid pgs_methods are specified
-def check_pgs_methods(x):
+def check_pgs_methods(x, cis_only):
     # If pgs_methods is NA (None) or an empty list, return early without error
     if x is None or x == "NA" or not x:
         return
 
-    valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr", "xwing", "prscsx", "bridgeprs"
-    }
-
+    # Normalise cis_only: treat as False if missing or not True-like
+    if isinstance(cis_only, str):
+        cis_only = cis_only.lower() in ["true", "t", "yes", "1"]
+    else:
+        cis_only = bool(cis_only)
+        
+    if cis_only:
+      valid_pgs_methods = {
+          "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "megaprs", "quickprs", "sdpr", "prscsx"
+      }
+    else:
+      valid_pgs_methods = {
+          "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr", "xwing", "prscsx"
+      }
+      
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
 
     if invalid_methods:
+      if cis_only:
+        raise ValueError(f"Invalid pgs_methods specified when using cis_only: {', '.join(invalid_methods)}. "
+                         f"Valid methods are: {', '.join(valid_pgs_methods)}.")
+      else:
         raise ValueError(f"Invalid pgs_methods specified: {', '.join(invalid_methods)}. "
                          f"Valid methods are: {', '.join(valid_pgs_methods)}.")
 
-check_pgs_methods(config['pgs_methods'])
+check_pgs_methods(config.get('pgs_methods'), config.get('cis_only', False))
 
 # Check valid tlprs_methods are specified
 def check_tlprs_methods(config):

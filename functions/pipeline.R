@@ -497,3 +497,121 @@ read_reference_pgs <- function(config){
   return(pgs)
 }
 
+# Export PGS in FUSION format for TWAS
+export_fusion <- function(config, pgs_methods = NULL, gwas = NULL, output_dir = NULL){
+  if(is.null(output_dir)){
+    stop('output_dir parameter must be specified.')
+  }
+  if(dir.exists(output_dir)){
+    tmp<-list.files(path=output_dir)
+    if(length(tmp) > 0){
+      cat0('Warning: output directory is not empty.\n')
+    }
+  } else {
+    dir.create(output_dir, recursive = T)
+  }
+  
+  cis_only <- read_param(config = config, param = 'cis_only', return_obj = F)
+  if(!cis_only){
+    stop('export_fusion function can only be used when cis_only config parameter is true.')
+  }
+  
+  # Identify score files
+  score_file_list <- list_score_files(config)
+  
+  # Subset requested gwas
+  if(!is.null(gwas)){
+    if(any(!(gwas %in% score_file_list$name))){
+      stop('Requested GWAS are not present in gwas_list/score_list')
+    }
+    score_file_list<-score_file_list[score_file_list$name %in% gwas,]
+  }
+  
+  # Subset requested pgs_methods
+  if(!is.null(pgs_methods)){
+    if(any(!(pgs_methods %in% score_file_list$method))){
+      stop('Requested PGS methods are not present in gwas_list/score_list')
+    }
+    score_file_list<-score_file_list[score_file_list$method %in% pgs_methods,]
+  }
+  
+  # Identify outdir parameter
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+  
+  out <- foreach(i = unique(score_file_list$name), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+    score_file_list_i<-score_file_list[score_file_list$name == i,]
+    
+    # Read in sumstats
+    ss_i <- fread(paste0(outdir, '/reference/gwas_sumstat/', i, '/', i, '-cleaned.gz'))
+    
+    # Create N.tot object
+    N.tot<-max(ss_i$N)
+    GWAS_N<-mean(ss_i$N)
+    
+    # Create snps object
+    ss_i$POS<-0
+    snps<-ss_i[,c('CHR','SNP','POS','BP','A1','A2')]
+    names(snps)<-paste0('V',1:length(names(snps)))
+    
+    # Make a reference to harmonise weights from each method
+    ref_tmp<-ss_i[, c('SNP','A1','A2'), with=F]
+    
+    # Insert weights from score files
+    models <- score_file_list_i$method
+    weights<-fread(cmd=paste0('zcat ', outdir, '/reference/pgs_score_files/', models[1], '/', i, '/ref-', i,".score.gz | cut -f 1-3 -d' '")) 
+    for(j in models){
+      tmp <- fread(cmd=paste0('zcat ', outdir, '/reference/pgs_score_files/', j, '/', i, '/ref-', i,".score.gz | cut -f 1-3 -d' ' --complement"))
+      if(j == 'ptclump'){
+        names(tmp)<-paste0(j,'_',gsub('.*\\.','',names(tmp)))
+      } else {
+        names(tmp)<-j
+      }
+      weights <- cbind(weights, tmp)
+    }
+    weights <- weights[weights$SNP %in% ref_tmp$SNP,]
+    score_i <- map_score(ref = ref_tmp, score = weights)
+    
+    # Insert top1 model
+    score_i$top1 <- ss_i$BETA/ss_i$SE
+
+    models<-names(score_i)[-1:-3]
+    
+    # Create cv.performance object
+    cv.performance<-data.frame(matrix(NA, nrow=2, ncol=length(models)), row.names=c('rsq','pval'))
+    names(cv.performance)<-models
+    
+    # Create wgt.matrix object
+    wgt.matrix<-matrix(NA, ncol=length(models), nrow=nrow(ss_i))
+    dimnames(wgt.matrix)<-list(snps$V2,models)
+    for(j in models){
+      wgt.matrix[, j] <- score_i[[j]]
+    }
+    
+    # Read in heritability estimate
+    h2_method <- read_param(config = config, param = 'h2_method', return_obj = F)
+    if(h2_method == 'sbayesr'){
+      h2_log <- readLines(paste0(outdir,'/reference/pgs_score_files/sbayesr/', i,'/ref-', i,'.log'))
+      h2_log <- h2_log[grepl('SNP-heritability estimate', h2_log)]
+      h2_log <- gsub('SNP-heritability estimate is ','',h2_log)
+      hsq <- as.numeric(gsub(' .*','',h2_log))
+      h2_se <- as.numeric(gsub("\\).", '', gsub(".* \\(SD=", '', h2_log)))
+    }
+    if(h2_method == 'ldsc'){
+      h2_log <- readLines(paste0(outdir,'/reference/ldsc/', i,'/', i, '.log'))
+      h2_log <- h2_log[grepl('SNP-heritability estimate on the observed scale', h2_log)]
+      h2_log <- gsub('SNP-heritability estimate on the observed scale = ','',h2_log)
+      hsq <- as.numeric(gsub(' .*','',h2_log))
+      h2_se <- as.numeric(gsub("\\).", '', gsub(".* \\(", '', h2_log)))
+    }
+    hsq.pv <- pnorm(hsq / h2_se, lower.tail = FALSE)
+
+    save(cv.performance,
+         hsq,
+         hsq.pv,
+         N.tot,
+         snps,
+         wgt.matrix,
+         file = paste0(output_dir,'/', i, '.RDat'))
+  }
+}
+

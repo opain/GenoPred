@@ -158,13 +158,16 @@ for(targ_pop in gwas_list$population){
                               targ_pop = targ_pop)
 }
 
+# Set NA to 0
+score_weighted[is.na(score_weighted)]<-0
+
 # Only retain weighted score columns
 score_weighted <- score_weighted[, c('SNP','A1','A2', names(score_weighted)[grepl('_weighted$', names(score_weighted))]), with=F]
 
 # Reduce number of significant figures to save space
 score_weighted[, (4:ncol(score_weighted)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_weighted)]
 
-fwrite(score_weighted, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
+fwrite(score_weighted, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F, )
 
 if(file.exists(paste0(opt$output,'.score.gz'))){
   system(paste0('rm ',opt$output,'.score.gz'))
