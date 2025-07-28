@@ -179,11 +179,13 @@ kept <- c()
 new_index <- 1
 
 # Filter and renumber annotation files
+fwrite(gwas[,'Predictor', with=F], paste0(tmp_dir,'/snplist.txt'), quote=F, col.names = F)
+
 for (i in 1:65) {
   print(i)
   bld_path <- file.path(tmp_dir, "bld", paste0("bld", i))
-  bld_i <- fread(bld_path, header = FALSE)$V1
-  if (any(bld_i %in% gwas$Predictor)) {
+  exit_code <- system(paste0("cut -f 1 -d ' ' ", bld_path, ' | grep -Fxf ', tmp_dir, '/snplist.txt -m 1'))
+  if (exit_code == 0) {
     new_path <- file.path(tmp_dir, "bld", paste0("bld", new_index))
     file.rename(bld_path, new_path)
     kept <- c(kept, new_index)
@@ -267,7 +269,7 @@ if(file.exists(paste0(opt$output_dir,'/highld/genes.predictors.used'))){
 
 # Identify the best fitting model
 ldak_res_cors <- fread(paste0(tmp_dir, '/mega_subset.cors'), nThread = opt$n_cores)
-best_score <- ldak_res_cors[ldak_res_cors$V2 == max(ldak_res_cors$V2),]
+best_score <- ldak_res_cors[ldak_res_cors$V2 == max(ldak_res_cors$V2, na.rm = T),]
 
 # Save the pseudovalidation results
 system(paste0('cp ', tmp_dir, '/mega_subset.cors ', opt$output, '.pseudoval.txt'))

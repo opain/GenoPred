@@ -240,6 +240,9 @@ if(nrow(targ_matched) < 0.75*n_snp_orig){
 
   score <- targ_matched
   
+  # Save harmonised version of the score file
+  fwrite(score, paste0(opt$output,'.harmonised.gz'), col.names=T, sep='\t', quote=F)
+  
   print(head(targ_matched))
   
 	score$CHR <- NULL

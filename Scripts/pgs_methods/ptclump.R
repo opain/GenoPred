@@ -66,7 +66,7 @@ log_file <- paste0(opt$output,'.log')
 log_header(log_file = log_file, opt = opt, script = 'ptclump.R', start.time = start.time)
 
 # If testing, change CHROMS to chr value
-if(opt$test == 'NA'){
+if(!is.na(opt$test) && opt$test == 'NA'){
   opt$test<-NA
 }
 if(!is.na(opt$test)){
@@ -127,6 +127,11 @@ gwas <- gwas[(gwas$SNP %in% clumped),]
 
 # Retain pTs with at least one variant
 opt$pTs <- opt$pTs[opt$pTs > min(gwas$P)]
+
+if(length(opt$pTs) == 0){
+  log_add(log_file = log_file, message = 'No SNPs surpass maximum p-value threshold.')
+  stop('No SNPs surpass maximum p-value threshold.')
+}
 
 # Create range_list file based on specified p-value thresholds
 if(opt$nested == T){

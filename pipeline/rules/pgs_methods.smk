@@ -119,7 +119,7 @@ rule prep_pgs_ptclump_i:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
-    f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz"
+    touch(f"{outdir}/reference/target_checks/prep_pgs_ptclump_i-{{gwas}}.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
@@ -131,7 +131,10 @@ rule prep_pgs_ptclump_i:
     pts= ",".join(map(str, config["ptclump_pts"])),
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/ptclump.R \
+      """
+    (
+    rm -r -f {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}; \
+    Rscript ../Scripts/pgs_methods/ptclump.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -139,10 +142,14 @@ rule prep_pgs_ptclump_i:
       --output {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
       --pTs {params.pts} \
-      --test {params.testing} > {log} 2>&1"
+      --test {params.testing} > {log} 2>&1
+    ) || (
+      echo ptclump failed for {wildcards.gwas}
+    )
+    """
 
 rule prep_pgs_ptclump:
-  input: expand(f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_ptclump_i-{{gwas}}.done", gwas=gwas_list_df['name'])
 
 ##
 # DBSLMM
