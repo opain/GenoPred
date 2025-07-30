@@ -466,9 +466,10 @@ else:
 cis_only = str(config.get("cis_only", "False")).lower() in ["true", "t", "yes", "1"]
 if cis_only:
     config["ptclump_pts"] = ['0.001','0.05']
-    config["lassosum_pseudo_only"] = True
+    config["lassosum_pseudo_only"] = 'T'
     config["ldpred2_model"] = ['auto']
-    config["megaprs_pseudo_only"] = True
+    config["ldpred2_inference"] = 'F'
+    config["megaprs_pseudo_only"] = 'T'
     config["prscs_phi"] = ['auto']
     config["dbslmm_h2f"] = ['1']
 

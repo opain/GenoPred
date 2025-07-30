@@ -359,7 +359,7 @@ rule prep_pgs_lassosum_i:
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"],
-    pseudo_only_flag = lambda wildcards: "T" if config.get("lassosum_pseudo_only", False) else "F"
+    pseudo_only_flag = lambda wildcards: "T" if str(config.get("lassosum_pseudo_only", "False")).lower() in ["t", "true"] else "F"
   shell:
     "Rscript ../Scripts/pgs_methods/lassosum.R \
      --ref_plink_chr {refdir}/ref.chr \
@@ -549,7 +549,7 @@ rule prep_pgs_megaprs_i:
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"],
-    pseudo_only_flag = lambda wildcards: "T" if config.get("megaprs_pseudo_only", False) else "F"
+    pseudo_only_flag = lambda wildcards: "T" if str(config.get("megaprs_pseudo_only", "False")).lower() in ["t", "true"] else "F"
   shell:
     "Rscript ../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir}/ref.chr \
@@ -822,7 +822,7 @@ rule leopard_quickprs_i:
     rules.download_ldak_map.output,
     rules.download_ldak_bld.output
   output:
-    f"{outdir}/reference/pgs_score_files/leopard/{{gwas_group}}/ref-{{gwas_group}}.weights.rds"
+    touch(f"{outdir}/reference/target_checks/leopard_quickprs_i-{{gwas_group}}.done")
   benchmark:
     f"{outdir}/reference/benchmarks/leopard_quickprs_i-{{gwas_group}}.txt"
   log:
@@ -835,7 +835,10 @@ rule leopard_quickprs_i:
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/leopard_quickprs.R \
+    """
+    (
+    rm -r -f {outdir}/reference/pgs_score_files/leopard/{wildcards.gwas_group}; \
+    Rscript ../Scripts/pgs_methods/leopard_quickprs.R \
       --ref_plink_chr {refdir}/ref.chr \
       --pop_data {refdir}/ref.pop.txt \
       --sumstats {params.sumstats} \
@@ -847,10 +850,31 @@ rule leopard_quickprs_i:
       --xwing_repo {resdir}/software/xwing \
       --n_cores {threads} \
       --output {outdir}/reference/pgs_score_files/leopard/{wildcards.gwas_group}/ref-{wildcards.gwas_group} \
-      --test {params.testing} > {log} 2>&1"
-
+      --test {params.testing} > {log} 2>&1
+    ) || (
+      echo LEOPARD+QuickPRS failed for {wildcards.gwas_group}
+    )
+    """
+    
 rule leopard_quickprs:
-  input: expand(f"{outdir}/reference/pgs_score_files/leopard/{{gwas_group}}/ref-{{gwas_group}}.weights.rds", gwas_group=gwas_groups_df['name'])
+  input: expand(f"{outdir}/reference/target_checks/leopard_quickprs_i-{{gwas_group}}.done", gwas_group=gwas_groups_df['name'])
+
+# Check which gwas_groups completed for LEOPARD+QuickPRS
+checkpoint leopard_reporter:
+  input:
+    expand(f"{outdir}/reference/target_checks/leopard_quickprs_i-{{gwas_group}}.done", gwas_group=gwas_groups_df['name'])
+  output:
+    touch(f"{outdir}/reference/target_checks/leopard_report.done")
+  benchmark:
+    f"{outdir}/reference/benchmarks/leopard_reporter.txt"
+  log:
+    f"{outdir}/reference/logs/leopard_reporter.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    config_file = config["config_file"]
+  shell:
+    "Rscript ../Scripts/pipeline_misc/leopard_reporter.R {params.config_file} > {log} 2>&1"
 
 ####
 # Combine single-source PGS using LEOPARD weights
@@ -862,9 +886,28 @@ single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "
 # Find which single source methods have been requested
 requested_single_source_methods = list(single_source_methods.intersection(config["leopard_methods"]))
 
+# Create function to read leopard report
+def leopard_munge(wildcards):
+    # Retrieve leopard reporter output
+    checkpoints.leopard_reporter.get().output[0]
+    checkpoint_output = outdir + "/reference/pgs_score_files/leopard/leopard_report.txt"
+
+    # Read leopard report
+    leopard_report_df = pd.read_table(checkpoint_output, sep=' ')
+    
+    # Filter to completed GWAS groups
+    completed = leopard_report_df[leopard_report_df["pass"] == True]["name"].tolist()
+
+    # Return list of GWAS group names
+    return expand(
+        f"{outdir}/reference/pgs_score_files/{{method}}_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz",
+        gwas_group=completed,
+        method=requested_single_source_methods
+    )
+
 rule prep_pgs_multi_i:
   input:
-    f"{outdir}/reference/pgs_score_files/leopard/{{gwas_group}}/ref-{{gwas_group}}.weights.rds",
+    f"{outdir}/reference/target_checks/leopard_quickprs_i-{{gwas_group}}.done",
     lambda w: expand(f"{outdir}/reference/pgs_score_files/{{method}}/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group), method = w.method),
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
@@ -888,7 +931,7 @@ rule prep_pgs_multi_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_multi:
-  input: expand(f"{outdir}/reference/pgs_score_files/{{method}}_multi/{{gwas_group}}/ref-{{gwas_group}}.score.gz", gwas_group=gwas_groups_df['name'], method = requested_single_source_methods)
+  input: leopard_munge
 
 ####
 # Inverse-variance meta-analysis 
