@@ -8,6 +8,8 @@ make_option("--target", action="store", default=NA, type='character',
     help="Prefix to a target sample plink files for a given chromosome [required]"),
 make_option("--ref", action="store", default=NA, type='character',
     help="Prefix to a reference sample plink and .rds files for a given chromosome [required]"),
+make_option("--require_reference_overlap", action="store", default=T, type='logical',
+    help="Logical indicating whether a certain overlap between reference and target is required, and whether missing reference variants are inserted [required]"),
 make_option("--format", action="store", default=NA, type='character',
     help="Format of target files. Either plink1, plink2, bgen, or vcf. [required]"),
 make_option("--plink", action="store", default='plink', type='character',
@@ -60,9 +62,11 @@ target_snp<-read_geno(target = opt$target, format = opt$format)
 log_add(log_file = log_file, message = paste0('Target data contains ', nrow(target_snp),' variants.'))
 
 # Throw an error if there are not enough SNPs in the target data
-if(nrow(target_snp) < nrow(ref)*0.9){
-  log_add(log_file = log_file, message = 'Error: Check your target data has been imputed already.')
-  stop("Check your target data has been imputed already.")
+if(opt$require_reference_overlap){
+  if(nrow(target_snp) < nrow(ref)*0.9){
+    log_add(log_file = log_file, message = 'Error: Check your target data has been imputed already.')
+    stop("Check your target data has been imputed already.")
+  }
 }
 
 ###################
@@ -102,9 +106,11 @@ ref_target<-ref_target[matched,]
 
 log_add(log_file = log_file, message = paste0('Target contains ', nrow(ref_target),' reference variants.'))
 
-if(nrow(ref_target) < nrow(ref)*0.7){
-  log_add(log_file = log_file, message = 'Error: Less than 70% of reference variants are present in the target.')
-  stop("Less than 70% of reference variants are present in the target")
+if(opt$require_reference_overlap){
+  if(nrow(ref_target) < nrow(ref)*0.7){
+    log_add(log_file = log_file, message = 'Error: Less than 70% of reference variants are present in the target.')
+    stop("Less than 70% of reference variants are present in the target")
+  }
 }
 
 # To avoid issues due to duplicate IDs, we must extract variants based on original ID, update IDs manually to the reference RSID, and then extract those SNPs from the PLINK files.
@@ -170,29 +176,35 @@ system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --extract ', tmp_dir,'/ext
 # Insert missing SNPs into the reference data
 ##################
 
-log_add(log_file = log_file, message = 'Inserting missing reference variants.')
+if(opt$require_reference_overlap){
+  log_add(log_file = log_file, message = 'Inserting missing reference variants.')
 
-# Update IDs in reference to avoid conflict with the target
-ref_psam<-fread(paste0(opt$ref,'.psam'))
-names(ref_psam)<-gsub('\\#', '', names(ref_psam))
-ref_psam <- ref_psam[, names(ref_psam) %in% c('FID', 'IID'), with = F]
-if(ncol(ref_psam) == 1){
-  ref_ID_update<-data.frame(ref_psam$`IID`, paste0(ref_psam$`IID`,'_REF'))
+  # Update IDs in reference to avoid conflict with the target
+  ref_psam<-fread(paste0(opt$ref,'.psam'))
+  names(ref_psam)<-gsub('\\#', '', names(ref_psam))
+  ref_psam <- ref_psam[, names(ref_psam) %in% c('FID', 'IID'), with = F]
+  if(ncol(ref_psam) == 1){
+    ref_ID_update<-data.frame(ref_psam$`IID`, paste0(ref_psam$`IID`,'_REF'))
+  } else {
+    ref_ID_update<-data.frame(ref_psam$`FID`, ref_psam$`IID`, paste0(ref_psam$`FID`,'_REF'), paste0(ref_psam$`IID`,'_REF'))
+  }
+  fwrite(ref_ID_update, paste0(tmp_dir,'/ref_ID_update.txt'), sep=' ', col.names=F)
+  system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --threads 1'))
+
+  # Merge target and reference plink files to insert missing SNPs
+  # plink2's pmerge only handles concatenation for the time being
+  # In the meantime, convert the ref and target into plink1 binaries, merge, and then convert back to plink2 binaries
+  system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --make-bed --threads 1 --out ',tmp_dir,'/subset'))
+  system(paste0(opt$plink2,' --pfile ',tmp_dir,'/REF --make-bed --out ',tmp_dir,'/REF --threads 1'))
+  system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --bmerge ',tmp_dir,'/REF --make-bed --allow-no-sex --out ',tmp_dir,'/ref_targ'))
+
+  # Extract only target individuals
+  system(paste0(opt$plink2,' --bfile ',tmp_dir,'/ref_targ --remove ',tmp_dir,'/REF.psam --make-pgen --threads 1 --out ',opt$output))
 } else {
-  ref_ID_update<-data.frame(ref_psam$`FID`, ref_psam$`IID`, paste0(ref_psam$`FID`,'_REF'), paste0(ref_psam$`IID`,'_REF'))
+  system(paste0('mv ', tmp_dir,'/subset.pgen ', opt$output, '.pgen'))
+  system(paste0('mv ', tmp_dir,'/subset.pvar ', opt$output, '.pvar'))
+  system(paste0('mv ', tmp_dir,'/subset.psam ', opt$output, '.psam'))
 }
-fwrite(ref_ID_update, paste0(tmp_dir,'/ref_ID_update.txt'), sep=' ', col.names=F)
-system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --threads 1'))
-
-# Merge target and reference plink files to insert missing SNPs
-# plink2's pmerge only handles concatenation for the time being
-# In the meantime, convert the ref and target into plink1 binaries, merge, and then convert back to plink2 binaries
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --make-bed --threads 1 --out ',tmp_dir,'/subset'))
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/REF --make-bed --out ',tmp_dir,'/REF --threads 1'))
-system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --bmerge ',tmp_dir,'/REF --make-bed --allow-no-sex --out ',tmp_dir,'/ref_targ'))
-
-# Extract only target individuals
-system(paste0(opt$plink2,' --bfile ',tmp_dir,'/ref_targ --remove ',tmp_dir,'/REF.psam --make-pgen --threads 1 --out ',opt$output))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

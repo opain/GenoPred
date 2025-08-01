@@ -111,12 +111,14 @@ if 'target_list' in config:
       refdir=config["refdir"],
       testing=config["testing"],
       prefix= lambda w: target_prefix(name = w.name),
-      type= lambda w: target_type(name = w.name)
+      type= lambda w: target_type(name = w.name),
+      require_reference_overlap = lambda wildcards: "F" if str(config.get("restrict_to_target_variants", "True")).lower() in ["t", "true"] else "T"
     shell:
       "Rscript ../Scripts/format_target/format_target.R \
         --target {params.prefix}.chr{wildcards.chr} \
         --format {params.type} \
         --ref {refdir}/ref.chr{wildcards.chr} \
+        --require_reference_overlap {params.require_reference_overlap} \
         --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr} > {log} 2>&1"
 
 rule format_target_all:
@@ -212,3 +214,27 @@ rule outlier_detection_i:
 rule outlier_detection:
   input:
     lambda w: expand(f"{outdir}/reference/target_checks/{{name}}/outlier_detection.done", name=target_list_df_samp['name'])
+
+####
+# Find variants overlapping target datasets
+####
+
+rule find_intersecting_variants:
+  input:
+    rules.format_target.input
+  output:
+    touch(f"{outdir}/reference/target_checks/find_intersecting_variants.done")
+  benchmark:
+    f"{outdir}/reference/benchmarks/find_intersecting_variants.txt"
+  log:
+    f"{outdir}/reference/logs/find_intersecting_variants.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    testing=config["testing"],
+    config_file = config["config_file"]
+  shell:
+    "Rscript ../Scripts/find_intersecting_variants/find_intersecting_variants.R \
+      --config {params.config_file} \
+      --test {params.testing} > {log} 2>&1"
+      

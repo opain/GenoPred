@@ -460,6 +460,11 @@ else:
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"File not found: {full_path}. Check reference data format.")
 
+if str(config.get("restrict_to_target_variants", "True")).lower() in ["t", "true"]:
+  refdir_intersect=f"{outdir}/reference/ref"
+else:
+  refdir_intersect=f"{refdir}"
+
 #####
 
 # Update config if cis_only == True

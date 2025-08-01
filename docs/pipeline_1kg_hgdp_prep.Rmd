@@ -306,7 +306,22 @@ tar -czvf ld_scores.tar.gz ld_scores
 
 # Make dense version of the reference data
 
-We will create a reference dataset that is not restricted to HapMap3 variants, to allow for denser coverage, and broader applicability to the PGS catalogue.
+By default, GenoPred uses a reference dataset restricted to HapMap3 variants to improve SNP overlap across datasets, and also improve computational efficiency while maintaining decent coverage. However, it may be of interest to use a reference with denser coverage of the genome. For example, when using externally derived PGS score files, such as those on PGS catalogue, which are not restricted to HapMap3 variants. It could also be desired to instead restrict PGS analyses to variants present in the target dataset, although this departs from the reference standardised approach and may limit generalisability of models across datasets. Therefore, here we will create a reference dataset for GenoPred that provides denser coverage, including all autosomal nonambiguous SNPs with a MAF > 0.01 in any reference population.
+
+***
+
+## Download dbSNP data
+
+```{bash}
+# Download the dbSNP data for common variants (MAF > 0.01 in at least 1 population in 1KG)
+mkdir -p ~/oliverpainfel/Data/dbSNP
+cd ~/oliverpainfel/Data/dbSNP
+wget https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh37p13/VCF/00-common_all.vcf.gz
+```
+
+***
+
+## Subset 1KG+HGDP data to common variants and insert RSIDs
 
 ```{r}
 
@@ -316,26 +331,127 @@ source_all('../functions')
 library(data.table)
 library(GenoUtils)
 
+dir.create('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense')
+
 # Read in variant data for 1KG+HGDP
 pvar <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL.pvar', nThread=5)
 
-# Extract RSID information
-pvar$RSID <- gsub('.*gnomad_ID=', '', pvar$INFO)
-pvar$RSID[grepl('AF', pvar$RSID)] <- NA
-
-# Remove unneeded data and variant that aren't unambiguous SNPs and don't have RSID
+# Remove unneeded data and variant that aren't non ambiguous autosomal SNPs
 pvar$INFO<-NULL
 pvar$FILTER<-NULL
 pvar<-pvar[nchar(pvar$REF) == 1,]
 pvar<-pvar[nchar(pvar$ALT) == 1,]
-names(pvar)<-c('CHR','BP','SNP','A1','A2','RSID')
+names(pvar)<-c('CHR','BP','SNP','A1','A2')
 pvar<-pvar[pvar$CHR %in% 1:22,]
 pvar$CHR<-as.numeric(pvar$CHR)
-pvar<-pvar[!is.na(pvar$RSID),]
 pvar$IUPAC<-snp_iupac(pvar$A1, pvar$A2)
-pvar<-pvar[pvar$IUPAC %in% c('R','Y','K','M'),]
+pvar <- pvar[pvar$IUPAC %in% c('R','Y','K','M'),]
 
-# Liftover data to GRCh38
+# Read in dbSNP data and filter in the same way
+dbsnp<-fread('~/oliverpainfel/Data/dbSNP/00-common_all.vcf.gz')
+dbsnp$QUAL<-NULL
+dbsnp$FILTER<-NULL
+dbsnp$INFO<-NULL
+names(dbsnp)<-c('CHR','BP','SNP','A1','A2')
+dbsnp<-dbsnp[dbsnp$CHR %in% 1:22,]
+dbsnp$CHR<-as.numeric(dbsnp$CHR)
+dbsnp<-dbsnp[nchar(dbsnp$A1) == 1,]
+dbsnp<-dbsnp[nchar(dbsnp$A2) == 1,]
+dbsnp$IUPAC<-snp_iupac(dbsnp$A1, dbsnp$A2)
+dbsnp <- dbsnp[dbsnp$IUPAC %in% c('R','Y','K','M'),]
+
+# Merge the pvar data with the dbSNP data allowing for strand flips
+ref_target <- merge(pvar, dbsnp, by=c('CHR','BP'))
+flip_logical<-detect_strand_flip(targ = ref_target$IUPAC.x, ref = ref_target$IUPAC.y)
+# There are no strand flips
+
+# Identify SNPs that have matched IUPAC
+ref_target<-ref_target[ref_target$IUPAC.x == ref_target$IUPAC.y,]
+
+# Clean up pvar
+pvar<-ref_target[, c('CHR','BP','SNP.x','SNP.y','A1.x','A2.x'), with=F]
+names(pvar)<-c('CHR','BP','ID','SNP','A1','A2')
+
+# Remove duplicates
+pvar <- pvar[!duplicated(pvar$SNP),] # None removed
+pvar <- pvar[!duplicated(paste0(pvar$CHR,':',pvar$BP)),] # 1075 removed
+# 13,839,753 variants remain.
+
+# Extract hm3 SNPs from plink2 files
+write.table(pvar$ID, '/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/extract.snplist', col.names=F, row.names=F, quote=F)
+
+# Save intermediate file
+fwrite(pvar,'/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg_nonambig_snps.txt', sep = '\t', quote = F, na='NA')
+
+```
+
+```{bash}
+for chr in $(seq 1 22); do
+  sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="plink2 \
+    --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL \
+    --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/unrel.keep \
+    --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/extract.snplist \
+    --chr ${chr} \
+    --threads 5 \
+    --make-pgen \
+    --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr}"
+done
+```
+
+```{r}
+library(data.table)
+
+# Insert RSIDs into new plink files
+ref <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg_nonambig_snps.txt')
+
+for(i in 1:22){
+  pvar <- fread(paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr',i,'.pvar'))
+  pvar <- pvar[, c('#CHROM','POS','ID','REF','ALT'), with=F]
+  pvar[ref, on=.(ID), ID := i.SNP]
+  fwrite(
+    pvar,
+    paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr',i,'.pvar'),
+    col.names = T,
+    row.names = F,
+    quote = F,
+    sep = ' '
+  )
+}
+
+```
+
+```{bash}
+# Calculate allele frequencies for each population
+# Use keep files from previous reference preparation
+for pop in $(echo EUR EAS AFR AMR CSA MID); do
+  mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/${pop}
+  
+  for chr in $(seq 1 22); do
+    sbatch --mem 10G -n 1 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="plink2 \
+      --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr} \
+      --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/${pop}.keep \
+      --freq \
+      --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/${pop}/hgdp_1kg.chr${chr}"
+      
+  done
+done
+
+# Create frequency files across all reference individuals (TRANS)
+mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/TRANS
+for chr in $(seq 1 22); do
+  sbatch --mem 10G -n 1 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="plink2 \
+    --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr} \
+    --freq \
+    --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/TRANS/hgdp_1kg.chr${chr}"
+done
+```
+
+```{r}
+####
+# Create .rds files for SNP stats
+####
+
+# Make liftover functions
 make_executable <- function(exe) {
   Sys.chmod(exe, mode = (file.info(exe)$mode | "111"))
 }
@@ -363,149 +479,61 @@ snp_modifyBuild_offline<-function (info_snp, liftOver, chain){
   info_snp
 }
 
-names(pvar) <- c('chr','pos','snp','a1','a2','rsid','iupac')
-
-pvar_grch38<-snp_modifyBuild_offline(pvar, liftOver='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover', chain='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg38.over.chain.gz')
-
-pvar_grch36<-snp_modifyBuild_offline(pvar, liftOver='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover', chain='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg18.over.chain.gz')
-
-pvar[pvar_grch36, on=.(snp), pos_grch36 := i.pos]
-pvar[pvar_grch38, on=.(snp), pos_grch38 := i.pos]
-
-rm(pvar_grch36)
-rm(pvar_grch38)
-gc()
-
-pvar <- pvar[, c('chr','snp','rsid','a1','a2','iupac','pos_grch36','pos','pos_grch38'), with=F]
-names(pvar) <- c('CHR','SNP','RSID','A1','A2','IUPAC','BP_GRCh36','BP_GRCh37','BP_GRCh38')
-
-pvar<-pvar[complete.cases(pvar),]
-
-# Save intermediate file
-fwrite(pvar,'/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg_snps.txt', quote = F, sep = ' ', na='NA')
-
-pvar<-fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg_snps.txt')
-
-# Remove variants with duplicate RSIDs (retaining first instance)
-pvar <- pvar[!duplicated(pvar$RSID),]
-
-# Extract SNPs from plink2 files
-dir.create('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred')
-write.table(pvar$SNP, '/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/extract.snplist', col.names=F, row.names=F, quote=F)
-system('plink2 --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL --make-pgen --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/extract.snplist --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg --threads 5')
-
-# Insert RSIDs into new plink files
-pvar_subset <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.pvar')
-pvar_subset <- pvar_subset[, c('#CHROM','POS','ID','REF','ALT'), with=F]
-pvar$ID <- pvar$SNP
-pvar_subset[pvar, on=.(ID), SNP := i.RSID]
-pvar_subset<-pvar_subset[, c('#CHROM','POS','SNP','REF','ALT'), with=F]
-names(pvar_subset)<-c('#CHROM','POS','ID','REF','ALT')
-fwrite(pvar_subset, '/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.pvar', col.names=T, row.names=F, quote=F, sep=' ')
-
-# Remove hard filtered individuals
-samp_meta<-fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/gnomad.genomes.v3.1.2.hgdp_1kg_subset_sample_meta.tsv.bgz')
-samp_meta<-samp_meta[grepl("hard_filtered\":false", samp_meta$gnomad_sample_filters), ]
-
-# Remove PCA outliers
-samp_meta<-samp_meta[grepl("outlier\":false", samp_meta$hgdp_tgp_meta), ]
-
-# Remove relatives (we will use the sample meta-data for this - Estimated using PC-relate)
-library(jsonlite)
-kin_dat <- NULL
-for(i in 1:nrow(samp_meta)){
-  tmp <- fromJSON(samp_meta$relatedness_inference[i])
-  if(is.data.frame(tmp$related_samples)){
-    tmp$related_samples$ID<-samp_meta$s[i]
-    kin_dat<-rbind(kin_dat, tmp$related_samples)
-  }
-}
-
-# Restrict table to individuals in the genetic data
-psam <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.psam')
-psam<-psam[psam$`#IID` %in% samp_meta$s,]
-kin_dat<-kin_dat[kin_dat$s %in% psam$`#IID` & kin_dat$ID %in% psam$`#IID`, ]
-relations<-data.frame(id_1=kin_dat$s, id_2=kin_dat$ID, kin=kin_dat$kin)
-
-# Use GreedyRelated to find maximum unrelated set
-relations$Pair <- apply(relations, 1, function(row) {
-  # Construct a unique identifier for each pair regardless of order
-  paste(sort(c(row['id_1'], row['id_2'])), collapse = "_")
-})
-relations$Pair<-as.numeric(factor(relations$Pair))
-relations$Factor<-relations$kin
-relations$ID<-relations$id_1
-relations<-relations[, c('ID', 'Pair', 'Factor')]
-relations<-relations[order(relations$Pair), ]
-fwrite(relations, file='/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/relations.txt', sep=' ', quote=F)
-
-system('/users/k1806347/oliverpainfel/Software/GreedyRelated/bin/GreedyRelated -r /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/relations.txt -t 0.05 -s 1 > /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/relations_remove.txt')
-
-remove<-fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/relations_remove.txt')
-
-# Create keep file of unrelated individuals
-psam_unrel <- psam[!(psam$`#IID` %in% remove$V2),]
-nrow(psam_unrel) # 3313 - This is 65 less than in the preprint Table S3. Maybe Greedy related is worse?
-
-write.table(psam_unrel[, '#IID', with=F], '/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/unrel.keep', col.names=T, row.names=F, quote=F)
-
-# Split by chromosome and retain unrelated individuals
 for(i in 1:22){
-  system(paste0('plink2 --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/unrel.keep --chr ',i,' --make-pgen --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.chr',i))
-}
+  pvar <- fread(paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr',i,'.pvar'))
+  
+  # Insert BP for GRCh36 and 38
+  names(pvar) <- c('chr','pos','snp','a2','a1')
 
-# Create keep files and calculate allele frequencies for each population
-# Population data is stored withint the psam file
-psam <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.chr22.psam')
-pop_dat<-psam[, c('#IID','SuperPop')]
-names(pop_dat)<-c('#IID','POP')
-write.table(pop_dat, '/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/pop.txt', row.names=F, col.names=T, quote=F)
+  pvar_grch38<-snp_modifyBuild_offline(pvar, liftOver='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover', chain='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg38.over.chain.gz')
+  
+  pvar_grch36<-snp_modifyBuild_offline(pvar, liftOver='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover', chain='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg18.over.chain.gz')
 
-dir.create('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/')
-for(pop in unique(pop_dat$POP)){
-  write.table(pop_dat[pop_dat$POP == pop, '#IID', with=F], paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/',pop,'.keep'), col.names=F, row.names=F, quote=F)
-  dir.create(paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/freq_files/', pop), recursive = T)
-  for(i in 1:22){
-    system(paste0('plink2 --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.chr',i,' --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/',pop,'.keep --chr ',i,' --freq --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/freq_files/', pop,'/hgdp_1kg.chr', i))
+  pvar[pvar_grch36, on=.(snp), pos_grch36 := i.pos]
+  pvar[pvar_grch38, on=.(snp), pos_grch38 := i.pos]
+  
+  rm(pvar_grch36)
+  rm(pvar_grch38)
+  gc()
+  
+  pvar <- pvar[, c('chr','snp','a1','a2','pos_grch36','pos','pos_grch38'), with=F]
+  names(pvar) <- c('CHR','SNP','A1','A2','BP_GRCh36','BP_GRCh37','BP_GRCh38')
+  
+  pvar$IUPAC<-snp_iupac(pvar$A1, pvar$A2)
+
+  # Read in the FRQ data
+  for(pop in c('EUR','EAS','AFR','AMR','CSA','MID')){
+    freq <-
+      fread(
+        paste0(
+          '/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/',
+          pop,
+          '/hgdp_1kg.chr',
+          i,
+          '.afreq'
+        )
+      )
+    
+    names(freq)<-c('CHR','SNP','A2','A1','FREQ','OBS')
+    freq$IUPAC<-snp_iupac(freq$A1, freq$A2)
+    
+    pvar<-merge(pvar, freq[, c('SNP','A1','FREQ'), with=F], by = 'SNP', sort = F)
+    pvar$FREQ[pvar$A1.x != pvar$A1.y] <- 1-pvar$FREQ[pvar$A1.x != pvar$A1.y]
+    
+    pvar$A1.y <- NULL
+    names(pvar)[names(pvar) == 'A1.x'] <- 'A1'
+    pvar$FREQ <- round(pvar$FREQ, 5)
+    names(pvar)[names(pvar) == 'FREQ'] <- paste0('REF.FRQ.', pop)
   }
-}
-
-# Create frequency files across all reference individuals (TRANS)
-dir.create(paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/freq_files/TRANS'), recursive = T)
-for(i in 1:22){
-  system(paste0('plink2 --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.chr',i,' --chr ',i,' --freq --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/freq_files/TRANS/hgdp_1kg.chr', i))
-}
-
-####
-# Create .rds files for SNP stats
-####
-
-info_subset <- pvar[pvar$RSID %in% pvar_subset$ID, ]
-info_subset<-info_subset[,c('CHR','BP_GRCh37','RSID','A1','A2','BP_GRCh36','BP_GRCh38','IUPAC'), with=F]
-names(info_subset)<-c('#CHROM','POS_GRCh37','ID','ALT','REF','POS_GRCh36','POS_GRCh38','IUPAC')
-
-for(chr in 1:22){
-    ref<-info_subset[info_subset$`#CHROM` == chr,]
-    for(pop in unique(pop_dat$POP)){
-        # Read in reference frequency data
-        freq<-fread(paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/freq_files/', pop,'/hgdp_1kg.chr', chr,'.afreq'))
-
-        # The freq files have come from the reference files, so we can assume they are on the same strand
-        freq_match<-merge(ref, freq[,c('ID','ALT','REF','ALT_FREQS'), with=F], by=c('ID','ALT','REF'))
-        freq_swap<-merge(ref, freq[,c('ID','ALT','REF','ALT_FREQS'), with=F], by.x=c('ID','ALT','REF'), by.y=c('ID','REF','ALT'))
-        freq_swap$ALT_FREQS<-1-freq_swap$ALT_FREQS
-        tmp_freq<-rbind(freq_match, freq_swap)
-        tmp_freq<-tmp_freq[match(ref$ID, tmp_freq$ID),]
-
-        ref[[paste0('REF.FRQ.',pop)]]<-tmp_freq$ALT_FREQS
-    }
-
-    ref<-ref[,c("#CHROM","ID","POS_GRCh36","POS_GRCh37","POS_GRCh38","ALT","REF","IUPAC",paste0('REF.FRQ.',unique(pop_dat$POP))), with=F]
-    names(ref)<-c("CHR","SNP","BP_GRCh36","BP_GRCh37","BP_GRCh38","A1","A2","IUPAC",paste0('REF.FRQ.',unique(pop_dat$POP)))
-    saveRDS(ref, file = paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.chr',chr,'.rds'))
+  
+  pvar <- pvar[, c("CHR", "SNP", "BP_GRCh36", "BP_GRCh37", "BP_GRCh38", "A1", "A2", "IUPAC", "REF.FRQ.EUR", "REF.FRQ.EAS", "REF.FRQ.AFR", "REF.FRQ.AMR", "REF.FRQ.CSA", "REF.FRQ.MID"), with=F]
+  
+  saveRDS(pvar, file = paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr', i,'.rds'))
 }
 
 ```
+
+***
 
 ## Package for zenodo
 
@@ -513,7 +541,6 @@ for(chr in 1:22){
 ├── ref.chr<1-22>.<pgen/pvar/psam>
 ├── ref.chr<1-22>.rds
 ├── ref.pop.txt (#IID, POP - with header)
-├── ref.keep.list (POP and PATH - without header)
 ├── keep_files
 │   └──<POP>.keep (#IID - with header)
 └── freq_files
@@ -523,31 +550,31 @@ for(chr in 1:22){
 ```{bash}
 
 # Copy over all the relavent files
-mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref
+mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref
 
 for chr in $(seq 1 22); do
   for file in $(echo pgen pvar psam rds); do
-    cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/hgdp_1kg.chr${chr}.${file} /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/ref.chr${chr}.${file}
+    cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr}.${file} /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/ref.chr${chr}.${file}
   done
 done
 
-cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/pop.txt /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/ref.pop.txt
+cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/pop.txt /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/ref.pop.txt
 
-mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/keep_files
+mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/keep_files
 
-cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/*.keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/keep_files/
+cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/*.keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/keep_files/
 
-cp -r /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/freq_files /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/
+cp -r /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/
 
-for pop in $(ls /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/freq_files); do
+for pop in $(ls /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files); do
  for chr in $(seq 1 22); do
-  mv /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.afreq /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/freq_files/${pop}/ref.${pop}.chr${chr}.afreq
-  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.log
+  mv /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.afreq /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/ref.${pop}.chr${chr}.afreq
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.log
  done
 done
 
-# Compress folder and upload to zenodo
-cd /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred
-tar -czvf genopred_1kg_hgdp_dense.tar.gz ref
-
+# Compress folder and upload to google drive
+cd /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense
+tar -czvf genopred_dense_1kg_hgdp.tar.gz ref
+~/oliverpainfel/Software/gdrive files upload genopred_dense_1kg_hgdp.tar.gz
 ```

@@ -40,6 +40,8 @@ library(cowplot)
 library(NbClust)
 library(GGally)
 
+set.seed(1)
+
 # Check required inputs
 if(is.null(opt$target_plink_chr)){
   stop('--target_plink_chr must be specified.\n')

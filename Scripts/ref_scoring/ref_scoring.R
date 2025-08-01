@@ -99,7 +99,11 @@ if(is.null(score_files) || nrow(score_files) == 0){
 
 # Set params for plink_score
 refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
-opt$ref_plink_chr <- paste0(refdir, '/ref.chr')
+if(read_param(config = opt$config, param = 'restrict_to_target_variants', return_obj = F)){
+  opt$ref_plink_chr <- paste0(outdir, '/reference/ref/ref.chr')
+} else {
+  opt$ref_plink_chr <- paste0(refdir, '/ref.chr')
+}
 
 # Read in reference SNP data
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('CHR','SNP','A1','A2'), with=F]
