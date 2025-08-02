@@ -97,7 +97,7 @@ if(is.null(score_files) || nrow(score_files) == 0){
   log_add(log_file = log_file, message = paste0('No score files to be used for target scoring.'))
   end.time <- Sys.time()
   time.taken <- end.time - start.time
-  sink(file = paste(opt$output,'.log',sep=''), append = T)
+  sink(file = log_file, append = T)
   cat('Analysis finished at',as.character(end.time),'\n')
   cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),'\n')
   sink()

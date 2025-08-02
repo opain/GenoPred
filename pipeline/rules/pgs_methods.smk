@@ -774,7 +774,8 @@ rule prep_pgs_external_i:
   conda:
     "../envs/analysis.yaml"
   shell:
-    "Rscript ../Scripts/external_score_processor/external_score_processor.R \
+    "rm -r -f {outdir}/reference/pgs_score_files/external/{wildcards.score}; \
+     Rscript ../Scripts/external_score_processor/external_score_processor.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --score {params.score} \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -783,23 +784,6 @@ rule prep_pgs_external_i:
 
 rule prep_pgs_external:
   input: expand(f"{outdir}/reference/pgs_score_files/external/{{score}}/ref-{{score}}.log", score=score_list_df['name'])
-
-# Create a file listing score files and whether they had sufficient overlap with reference
-checkpoint score_reporter:
-  input:
-    expand(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done", score=score_list_df['name'])
-  output:
-    f"{outdir}/reference/pgs_score_files/external/score_report.txt"
-  benchmark:
-    f"{outdir}/reference/benchmarks/score_reporter.txt"
-  log:
-    f"{outdir}/reference/logs/score_reporter.log"
-  conda:
-    "../envs/analysis.yaml"
-  params:
-    config_file = config["config_file"]
-  shell:
-    "Rscript ../Scripts/pipeline_misc/score_reporter.R {params.config_file} > {log} 2>&1"
 
 ###########
 # Multi-ancestry methods
@@ -1208,7 +1192,7 @@ if 'quickprs' in pgs_methods_all:
 if 'sbayesrc' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_sbayesrc.input)
 if 'external' in pgs_methods_all:
-  pgs_methods_input.append(rules.score_reporter.output)
+  pgs_methods_input.append(rules.prep_pgs_external.input)
 if config["leopard_methods"] and config["leopard_methods"] != "NA":
   pgs_methods_input.append(rules.prep_pgs_multi.input)
 if config["tlprs_methods"] and config["tlprs_methods"] != "NA":

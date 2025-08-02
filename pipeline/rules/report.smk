@@ -10,7 +10,7 @@ if 'gwas_list' in config and config["gwas_list"] != 'NA':
   label_list = pd.concat([label_list, gwas_list_df['label']])
 
 if 'score_list' in config and config["score_list"] != 'NA':
-  output_all_input.append(rules.score_reporter.output)
+  output_all_input.append(rules.prep_pgs.input)
   label_list = pd.concat([label_list, score_list_df['label']])
 
 # Identify temp directory
@@ -72,9 +72,6 @@ def id_munge(name):
 
   checkpoint_output = checkpoints.ancestry_reporter.get(name=name).output[0]
 
-  if 'score_list' in config and config["score_list"] != 'NA':
-    checkpoint_output = checkpoints.score_reporter.get().output[0]
-
   checkpoint_output = f"{outdir}/{name}/geno/{name}.ref.chr{val}.psam"
   fam_df = pd.read_table(checkpoint_output, delim_whitespace=True, usecols=[0,1], names=['FID', 'IID'], header=0)
   fam_df['id'] = fam_df.FID.apply(str) + '.' + fam_df.IID.apply(str)
@@ -123,8 +120,7 @@ rule indiv_report_all:
 
 rule indiv_report:
   input:
-    expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report.done", name= target_list_df_indiv_report['name']),
-    lambda w: checkpoints.score_reporter.get().output[0] if 'score_list' in config and config["score_list"] != 'NA' else []
+    expand(f"{outdir}/reference/target_checks/{{name}}/indiv_report.done", name= target_list_df_indiv_report['name'])
 
 #####
 # Create a rule that checks all defaults outputs given certain outputs are present
