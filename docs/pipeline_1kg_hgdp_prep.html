@@ -754,17 +754,37 @@ datasets. Therefore, here we will create a reference dataset for
 GenoPred that provides denser coverage, including all autosomal
 nonambiguous SNPs with a MAF &gt; 0.01 in any reference population.</p>
 <hr />
-<div id="download-dbsnp-data" class="section level2">
-<h2>Download dbSNP data</h2>
+<div id="common-variants-in-dbsnp" class="section level2">
+<h2>Common variants in dbSNP</h2>
+<p>dbSNP has a list of common variants, with a MAF &gt; 0.01 in at least
+1KG super population. Create an LD reference using this list.</p>
+<hr />
+<div id="download-dbsnp-data" class="section level3">
+<h3>Download dbSNP data</h3>
 <pre class="bash"><code># Download the dbSNP data for common variants (MAF &gt; 0.01 in at least 1 population in 1KG)
 mkdir -p ~/oliverpainfel/Data/dbSNP
 cd ~/oliverpainfel/Data/dbSNP
-wget https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh37p13/VCF/00-common_all.vcf.gz</code></pre>
+wget https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh37p13/VCF/00-common_all.vcf.gz
+
+# Subset CHR BP RSID A1 and A2 information
+zgrep -v &quot;^#&quot; ~/oliverpainfel/Data/dbSNP/00-common_all.vcf.gz | awk &#39;{print $1, $2, $3, $4, $5}&#39; &gt; ~/oliverpainfel/Data/dbSNP/00-common_all.vcf.mini
+
+# Split multi alleleic variants onto seperate lines
+# Retain SNPs only
+awk &#39;{
+  n = split($5, alts, &quot;,&quot;);
+  for (i = 1; i &lt;= n; i++) {
+    if (length($4) == 1 &amp;&amp; length(alts[i]) == 1) {
+      print $1, $2, $3, $4, alts[i]
+    }
+  }
+}&#39; ~/oliverpainfel/Data/dbSNP/00-common_all.vcf.mini &gt; ~/oliverpainfel/Data/dbSNP/00-common_all.vcf.mini.split
+</code></pre>
 <hr />
 </div>
 <div id="subset-1kghgdp-data-to-common-variants-and-insert-rsids"
-class="section level2">
-<h2>Subset 1KG+HGDP data to common variants and insert RSIDs</h2>
+class="section level3">
+<h3>Subset 1KG+HGDP data to common variants and insert RSIDs</h3>
 <pre class="r"><code>setwd(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline&#39;)
 source(&#39;../functions/misc.R&#39;)
 source_all(&#39;../functions&#39;)
@@ -788,22 +808,362 @@ pvar$IUPAC&lt;-snp_iupac(pvar$A1, pvar$A2)
 pvar &lt;- pvar[pvar$IUPAC %in% c(&#39;R&#39;,&#39;Y&#39;,&#39;K&#39;,&#39;M&#39;),]
 
 # Read in dbSNP data and filter in the same way
-dbsnp&lt;-fread(&#39;~/oliverpainfel/Data/dbSNP/00-common_all.vcf.gz&#39;)
-dbsnp$QUAL&lt;-NULL
-dbsnp$FILTER&lt;-NULL
-dbsnp$INFO&lt;-NULL
+dbsnp&lt;-fread(&#39;~/oliverpainfel/Data/dbSNP/00-common_all.vcf.mini.split&#39;, header=F)
 names(dbsnp)&lt;-c(&#39;CHR&#39;,&#39;BP&#39;,&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;)
 dbsnp&lt;-dbsnp[dbsnp$CHR %in% 1:22,]
 dbsnp$CHR&lt;-as.numeric(dbsnp$CHR)
-dbsnp&lt;-dbsnp[nchar(dbsnp$A1) == 1,]
-dbsnp&lt;-dbsnp[nchar(dbsnp$A2) == 1,]
+dbsnp$IUPAC&lt;-snp_iupac(dbsnp$A1, dbsnp$A2)
+dbsnp &lt;- dbsnp[dbsnp$IUPAC %in% c(&#39;R&#39;,&#39;Y&#39;,&#39;K&#39;,&#39;M&#39;),]
+
+# Check overlap with HapMap3 variants
+hapmap3_ref &lt;- read_pvar(&#39;~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr&#39;)
+sum(paste0(dbsnp$CHR,&#39;:&#39;, dbsnp$BP) %in% paste0(hapmap3_ref$CHR,&#39;:&#39;, hapmap3_ref$BP)) # 1303109
+# There appears to be good coverage of HapMap3 variants
+
+# Merge the pvar data with the dbSNP data allowing for strand flips
+ref_target &lt;- merge(pvar, dbsnp, by=c(&#39;CHR&#39;,&#39;BP&#39;))
+flip_logical&lt;-detect_strand_flip(targ = ref_target$IUPAC.x, ref = ref_target$IUPAC.y)
+sum(flip_logical) # There are no strand flips
+
+# Identify SNPs that have matched IUPAC
+ref_target&lt;-ref_target[ref_target$IUPAC.x == ref_target$IUPAC.y,]
+
+# Clean up pvar
+pvar&lt;-ref_target[, c(&#39;CHR&#39;,&#39;BP&#39;,&#39;SNP.x&#39;,&#39;SNP.y&#39;,&#39;A1.x&#39;,&#39;A2.x&#39;), with=F]
+names(pvar)&lt;-c(&#39;CHR&#39;,&#39;BP&#39;,&#39;ID&#39;,&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;)
+
+sum(paste0(pvar$CHR,&#39;:&#39;, pvar$BP) %in% paste0(hapmap3_ref$CHR,&#39;:&#39;, hapmap3_ref$BP)) # 1208667
+sum(pvar$SNP %in% hapmap3_ref$SNP) # 1208618
+# There still appears to be good coverage of HapMap3 variants
+
+# Remove duplicates preferentially keeping the hapmap3 variants
+hapmap3_ref$IUPAC &lt;- snp_iupac(hapmap3_ref$A1, hapmap3_ref$A2)
+pvar$IUPAC &lt;- snp_iupac(pvar$A1, pvar$A2)
+pvar&lt;-merge(pvar, hapmap3_ref, all.x=T, by = &#39;SNP&#39;)
+pvar$in_hm3&lt;-pvar$IUPAC.x == pvar$IUPAC.y
+pvar$in_hm3[is.na(pvar$in_hm3)] &lt;- F
+pvar&lt;-pvar[rev(order(pvar$in_hm3)),]
+
+nrow(pvar) # 27023331
+pvar&lt;-pvar[!duplicated(pvar$SNP),]
+nrow(pvar) # 26828676
+pvar&lt;-pvar[!duplicated(paste0(pvar$CHR,&#39;:&#39;,pvar$BP)),]
+nrow(pvar) # 26828676
+sum(pvar$in_hm3) # 1204008 of 1204449. 99.96% of variants present.
+
+pvar&lt;-pvar[, c(&#39;CHR.x&#39;,&#39;BP.x&#39;,&#39;ID&#39;,&#39;SNP&#39;,&#39;A1.x&#39;,&#39;A2.x&#39;), with=F]
+names(pvar)&lt;-c(&#39;CHR&#39;,&#39;BP&#39;,&#39;ID&#39;,&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;)
+
+# Extract SNPs from plink2 files
+write.table(pvar$ID, &#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/extract.snplist&#39;, col.names=F, row.names=F, quote=F)
+
+# Save intermediate file
+fwrite(pvar,&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg_nonambig_snps.txt&#39;, sep = &#39;\t&#39;, quote = F, na=&#39;NA&#39;)</code></pre>
+<pre class="bash"><code>for chr in $(seq 1 22); do
+  sbatch --mem 10G -n 5 -p neurohack_cpu -t 1:00:00 --wrap=&quot;plink2 \
+    --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL \
+    --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/unrel.keep \
+    --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/extract.snplist \
+    --chr ${chr} \
+    --threads 5 \
+    --make-pgen \
+    --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr}&quot;
+done</code></pre>
+<pre class="r"><code>library(data.table)
+
+# Insert RSIDs into new plink files
+ref &lt;- fread(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg_nonambig_snps.txt&#39;, nThread=5)
+
+for(i in 1:22){
+  print(i)
+  pvar &lt;- fread(paste0(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr&#39;,i,&#39;.pvar&#39;), nThread=5)
+  pvar &lt;- pvar[, c(&#39;#CHROM&#39;,&#39;POS&#39;,&#39;ID&#39;,&#39;REF&#39;,&#39;ALT&#39;), with=F]
+  pvar[ref, on=.(ID), ID := i.SNP]
+  fwrite(
+    pvar,
+    paste0(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr&#39;,i,&#39;.pvar&#39;),
+    col.names = T,
+    row.names = F,
+    quote = F,
+    sep = &#39; &#39;,
+    nThread=5
+  )
+  rm(pvar)
+  gc()
+}</code></pre>
+<pre class="bash"><code># Calculate allele frequencies for each population
+# Use keep files from previous reference preparation
+for pop in $(echo EUR EAS AFR AMR CSA MID); do
+  mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/${pop}
+  
+  for chr in $(seq 1 22); do
+    sbatch --mem 10G -n 1 -p neurohack_cpu -t 1:00:00 --wrap=&quot;plink2 \
+      --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr} \
+      --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/${pop}.keep \
+      --freq \
+      --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/${pop}/hgdp_1kg.chr${chr}&quot;
+      
+  done
+done
+
+# Create frequency files across all reference individuals (TRANS)
+mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/TRANS
+for chr in $(seq 1 22); do
+  sbatch --mem 10G -n 1 -p neurohack_cpu -t 1:00:00 --wrap=&quot;plink2 \
+    --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr} \
+    --freq \
+    --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/TRANS/hgdp_1kg.chr${chr}&quot;
+done</code></pre>
+<pre class="r"><code>####
+# Create .rds files for SNP stats
+####
+setwd(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline&#39;)
+source(&#39;../functions/misc.R&#39;)
+source_all(&#39;../functions&#39;)
+library(data.table)
+library(GenoUtils)
+
+# Make liftover functions
+make_executable &lt;- function(exe) {
+  Sys.chmod(exe, mode = (file.info(exe)$mode | &quot;111&quot;))
+}
+
+snp_modifyBuild_offline&lt;-function (info_snp, liftOver, chain){
+  tmp_folder&lt;-tempdir()
+
+  if (!all(c(&quot;chr&quot;, &quot;pos&quot;) %in% names(info_snp)))
+    stop2(&quot;Please use proper names for variables in &#39;info_snp&#39;. Expected %s.&quot;,
+          &quot;&#39;chr&#39; and &#39;pos&#39;&quot;)
+  liftOver &lt;- normalizePath(liftOver)
+  make_executable(liftOver)
+  BED &lt;- tempfile(fileext = &quot;.BED&quot;)
+  info_BED &lt;- with(info_snp, data.frame(paste0(&quot;chr&quot;, chr),
+                                        pos0 = pos - 1L, pos, id = seq_len(nrow(info_snp))))
+  fwrite(info_BED, BED, col.names = FALSE, sep = &quot; &quot;)
+  lifted&lt;-paste0(tmp_folder,&#39;/tmp.lifted&#39;)
+  unmapped&lt;-paste0(tmp_folder,&#39;/tmp.unmapped&#39;)
+  system(paste(liftOver, BED, chain, lifted, unmapped))
+  new_pos &lt;- fread(lifted)
+  bad &lt;- grep(&quot;^#&quot;, readLines(unmapped), value = TRUE, invert = TRUE)
+  print(paste0(length(bad),&quot; variants have not been mapped.&quot;))
+  info_snp$pos &lt;- NA
+  info_snp$pos[new_pos$V4] &lt;- new_pos$V3
+  info_snp
+}
+
+for(i in 1:22){
+  print(i)
+  pvar &lt;- fread(paste0(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr&#39;,i,&#39;.pvar&#39;), nThread=5)
+  
+  # Insert BP for GRCh36 and 38
+  names(pvar) &lt;- c(&#39;chr&#39;,&#39;pos&#39;,&#39;snp&#39;,&#39;a2&#39;,&#39;a1&#39;)
+
+  pvar_grch38&lt;-snp_modifyBuild_offline(pvar, liftOver=&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover&#39;, chain=&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg38.over.chain.gz&#39;)
+  
+  pvar_grch36&lt;-snp_modifyBuild_offline(pvar, liftOver=&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover&#39;, chain=&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg18.over.chain.gz&#39;)
+
+  pvar[pvar_grch36, on=.(snp), pos_grch36 := i.pos]
+  pvar[pvar_grch38, on=.(snp), pos_grch38 := i.pos]
+  
+  rm(pvar_grch36)
+  rm(pvar_grch38)
+  gc()
+  
+  pvar &lt;- pvar[, c(&#39;chr&#39;,&#39;snp&#39;,&#39;a1&#39;,&#39;a2&#39;,&#39;pos_grch36&#39;,&#39;pos&#39;,&#39;pos_grch38&#39;), with=F]
+  names(pvar) &lt;- c(&#39;CHR&#39;,&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;,&#39;BP_GRCh36&#39;,&#39;BP_GRCh37&#39;,&#39;BP_GRCh38&#39;)
+  
+  pvar$IUPAC&lt;-snp_iupac(pvar$A1, pvar$A2)
+
+  # Read in the FRQ data
+  for(pop in c(&#39;EUR&#39;,&#39;EAS&#39;,&#39;AFR&#39;,&#39;AMR&#39;,&#39;CSA&#39;,&#39;MID&#39;)){
+    freq &lt;-
+      fread(
+        paste0(
+          &#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files/&#39;,
+          pop,
+          &#39;/hgdp_1kg.chr&#39;,
+          i,
+          &#39;.afreq&#39;
+        ), nThread=5
+      )
+    
+    names(freq)&lt;-c(&#39;CHR&#39;,&#39;SNP&#39;,&#39;A2&#39;,&#39;A1&#39;,&#39;FREQ&#39;,&#39;OBS&#39;)
+    freq$IUPAC&lt;-snp_iupac(freq$A1, freq$A2)
+    
+    pvar&lt;-merge(pvar, freq[, c(&#39;SNP&#39;,&#39;A1&#39;,&#39;FREQ&#39;), with=F], by = &#39;SNP&#39;, sort = F)
+    pvar$FREQ[pvar$A1.x != pvar$A1.y] &lt;- 1-pvar$FREQ[pvar$A1.x != pvar$A1.y]
+    
+    pvar$A1.y &lt;- NULL
+    names(pvar)[names(pvar) == &#39;A1.x&#39;] &lt;- &#39;A1&#39;
+    pvar$FREQ &lt;- round(pvar$FREQ, 5)
+    names(pvar)[names(pvar) == &#39;FREQ&#39;] &lt;- paste0(&#39;REF.FRQ.&#39;, pop)
+  }
+  
+  pvar &lt;- pvar[, c(&quot;CHR&quot;, &quot;SNP&quot;, &quot;BP_GRCh36&quot;, &quot;BP_GRCh37&quot;, &quot;BP_GRCh38&quot;, &quot;A1&quot;, &quot;A2&quot;, &quot;IUPAC&quot;, &quot;REF.FRQ.EUR&quot;, &quot;REF.FRQ.EAS&quot;, &quot;REF.FRQ.AFR&quot;, &quot;REF.FRQ.AMR&quot;, &quot;REF.FRQ.CSA&quot;, &quot;REF.FRQ.MID&quot;), with=F]
+  
+  saveRDS(pvar, file = paste0(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr&#39;, i,&#39;.rds&#39;))
+}</code></pre>
+<hr />
+</div>
+<div id="package-for-zenodo-1" class="section level3">
+<h3>Package for zenodo</h3>
+<p><ref_dir> ├── ref.chr&lt;1-22&gt;.<pgen/pvar/psam> ├──
+ref.chr&lt;1-22&gt;.rds ├── ref.pop.txt (#IID, POP - with header) ├──
+keep_files │ └──<POP>.keep (#IID - with header) └── freq_files └──<POP>
+└──ref.<POP>.chr<CHR>.afreq # PLINK2 .afreq format</p>
+<pre class="bash"><code>
+# Copy over all the relavent files
+mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref
+
+for chr in $(seq 1 22); do
+  for file in $(echo pgen pvar psam rds); do
+    cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr}.${file} /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/ref.chr${chr}.${file}
+  done
+done
+
+cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/pop.txt /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/ref.pop.txt
+
+mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/keep_files
+
+cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/*.keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/keep_files/
+
+cp -r /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/
+
+for pop in $(ls /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files); do
+ for chr in $(seq 1 22); do
+  mv /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.afreq /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/ref.${pop}.chr${chr}.afreq
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.log
+ done
+done
+
+# Compress folder and upload to google drive
+cd /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense
+tar -czvf genopred_dense_1kg_hgdp.tar.gz ref
+~/oliverpainfel/Software/gdrive files upload genopred_dense_1kg_hgdp.tar.gz</code></pre>
+<hr />
+</div>
+</div>
+</div>
+<div id="archive" class="section level1">
+<h1>Archive</h1>
+<p>This was an attempt of deriving a list of common variants from the
+full dbSNP data set. The common variant set from dbSNP works well though
+so this isn’t needed. Keep just in case useful down the road.</p>
+<div id="denser-list-of-common-variants" class="section level2">
+<h2>Denser list of common variants</h2>
+<p>The dbSNP list of common variants seemed to miss a lot of common
+variants, and have poor overlap with the HapMap3 SNPlist. To provide a
+higher level of coverage, download the full dbSNP data, and then
+identify variants with a MAF &gt; 0.01 in at least 1 super population in
+1KG+HGDP.</p>
+<hr />
+<div id="download-dbsnp-data-1" class="section level3">
+<h3>Download dbSNP data</h3>
+<pre class="bash"><code># Download the dbSNP data for common variants (MAF &gt; 0.01 in at least 1 population in 1KG)
+mkdir -p ~/oliverpainfel/Data/dbSNP
+cd ~/oliverpainfel/Data/dbSNP
+wget https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh37p13/VCF/00-All.vcf.gz
+
+# Subset CHR BP RSID A1 and A2 information
+zgrep -v &quot;^#&quot; ~/oliverpainfel/Data/dbSNP/00-All.vcf.gz | awk &#39;{print $1, $2, $3, $4, $5}&#39; &gt; ~/oliverpainfel/Data/dbSNP/00-All.vcf.mini
+
+# Split multi alleleic variants onto seperate lines
+# Retain SNPs only
+awk &#39;{
+  n = split($5, alts, &quot;,&quot;);
+  for (i = 1; i &lt;= n; i++) {
+    if (length($4) == 1 &amp;&amp; length(alts[i]) == 1) {
+      print $1, $2, $3, $4, alts[i]
+    }
+  }
+}&#39; ~/oliverpainfel/Data/dbSNP/00-All.vcf.mini &gt; ~/oliverpainfel/Data/dbSNP/00-All.vcf.mini.split
+</code></pre>
+<hr />
+</div>
+<div id="identify-common-variants" class="section level3">
+<h3>Identify common variants</h3>
+<p>Calculate MAF in each popualtion. Restrict to SNPs.</p>
+<pre class="bash"><code>module load plink2
+
+mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_denser
+for pop in $(echo EUR EAS AFR AMR CSA MID); do
+    sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap=&quot;plink2 \
+      --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL \
+      --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/${pop}.keep \
+      --maf 0.01 \
+      --threads 5 \
+      --snps-only &#39;just-acgt&#39; \
+      --make-just-pvar \
+      --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_denser/hgdp_1kg.GW.${pop}&quot;
+done
+
+# Identify list of variants with MAF &gt; 0.01 in any population
+cat /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_denser/hgdp_1kg.GW.*.pvar | grep -v &quot;^#&quot; | awk &#39;{print $3}&#39; | sort -u &gt; /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_denser/union_variants.txt
+
+# Subset full pvar to these variants only
+sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap=&quot;plink2 \
+  --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL \
+  --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_denser/union_variants.txt \
+  --threads 5 \
+  --make-just-pvar \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_denser/hgdp_1kg.GW.ANY&quot;
+</code></pre>
+<hr />
+</div>
+<div id="subset-1kghgdp-to-include-common-variants-and-insert-rsids"
+class="section level3">
+<h3>Subset 1KG+HGDP to include common variants and insert RSIDs</h3>
+<pre class="bash"><code># Subset dbsnp data to variant locations that are present in the 1KG+HGDP pvar with MAF 0.01
+awk -F&#39;\t&#39; &#39;NR==FNR &amp;&amp; $1 !~ /^#/ {
+  key = $1&quot;:&quot;$2;
+  keep[key] = 1;
+  next
+}
+BEGIN { OFS = &quot; &quot; }
+{
+  key = $1&quot;:&quot;$2;
+  if (key in keep) print
+}&#39; /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_denser/hgdp_1kg.GW.ANY.pvar ~/oliverpainfel/Data/dbSNP/00-All.vcf.mini.split &gt; ~/oliverpainfel/Data/dbSNP/00-All.vcf.mini.split.filtered
+</code></pre>
+<pre class="r"><code>setwd(&#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline&#39;)
+source(&#39;../functions/misc.R&#39;)
+source_all(&#39;../functions&#39;)
+library(data.table)
+library(GenoUtils)
+
+dir.create(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense&#39;)
+
+# Read in variant data for 1KG+HGDP
+pvar &lt;- fread(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_denser/hgdp_1kg.GW.ANY.pvar&#39;, nThread=10)
+
+# Remove unneeded data and variant that aren&#39;t non ambiguous autosomal SNPs
+pvar$INFO&lt;-NULL
+pvar$FILTER&lt;-NULL
+names(pvar)&lt;-c(&#39;CHR&#39;,&#39;BP&#39;,&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;)
+pvar&lt;-pvar[pvar$CHR %in% 1:22,]
+pvar$CHR&lt;-as.numeric(pvar$CHR)
+pvar$IUPAC&lt;-snp_iupac(pvar$A1, pvar$A2)
+pvar &lt;- pvar[pvar$IUPAC %in% c(&#39;R&#39;,&#39;Y&#39;,&#39;K&#39;,&#39;M&#39;),]
+nrow(pvar) # 17706653
+
+# Check overlap with HapMap3 variants
+hapmap3_ref &lt;- read_pvar(&#39;~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr&#39;)
+sum(paste0(pvar$CHR,&#39;:&#39;, pvar$BP) %in% paste0(hapmap3_ref$CHR,&#39;:&#39;, hapmap3_ref$BP)) # 1203510
+nrow(hapmap3_ref) # 1204449
+# 99.9% of HapMap3 variants are present. This is good.
+
+# Read in dbSNP data and filter in the same way
+dbsnp&lt;-fread(&#39;~/oliverpainfel/Data/dbSNP/00-All.vcf.mini&#39;, nThread=10, header=F)
+names(dbsnp)&lt;-c(&#39;CHR&#39;,&#39;BP&#39;,&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;)
+dbsnp&lt;-dbsnp[dbsnp$CHR %in% 1:22,]
+dbsnp$CHR&lt;-as.numeric(dbsnp$CHR)
 dbsnp$IUPAC&lt;-snp_iupac(dbsnp$A1, dbsnp$A2)
 dbsnp &lt;- dbsnp[dbsnp$IUPAC %in% c(&#39;R&#39;,&#39;Y&#39;,&#39;K&#39;,&#39;M&#39;),]
 
 # Merge the pvar data with the dbSNP data allowing for strand flips
 ref_target &lt;- merge(pvar, dbsnp, by=c(&#39;CHR&#39;,&#39;BP&#39;))
 flip_logical&lt;-detect_strand_flip(targ = ref_target$IUPAC.x, ref = ref_target$IUPAC.y)
-# There are no strand flips
+sum(flip_logical) # There are no strand flips
 
 # Identify SNPs that have matched IUPAC
 ref_target&lt;-ref_target[ref_target$IUPAC.x == ref_target$IUPAC.y,]
@@ -817,11 +1177,34 @@ pvar &lt;- pvar[!duplicated(pvar$SNP),] # None removed
 pvar &lt;- pvar[!duplicated(paste0(pvar$CHR,&#39;:&#39;,pvar$BP)),] # 1075 removed
 # 13,839,753 variants remain.
 
-# Extract hm3 SNPs from plink2 files
+# Extract SNPs from plink2 files
 write.table(pvar$ID, &#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/extract.snplist&#39;, col.names=F, row.names=F, quote=F)
 
 # Save intermediate file
-fwrite(pvar,&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg_nonambig_snps.txt&#39;, sep = &#39;\t&#39;, quote = F, na=&#39;NA&#39;)</code></pre>
+fwrite(pvar,&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg_nonambig_snps.txt&#39;, sep = &#39;\t&#39;, quote = F, na=&#39;NA&#39;)
+
+###
+# To maximise compatability with the methods that only contain HapMap3 variants in their ref, we should make sure we are keeping the HapMap3 variants.
+# Read in the HapMap3 variants
+hapmap3_ref &lt;- read_pvar(&#39;~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr&#39;)
+sum(paste0(pvar$CHR,&#39;:&#39;, pvar$BP) %in% paste0(hapmap3_ref$CHR,&#39;:&#39;, hapmap3_ref$BP)) # 982075
+
+# Check how many HapMap3 variants there are in the dbSNP common SNP list.
+# Check by RSID to start
+sum(dbsnp$SNP %in% hapmap3_ref$SNP) # 982031 of 1204449
+sum(paste0(dbsnp$CHR,&#39;:&#39;, dbsnp$BP) %in% paste0(hapmap3_ref$CHR,&#39;:&#39;, hapmap3_ref$BP)) # 982075
+# There are about 200k variants in the HapMap3 SNPlist missing from the dbsnp common variant list.
+
+pvar &lt;-fread(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg_nonambig_snps.txt&#39;)
+sum(pvar$SNP %in% hapmap3_ref$SNP) # 981196 of 1204449
+# Most of those variants are present in the 1KG+HGDP reference.
+# Look up some variants that are missing to try and understand why.
+
+missing &lt;- hapmap3_ref[!(hapmap3_ref$SNP %in% pvar$SNP),]$SNP
+freq&lt;-readRDS(&#39;~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr1.rds&#39;)
+freq[freq$SNP %in% missing,]
+# They are all common. This means the dbSNP common variant list is going to have poor overlap with common LD reference data, and also provide incomplete coverage of common variants more generally.
+###</code></pre>
 <pre class="bash"><code>for chr in $(seq 1 22); do
   sbatch --mem 10G -n 5 -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap=&quot;plink2 \
     --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL \
@@ -956,43 +1339,7 @@ for(i in 1:22){
   
   saveRDS(pvar, file = paste0(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr&#39;, i,&#39;.rds&#39;))
 }</code></pre>
-<hr />
 </div>
-<div id="package-for-zenodo-1" class="section level2">
-<h2>Package for zenodo</h2>
-<p><ref_dir> ├── ref.chr&lt;1-22&gt;.<pgen/pvar/psam> ├──
-ref.chr&lt;1-22&gt;.rds ├── ref.pop.txt (#IID, POP - with header) ├──
-keep_files │ └──<POP>.keep (#IID - with header) └── freq_files └──<POP>
-└──ref.<POP>.chr<CHR>.afreq # PLINK2 .afreq format</p>
-<pre class="bash"><code>
-# Copy over all the relavent files
-mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref
-
-for chr in $(seq 1 22); do
-  for file in $(echo pgen pvar psam rds); do
-    cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr${chr}.${file} /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/ref.chr${chr}.${file}
-  done
-done
-
-cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/pop.txt /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/ref.pop.txt
-
-mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/keep_files
-
-cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/*.keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/keep_files/
-
-cp -r /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/freq_files /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/
-
-for pop in $(ls /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files); do
- for chr in $(seq 1 22); do
-  mv /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.afreq /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/ref.${pop}.chr${chr}.afreq
-  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.log
- done
-done
-
-# Compress folder and upload to google drive
-cd /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense
-tar -czvf genopred_dense_1kg_hgdp.tar.gz ref
-~/oliverpainfel/Software/gdrive files upload genopred_dense_1kg_hgdp.tar.gz</code></pre>
 </div>
 </div>
 

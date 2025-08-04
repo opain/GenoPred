@@ -21,9 +21,13 @@ knitr::opts_chunk$set(eval = FALSE)
 
 # Overview
 
-We have previously used OpenSNP as a dataset for testing GenoPred. An important constraint within the default GenoPred implementation is its restriction to HapMap3 variants. This is particularly problematic when using externally derived score files, such as from the PGS catalogue, which may include variant variants that are not in the default reference. To remedy this we can use a reference dataset that includes more variant, and that is what we will test here.
+We have previously used OpenSNP as a dataset for testing GenoPred. An important constraint within the default GenoPred implementation is its restriction to HapMap3 variants. This may negatively impact the R2 of PGS, particularly those leveraging functional genomic annotations. This is also particularly problematic when using externally derived score files, such as from the PGS catalogue, which may include variant variants that are not in the HapMap3 SNPlist. To remedy this we can use a reference dataset that includes more variant, and that is what we will test here.
 
-We will run GenoPred on the OpenSNP data using the default reference data (restricted to HapMap3) and a denser reference (all variants in the 1KG+HGDP dataset). We will calculate PGS based on height GWAS summary statistics, but also a range of height PGS score files on the PGS catalogue, and see the difference in performance.
+We will run GenoPred on the OpenSNP data using the default reference data (restricted to HapMap3) and a denser reference (all common variants in the 1KG+HGDP dataset - dbSNP common variant list with MAF > 0.01 in at least of the 1KG populations). We will calculate PGS based on height GWAS summary statistics, but also a range of height PGS score files on the PGS catalogue, and see the difference in performance.
+
+Note, the yengo et al 2022 GWAS of height was restricted to HapMap3 variants. To evaluate the impact of using the denser reference, we will need to find GWAS and PGS score files that are not restricted to HapMap3 variants.
+
+***
 
 # Prepare input
 
@@ -121,10 +125,16 @@ done
 <details><summary>Show code</summary>
 
 ```{bash}
-# These are from the Yengo 2022 paper
 mkdir -p /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test
+
+# Yengo 2022
 wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.txt https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90245001-GCST90246000/GCST90245992/GCST90245992_buildGRCh37.tsv
-wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eas.txt https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90245001-GCST90246000/GCST90245991/GCST90245991_buildGRCh37.tsv
+
+# Loh 2018
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/loh_2018_height_eur.txt http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90029001-GCST90030000/GCST90029008/GCST90029008_buildGRCh37.tsv
+
+# Verma 2024
+wget --no-check-certificate -O /users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/verma_2024_height_eur.txt http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90475001-GCST90476000/GCST90475359/GCST90475359.tsv.gz
 ```
 
 </details>
@@ -143,29 +153,46 @@ library(data.table)
 conf <- c(
   'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/sparse_test',
   'config_file: misc/opensnp/config_sparse.yaml',
-#  'gwas_list: misc/opensnp/gwas_list.txt',
-  'score_list: misc/opensnp/score_list.txt',
+  'gwas_list: misc/opensnp/gwas_list_dense_test.txt',
+  'score_list: misc/opensnp/score_list_dense_test.txt',
   'target_list: misc/opensnp/target_list.txt',
-#  'gwas_groups: misc/opensnp/gwas_groups.txt',
-#  "pgs_methods: ['sbayesr']",
-  'testing: chr22'
+  "pgs_scaling: ['discrete','continuous']",
+  "target_populations: ['EUR']",
+  "pgs_methods: ['ptclump','megaprs']"
 )
 
 dir.create('misc/opensnp/', recursive = T)
 dir.create('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred', recursive = T)
 write.table(conf, 'misc/opensnp/config_sparse.yaml', col.names = F, row.names = F, quote = F)
 
+# Create config file for sparse configuration but restricted to target variants
+conf <- c(
+  'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/sparse_restricted_test',
+  'config_file: misc/opensnp/config_sparse_restricted.yaml',
+  'restrict_to_target_variants: T',
+  'gwas_list: misc/opensnp/gwas_list_dense_test.txt',
+  'score_list: misc/opensnp/score_list_dense_test.txt',
+  'target_list: misc/opensnp/target_list.txt',
+  "pgs_scaling: ['discrete','continuous']",
+  "target_populations: ['EUR']",
+  "pgs_methods: ['ptclump','megaprs']"
+)
+
+dir.create('misc/opensnp/', recursive = T)
+dir.create('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred', recursive = T)
+write.table(conf, 'misc/opensnp/config_sparse_restricted.yaml', col.names = F, row.names = F, quote = F)
+
 # Create config file for dense configuration
 conf <- c(
   'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/dense_test',
-  'refdir: /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/ref',
+  'dense_reference: T',
   'config_file: misc/opensnp/config_dense.yaml',
-#  'gwas_list: misc/opensnp/gwas_list.txt',
-  'score_list: misc/opensnp/score_list.txt',
+  'gwas_list: misc/opensnp/gwas_list_dense_test.txt',
+  'score_list: misc/opensnp/score_list_dense_test.txt',
   'target_list: misc/opensnp/target_list.txt',
-#  'gwas_groups: misc/opensnp/gwas_groups.txt',
-#  "pgs_methods: ['sbayesr']",
-  'testing: chr22'
+  "pgs_scaling: ['discrete','continuous']",
+  "target_populations: ['EUR']",
+  "pgs_methods: ['ptclump','megaprs']"
 )
 
 dir.create('misc/opensnp/', recursive = T)
@@ -185,7 +212,7 @@ target_list <- target_list[target_list$name == 'opensnp', ]
 write.table(target_list, 'misc/opensnp/target_list.txt', col.names = T, row.names = F, quote = F, sep = ' ')
 
 # Create gwas_list
-gwas_list <- fread('example_input/gwas_list.txt')
+gwas_list <- NULL
 gwas_list<-rbind(gwas_list, 
                  data.table(name='yengo_eur',
                             path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.txt',
@@ -197,30 +224,29 @@ gwas_list<-rbind(gwas_list,
                             sd = NA,
                             label = "\"Yengo 2022 Height EUR\""))
 
-gwas_list <- rbind(gwas_list,
-                   data.table(name = 'yengo_eas', 
-                              path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eas.txt',
-                              population = 'EAS',
-                              n = NA,
-                              sampling = NA,
-                              prevalence = NA,
-                              mean = NA,
-                              sd = NA,
-                              label = "\"Yengo 2022 Height EAS\""))
+gwas_list<-rbind(gwas_list, 
+                 data.table(name='loh_eur.txt',
+                            path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/loh_2018_height_eur.txt',
+                            population = 'EUR',
+                            n = NA,
+                            sampling = NA,
+                            prevalence = NA,
+                            mean = NA,
+                            sd = NA,
+                            label = "\"Loh 2018 Height EUR\""))
 
+gwas_list<-rbind(gwas_list, 
+                 data.table(name='verma_eur',
+                            path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/verma_2024_height_eur.txt',
+                            population = 'EUR',
+                            n = NA,
+                            sampling = NA,
+                            prevalence = NA,
+                            mean = NA,
+                            sd = NA,
+                            label = "\"Verma 2024 Height EUR\""))
 
-gwas_list <- gwas_list[gwas_list$name %in% c('yengo_eur', 'yengo_eas'), ]
-
-write.table(gwas_list, 'misc/opensnp/gwas_list.txt', col.names = T, row.names = F, quote = F, sep = ' ')
-
-# Create gwas_groups
-gwas_groups <- data.frame(
-  name = 'height',
-  gwas = 'yengo_eur,yengo_eas',
-  label = "\"Yengo 2022 Height EUR+EAS\""
-)
-
-write.table(gwas_groups, 'misc/opensnp/gwas_groups.txt', col.names = T, row.names = F, quote = F, sep = ' ')
+write.table(gwas_list, 'misc/opensnp/gwas_list_dense_test.txt', col.names = T, row.names = F, quote = F, sep = ' ')
 
 # Create score_list
 score_list <- data.frame(
@@ -229,7 +255,25 @@ score_list <- data.frame(
   label = "\"Yengo 2022 Height EUR PGSC\""
 )
 
-write.table(score_list, 'misc/opensnp/score_list.txt', col.names=T, row.names=F, quote=F, sep=' ')
+score_list <- rbind(score_list,
+                   data.table(
+                     name = 'PGS002972',
+                      path = NA,
+                      label = "\"ExPRSweb Height raw DBSLMM\""))
+
+score_list <- rbind(score_list,
+                   data.table(
+                     name = 'PGS004781',
+                      path = NA,
+                      label = "\"PRSmixPlus Height EUR\""))
+
+score_list <- rbind(score_list,
+                   data.table(
+                     name = 'PGS004996',
+                      path = NA,
+                      label = "\"Gunn 2024 Height ldpred EUR\""))
+
+write.table(score_list, 'misc/opensnp/score_list_dense_test.txt', col.names=T, row.names=F, quote=F, sep=' ')
 
 ```
 
@@ -243,6 +287,7 @@ write.table(score_list, 'misc/opensnp/score_list.txt', col.names=T, row.names=F,
 
 ```{bash}
 snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_sparse.yaml output_all -n 
+snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_sparse_restricted.yaml output_all -n 
 snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_dense.yaml output_all -n 
 ```
 
@@ -251,6 +296,8 @@ snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_dense.yam
 ***
 
 ## Evaluate PGS
+
+Note. ~5M dense reference variants were present in OpenSNP. This leads to the external score files that go beyond HapMap3 variants to be dropped due to <75% of variants being present. This highlights that this issue is not just a consequence of using the default HapMap3 restricted reference data, but generally poor generalisability across target datasets due to missing variants.
 
 <details><summary>Show code</summary>
 
@@ -269,37 +316,44 @@ source_all('../functions')
 pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt')
 
 # Read in PGS
-pgs <- read_pgs(config = 'misc/opensnp/config.yaml', name = 'opensnp')$opensnp
+pgs <- list(
+  sparse = read_pgs(config = 'misc/opensnp/config_sparse.yaml', name = 'opensnp')$opensnp,
+  sparse_restricted = read_pgs(config = 'misc/opensnp/config_sparse_restricted.yaml', name = 'opensnp')$opensnp,
+  dense = read_pgs(config = 'misc/opensnp/config_dense.yaml', name = 'opensnp')$opensnp
+)
 
 # Estimate correlation between pheno and pgs
 cor <- NULL
-for(pop_i in names(pgs)){
-  for(gwas_i in names(pgs[[pop_i]])){
-    for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
-      pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
-      pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
-      
-      for(model_i in names(pgs_i)[-1:-2]){
-        y <- scale(pheno_pgs$height)
-        x <- scale(pheno_pgs[[model_i]])
+for(test_i in names(pgs)){
+  for(pop_i in names(pgs[[test_i]])){
+    for(gwas_i in names(pgs[[test_i]][[pop_i]])){
+      for(pgs_method_i in names(pgs[[test_i]][[pop_i]][[gwas_i]])){
+        pgs_i <- pgs[[test_i]][[pop_i]][[gwas_i]][[pgs_method_i]]
+        pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
         
-        if(all(is.na(x))){
-          next
+        for(model_i in names(pgs_i)[-1:-2]){
+          y <- scale(pheno_pgs$height)
+          x <- scale(pheno_pgs[[model_i]])
+          
+          if(all(is.na(x))){
+            next
+          }
+          
+          coef_i <- coef(summary(mod <- lm(y ~ x)))
+          
+          tmp <- data.table(
+            test = test_i,
+            pop = pop_i,
+            gwas = gwas_i,
+            pgs_method = pgs_method_i,
+            name = model_i,
+            r = coef_i[2,1],
+            se = coef_i[2,2],
+            p = coef_i[2,4],
+            n = nobs(mod))
+        cor <- rbind(cor, tmp)
+        
         }
-        
-        coef_i <- coef(summary(mod <- lm(y ~ x)))
-        
-        tmp <- data.table(
-          pop = pop_i,
-          gwas = gwas_i,
-          pgs_method = pgs_method_i,
-          name = model_i,
-          r = coef_i[2,1],
-          se = coef_i[2,2],
-          p = coef_i[2,4],
-          n = nobs(mod))
-      cor <- rbind(cor, tmp)
-      
       }
     }
   }
@@ -309,7 +363,7 @@ for(pop_i in names(pgs)){
 dir.create('/scratch/prj/oliverpainfel/Data/OpenSNP/assoc')
 write.csv(
   cor,
-  '/scratch/prj/oliverpainfel/Data/OpenSNP/assoc/genopred-yengo-assoc.csv',
+  '/scratch/prj/oliverpainfel/Data/OpenSNP/assoc/genopred-dense-assoc.csv',
   row.names = F
 )
 
@@ -319,48 +373,42 @@ cor_eur <- cor[cor$pop == 'EUR', ]
 
 # Restrict to best and and pseudoval only
 cor_eur_subset <- NULL
-for(pop_i in unique(cor_eur$pop)){
-  for(gwas_i in unique(cor_eur$gwas[cor_eur$pop == pop_i])){
-    for(pgs_method_i in unique(cor_eur$pgs_method[cor_eur$pop == pop_i & cor_eur$gwas == gwas_i])){
-      
-      # Subset relevant results
-      cor_eur_i <- cor_eur[
-        cor_eur$pop == pop_i &
-        cor_eur$gwas == gwas_i &
-        cor_eur$pgs_method == pgs_method_i,]
-  
-      # Top R
-      if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','lassosum','dbslmm')){
-        top_i <- cor_eur_i[which(cor_eur_i$r == max(cor_eur_i$r, na.rm = T))[1],]
-        top_i$model <- 'Top'
-        cor_eur_subset <- rbind(cor_eur_subset, top_i)
-      }
-      if(pgs_method_i %in% c('prscsx')){
-        for(targ_i in unique(gsub('.*_','', gsub('_phi.*','',cor_eur_i$name)))){
-          cor_eur_k<-cor_eur_i[grepl(paste0(targ_i,'_phi_'), cor_eur_i$name),]
-          top_i <- cor_eur_k[which(cor_eur_k$r == max(cor_eur_k$r, na.rm = T))[1],]
+for(test_i in unique(cor_eur$test)){
+  for(pop_i in unique(cor_eur$pop)){
+    for(gwas_i in unique(cor_eur$gwas[cor_eur$pop == pop_i])){
+      for(pgs_method_i in unique(cor_eur$pgs_method[cor_eur$pop == pop_i & cor_eur$gwas == gwas_i])){
+        
+        # Subset relevant results
+        cor_eur_i <- cor_eur[
+          cor_eur$test == test_i &
+          cor_eur$pop == pop_i &
+          cor_eur$gwas == gwas_i &
+          cor_eur$pgs_method == pgs_method_i,]
+    
+        # Top R
+        if(pgs_method_i %in% c('ptclump','ldpred2','megaprs','prscs','lassosum','dbslmm')){
+          top_i <- cor_eur_i[which(cor_eur_i$r == max(cor_eur_i$r, na.rm = T))[1],]
           top_i$model <- 'Top'
-          top_i$pgs_method<-paste0(top_i$pgs_method, " (", targ_i, ")")
           cor_eur_subset <- rbind(cor_eur_subset, top_i)
         }
-      }  
-      
-      # PseudoVal
-      if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','lassosum','dbslmm','prscsx')){
-        pseudo_param <- find_pseudo(config = 'misc/opensnp/config.yaml', gwas = gwas_i, pgs_method = pgs_method_i)
-        pseudo_i <- cor_eur_i[grepl(paste0(pseudo_param,'$'), cor_eur_i$name),]
-        pseudo_i$model <- 'Pseudo'
-        if(pgs_method_i %in% c('prscsx')){
-          pseudo_i$pgs_method<-paste0(pseudo_i$pgs_method, " (", gsub('.*_','', gsub(paste0('_',pseudo_param), '', pseudo_i$name)), ")")
+
+        # PseudoVal
+        if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','lassosum','dbslmm','prscsx')){
+          pseudo_param <- find_pseudo(config = paste0('misc/opensnp/config_',test_i,'.yaml'), gwas = gwas_i, pgs_method = pgs_method_i)
+          pseudo_i <- cor_eur_i[grepl(paste0(pseudo_param,'$'), cor_eur_i$name),]
+          pseudo_i$model <- 'Pseudo'
+          if(pgs_method_i %in% c('prscsx')){
+            pseudo_i$pgs_method<-paste0(pseudo_i$pgs_method, " (", gsub('.*_','', gsub(paste0('_',pseudo_param), '', pseudo_i$name)), ")")
+          }
+          cor_eur_subset <- rbind(cor_eur_subset, pseudo_i)
         }
-        cor_eur_subset <- rbind(cor_eur_subset, pseudo_i)
+        
+        # External
+        external_tmp<-cor_eur_i[cor_eur_i$pgs_method == 'external',]
+        external_tmp$model <- 'External'
+        cor_eur_subset <- rbind(cor_eur_subset, external_tmp)
+        
       }
-      
-      # External
-      external_tmp<-cor_eur_i[cor_eur_i$pgs_method == 'external',]
-      external_tmp$model <- 'External'
-      cor_eur_subset <- rbind(cor_eur_subset, external_tmp)
-      
     }
   }
 }
@@ -371,7 +419,7 @@ dir.create('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/Op
 
 # yengo_eur
 plot_obj_eur <- 
-  ggplot(cor_eur_subset[cor_eur_subset$gwas == 'yengo_eur',], aes(x = pgs_method, y = r, fill = model)) +
+  ggplot(cor_eur_subset, aes(x = pgs_method, y = r, fill = model)) +
   geom_bar(stat = "identity", position = position_dodge2(preserve = "single"), width = 0.7) +
   geom_errorbar(
     aes(ymin = r - se, ymax = r + se),
@@ -381,11 +429,12 @@ plot_obj_eur <-
   labs(
     y = "Correlation (SE)",
     x = 'PGS Method',
-    fill = 'Model',
-    title = paste0("Yengo - EUR vs OpenSNP - EUR\n(N = ", cor_eur_subset$n[1], ")")
+    fill = 'Model'
   ) +
   theme_half_open() +
   background_grid() +
+  panel_border() +
+  facet_grid(gwas ~ test) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(hjust = 0.5, size=12))
 

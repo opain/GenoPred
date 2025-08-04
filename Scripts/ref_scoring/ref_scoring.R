@@ -97,9 +97,10 @@ if(is.null(score_files) || nrow(score_files) == 0){
   quit(save = "no", status = 0)
 }
 
-# Set params for plink_score
+# Read in reference SNP data
 refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
-if(read_param(config = opt$config, param = 'restrict_to_target_variants', return_obj = F)){
+if(as.logical(read_param(config = opt$config, param = 'restrict_to_target_variants', return_obj = F)) |
+   as.logical(read_param(config = opt$config, param = 'dense_reference', return_obj = F))){
   opt$ref_plink_chr <- paste0(outdir, '/reference/ref/ref.chr')
 } else {
   opt$ref_plink_chr <- paste0(refdir, '/ref.chr')

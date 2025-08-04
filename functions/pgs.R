@@ -501,7 +501,15 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 	  score$CHR <- gsub('chr', '', score$CHR)
 	  score <- score[score$CHR %in% chr,]
 	}
-
+	
+	# Remove duplicate variants, retaining the row with larger effect
+	score<-score[rev(abs(order(score$effect_weight))),]
+	if('SNP' %in% names(score)){
+	  score<-score[!duplicated(paste0(score$SNP,':', score$A1, ':', score$A2)),]
+	} else {
+  	score<-score[!duplicated(paste0(score$CHR,':', score$BP,':', score$A1, ':', score$A2)),]
+	}
+	
 	return(score)
 }
 

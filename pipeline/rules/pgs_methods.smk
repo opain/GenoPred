@@ -783,7 +783,7 @@ rule prep_pgs_external_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_external:
-  input: expand(f"{outdir}/reference/pgs_score_files/external/{{score}}/ref-{{score}}.log", score=score_list_df['name'])
+  input: expand(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done", score=score_list_df['name'])
 
 ###########
 # Multi-ancestry methods

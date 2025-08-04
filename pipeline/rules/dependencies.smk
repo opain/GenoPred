@@ -422,10 +422,20 @@ if "sbayesrc" in config["pgs_methods"]:
 ####
 # Check reference data
 ####
+
 if config['refdir'] == 'NA':
-    refdir = f"{resdir}/data/ref"
-    ref_input=f"{refdir}/ref.pop.txt"
+    # If using the dense reference, update refdir path and set restrict_to_target_variants to True
+    if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
+      refdir = f"{resdir}/data/ref_dense"
+      ref_input=f"{refdir}/ref.pop.txt"
+      config["restrict_to_target_variants"] = "True"
+    else:
+      refdir = f"{resdir}/data/ref"
+      ref_input=f"{refdir}/ref.pop.txt"
 else:
+    if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
+        raise ValueError(f"User cannot specify refdir while dense_reference is True.")
+
     refdir = config['refdir']
 
     ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in get_chr_range(testing=config['testing']) for ext in ['pgen', 'pvar', 'psam', 'rds']]
@@ -1244,6 +1254,27 @@ rule download_default_ref:
       mv {resdir}/data/ref/ref/* {resdir}/data/ref/; \
       rm -r {resdir}/data/ref/ref; \
       rm {resdir}/data/ref/genopred_1kg_hgdp.tar.gz
+    }} > {log} 2>&1
+    """
+
+# Download preprocessed reference data (1KG+HGDP Dense)
+rule download_dense_ref:
+  output:
+    f"{resdir}/data/ref_dense/ref.pop.txt"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_dense_ref.txt"
+  log:
+    f"{resdir}/data/logs/download_dense_ref.log"
+  shell:
+    """
+    {{
+      rm -r {resdir}/data/ref_dense; \
+      mkdir -p {resdir}/data/ref_dense; \
+      gdown --id 15GCDTwRaGcYoGlZRN26kQ5blBKwnlvsr -O {resdir}/data/ref_dense/genopred_dense_1kg_hgdp.tar.gz; \
+      tar -xzvf {resdir}/data/ref_dense/genopred_dense_1kg_hgdp.tar.gz -C {resdir}/data/ref_dense/; \
+      mv {resdir}/data/ref_dense/ref/* {resdir}/data/ref_dense/; \
+      rm -r {resdir}/data/ref_dense/ref; \
+      rm {resdir}/data/ref_dense/genopred_dense_1kg_hgdp.tar.gz
     }} > {log} 2>&1
     """
 

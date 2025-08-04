@@ -126,11 +126,14 @@ refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
 opt$ref_freq_chr <- paste0(refdir, '/freq_files/', opt$population,'/ref.', opt$population,'.chr')
 
 # Read in reference SNP data
-if(read_param(config = opt$config, param = 'restrict_to_target_variants', return_obj = F)){
+refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
+if(as.logical(read_param(config = opt$config, param = 'restrict_to_target_variants', return_obj = F)) |
+   as.logical(read_param(config = opt$config, param = 'dense_reference', return_obj = F))){
   opt$ref_plink_chr <- paste0(outdir, '/reference/ref/ref.chr')
 } else {
   opt$ref_plink_chr <- paste0(refdir, '/ref.chr')
 }
+
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('CHR','SNP','A1','A2'), with=F]
 
 # We will process score files and perform target scoring for one chromosome for efficiency

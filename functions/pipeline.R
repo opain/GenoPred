@@ -50,6 +50,11 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
     if('discrete' %in% pgs_scaling){
       # Read in keep_list to determine populations available
       keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
+      
+      # Check whether output for a specific populations was requested in the config
+      target_populations <- read_param(config = config, param = 'target_populations', return_obj = F)
+      keep_list_i <- keep_list_i[keep_list_i$POP %in% target_populations,]
+      
       pops <- c(pops, keep_list_i$POP)
     }
     if(!is.null(pop)){
@@ -225,11 +230,17 @@ read_param <- function(config, param, return_obj = T, quiet = F){
     }
   }
 
-  # If refdir, and NA, set to '<resdir>/data/ref'
+  # If refdir, check if dense_reference is TRUE, else fallback
   if(param == 'refdir'){
     if(is.na(file)){
       resdir <- read_param(config = config, param = 'resdir', return_obj = F, quiet = quiet)
-      file <- paste0(resdir, '/data/ref')
+      dense_ref <- read_param(config = config, param = 'dense_reference', return_obj = FALSE, quiet = quiet)
+      dense_ref <- tolower(as.character(dense_ref)) %in% c("true", "t", "1", "yes")
+      if(dense_ref){
+        file <- paste0(resdir, '/data/ref_dense')
+      } else {
+        file <- paste0(resdir, '/data/ref')
+      }
     }
   }
 
