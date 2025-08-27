@@ -1,7 +1,7 @@
 #!/usr/bin/Rscript
-
+print("Using chromosome X")
 # Make a subset of plink1 binaries
-plink_subset<-function(plink=NULL, plink2=NULL, chr = 1:22, keep = NULL, extract = NULL, bfile=NULL, pfile=NULL, out, memory = 4000, threads = 1, make_bed = F){
+plink_subset<-function(plink=NULL, plink2=NULL, chr = 1:23, keep = NULL, extract = NULL, bfile=NULL, pfile=NULL, out, memory = 4000, threads = 1, make_bed = F){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -56,7 +56,7 @@ plink_subset<-function(plink=NULL, plink2=NULL, chr = 1:22, keep = NULL, extract
 }
 
 # Return a list of variants surviving QC using plink
-plink_qc_snplist<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, keep = NULL, chr = 1:22, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
+plink_qc_snplist<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, keep = NULL, chr = 1:23, threads = 1, memory = 4000, geno = NULL, maf = NULL, hwe = NULL){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -114,7 +114,7 @@ plink_qc_snplist<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, keep
 }
 
 # Merge plink files
-plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, keep = NULL, flip = NULL, make_bed =F, memory = 4000, out, threads = 1){
+plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:23, extract = NULL, keep = NULL, flip = NULL, make_bed =F, memory = 4000, out, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -188,7 +188,7 @@ plink_merge<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
 }
 
 # Perform PCA using plink files
-plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, keep = NULL, flip = NULL, memory = 4000, n_pc = 6, threads = 1){
+plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:23, plink2, extract = NULL, keep = NULL, flip = NULL, memory = 4000, n_pc = 6, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -231,7 +231,7 @@ plink_pca<-function(bfile=NULL, pfile=NULL, chr = 1:22, plink2, extract = NULL, 
 }
 
 # Performing LD pruning
-plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NULL, chr = 1:22, extract = NULL, memory = 4000, threads = 1){
+plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NULL, chr = 1:23, extract = NULL, memory = 4000, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -292,7 +292,7 @@ plink_prune<-function(bfile=NULL, pfile=NULL, keep = NULL, plink=NULL, plink2=NU
 }
 
 # Peforming LD-based clumping
-plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:22, sumstats, keep = NULL, memory = 4000, log_file = NULL, threads = 1){
+plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:23, sumstats, keep = NULL, memory = 4000, log_file = NULL, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -356,7 +356,7 @@ plink_clump<-function(bfile=NULL, pfile=NULL, plink=NULL, plink2=NULL, chr = 1:2
 }
 
 # Generate kinship matrix and identify unrelated individuals (>2nd degree)
-plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2='plink2', out, keep=NULL, threads = 1){
+plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:23, plink2='plink2', out, keep=NULL, threads = 1){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -410,7 +410,7 @@ plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2=
   system(paste0('tail -n +2 ', tmp_dir, '/merged.king.cutoff.in.id > ', out, '.unrelated.keep'))
 }
 
-plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, plink2=NULL, threads=1, fbm = F){
+plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, chr=1:23, frq=NULL, plink2=NULL, threads=1, fbm = F){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }

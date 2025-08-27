@@ -69,20 +69,40 @@ if(nrow(target_snp) < nrow(ref)*0.9){
 # Determine target genome build
 ###################
 
+# Check what build(s) are in the reference file
+build_columns <- grep("BP_GRCh", names(ref), value = TRUE)
+cat("Available builds in reference:", build_columns, "\n")
+
 target_build <- detect_build( ref = ref,
                               targ = target_snp,
                               log_file = log_file)
 
-###################
-# Extract overlapping variants in plink format and insert RSIDs
-###################
+# Fallback if detection fails (for Maria's purpose only)
+if (is.na(target_build)) {
+  warning("Could not detect genome build from target and reference. Defaulting to GRCh37.")
+  target_build <- "GRCh37"
+}
+
+bp_col <- paste0("BP_", target_build)
+if (!(bp_col %in% names(ref))) {
+  stop(paste("Column", bp_col, "not found in reference. Available columns:", paste(names(ref), collapse = ", ")))
+}
 
 # Subset relevent build from ref
 ref_subset<-ref[, c("CHR","SNP",paste0("BP_",target_build),"A1","A2","IUPAC"), with=F]
 names(ref_subset)[names(ref_subset) == paste0("BP_",target_build)]<-'BP'
 
+###################
+# Extract overlapping variants in plink format and insert RSIDs
+###################
+
+#Ensure target matches ref if in X format
+target_snp$CHR[target_snp$CHR == "X"] <- "23"
+target_snp$CHR<-as.numeric(target_snp$CHR)
+
 # Merge target and ref by CHR and BP
 ref_target<-merge(target_snp, ref_subset, by=c('CHR','BP'))
+nrow(ref_target)
 
 # Insert IUPAC codes
 names(ref_target)[names(ref_target) == 'IUPAC']<-'IUPAC.y'
@@ -91,6 +111,7 @@ ref_target$IUPAC.x<-snp_iupac(ref_target$A1.x, ref_target$A2.x)
 # Only retain variants that are non-ambiguous SNPs in the target
 # Some might have been retained due to matching CHR and BP position with SNPs in reference
 ref_target<-ref_target[!is.na(ref_target$IUPAC.x),]
+nrow(ref_target)
 
 # Identify variants that need to be flipped
 flip <- detect_strand_flip(ref_target$IUPAC.x, ref_target$IUPAC.y)
@@ -110,6 +131,9 @@ if(nrow(ref_target) < nrow(ref)*0.7){
 # To avoid issues due to duplicate IDs, we must extract variants based on original ID, update IDs manually to the reference RSID, and then extract those SNPs from the PLINK files.
 write.table(ref_target$SNP.x, paste0(tmp_dir,'/extract_list_1.txt'), col.names = F, row.names = F, quote=F)
 write.table(ref_target$SNP.y, paste0(tmp_dir,'/extract_list_2.txt'), col.names = F, row.names = F, quote=F)
+
+cat("After write.table, extract_list_2.txt contents:\n")
+print(readLines(paste0(tmp_dir,'/extract_list_2.txt'), n = 6))
 
 # First extract variants based on original ID
 if(opt$format == 'plink1'){
@@ -138,6 +162,8 @@ if(sum(names(targ_psam) %in% c('FID', 'IID')) == 1){
 # Now edit bim file to update IDs to reference IDs
 targ_pvar<-fread(paste0(tmp_dir,'/subset.pvar'))
 names(targ_pvar)<-c('CHR','BP','SNP','A2','A1')
+targ_pvar$CHR[targ_pvar$CHR == "X"] <- "23"
+targ_pvar$CHR<-as.numeric(targ_pvar$CHR)
 
 # Update SNP with reference SNP value based on CHR:BP:IUPAC in the previously matched ref and target data
 targ_pvar$IUPAC<-snp_iupac(targ_pvar$A1, targ_pvar$A2)

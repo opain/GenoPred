@@ -202,7 +202,7 @@ read_geno <- function(target, format) {
 }
 
 # Read in PLINK .bim file
-read_bim<-function(dat, chr = 1:22){
+read_bim<-function(dat, chr = 1:23){
   bim<-NULL
   for(i in chr){
     bim<-rbind(bim, fread(paste0(dat, i,'.bim')))
@@ -230,7 +230,7 @@ read_pop_data <- function(x){
 }
 
 # Read in PLINK2 .pvar file
-read_pvar<-function(dat, chr = 1:22){
+read_pvar<-function(dat, chr = 1:23){
   pvar<-NULL
   for(i in chr){
     pvar<-rbind(pvar, fread(paste0(dat, i,'.pvar')))
@@ -269,13 +269,13 @@ remove_regions<-function(dat, regions){
 }
 
 # Read in GWAS summary statistics
-read_sumstats<-function(sumstats, chr = 1:22, log_file = NULL, extract = NULL, req_cols = c('CHR','BP','A1','A2','BETA','SE','P','FREQ')){
+read_sumstats<-function(sumstats, chr = 1:23, log_file = NULL, extract = NULL, req_cols = c('CHR','BP','A1','A2','BETA','SE','P','FREQ')){
   gwas<-fread(sumstats)
 
   log_add(log_file = log_file, message = paste0('sumstats contains ',nrow(gwas),' variants.'))
 
   # Retain requested chromosomes
-  if(!all(1:22 %in% chr)){
+  if(!all(1:23 %in% chr)){
     if(!('CHR' %in% names(gwas))){
       stop('Cannot filter sumstats by chromosome when CHR column is not present.')
     }
@@ -352,7 +352,7 @@ ldsc <- function(sumstats, ldsc, hm3_snplist, munge_sumstats, ld_scores, pop_pre
 }
 
 # Match A1 and A2 match a reference
-allele_match<-function(sumstats, ref_bim, chr = 1:22){
+allele_match<-function(sumstats, ref_bim, chr = 1:23){
   sumstats_ref<-merge(sumstats, ref_bim[, c('SNP','A1','A2'), with=F], by = 'SNP')
   swap_index <- sumstats_ref$A1.x == sumstats_ref$A2.y & sumstats_ref$A2.x == sumstats_ref$A1.y
   sumstats_ref$BETA[swap_index] <- -sumstats_ref$BETA[swap_index]
@@ -366,7 +366,7 @@ allele_match<-function(sumstats, ref_bim, chr = 1:22){
 }
 
 # Run DBSLMM
-dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats, h2, h2f = 1, nsnp, nindiv, log_file = NULL, ncores=1){
+dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:23, bfile, sumstats, h2, h2f = 1, nsnp, nindiv, log_file = NULL, ncores=1){
   # Create temp directory
   tmp_dir<-tempdir()
 
@@ -414,7 +414,7 @@ dbslmm <- function(dbslmm, plink = plink, ld_blocks, chr = 1:22, bfile, sumstats
 }
 
 # Calculate predictor correlations using LDAK
-ldak_pred_cor<-function(bfile, ldak, n_cores, chr = 1:22, keep = NULL){
+ldak_pred_cor<-function(bfile, ldak, n_cores, chr = 1:23, keep = NULL){
   tmp_dir<-tempdir()
   tmp_file<-tempfile()
 
@@ -436,7 +436,7 @@ ldak_pred_cor<-function(bfile, ldak, n_cores, chr = 1:22, keep = NULL){
 }
 
 # Read in external score file
-read_score <- function(score, chr = 1:22, log_file = NULL){
+read_score <- function(score, chr = 1:23, log_file = NULL){
 	# Read in score file
 	score <- fread(score)
 

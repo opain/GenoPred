@@ -1,5 +1,5 @@
 # Set range of chromosome numbers to use by default
-CHROMS <- 1:22
+CHROMS <- 1:23
 
 # Coordinates of high ld regions in build GRCh37
 long_ld_coord<-do.call(rbind, list(
@@ -47,4 +47,3 @@ pgs_methods_noneur <- c('ptclump','lassosum','lassosum2','megaprs','prscs','dbsl
 
 # Make vector indicating pgs_methods that are to be applied to gwas_groups
 pgs_group_methods <- c('prscsx','xwing')
-

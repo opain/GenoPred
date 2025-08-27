@@ -129,4 +129,3 @@ rule target_pgs_all:
 rule target_pgs:
   input:
     expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done", name=target_list_df['name'])
-

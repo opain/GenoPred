@@ -58,14 +58,18 @@ if 'gwas_list' in config:
     shell:
       """
       sumstat_cleaner_script=$(Rscript -e 'cat(system.file("scripts", "sumstat_cleaner.R", package = "GenoUtils"))' 2>&1 | grep -Eo "/.*sumstat_cleaner.R")
-      Rscript $sumstat_cleaner_script \
+      Rscript -e "library(GenoUtils);
+        CHROMS <- 1:23;
+        args <- commandArgs(trailingOnly=TRUE);
+        source('$sumstat_cleaner_script', local=TRUE);" \
         --sumstats {params.path} \
         --n {params.n} \
         --ref_chr {refdir}/ref.chr \
         --population {params.population} \
         --output {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned \
         --test {params.testing} > {log} 2>&1
-      """
+      """    
+      
 
 rule sumstat_prep:
   input: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=gwas_list_df['name'])
