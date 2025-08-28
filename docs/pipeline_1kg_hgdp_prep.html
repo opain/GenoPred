@@ -1044,42 +1044,113 @@ tar -czvf genopred_dense_1kg_hgdp.tar.gz ref
 </div>
 </div>
 </div>
-<div id="archive" class="section level1">
-<h1>Archive</h1>
-<p>This was an attempt of deriving a list of common variants from the
-full dbSNP data set. The common variant set from dbSNP works well though
-so this isn’t needed. Keep just in case useful down the road.</p>
-<div id="denser-list-of-common-variants" class="section level2">
-<h2>Denser list of common variants</h2>
-<p>The dbSNP list of common variants seemed to miss a lot of common
-variants, and have poor overlap with the HapMap3 SNPlist. To provide a
-higher level of coverage, download the full dbSNP data, and then
-identify variants with a MAF &gt; 0.01 in at least 1 super population in
-1KG+HGDP.</p>
-<hr />
-<div id="download-dbsnp-data-1" class="section level3">
-<h3>Download dbSNP data</h3>
-<pre class="bash"><code># Download the dbSNP data for common variants (MAF &gt; 0.01 in at least 1 population in 1KG)
+<div id="make-a-full-set-of-reference-data" class="section level1">
+<h1>Make a full set of reference data</h1>
+<p>Here will will extract information for all SNPs present in the
+1KG+HGDP reference. Ultimately, we want .rds files for each chromosome,
+containing CHR, BP (in builds GRCh36,37,38), SNP, A1, A2. This will be
+used to harmonise external datasets without loosing SNPs
+unnessecearily.</p>
+<pre class="bash"><code># Download the full dbSNP data
 mkdir -p ~/oliverpainfel/Data/dbSNP
 cd ~/oliverpainfel/Data/dbSNP
 wget https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh37p13/VCF/00-All.vcf.gz
 
-# Subset CHR BP RSID A1 and A2 information
-zgrep -v &quot;^#&quot; ~/oliverpainfel/Data/dbSNP/00-All.vcf.gz | awk &#39;{print $1, $2, $3, $4, $5}&#39; &gt; ~/oliverpainfel/Data/dbSNP/00-All.vcf.mini
+# Index as VCF
+module load bcftools
+tabix -p vcf ~/oliverpainfel/Data/dbSNP/00-All.vcf.gz
 
-# Split multi alleleic variants onto seperate lines
-# Retain SNPs only
-awk &#39;{
-  n = split($5, alts, &quot;,&quot;);
-  for (i = 1; i &lt;= n; i++) {
-    if (length($4) == 1 &amp;&amp; length(alts[i]) == 1) {
-      print $1, $2, $3, $4, alts[i]
-    }
-  }
-}&#39; ~/oliverpainfel/Data/dbSNP/00-All.vcf.mini &gt; ~/oliverpainfel/Data/dbSNP/00-All.vcf.mini.split
-</code></pre>
+# Split multi allelic variants onto separate rows
+# Only retain non-ambiguous SNPs
+bcftools norm -m -any --threads 10 -Ou ~/oliverpainfel/Data/dbSNP/00-All.vcf.gz \
+  | bcftools view -v snps -Ou \
+  | bcftools query -f &#39;%CHROM\t%POS\t%ID\t%REF\t%ALT\n&#39; \
+  | awk &#39;!($4$5 ~ /^(AT|TA|CG|GC)$/)&#39; \
+  &gt; ~/oliverpainfel/Data/dbSNP/00-All.snps.nonambiguous.tsv
+
+# Split into chr 1-22
+for chr in {1..22}; do
+  awk -v c=&quot;$chr&quot; &#39;$1 == c&#39; ~/oliverpainfel/Data/dbSNP/00-All.snps.nonambiguous.tsv \
+    &gt; ~/oliverpainfel/Data/dbSNP/00-All.snps.nonambiguous.chr${chr}.tsv
+done</code></pre>
+<pre class="r"><code>####
+# Insert BP positions across builds (GRCh36, 37, 38) using liftover, and write out as .rds file
+####
+library(foreach)
+library(doMC)
+registerDoMC(10)
+
+library(data.table)
+
+# Make liftover functions
+make_executable &lt;- function(exe) {
+  Sys.chmod(exe, mode = (file.info(exe)$mode | &quot;111&quot;))
+}
+
+snp_modifyBuild_offline&lt;-function (info_snp, liftOver, chain){
+  tmp_folder&lt;-tempdir()
+
+  if (!all(c(&quot;chr&quot;, &quot;pos&quot;) %in% names(info_snp)))
+    stop2(&quot;Please use proper names for variables in &#39;info_snp&#39;. Expected %s.&quot;,
+          &quot;&#39;chr&#39; and &#39;pos&#39;&quot;)
+  liftOver &lt;- normalizePath(liftOver)
+  make_executable(liftOver)
+  BED &lt;- tempfile(fileext = &quot;.BED&quot;)
+  info_BED &lt;- with(info_snp, data.frame(paste0(&quot;chr&quot;, chr),
+                                        pos0 = pos - 1L, pos, id = seq_len(nrow(info_snp))))
+  fwrite(info_BED, BED, col.names = FALSE, sep = &quot; &quot;)
+  lifted&lt;-paste0(tmp_folder,&#39;/tmp.lifted&#39;)
+  unmapped&lt;-paste0(tmp_folder,&#39;/tmp.unmapped&#39;)
+  system(paste(liftOver, BED, chain, lifted, unmapped))
+  new_pos &lt;- fread(lifted)
+  bad &lt;- grep(&quot;^#&quot;, readLines(unmapped), value = TRUE, invert = TRUE)
+  print(paste0(length(bad),&quot; variants have not been mapped.&quot;))
+  info_snp$pos &lt;- NA
+  info_snp$pos[new_pos$V4] &lt;- new_pos$V3
+  info_snp
+}
+
+# Write out as rds files split by chromosome
+log &lt;- foreach(i = 1:22, .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  # Read in dbsnp data
+  ref_i &lt;- fread(paste0(&#39;~/oliverpainfel/Data/dbSNP/00-All.snps.nonambiguous.chr&#39;,i,&#39;.tsv&#39;))
+
+  # Insert column names
+  names(ref_i) &lt;- c(&#39;chr&#39;,&#39;pos&#39;,&#39;snp&#39;,&#39;a2&#39;,&#39;a1&#39;)
+  
+  # Liftover
+  liftover &lt;- &#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover&#39;
+  ref_i_grch38 &lt;-
+    snp_modifyBuild_offline(ref_i, 
+                            liftOver = liftover, 
+                            chain =
+                              &#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg38.over.chain.gz&#39;)
+  ref_i$pos_grch38 &lt;- ref_i_grch38$pos
+  rm(ref_i_grch38)
+  gc()
+  
+  ref_i_grch36 &lt;-
+    snp_modifyBuild_offline(ref_i, 
+                            liftOver = liftover, 
+                            chain =
+                              &#39;/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg18.over.chain.gz&#39;)
+  
+  ref_i$pos_grch36 &lt;- ref_i_grch36$pos
+  rm(ref_i_grch36)
+  gc()
+  
+  ref_i &lt;- ref_i[, c(&#39;chr&#39;,&#39;snp&#39;,&#39;a1&#39;,&#39;a2&#39;,&#39;pos_grch36&#39;,&#39;pos&#39;,&#39;pos_grch38&#39;), with=F]
+  names(ref_i) &lt;- c(&#39;CHR&#39;,&#39;SNP&#39;,&#39;A1&#39;,&#39;A2&#39;,&#39;BP_GRCh36&#39;,&#39;BP_GRCh37&#39;,&#39;BP_GRCh38&#39;)
+  
+  saveRDS(ref_i, paste0(&#39;~/oliverpainfel/Data/dbSNP/00-All.snps.nonambiguous.chr&#39;,i,&#39;.rds&#39;))
+}</code></pre>
 <hr />
 </div>
+<div id="archive" class="section level1">
+<h1>Archive</h1>
+<p>Code where I was trying to identify common variants from the full
+dbSNP data</p>
+<hr />
 <div id="identify-common-variants" class="section level3">
 <h3>Identify common variants</h3>
 <p>Calculate MAF in each popualtion. Restrict to SNPs.</p>
@@ -1339,7 +1410,6 @@ for(i in 1:22){
   
   saveRDS(pvar, file = paste0(&#39;/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/hgdp_1kg.chr&#39;, i,&#39;.rds&#39;))
 }</code></pre>
-</div>
 </div>
 </div>
 

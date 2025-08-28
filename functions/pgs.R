@@ -458,14 +458,36 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 	# Read in score file
 	score <- fread(score)
 
+	log_add(log_file = log_file, message = paste0('Original score file contains ', nrow(score),' variants.'))
+	
 	# Check whether harmonised columns present
 	if(any(c("hm_rsID", "hm_chr", "hm_pos") %in% names(score))){
 		log_add(log_file = log_file, message = 'PGSC harmonisation data present.')
 
     # If other_allele is not present in score file, try to use inferred other allele data in score file
     if(all(names(score) != 'other_allele')){
-      score$other_allele <- score$hm_inferOtherAllele
-      log_add(log_file = log_file, message = 'A2 is missing so using PGSC inferred A2.')
+      # If hm_inferOtherAllele is all NA, see if we can get from variant_description column
+      if(all(is.na(score$hm_inferOtherAllele))){
+        if('variant_description' %in% names(score)){
+          # Check whether variant_description contains chr:bp:a1:a2 information
+          valid <- any(grepl("^([0-9XYMT]+):([0-9]+):([ACGT]):([ACGT])$", score$variant_description))
+          if(valid){
+            var_info<-data.table(do.call(rbind, strsplit(score$variant_description, ':')))
+            names(var_info)<-c('CHR','BP','A1','A2')
+            score$other_allele<-NA
+            score$other_allele[score$effect_allele == var_info$A1] <- var_info$A2[score$effect_allele == var_info$A1]
+            score$other_allele[score$effect_allele == var_info$A2] <- var_info$A1[score$effect_allele == var_info$A2]
+            log_add(log_file = log_file, message = 'A2 information is missing so inferred from variant_description column.')
+            score
+          } else {
+            log_add(log_file = log_file, message = 'A2 information is not present.')
+            stop('A2 information is not present.')
+          }
+        }
+      } else {
+        score$other_allele <- score$hm_inferOtherAllele
+        log_add(log_file = log_file, message = 'A2 is missing so using PGSC inferred A2.')
+      }
     }
 
 		# Relabel header
@@ -501,6 +523,9 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 	  score$CHR <- gsub('chr', '', score$CHR)
 	  score <- score[score$CHR %in% chr,]
 	}
+	
+	# Remove columns that are all na
+	score <- score[, apply(score, 2, function(x) !all(is.na(x))), with = F]
 	
 	# Remove duplicate variants, retaining the row with larger effect
 	score<-score[rev(abs(order(score$effect_weight))),]

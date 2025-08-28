@@ -746,6 +746,9 @@ rule download_pgs_external:
     "mkdir -p {outdir}/reference/pgs_score_files/raw_external/{wildcards.score}; \
     pgscatalog-download --pgs {wildcards.score} -o {outdir}/reference/pgs_score_files/raw_external/{wildcards.score} --build GRCh37 > {log} 2>&1"
 
+rule download_pgs_external_all:
+  input: expand(f"{outdir}/reference/pgs_score_files/raw_external/{{score}}/{{score}}_hmPOS_GRCh37.txt.gz", score=score_list_df['name'])
+
 # Create function to return path for score file, depeding on whether the score file was downloaded
 def score_path(w):
   if not pd.isna(score_list_df.loc[score_list_df['name'] == w.score, 'path'].iloc[0]):
@@ -758,13 +761,13 @@ rule prep_pgs_external_i:
   input:
     lambda w: score_path(w),
     ref_intersect_input,
-    rules.install_genoutils.output,
-    f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
+    rules.install_genoutils.output
   output:
     touch(f"{outdir}/reference/target_checks/prep_pgs_external_i-{{score}}.done")
   params:
     config_file = config["config_file"],
     outdir=config["outdir"],
+    min_overlap=config["min_overlap_external"],
     score= lambda w: score_path(w),
     testing=config["testing"]
   benchmark:
@@ -778,7 +781,7 @@ rule prep_pgs_external_i:
      Rscript ../Scripts/external_score_processor/external_score_processor.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --score {params.score} \
-      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
+      --min_overlap {params.min_overlap} \
       --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
       --test {params.testing} > {log} 2>&1"
 

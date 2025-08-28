@@ -558,3 +558,151 @@ kable(score_data, 'markdown')
 ```
 
 </details>
+
+***
+
+# pgsc_calc
+
+
+For comparison, try calculating the scores from the PGS catalogue using the PGS Catalogue tool, [pgsc_calc](https://pgsc-calc.readthedocs.io/en/latest/).
+
+***
+
+## Install
+
+<details><summary>Show code</summary>
+
+```{bash}
+# Install nextflow (already on CREATE)
+module load nextflow/24.10.2-gcc-13.2.0
+
+# Install Singularity (already on CREATE)
+
+# Run the pgsc_calc test profile
+NXF_SINGULARITY_CACHEDIR=/users/k1806347/oliverpainfel/tmp
+nextflow run pgscatalog/pgsc_calc -profile test,singularity
+
+```
+
+</details>
+
+***
+
+## Download reference
+
+<details><summary>Show code</summary>
+
+```{bash}
+
+mkdir ~/oliverpainfel/Data/pgsc_calc
+cd ~/oliverpainfel/Data/pgsc_calc
+wget https://ftp.ebi.ac.uk/pub/databases/spot/pgs/resources/pgsc_HGDP+1kGP_v1.tar.zst
+
+```
+
+</details>
+
+***
+
+## Set up samplesheet
+
+First, you need to describe the structure of your genomic data in a standardised way. To do this, set up a spreadsheet that looks like:
+
+<details><summary>Show code</summary>
+
+```{r}
+
+samplesheet <- data.frame(
+  sampleset = 'opensnp',
+  path_prefix = paste0('/scratch/prj/oliverpainfel/Data/OpenSNP/processed/geno/opensnp_merged.chr', 1:22),
+  chrom = 1:22,
+  format = 'vcf'
+)
+
+dir.create('~/oliverpainfel/Data/OpenSNP/pgsc_calc')
+write.csv(samplesheet, '~/oliverpainfel/Data/OpenSNP/pgsc_calc/samplesheet.csv', row.names=F, quote=F)
+
+```
+
+</details>
+
+***
+
+## Run the pipeline
+
+<details><summary>Show code</summary>
+
+```{bash}
+
+nextflow run pgscatalog/pgsc_calc \
+    -profile singularity \
+    --input ~/oliverpainfel/Data/OpenSNP/pgsc_calc/samplesheet.csv \
+    --target_build GRCh37 \
+    --pgs_id PGS002804,PGS002972,PGS004781,PGS004996 \
+    --run_ancestry ~/oliverpainfel/Data/pgsc_calc/pgsc_HGDP+1kGP_v1.tar.zst \
+    --outdir ~/oliverpainfel/Data/OpenSNP/pgsc_calc/output \
+    --min_overlap 0
+    
+```
+
+</details>
+
+Looking through the output, the results are very similar to those of GenoPred. Slightly more variants were matched when using pgsc_calc, not suprisingly due to denser reference. It took quite a while to run, considering it is only using precomputed score files, again probably due to the more dense reference. We should check the correlation between the PGS from GenoPred and pgsc_calc for the scores in common. All in all, I am feeling quite good about GenoPred in comparison. Also, reinforces that the issue of missing variants from external scores is not specific to GenoPred. 
+
+<details><summary>Show code</summary>
+
+```{r}
+library(data.table)
+
+pgsc<-fread('~/oliverpainfel/Data/OpenSNP/pgsc_calc/output/results/opensnp/score/opensnp_pgs.txt.gz')
+
+# Create object similar to output of GenoPred
+pgsc_list <- split(pgsc, pgsc$PGS)
+
+# Merge with GenoPred scores and check correlation.
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in PGS
+genopred_pgs <- read_pgs(config = 'misc/opensnp/config_dense.yaml', name = 'opensnp')$opensnp
+
+
+###
+# Combine PGS from genopred and pgsc
+###
+
+both_list<-list()
+for(i in c('PGS004996', 'PGS002804')){
+  genopred_i<- genopred_pgs$EUR[[i]]$external
+  names(genopred_i)<-c('FID','IID',paste0('genopred_',i))
+  genopred_i$FID<-as.numeric(genopred_i$FID)
+  genopred_i$IID<-as.numeric(genopred_i$IID)
+  pgsc_i<- pgsc_list[[paste0(i,'_hmPOS_GRCh37')]]
+  pgsc_i<-pgsc_i[, c('FID','IID','Z_MostSimilarPop'), with=F]
+  names(pgsc_i)<-c('FID','IID',paste0('pgsc_',i))
+  pgsc_i$FID<-as.numeric(pgsc_i$FID)
+  pgsc_i$IID<-as.numeric(pgsc_i$IID)
+
+  both_list[[i]] <- merge(genopred_i, pgsc_i, by = c('FID','IID'))
+}
+
+both_df = Reduce(function(...) merge(..., by = c('FID','IID')), both_list)
+
+cor(both_df[,-1:-2])
+
+#                    genopred_PGS004996 pgsc_PGS004996 genopred_PGS002804 pgsc_PGS002804
+# genopred_PGS004996          1.0000000      0.9998863          0.6910604      0.6898466
+# pgsc_PGS004996              0.9998863      1.0000000          0.6911306      0.6902942
+# genopred_PGS002804          0.6910604      0.6911306          1.0000000      0.9992698
+# pgsc_PGS002804              0.6898466      0.6902942          0.9992698      1.0000000
+
+```
+
+</details>
+
+The correlation between PGS from PGSC and GenoPred are >/= 0.999, as expected. 

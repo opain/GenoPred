@@ -1,0 +1,901 @@
+---
+title: "Mind the Gap: Quantifying and Recovering Polygenic Score Signal Lost to Variant Missingness"
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+library(knitr)
+```
+
+***
+
+# Overview
+
+## Introduction
+
+Polygenic scores (PGS) are increasingly used to stratify individuals by genetic risk for complex traits. However, their predictive performance depends not only on how well the score was trained, but also on how well the target dataset matches the score’s SNP content — in terms of variant availability, imputation quality, and linkage disequilibrium (LD) structure.
+
+In practice, many variants in published score files are either missing or poorly imputed in real-world target datasets. This variant mismatch leads to reduced PGS performance, yet it is rarely quantified or addressed systematically. In this project, we evaluate how SNP availability and imputation quality affect polygenic score accuracy, and we implement LD-based methods to redistribute signal from missing variants to those that are available.
+
+We benchmark theoretical and empirical approaches for estimating the relative performance of variant-restricted or imputation-filtered PGS, and show that LD-aware redistribution can recover a substantial portion of lost predictive power — without requiring phenotype data.
+
+## Analysis Overview
+
+### 1. Setup and Resources
+- Define SNP sets: HapMap3, SBayesRC.
+- Load score files from the PGS Catalog and GenoPred.
+- Load or generate genotype data for OpenSNP, UK Biobank (target), and 1KG+HGDP (reference).
+- Download imputation R² values from RSQ Browser and match to score files.
+
+### 2. Variant Availability and Imputation Quality
+- Quantify variant overlap between PGS and target genotypes.
+- Visualise distributions of imputation R².
+- Summarise missingness and mean imputation quality by method and dataset.
+
+### 3. Theoretical R² Loss Estimation
+- Estimate expected score variance using:
+  - Marginal: \( \beta^2 \cdot 2f(1-f) \cdot R^2 \)
+  - LD-aware: \( \beta^\top R \beta \)
+- Compare retained R² across SNP sets and imputation thresholds.
+
+### 4. LD-based Signal Redistribution
+- Use LD projection to reassign weights from missing/low-R² SNPs to observed SNPs.
+- Scale redistributed weights by imputation quality.
+- Compare adjusted vs. original weights and resulting scores.
+
+### 5. Empirical Validation of Relative Score Accuracy
+- Compute scores in OpenSNP, UKB, and 1KG+HGDP:
+  - Full vs. restricted vs. LD-adjusted scores.
+- Estimate relative R² by score-score correlation:
+  - \( R^2 = \text{cor}(PGS_{adjusted}, PGS_{full})^2 \)
+- If phenotypes available (OpenSNP/UKB), compute score–trait correlation (optional).
+
+### 6. Summary and Visualisation
+- Plot relative R² loss and recovery across methods and datasets.
+- Summarise tradeoffs between variant density, imputation quality, and performance.
+- Highlight scenarios where LD-based adjustment is most beneficial.
+
+### 7. Optional: Integration with GenoPred
+- Use GenoPred pipeline to generate new scores using different SNP sets.
+- Benchmark portability and performance using standardised outputs.
+
+***
+
+# Download and harmonise SNP lists
+
+We need to combine the various lists of SNPs in some way. They are different dbSNP builds or genome builds. Lets harmonise them using the full dbSNP 151 dataset for non-ambiguous autosomal SNPs.
+
+***
+
+## HapMap3 
+
+<details><summary>Show code</summary>
+
+```{r}
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in the SNP data from the default GenoPred reference (1KG+HGDP HapMap3)
+hm3 <- read_pvar('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr')
+nrow(hm3) # 1204449
+
+# Store snplist
+dir.create('~/oliverpainfel/Analyses/mind_the_gap/snp_data', recursive = T)
+saveRDS(hm3, '~/oliverpainfel/Analyses/mind_the_gap/snp_data/hm3.rds')
+
+```
+
+</details>
+
+***
+
+## SBayesRC
+
+<details><summary>Show code</summary>
+
+```{bash}
+# Download SBayesRC EUR LD reference with 7 million variants
+cd ~/oliverpainfel/Data/SBayesRC/
+gdown 1mKQ3uU_XD6zlNefxEWMl1M42I0gTyOs3 # ukbEUR_Imputed.tar.xz
+
+# Extract snp.info file
+tar -xvf ukbEUR_Imputed.tar.xz ukbEUR_Imputed/snp.info
+
+# Download height PGS from SBayesRC paper
+wget https://gctbhub.cloud.edu.au/data/SBayesRC/share/v1.0/PGS/HT.txt.gz
+
+```
+
+```{r}
+library(data.table)
+library(GenoUtils)
+
+# Read in SBayesRC snp.info file
+sbayesrc_snpinfo <- fread('~/oliverpainfel/Data/SBayesRC/ukbEUR_Imputed/snp.info') # Build GRCh37
+
+# Delete information we don't need
+sbayesrc_snpinfo <- sbayesrc_snpinfo[, c('Chrom', 'PhysPos', 'ID', 'A1', 'A2'), with=F]
+names(sbayesrc_snpinfo) <- c('CHR','BP','SNP','A1','A2')
+
+# Remove ambiguous variants
+sbayesrc_snpinfo$IUPAC <- snp_iupac(sbayesrc_snpinfo$A1, sbayesrc_snpinfo$A2)
+sbayesrc_snpinfo <- sbayesrc_snpinfo[sbayesrc_snpinfo$IUPAC != 'S' & sbayesrc_snpinfo$IUPAC != 'W',]
+nrow(sbayesrc_snpinfo) # 6253944
+
+# Insert RSIDs by merging with dbSNP reference based on CHR BP A1 A2 information (they are both GRCh37)
+sbayesrc_snpinfo_harm <- NULL
+for(i in 1:22){
+  print(i)
+  # Read in dbSNP data
+  ref_i <- readRDS(paste0('~/oliverpainfel/Data/dbSNP/00-All.snps.nonambiguous.chr',i,'.rds'))
+  
+  # Insert IUPAC codes
+  ref_i$IUPAC <- snp_iupac(ref_i$A1, ref_i$A2)
+
+  # Rename columns prior to merging with target
+  names(ref_i)<-paste0('REF.',names(ref_i))
+  ref_i$BP<-ref_i[[paste0('REF.BP_GRCh37')]]
+  ref_i<-ref_i[, c('REF.CHR','REF.SNP','BP','REF.A1','REF.A2','REF.IUPAC'), with=F]
+
+  # Subset sbayesrc_snpinfo to chr == i
+  target_i <- sbayesrc_snpinfo[sbayesrc_snpinfo$CHR == i,]
+  
+  # Merge by BP
+  ref_target<-merge(target_i, ref_i, by = 'BP')
+  
+  # Identify targ-ref strand flips, and flip target
+  flip_logical<-detect_strand_flip(targ = ref_target$IUPAC, ref = ref_target$REF.IUPAC)
+
+  flipped<-ref_target[flip_logical,]
+  flipped$A1<-snp_allele_comp(flipped$A1)
+  flipped$A2<-snp_allele_comp(flipped$A2)
+  flipped$IUPAC<-snp_iupac(flipped$A1, flipped$A2)
+  
+  # Identify SNPs that have matched IUPAC
+  matched<-ref_target[ref_target$IUPAC == ref_target$REF.IUPAC,]
+  matched<-rbind(matched, flipped)
+  
+  # Set REF.SNP to SNP column
+  matched$SNP <- NULL
+  names(matched)[names(matched) == 'REF.SNP']<-'SNP'
+
+  sbayesrc_snpinfo_harm <- rbind(sbayesrc_snpinfo_harm, matched)
+}
+
+# Check number of variant in SBayesRC remaining after reference harmonisation
+nrow(sbayesrc_snpinfo_harm) # 6254034 of 6253944
+
+# Update column names
+sbayesrc_snpinfo_harm <- sbayesrc_snpinfo_harm[, c('CHR', 'BP', 'SNP', 'A1', 'A2'), with = F]
+
+# Store snplist for sbayesrc '7M' reference.
+dir.create('~/oliverpainfel/Analyses/mind_the_gap/snp_data', recursive = T)
+saveRDS(sbayesrc_snpinfo_harm, '~/oliverpainfel/Analyses/mind_the_gap/snp_data/sbayesrc_7m.rds')
+
+```
+
+</details>
+
+Interestingly, there are ~1M ambiguous variants in the SBayesRC reference. This limits the generalisability of the score files as hard to know which strand we are looking at. 
+
+***
+
+## RsqBrowser2
+
+<details><summary>Show code</summary>
+
+```{bash}
+# Download imputation data across arrays and populations from Rsq Browser
+cd ~/oliverpainfel/Data/RsqBrowser2
+wget https://rsq-browser.i-med.ac.at/downloads/1/mlof.bi.snv.tab.gz
+```
+
+```{r}
+library(data.table)
+library(GenoUtils)
+
+# Read in RsqBrowser data (Build GRCh38)
+rsq <- fread('~/oliverpainfel/Data/RsqBrowser2/mlof.bi.snv.tab.gz')
+
+# Remove columns we don't want
+rsq <- rsq[,!grepl('_in$', names(rsq)), with=F]
+
+# Update column names
+names(rsq)[1:5] <- c('CHR', 'BP', 'A2', 'A1','FREQ')
+
+# Remove 'chr' string from CHR
+rsq$CHR <- as.numeric(gsub('chr', '', rsq$CHR))
+  
+# Remove ambiguous variants
+rsq$IUPAC <- snp_iupac(rsq$A1, rsq$A2)
+rsq <- rsq[rsq$IUPAC != 'S' & rsq$IUPAC != 'W',]
+nrow(rsq) # 48306483
+
+# Insert RSIDs by merging with dbSNP reference based on CHR BP A1 A2 information (they are both GRCh37)
+rsq_harm <- NULL
+for(i in 1:22){
+  print(i)
+  # Read in dbSNP data
+  ref_i <- readRDS(paste0('~/oliverpainfel/Data/dbSNP/00-All.snps.nonambiguous.chr',i,'.rds'))
+  
+  # Insert IUPAC codes
+  ref_i$IUPAC <- snp_iupac(ref_i$A1, ref_i$A2)
+
+  # Rename columns prior to merging with target
+  names(ref_i)<-paste0('REF.',names(ref_i))
+  ref_i$BP<-ref_i[[paste0('REF.BP_GRCh38')]]
+  ref_i<-ref_i[, c('REF.CHR','REF.SNP','BP','REF.BP_GRCh37','REF.A1','REF.A2','REF.IUPAC'), with=F]
+
+  # Subset rsq to chr == i
+  target_i <- rsq[rsq$CHR == i,]
+  
+  # Merge by BP
+  ref_target<-merge(target_i, ref_i, by = 'BP')
+  
+  # Identify targ-ref strand flips, and flip target
+  flip_logical<-detect_strand_flip(targ = ref_target$IUPAC, ref = ref_target$REF.IUPAC)
+
+  flipped<-ref_target[flip_logical,]
+  flipped$A1<-snp_allele_comp(flipped$A1)
+  flipped$A2<-snp_allele_comp(flipped$A2)
+  flipped$IUPAC<-snp_iupac(flipped$A1, flipped$A2)
+  
+  # Identify SNPs that have matched IUPAC
+  matched<-ref_target[ref_target$IUPAC == ref_target$REF.IUPAC,]
+  matched<-rbind(matched, flipped)
+
+  # Set BP to GRCh37
+  matched$BP <- NULL
+  names(matched)[names(matched) == 'REF.BP_GRCh37']<-'BP'
+
+  # Set REF.SNP to SNP column
+  names(matched)[names(matched) == 'REF.SNP']<-'SNP'
+
+  rsq_harm <- rbind(rsq_harm, matched)
+}
+
+# Check number of variant in SBayesRC remaining after reference harmonisation
+nrow(rsq_harm) # 43991073 of 48306483
+
+rsq_harm <- rsq_harm[, !(names(rsq_harm) %in% c('REF.CHR', 'REF.A1', 'REF.A2', 'REF.IUPAC', 'IUPAC')), with = F]
+
+rsq_harm <- rsq_harm[, c('CHR','BP','SNP','A1','A2', names(rsq_harm)[!(names(rsq_harm) %in% c('CHR','BP','SNP','A1','A2'))]), with=F] 
+  
+# Store snplist for rsq reference.
+saveRDS(rsq_harm, '~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.rds')
+
+# Reduce size of rsq by restricting to variants present in either hm3 or sbayesr
+hm3 <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/hm3.rds')
+sbayesrc <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/sbayesrc_7m.rds')
+both <- rbind(hm3, sbayesrc)
+both <- both[!duplicated(both),]
+
+rsq_harm_subset <- rsq_harm[rsq_harm$SNP %in% both$SNP,]
+rsq_harm_subset <- rsq_harm_subset[paste0(rsq_harm_subset$SNP, ':', rsq_harm_subset$A1, ':', rsq_harm_subset$A2) %in% paste0(both$SNP, ':', both$A1, ':', both$A2),]
+
+saveRDS(rsq_harm_subset, '~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.hm3_sbayesrc.rds')
+```
+
+</details>
+
+***
+
+# Download and harmonise PGSC score files
+
+Download all score files for CAD from PGSC as an example. Harmonise with the reference using GenoPred.
+
+```{bash}
+# Make a temp directory containing GenoPred reference plink files, but dense .rds files, so we can use the external_score_processor script to harmonise.
+
+mkdir ~/oliverpainfel/Analyses/mind_the_gap/dense_ref_tmp
+for chr in $(seq 1 22);do
+  for file in $(echo pvar pgen psam);do
+  ln -s /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/ref.chr${chr}.${file} /users/k1806347/oliverpainfel/Analyses/mind_the_gap/dense_ref_tmp/ref.chr${chr}.${file}
+  done
+  ln -s /users/k1806347/oliverpainfel/Data/dbSNP/00-All.snps.nonambiguous.chr${chr}.rds /users/k1806347/oliverpainfel/Analyses/mind_the_gap/dense_ref_tmp/ref.chr${chr}.rds
+done
+ln -s /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/ref.pop.txt /users/k1806347/oliverpainfel/Analyses/mind_the_gap/dense_ref_tmp/ref.pop.txt
+ln -s /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/keep_files /users/k1806347/oliverpainfel/Analyses/mind_the_gap/dense_ref_tmp/keep_files
+ln -s /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense/ref/freq_files /users/k1806347/oliverpainfel/Analyses/mind_the_gap/dense_ref_tmp/freq_files
+
+```
+
+```{r}
+######
+# score_list
+######
+# Donwload a csv listing all PGS for CAD
+library(data.table)
+pgsc_cad <- fread('~/oliverpainfel/Analyses/mind_the_gap/pgsc/pgs_scores_data_cad.csv')
+
+score_ids<-gsub(' .*','', pgsc_cad$`Polygenic Score ID & Name`)
+score_list<- data.table(
+  name = score_ids,
+  path = NA,
+  label = score_ids)
+
+dir.create('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config', recursive = T)
+
+write.table(score_list, '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt', col.names = T, row.names = F, quote = F)
+
+######
+# config
+######
+
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output",
+  "refdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/dense_ref_tmp",
+  "config_file: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_cad.yaml",
+  "score_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt",
+  "min_overlap_external: 0"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_cad.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_cad.yaml \
+  prep_pgs_external -n
+```
+
+***
+
+# Variant Availability and Imputation Quality
+
+## Across SNP-lists
+
+Check the number and imputation quality of HapMap3 and SBayesRC variants available across across arrays and imputation panels.
+
+<details><summary>Show code</summary>
+
+```{r}
+library(data.table)
+
+# Read in snplist and rsq information
+hm3 <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/hm3.rds')
+sbayesrc <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/sbayesrc_7m.rds')
+rsq<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.hm3_sbayesrc.rds')
+
+# We will merge by SNP, A1 and A2 information, so delete other information
+hm3$CHR <- NULL
+hm3$BP <- NULL
+sbayesrc$CHR <- NULL
+sbayesrc$BP <- NULL
+rsq$CHR <- NULL
+rsq$BP <- NULL
+
+# Merge with hm3 and sbayesrc snplists
+hm3_rsq <- merge(hm3, rsq, by = c('SNP','A1','A2'), all.x = T)
+hm3_rsq <-melt(hm3_rsq, id.vars = c('SNP','A1','A2'))
+hm3_rsq$snplist <- 'hm3'
+sbayesrc_rsq <- merge(sbayesrc, rsq, by = c('SNP','A1','A2'), all.x = T)
+sbayesrc_rsq <-melt(sbayesrc_rsq, id.vars = c('SNP','A1','A2'))
+sbayesrc_rsq$snplist <- 'sbayesrc'
+both_rsq <- rbind(hm3_rsq, sbayesrc_rsq)
+
+both_rsq$array <- gsub('_.*','', both_rsq$variable)
+both_rsq$panel <- gsub('.*_','', both_rsq$variable)
+
+# Recode panels
+both_rsq$panel <- factor(
+  both_rsq$panel,
+  levels = c("1kg", "hrc", "top"),
+  labels = c("1000 Genomes", "HRC", "TOPMed")
+)
+
+# Recode arrays
+both_rsq$array <- factor(
+  both_rsq$array,
+  levels = c("HC", "OE", "MG", "IO"),
+  labels = c("Core", "OmniExpress", "MEGA", "Omni 2.5M")
+)
+
+# assuming both_rsq is already a data.table
+summary_tab <- both_rsq[, .(
+  n            = .N,
+  prop_non_na  = mean(!is.na(value)),
+  prop_gt_0.5  = mean(value > 0.5,  na.rm = TRUE),
+  prop_gt_0.9  = mean(value > 0.9,  na.rm = TRUE),
+  prop_gt_0.95 = mean(value > 0.95, na.rm = TRUE),
+  prop_gt_0.99 = mean(value > 0.99, na.rm = TRUE),
+  mean_rsq     = mean(value,  na.rm = TRUE),
+  median_rsq   = median(value, na.rm = TRUE)
+), by = .(snplist, array, panel)]
+
+library(ggplot2)
+library(cowplot)
+
+prop_long <- melt(
+  summary_tab,
+  id.vars = c("snplist","array","panel"),
+  measure.vars = c("prop_non_na","prop_gt_0.5","prop_gt_0.9","prop_gt_0.95","prop_gt_0.99"),
+  variable.name = "metric", value.name = "prop"
+)
+
+prop_long$metric <- factor(
+  prop_long$metric,
+  levels = c(
+    'prop_non_na',
+    'prop_gt_0.5',
+    'prop_gt_0.9',
+    'prop_gt_0.95',
+    'prop_gt_0.99'
+  ),
+  labels = c('Missing', 'RSQ > 0.5', 'RSQ > 0.9', 'RSQ > 0.95', 'RSQ > 0.99')
+)
+
+png('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_metrics.png',
+    units = 'px',
+    width = 2500,
+    height = 2500,
+    res = 300)
+
+ggplot(prop_long, aes(x = array, y = prop, fill = snplist)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  facet_grid(metric ~ panel) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = "Genotyping array", y = "Proportion", fill = "SNP list",
+       title = "Proportion metrics by SNP list, array, and reference panel") +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+dev.off()
+
+# Make a boxplot
+boxplot<- ggplot(both_rsq, aes(x = snplist, y = value, fill = snplist)) +
+  geom_boxplot(outliers = FALSE) +
+  labs(
+    x = "SNP list",
+    y = expression(Imputation~r^2),
+    title = "Distribution of imputation r² across SNP list, array, and panel"
+  ) +
+  theme_classic() +
+  theme_half_open() +
+  background_grid() +
+  panel_border() +
+  facet_grid(array ~ panel, scales = "free_y") +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+png('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_boxplot.png',
+    units = 'px',
+    width = 3000,
+    height = 3000,
+    res = 300)
+
+  boxplot
+
+dev.off()
+
+```
+
+</details>
+
+<details><summary>Show results</summary>
+
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 60%;">
+![](~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_metrics.png)
+</div>
+</div>
+
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 60%;">
+![](~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_boxplot.png)
+</div>
+</div>
+
+</details>
+
+There is slightly worse imputation quality for the SBayesRC variants, but actually the Rsq is very high for both when using a typical array and TopMed imputation.
+
+***
+
+## PGSC score files
+
+```{r}
+# Read in the log files from the harmonisation log to check the number of variants originally and after harmonisation
+
+score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
+
+nsnps<-NULL
+for(i in score_list$name){
+  log <-
+    readLines(
+      paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        i,
+        '/ref-',
+        i,
+        '.log'
+      )
+    )
+  
+  original <- log[grepl('Original score file contains', log)]
+  original <- gsub('Original score file contains ', '', original)
+  original <- gsub(' variants.', '', original)
+  
+  nodup <- log[grepl('variants after removing duplicates.', log)]
+  nodup <- gsub('Score file contains ', '', nodup)
+  nodup <- gsub(' variants after removing duplicates.', '', nodup)
+
+  nonambig_snp <- log[grepl('that are not SNPs or are ambiguous', log)]
+  nonambig_snp <- gsub('After removal of variants that are not SNPs or are ambiguous, ', '', nonambig_snp)
+  nonambig_snp <- gsub(' variants remain.', '', nonambig_snp)
+
+  inref <- log[grepl('After matching variants to the reference', log)]
+  inref <- gsub('After matching variants to the reference, ', '', inref)
+  inref <- gsub(' variants remain.', '', inref)
+
+  nsnps<-rbind(nsnps,
+             data.table(
+               ID = i,
+               original = original,
+               nodup = nodup,
+               nonambig_snp = nonambig_snp,
+               inref = inref
+             ))
+}
+
+nsnps$original <- as.numeric(nsnps$original)
+nsnps$nodup <- as.numeric(nsnps$nodup)
+nsnps$nonambig_snp <- as.numeric(nsnps$nonambig_snp)
+nsnps$inref <- as.numeric(nsnps$inref)
+
+step_loss <- nsnps %>%
+  transmute(
+    ID,
+    `original→nodup`       = (original - nodup) / original,
+    `nodup→nonambig_snp`   = (nodup - nonambig_snp) / nodup,
+    `nonambig_snp→inref`   = (nonambig_snp - inref) / nonambig_snp,
+    `original→inref`   = (original - inref) / original
+  ) %>%
+  pivot_longer(-ID, names_to = "step", values_to = "lost_prop")
+
+step_loss$step <- factor(step_loss$step, levels = unique(step_loss$step))
+
+ggplot(step_loss, aes(step, lost_prop)) +
+  geom_violin(fill = "steelblue", alpha = 0.6, trim = FALSE, bw = 0.005) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, NA)) +
+  labs(x = "Step", y = "Proportion of variants lost",
+       title = "Distribution of proportion lost at each step") +
+  theme_minimal(base_size = 12)
+
+# NOTE. The inferred A2 column sometimes contains multiple alleles, leading to them being dropped - How can we resolve. I suppose we split into multiple rows, match with the reference, and then drop duplicates. See what PGSC does. How do we handle multialleleic variants when creating the reference data.
+
+# Some PGS loose some variants due to be detected as duplicates. Investigate some of these to check they are truly duplicates. 
+# Most variants are lost due to not being non ambiguous SNPs. Check this is correct, and try t avoid removing variants due to multiple inferred A2 alleles.
+# The vast majority of non-ambiguous variants are present in the reference, check some of the variants that are missing to see why they are not present.
+
+# Check overlap between harmonised score files and RsqBrowser data
+```
+
+```{r}
+library(data.table)
+
+score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
+
+# Read in rsq information
+rsq<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.rds')
+
+# We will merge by SNP, A1 and A2 information, so delete other information
+rsq$CHR <- NULL
+rsq$BP <- NULL
+rsq$IUPAC <- snp_iupac(rsq$A1, rsq$A2)
+rsq$A1 <- NULL
+rsq$A2 <- NULL
+
+summary_tab <- NULL
+for(i in score_list$name){
+  
+  # Read in score file
+  score_i <- fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        i,
+        '/ref-',
+        i,
+        '.harmonised.gz'
+      ))
+  
+  # We will merge by SNP, A1 and A2 information, so delete other information
+  score_i$CHR <- NULL
+  score_i$BP <- NULL
+  #score_i$effect_weight <- NULL
+  
+  # Merge rsq with score file
+  score_i$IUPAC <- snp_iupac(score_i$A1, score_i$A2)
+  score_i$A1 <- NULL
+  score_i$A2 <- NULL
+  score_i_rsq <- merge(score_i, rsq, by = c('SNP','IUPAC'), all.x = T)
+  score_i_rsq$IUPAC <- NULL
+  score_i_rsq <-melt(score_i_rsq, id.vars = c('SNP'))
+  score_i_rsq$ID <- i
+  
+  score_i_rsq$array <- gsub('_.*','', score_i_rsq$variable)
+  score_i_rsq$panel <- gsub('.*_','', score_i_rsq$variable)
+
+  summary_tab_i <- score_i_rsq[, .(
+    n            = .N,
+    prop_non_na  = mean(!is.na(value)),
+    prop_gt_0.5  = mean(value > 0.5,  na.rm = TRUE),
+    prop_gt_0.9  = mean(value > 0.9,  na.rm = TRUE),
+    prop_gt_0.95 = mean(value > 0.95, na.rm = TRUE),
+    prop_gt_0.99 = mean(value > 0.99, na.rm = TRUE),
+    mean_rsq     = mean(value,  na.rm = TRUE),
+    median_rsq   = median(value, na.rm = TRUE)
+  ), by = .(ID, array, panel)]
+
+  summary_tab <- rbind(summary_tab, summary_tab_i)
+}
+
+# Recode panels
+summary_tab$panel <- factor(
+  summary_tab$panel,
+  levels = c("1kg", "hrc", "top"),
+  labels = c("1000 Genomes", "HRC", "TOPMed")
+)
+
+# Recode arrays
+summary_tab$array <- factor(
+  summary_tab$array,
+  levels = c("HC", "OE", "MG", "IO"),
+  labels = c("Core", "OmniExpress", "MEGA", "Omni 2.5M")
+)
+
+library(ggplot2)
+library(cowplot)
+
+prop_long <- melt(
+  summary_tab,
+  id.vars = c("ID","array","panel"),
+  measure.vars = c("prop_non_na","prop_gt_0.5","prop_gt_0.9","prop_gt_0.95","prop_gt_0.99"),
+  variable.name = "metric", value.name = "prop"
+)
+
+prop_long$metric <- factor(
+  prop_long$metric,
+  levels = c(
+    'prop_non_na',
+    'prop_gt_0.5',
+    'prop_gt_0.9',
+    'prop_gt_0.95',
+    'prop_gt_0.99'
+  ),
+  labels = c('Non-missing', 'RSQ > 0.5', 'RSQ > 0.9', 'RSQ > 0.95', 'RSQ > 0.99')
+)
+
+saveRDS(prop_long, '~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_metrics_pgs.rds')
+prop_long<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_metrics_pgs.rds')
+
+png('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_metrics_pgs.png',
+    units = 'px',
+    width = 2500,
+    height = 2500,
+    res = 300)
+
+ggplot(prop_long[prop_long$ID %in% unique(prop_long$ID)[1:5],], aes(x = array, y = prop, fill = ID)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  facet_grid(metric ~ panel) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = "Genotyping array", y = "Proportion", fill = "SNP list",
+       title = "Proportion metrics by SNP list, array, and reference panel") +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) 
+dev.off()
+
+
+ggplot(prop_long, aes(x = array, y = prop, fill = panel)) +
+  geom_boxplot(width = 0.15) +
+  facet_wrap(~ metric, ncol = 1, scales = "free_y") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Array", y = "Proportion", title = "Distribution by metric, array, and panel") +
+  theme_minimal(base_size = 12)
+
+```
+
+***
+
+# Estimate PGS performance drop
+
+Here we will estimate the relative decrease in PGS R2 due to removal of ambiguous variants, and poor imputation of non-ambiguous variants. We will use the PGSC CAD score files as an example, estimating the impact of missing variants based on the effect size and allele frequency of the variants. This will only be done for the non-ambiguous variants, and then extrapolated to ambiguous variants (since they will follow the same distribution of effect size and allele frequency).
+
+```{r}
+library(data.table)
+library(dplyr)
+library(purrr)
+library(tidyr)
+
+score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
+
+# Read in rsq information
+rsq<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.rds')
+
+# We will merge by SNP, A1 and A2 information, so delete other information
+rsq$CHR <- NULL
+rsq$BP <- NULL
+rsq$IUPAC <- snp_iupac(rsq$A1, rsq$A2)
+rsq$A1 <- NULL
+rsq$A2 <- NULL
+
+# Insert genotype variance
+rsq$vg <- 2 * rsq$FREQ * (1 - rsq$FREQ)
+
+# Make function for estimating relative PGS R2
+rel_pgs_r2 <- function(beta, vg, rsq){
+  # Calculate variance of PGS without missingness
+  denom <- sum(beta^2 * vg)
+
+  # Calculate variance of PGS allowing for imputation rsq
+  num <- sum(beta^2 * vg * rsq) 
+  
+  # Calculate relative R2
+  return(num / denom)
+}
+
+# --- Relative R^2 retained when masking a subset of variants (uses vg only) ---
+.rel_r2_with_mask_vg <- function(dat, vg_col = "vg", mask_idx = integer(0)) {
+  stopifnot(vg_col %in% names(dat))
+  vg_all <- dat[[vg_col]]
+  denom  <- sum(vg_all, na.rm = TRUE)
+  if (!is.finite(denom) || denom <= 0) return(NA_real_)
+  if (length(mask_idx)) vg_keep <- vg_all[-mask_idx] else vg_keep <- vg_all
+  num <- sum(vg_keep, na.rm = TRUE)
+  num / denom
+}
+
+# --- 1) Learn missingness -> relative-R^2 curve (non-ambiguous variants only) ---
+pgs_r2_vs_missingness_vg <- function(dat_nonambig,
+                                     vg_col = "vg",
+                                     m_grid = seq(0, 0.6, by = 0.05),
+                                     n_sims = 50,
+                                     seed = 1) {
+  stopifnot(vg_col %in% names(dat_nonambig))
+  dat_nonambig <- dat_nonambig %>% filter(is.finite(.data[[vg_col]]))
+  stopifnot(nrow(dat_nonambig) > 10)
+  set.seed(seed)
+
+  sims <- map_dfr(m_grid, function(m) {
+    S <- nrow(dat_nonambig)
+    k <- floor(m * S)
+    rels <- replicate(n_sims, {
+      idx <- if (k > 0) sample.int(S, size = k, replace = FALSE) else integer(0)
+      .rel_r2_with_mask_vg(dat_nonambig, vg_col, idx)
+    })
+    tibble(missing_prop = m,
+           rel_mean = mean(rels, na.rm = TRUE),
+           rel_median = median(rels, na.rm = TRUE),
+           rel_sd = sd(rels, na.rm = TRUE),
+           rel_q05 = quantile(rels, 0.05, na.rm = TRUE),
+           rel_q95 = quantile(rels, 0.95, na.rm = TRUE))
+  })
+
+  # Often close to linear: loss ≈ slope * missing_prop
+  fit <- lm(I(1 - rel_mean) ~ 0 + missing_prop, data = sims)
+  list(curve = sims, slope = unname(coef(fit)[1]), model = fit)
+}
+
+pgs_r2 <- NULL
+for(i in score_list$name){
+  
+  # Read in score file
+  score_i <- fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        i,
+        '/ref-',
+        i,
+        '.harmonised.gz'
+      ))
+  
+  # We will merge by SNP, A1 and A2 information, so delete other information
+  score_i$CHR <- NULL
+  score_i$BP <- NULL
+  #score_i$effect_weight <- NULL
+  
+  # Merge rsq with score file
+  score_i$IUPAC <- snp_iupac(score_i$A1, score_i$A2)
+  score_i$A1 <- NULL
+  score_i$A2 <- NULL
+  score_i_rsq <- merge(score_i, rsq, by = c('SNP','IUPAC'), all.x = T)
+  
+  # Set rsq of missing variants as 0
+  score_i_rsq[is.na(score_i_rsq)]<-0
+  
+  # Calculate relative PRS R2 across arrays and panels
+  for(j in c("HC_1kg", "HC_hrc", "HC_top", "OE_1kg", "OE_hrc", "OE_top", "IO_1kg", "IO_hrc", "IO_top", "MG_1kg", "MG_hrc", "MG_top")){
+    pgs_r2<-rbind(pgs_r2, data.table(
+      ID = i,
+      group = j,
+      rel_r2 = rel_pgs_r2(beta=score_i_rsq$effect_weight, vg=score_i_rsq$vg, rsq = score_i_rsq[[j]])
+    ))
+  }
+}
+
+# For the last score files looked estimate relationship between missingness and PGS R2
+curve_fit <- pgs_r2_vs_missingness_vg(
+  dat_nonambig = score_i_rsq,
+  vg_col = "vg",
+  m_grid = seq(0, 0.6, by = 0.05),
+  n_sims = 20
+)
+
+plot(curve_fit$curve$missing_prop, curve_fit$curve$rel_mean)
+# This shows the relationship is linear when missingness is random.
+
+pgs_r2$array <- gsub('_.*','', pgs_r2$group)
+pgs_r2$panel <- gsub('.*_','', pgs_r2$group)
+
+# Recode panels
+pgs_r2$panel <- factor(
+  pgs_r2$panel,
+  levels = c("1kg", "hrc", "top"),
+  labels = c("1000 Genomes", "HRC", "TOPMed")
+)
+
+# Recode arrays
+pgs_r2$array <- factor(
+  pgs_r2$array,
+  levels = c("HC", "OE", "MG", "IO"),
+  labels = c("Core", "OmniExpress", "MEGA", "Omni 2.5M")
+)
+
+library(ggplot2)
+library(cowplot)
+
+saveRDS(pgs_r2, '~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs.rds')
+pgs_r2<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs.rds')
+
+png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs.png',
+    units = 'px',
+    width = 2500,
+    height = 1500,
+    res = 300)
+
+ggplot(pgs_r2[pgs_r2$ID %in% unique(pgs_r2$ID)[1:5],], aes(x = array, y = rel_r2, fill = ID)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  facet_grid(. ~ panel) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = "Genotyping array", y = "Proportion", fill = "SNP list",
+       title = "Relative PGS performance by platform and array") +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) 
+dev.off()
+
+png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics.png',
+    units = 'px',
+    width = 2500,
+    height = 1500,
+    res = 300)
+
+ggplot(pgs_r2, aes(x = array, y = rel_r2, fill = panel)) +
+  geom_boxplot(width = 0.15) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Array", y = "Proportion", title = "Distribution by metric, array, and panel") +
+  theme_minimal(base_size = 12)
+dev.off()
+
+```

@@ -6,14 +6,14 @@ library("optparse")
 option_list = list(
 	make_option("--ref_plink_chr", action="store", default=NULL, type='character',
 		help="Path to per chromosome reference PLINK files [required]"),
-	make_option("--ref_pcs", action="store", default=NULL, type='character',
-	  help="Reference PCs for continuous ancestry correction [optional]"),
 	make_option("--plink2", action="store", default='plink2', type='character',
 		help="Path PLINKv2 software binary [optional]"),
 	make_option("--output", action="store", default=NULL, type='character',
 		help="Path for output files [required]"),
 	make_option("--score", action="store", default=NULL, type='character',
-		help="Score file with format SNP A1 and then one or more effect sizes [required]"),
+    help="Score file with format SNP A1 and then one or more effect sizes [required]"),
+	make_option("--min_overlap", action="store", default=NULL, type='numeric',
+    help="Minimum overlap between reference and external score file [required]"),
 	make_option("--test", action="store", default=NA, type='character',
 		help="Specify number of SNPs to include [optional]")
 )
@@ -36,6 +36,9 @@ if(is.null(opt$output)){
 }
 if(is.null(opt$score)){
   stop('--score must be specified.\n')
+}
+if(is.null(opt$min_overlap)){
+  stop('--min_overlap must be specified.\n')
 }
 
 # Create output directory
@@ -87,7 +90,7 @@ if(pgsc_header){
 score <- read_score(score = opt$score, chr = CHROMS, log_file = log_file)
 n_snp_orig <- nrow(score)
 
-log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants.'))
+log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing duplicates.'))
 
 #####
 # Insert IUPAC codes into target
@@ -229,8 +232,8 @@ if(is.na(target_build) & rsid_avail){
 log_add(log_file = log_file, message = paste0('After matching variants to the reference, ',nrow(targ_matched),' variants remain.'))
 log_add(log_file = log_file, message = paste0(sum(flip_logical_all), ' variants were flipped to match reference.'))
 
-if(nrow(targ_matched) < 0.75*n_snp_orig){
-	log_add(log_file = log_file, message = paste0("<75% of variants in score file are present in the reference (", nrow(targ_matched)," out of ", n_snp_orig, ")"))
+if(nrow(targ_matched) < opt$min_overlap*n_snp_orig){
+	log_add(log_file = log_file, message = paste0("<", opt$min_overlap*100, "% of variants in score file are present in the reference (", nrow(targ_matched)," out of ", n_snp_orig, ")"))
 	log_add(log_file = log_file, message = 'Skipping')
 
 } else {
