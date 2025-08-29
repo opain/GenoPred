@@ -137,32 +137,131 @@ done
 
 ## Download GWAS
 
-```{bash}
+```{r}
+# Read in GWAS catalogue metadata
+gwas_cat <- fread('~/oliverpainfel/Data/GWAS_sumstats/gwas_catalog_v1.0.2.1-studies_r2025-08-24.tsv')
 
-###
-# ALS risk, survival, age at onset
-###
+# Remove GWAS without full sumstats
+gwas_cat<-gwas_cat[gwas_cat$`FULL SUMMARY STATISTICS` == 'yes',]
 
-###
-# Risk of other neurodegenerative diseases
-###
+# Remove columns we don't want
+gwas_cat <- gwas_cat[, c(
+  "PUBMEDID",
+  "FIRST AUTHOR",
+  "DATE",
+  "DISEASE/TRAIT",
+  "INITIAL SAMPLE SIZE",
+  "REPLICATION SAMPLE SIZE",
+  "ASSOCIATION COUNT",
+  "MAPPED_TRAIT",
+  "STUDY ACCESSION",
+  "SUMMARY STATS LOCATION"
+), with = F]
 
-###
-# Interleukin-2 receptor subunit alpha (IL2RA) protein levels
-###
+# List all the GWAS catalogue IDs that you want to keep
+gwas_ids<-c(
+  'GCST90027164',
+  'GCST009325',
+  'GCST007320',
+  'GCST90001390',
+  'GCST90444478',
+  'GCST004455',
+  'GCST90274806',
+  'GCST90241611',
+  'GCST004455',
+  'GCST90088221',
+  'GCST90469588',
+  'GCST90428414',
+  'GCST004454',
+  'GCST90428415',
+  'GCST90274811',
+  'GCST90469586',
+  'GCST90241613',
+  'GCST90469585',
+  'GCST90179335',
+  'GCST90277655',
+  'GCST90019431',
+  'GCST90088237',
+  'GCST90241612',
+  'GCST90001960',
+  'GCST90001506',
+  'GCST90001505',
+  'GCST90001504',
+  'GCST90001511',
+  'GCST90001510',
+  'GCST90001940',
+  'GCST90001935',
+  'GCST90475282'
+)
 
-###
-# Regulatory T-cell molecule levels
-###
+gwas_cat_select <- gwas_cat[gwas_cat$`STUDY ACCESSION` %in% gwas_ids,]
+gwas_cat_select$url <- NA
+  
+# Download the summary statistics
+dir.create('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/')
 
-###
-# Autoimmune disease risk
-###
+for(i in 1:nrow(gwas_cat_select)){
+  print(i)
+  if(!file.exists(paste0('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], '.gz'))){
+    con <- curl::curl(gwas_cat_select$`SUMMARY STATS LOCATION`[i])
+    lines <- readLines(con)
+    close(con)
+    
+    # extract all href targets
+    files <- regmatches(lines, gregexpr('href="([^"]+)"', lines))
+    files <- unlist(lapply(files, function(x) sub('href="([^"]+)"', '\\1', x)))
+    files <- files[!files %in% c("../")]
 
-###
-# Other inflammatory markers (CRP, IL-6, etc.)
-###
+    if('harmonised/' %in% files){
+      con <- curl::curl(paste0(gwas_cat_select$`SUMMARY STATS LOCATION`[i],'/harmonised'))
+      lines <- readLines(con)
+      close(con)
+      
+      # extract all href targets
+      files <- regmatches(lines, gregexpr('href="([^"]+)"', lines))
+      files <- unlist(lapply(files, function(x) sub('href="([^"]+)"', '\\1', x)))
+      files <- files[!files %in% c("../")]
+      
+      url <- files[grepl('.h.tsv.gz$', files)]
+      url <- paste0(gwas_cat_select$`SUMMARY STATS LOCATION`[i],'/harmonised/', url)
+      
+      gwas_cat_select$url[i] <- url
+      
+      log <- system(
+        paste0(
+          'wget -q --no-check-certificate -O ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], '.gz ', url))
+    } else {
+      url <- files[grepl('.tsv$|.tsv.gz', files)]
+      url <- paste0(gwas_cat_select$`SUMMARY STATS LOCATION`[i],'/', url)
+      ending <- ifelse(any(grepl('.gz$', url)), '.gz', '')
 
+      gwas_cat_select$url[i] <- url
+
+      log <- system(
+        paste0(
+          'wget -q --no-check-certificate -O ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], ending, ' ', url))
+    }
+    
+    if(log != 0){
+      system(paste0('rm ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], '.gz'))
+    }
+  }
+}
+
+write.csv(gwas_cat_select, '~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info.csv', row.names = F)
+
+# The Alzheimer's GWAS has lost important information during harmonisation (NEFF)
+# Download the original sumstats instead of the harmonised
+system('rm ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/GCST007320.gz')
+system(paste0("wget -q --no-check-certificate -O ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/GCST007320.gz http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST007001-GCST008000/GCST007320/AD_sumstats_Jansenetal_2019sept.txt.gz"))
+gwas_cat_select$url[gwas_cat_select$`STUDY ACCESSION` == 'GCST007320'] <- 'http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST007001-GCST008000/GCST007320/AD_sumstats_Jansenetal_2019sept.txt.gz'
+
+# Set Neff column to N
+ss<-fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/GCST007320.gz')
+ss$N<-ss$Neff
+ss$Neff<-NULL
+ss$Nsum<-NULL
+fwrite(ss, '~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/GCST007320.gz', quote = F, na ='NA', sep=' ')
 ```
 
 ***
@@ -199,16 +298,61 @@ write.table(
 )
 
 # Create gwas_list
+gwas_cat_select <- fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info.csv')
+
+# Remove the Qatari GWAS
+gwas_cat_select <- gwas_cat_select[gwas_cat_select$`STUDY ACCESSION` != 'GCST90161640',]
+
 gwas_list <- data.table(
-  name='yengo_eur',
-  path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_2022_height_eur.txt',
+  name=gwas_cat_select$`STUDY ACCESSION`,
+  path = paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`,'.gz'),
   population = 'EUR',
   n = NA,
   sampling = NA,
   prevalence = NA,
   mean = NA,
   sd = NA,
-  label = "\"Yengo 2022 Height EUR\"")
+  label = paste0("\"", gwas_cat_select$`FIRST AUTHOR`, ' - ', gwas_cat_select$DATE, ' - ', gwas_cat_select$`DISEASE/TRAIT`, "\""))
+
+gwas_list$n <- c(
+  NA,
+  3475,
+  3677,
+  NA,
+  NA,
+  NA,
+  NA,
+  NA,
+  NA,
+  NA,
+  NA,
+  NA,
+  5366 ,
+  5361,
+  6618,
+  NA,
+  138086,
+  NA,
+  NA,
+  NA,
+  NA,
+  NA,
+  496,
+  NA,
+  3301,
+  3301,
+  3301,
+  2923,
+  39034,
+  39236,
+  NA
+)
+
+gwas_list$sampling [15] <- 2591 / (2591 + 4027)
+gwas_list$sampling [17] <- 27205 / (27205 + 110881)
+
+gwas_list$prevalence [15] <- 0.004
+gwas_list$prevalence [17] <- 0.00005
 
 write.table(
   gwas_list,
@@ -225,7 +369,7 @@ conf <- c(
   'config_file: /users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml',
   'target_list: /users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/target_list.txt',
   'gwas_list: /users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/gwas_list.txt',
-  "pgs_methods: ['dbslmm']"
+  "pgs_methods: ['sbayesrc']"
 )
 
 write.table(
@@ -250,8 +394,80 @@ snakemake \
   --profile slurm \
   --use-conda \
   --configfile=/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml \
-  output_all -n 
+  ldsc -n 
 ```
+
+***
+
+# Have a look at the LDSC results
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+source('../functions/misc.R')
+source_all('../functions')
+
+config <- '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml'
+gwas_list<-read_param(config = config, param = 'gwas_list')
+outdir<-read_param(config = config, param = 'outdir', return_obj = F)
+
+ldsc<-NULL
+for(i in gwas_list$name){
+  h2_log <- readLines(paste0(outdir,'/reference/ldsc/', i,'/', i, '.log'))
+  h2_log <- h2_log[grepl('SNP-heritability estimate on the observed scale', h2_log)]
+  h2_log <- gsub('SNP-heritability estimate on the observed scale = ','',h2_log)
+  hsq <- as.numeric(gsub(' .*','',h2_log))
+  h2_se <- as.numeric(gsub("\\).", '', gsub(".* \\(", '', h2_log)))
+  hsq.pv <- pnorm(hsq / h2_se, lower.tail = FALSE)
+  ldsc<-rbind(
+    ldsc,
+    data.table(
+      name = i,
+      est = hsq,
+      se = h2_se,
+      z = hsq/h2_se,
+      p = hsq.pv
+    )
+  )
+}
+
+gwas_cat_select <- fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info.csv')
+
+gwas_cat_select<-merge(gwas_cat_select, ldsc, by.x = 'STUDY ACCESSION', by.y='name')
+ldsc <- gwas_cat_select[, c('STUDY ACCESSION','FIRST AUTHOR','DATE','DISEASE/TRAIT','est','se','z','p'), with = F]
+
+write.csv(
+  ldsc,
+  '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/ldsc.csv',
+  row.names = F
+)
+
+gwas_list<-gwas_list[name %in% ldsc$`STUDY ACCESSION`[ldsc$z > 2],]
+gwas_list$label <- paste0("\"", gwas_list$label, "\"")
+
+write.table(
+  gwas_list,
+  '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/gwas_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F,
+  sep = ' '
+)
+
+```
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+conda activate genopred
+
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml \
+  output_all outlier_detection -n 
+```
+
+***
 
 The vast majority of the clinical trial participants are of European ancestry (Non-EUR N = 15, EUR N = 267). We should restrict the primary analysis to EUR, and then rerun key analyses in full sample. 
 
@@ -280,7 +496,7 @@ I have been sent some preliminary clinical data for the trial. Lets have a look 
 library(data.table)
 library(readxl)
 
-data <- read_excel("~/oliverpainfel/scratch_tmp/Data/miraclestrial/original/Survival-MIR.xlsx")
+data <- read_excel("~/oliverpainfel/Data/miraclestrial/original/Survival-MIR.xlsx")
 data <- data.table(data)
 
 # Rename variables
@@ -353,6 +569,133 @@ legend("bottomleft", legend = c("Control", "Treatment"), col = c("blue", "red"),
 
 # Shows non-significant increase in survival in those given IL-2
 # The real trial used prognostic covariates which we do not have access to currently.
+
+####
+# PGS interactions
+####
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+source('../functions/misc.R')
+source_all('../functions')
+
+config <- '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml'
+
+# Read in the PGS and within sample PCs
+pgs <- read_pgs(config = config)
+gwas_list <- read_param(config = config, param = 'gwas_list')
+
+# Read in PCs
+pcs <-list()
+pcs[['miracles_batch1']] <- fread('~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_batch1/pcs/within_sample/miracles_batch1.outlier_detection.EUR.PCs.txt')
+pcs[['miracles_batch2']] <- fread('~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_batch2/pcs/within_sample/miracles_batch2.outlier_detection.EUR.PCs.txt')
+
+# Combine the data across batches
+pgs_both <- NULL
+for(i in 1:2){
+  a<-pgs[[paste0('miracles_batch', i)]]$TRANS
+  merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE), lapply(a, function(x) x$sbayesrc))
+  names(merged_df) <- gsub('_SBayesRC','', names(merged_df))
+  pgs_both <- rbind(pgs_both, merged_df)
+}
+
+pcs_both <- NULL
+for(i in 1:2){
+  a <- pcs[[paste0('miracles_batch', i)]]
+  a$batch <- paste0('miracles_batch', i)
+  pcs_both <- rbind(pcs_both, a)
+}
+
+genetics <- merge(pgs_both, pcs_both, by = c('FID','IID'))
+trial_data_gen <- merge(trial_data, genetics, by.x = 'id', by.y = 'IID')
+
+cox_model <- coxph(Surv(time_to_event, status) ~ arm_numeric, data = trial_data_gen)
+summary(cox_model)
+
+fit <- survfit(Surv(time_to_event, status) ~ arm_numeric, data = trial_data)
+plot(fit, col = c("blue", "red"), xlab = "Time (years)", ylab = "Survival probability")
+legend("bottomleft", legend = c("Control", "Treatment"), col = c("blue", "red"), lty = 1)
+
+# Test again with PGS but split by batch and with PCs 
+int_res_no_pgs <- NULL
+for(j in unique(trial_data_gen$batch)){
+  cox_model <- coxph(as.formula(paste0("Surv(time_to_event, status) ~ arm_numeric + ", paste0('PC', 1:10, collapse = ' + '))), 
+                     data = trial_data_gen[trial_data_gen$batch == j,])
+  cox_model_sum <- summary(cox_model)
+  int_res_no_pgs<-rbind(
+    int_res_no_pgs,
+    data.table(
+      Batch = j,
+      Term = row.names(coef(cox_model_sum)),
+      coef = coef(cox_model_sum)[,1],
+      se = coef(cox_model_sum)[,3],
+      p = coef(cox_model_sum)[,5]
+    )
+  )
+}
+
+# Meta analyse across batches
+library(meta)
+
+int_res_no_pgs_meta <- NULL
+for(term in unique(int_res_no_pgs$Term)){
+  m <- metagen(TE = int_res_no_pgs$coef[int_res_no_pgs$Term == term], seTE = int_res_no_pgs$se[int_res_no_pgs$Term == term], sm = "HR",)
+  
+  int_res_no_pgs_meta<-rbind(
+    int_res_no_pgs_meta,
+    data.table(
+      Term = term,
+      coef = m$TE.common,
+      se = m$seTE.common,
+      p = m$pval.common
+    )
+  )
+}
+
+# Test interaction betwen each PGS and the trial arm
+int_res <- NULL
+for(j in unique(trial_data_gen$batch)){
+  for(i in gwas_list$name){
+    cox_model <- coxph(as.formula(paste0("Surv(time_to_event, status) ~ arm_numeric * ", i, " + ", paste0('PC', 1:10, collapse = ' + '))), 
+                       data = trial_data_gen[trial_data_gen$batch == j,])
+    cox_model_sum <- summary(cox_model)
+    int_res<-rbind(
+      int_res,
+      data.table(
+        Batch = j,
+        PGS = i,
+        Term = row.names(coef(cox_model_sum)),
+        coef = coef(cox_model_sum)[,1],
+        se = coef(cox_model_sum)[,3],
+        p = coef(cox_model_sum)[,5]
+      )
+    )
+  }
+}
+
+# Meta analyse across batches
+library(meta)
+
+int_res_meta <- NULL
+for(i in gwas_list$name){
+  tmp <- int_res[int_res$PGS == i,]
+  for(term in unique(tmp$Term)){
+    m <- metagen(TE = tmp$coef[tmp$Term == term], seTE = tmp$se[tmp$Term == term], sm = "HR",)
+    
+    int_res_meta<-rbind(
+      int_res_meta,
+      data.table(
+        PGS = i,
+        Term = term,
+        coef = m$TE.common,
+        se = m$seTE.common,
+        p = m$pval.common
+      )
+    )
+  }
+}
+
+
 ```
 
 
