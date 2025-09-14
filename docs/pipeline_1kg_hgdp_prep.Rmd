@@ -924,6 +924,299 @@ tar -czvf genopred_dense_multi_indel_1kg_hgdp.tar.gz ref
 
 ***
 
+## All variants
+
+Now we are not going to filter out strand ambiguous variants.
+
+***
+
+### Prepare dbSNP data
+
+```{bash}
+# Download the full dbSNP data
+mkdir -p ~/oliverpainfel/Data/dbSNP
+cd ~/oliverpainfel/Data/dbSNP
+wget https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh37p13/VCF/00-All.vcf.gz
+
+# Index as VCF
+module load bcftools
+tabix -p vcf ~/oliverpainfel/Data/dbSNP/00-All.vcf.gz
+
+# Split multi allelic variants onto separate rows
+bcftools norm -m -any --threads 10 -Ou ~/oliverpainfel/Data/dbSNP/00-All.vcf.gz \
+  | bcftools query -f '%CHROM\t%POS\t%ID\t%REF\t%ALT\n' \
+  > ~/oliverpainfel/Data/dbSNP/00-All.split.tsv
+  
+```
+
+***
+
+### Subset 1KG+HGDP data to non-ambiguous variants and insert RSIDs
+
+```{r}
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+source('../functions/misc.R')
+source_all('../functions')
+library(data.table)
+library(GenoUtils)
+
+dir.create('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel')
+
+# Read in variant data for 1KG+HGDP
+pvar <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL.pvar', nThread=5)
+
+# Remove ambiguous variants
+pvar$INFO<-NULL
+pvar$FILTER<-NULL
+names(pvar)<-c('CHR','BP','ID','A1','A2')
+pvar<-pvar[!(pvar$A1 == 'T' & pvar$A2 == 'A' | pvar$A1 == 'A' & pvar$A2 == 'T') &
+           !(pvar$A1 == 'C' & pvar$A2 == 'G' | pvar$A1 == 'G' & pvar$A2 == 'C'),]
+
+# Read in dbSNP data
+dbsnp <- fread('~/oliverpainfel/Data/dbSNP/00-All.nonambiguous.tsv', nThread=5)
+names(dbsnp)<-c('CHR','BP','RSID','A1','A2')
+
+# Merge the pvar data with the dbSNP data allowing for strand flips
+ref_target <- merge(pvar, dbsnp, by=c('CHR','BP'))
+
+# Fast, vectorised reverse-complement (IUPAC-aware, uses stringi if present)
+rc <- function(x){
+  x <- chartr("ACGTacgt",
+              "TGCAtgca", x)
+  if (requireNamespace("stringi", quietly = TRUE)) stringi::stri_reverse(x)
+  else vapply(strsplit(x, "", fixed = TRUE),
+              function(z) paste0(rev(z), collapse = ""), "")
+}
+
+# 1) quick matches without RC
+match_rows <- ref_target[, A1.x == A1.y & A2.x == A2.y]
+swapped    <- ref_target[, A1.x == A2.y & A2.x == A1.y]
+match_rows <- match_rows | swapped
+
+# 2) only RC-check the rows still unmatched, with memoisation
+idx <- which(!match_rows)
+u <- unique(unlist(ref_target[idx, .(A1.x, A2.x)]))   # unique alleles to RC once
+rc_map <- setNames(rc(u), u)
+A1x_rc <- rc_map[ ref_target$A1.x[idx] ]
+A2x_rc <- rc_map[ ref_target$A2.x[idx] ]
+
+rc_same <- (A1x_rc == ref_target$A1.y[idx]) & (A2x_rc == ref_target$A2.y[idx])
+rc_swap <- (A1x_rc == ref_target$A2.y[idx]) & (A2x_rc == ref_target$A1.y[idx])
+match_rows[idx] <- rc_same | rc_swap
+# Note. there were no reverse complements
+
+ref_target<-ref_target[match_rows,]
+
+# Clean up pvar
+pvar<-ref_target[, c('CHR','BP','ID','RSID','A1.x','A2.x'), with=F]
+names(pvar)<-c('CHR','BP','ID','RSID','A1','A2')
+
+# Remove duplicated variants
+pvar[, allele_pair := ifelse(A1 < A2,
+                             paste(A1, A2, sep = ":"),
+                             paste(A2, A1, sep = ":"))]
+pvar<-pvar[!duplicated(paste0(pvar$RSID, ':', pvar$allele_pair)),]
+
+# Note. some variants have multiple RSIDs. Keep them to improve overlap with datasets that only contain RSID.
+
+# Extract SNPs from plink2 files
+write.table(unique(pvar$ID), '/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/extract.snplist', col.names=F, row.names=F, quote=F)
+
+# Save intermediate file
+fwrite(pvar,'/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg_nonambig.txt', sep = '\t', quote = F, na='NA')
+
+```
+
+```{bash}
+for chr in $(seq 1 22) X Y; do
+  sbatch --mem 10G -n 5 -p neurohack_cpu -t 1:00:00 --wrap="plink2 \
+    --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/GRCh37_HGDP+1kGP_ALL \
+    --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/unrel.keep \
+    --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/extract.snplist \
+    --chr ${chr} \
+    --threads 5 \
+    --make-pgen \
+    --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr${chr}"
+done
+
+# Delete the FILTER and INFO columns from the pvar files
+for chr in $(seq 1 22) X Y; do
+  awk 'BEGIN{FS=OFS="\t"} $0 !~ /^##/ {print $1,$2,$3,$4,$5}' /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr${chr}.pvar > /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr${chr}.pvar.tmp && mv /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr${chr}.pvar.tmp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr${chr}.pvar
+done
+
+```
+
+```{bash}
+# Calculate allele frequencies for each population
+# Use keep files from previous reference preparation
+for pop in $(echo EUR EAS AFR AMR CSA MID); do
+  mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/freq_files/${pop}
+  
+for chr in $(seq 1 22) X Y; do
+    sbatch --mem 10G -n 1 -p neurohack_cpu -t 1:00:00 --wrap="plink2 \
+      --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr${chr} \
+      --keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/${pop}.keep \
+      --freq \
+      --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/freq_files/${pop}/hgdp_1kg.chr${chr}"
+      
+  done
+done
+
+# Create frequency files across all reference individuals (TRANS)
+mkdir -p /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/freq_files/TRANS
+for chr in $(seq 1 22) X Y; do
+  sbatch --mem 10G -n 1 -p neurohack_cpu -t 1:00:00 --wrap="plink2 \
+    --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr${chr} \
+    --freq \
+    --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/freq_files/TRANS/hgdp_1kg.chr${chr}"
+done
+```
+
+```{r}
+####
+# Create .rds files for SNP stats
+####
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+source('../functions/misc.R')
+source_all('../functions')
+library(data.table)
+library(GenoUtils)
+
+# Make liftover functions
+make_executable <- function(exe) {
+  Sys.chmod(exe, mode = (file.info(exe)$mode | "111"))
+}
+
+snp_modifyBuild_offline<-function (info_snp, liftOver, chain){
+  tmp_folder<-tempdir()
+
+  if (!all(c("chr", "pos") %in% names(info_snp)))
+    stop2("Please use proper names for variables in 'info_snp'. Expected %s.",
+          "'chr' and 'pos'")
+  liftOver <- normalizePath(liftOver)
+  make_executable(liftOver)
+  BED <- tempfile(fileext = ".BED")
+  info_BED <- with(info_snp, data.frame(paste0("chr", chr),
+                                        pos0 = pos - 1L, pos, id = seq_len(nrow(info_snp))))
+  fwrite(info_BED, BED, col.names = FALSE, sep = " ")
+  lifted<-paste0(tmp_folder,'/tmp.lifted')
+  unmapped<-paste0(tmp_folder,'/tmp.unmapped')
+  system(paste(liftOver, BED, chain, lifted, unmapped))
+  new_pos <- fread(lifted)
+  bad <- grep("^#", readLines(unmapped), value = TRUE, invert = TRUE)
+  print(paste0(length(bad)," variants have not been mapped."))
+  info_snp$pos <- NA
+  info_snp$pos[new_pos$V4] <- new_pos$V3
+  info_snp
+}
+
+snp_info<-fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg_nonambig.txt', nThread=10)
+snp_info<-snp_info[, c('ID','RSID'), with = F]
+
+for(i in c(1:22, 'X', 'Y')){
+  print(i)
+  pvar <- fread(paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr',i,'.pvar'), nThread=10)
+  
+  # Insert BP for GRCh36 and 38
+  names(pvar) <- c('chr','pos','snp','a2','a1')
+
+  pvar_grch38<-snp_modifyBuild_offline(pvar, liftOver='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover', chain='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg38.over.chain.gz')
+  
+  pvar_grch36<-snp_modifyBuild_offline(pvar, liftOver='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/software/liftover/liftover', chain='/users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/liftover/hg19ToHg18.over.chain.gz')
+
+  pvar[pvar_grch36, on=.(snp), pos_grch36 := i.pos]
+  pvar[pvar_grch38, on=.(snp), pos_grch38 := i.pos]
+  
+  rm(pvar_grch36)
+  rm(pvar_grch38)
+  gc()
+  
+  pvar <- pvar[, c('chr','snp','a1','a2','pos_grch36','pos','pos_grch38'), with=F]
+  names(pvar) <- c('CHR','ID','A1','A2','BP_GRCh36','BP_GRCh37','BP_GRCh38')
+  
+  # Insert RSID
+  pvar <- snp_info[pvar, on=.(ID), allow.cartesian=TRUE]
+
+  # Read in the FRQ data
+  for(pop in c('EUR','EAS','AFR','AMR','CSA','MID')){
+    freq <-
+      fread(
+        paste0(
+          '/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/freq_files/',
+          pop,
+          '/hgdp_1kg.chr',
+          i,
+          '.afreq'
+        ), nThread=10
+      )
+    
+    names(freq)<-c('CHR','ID','A2','A1','FREQ','OBS')
+    pvar<-merge(pvar, freq[, c('ID','A1','FREQ'), with=F], by = 'ID', sort = F)
+    pvar$FREQ[pvar$A1.x != pvar$A1.y] <- 1-pvar$FREQ[pvar$A1.x != pvar$A1.y]
+    
+    pvar$A1.y <- NULL
+    names(pvar)[names(pvar) == 'A1.x'] <- 'A1'
+    pvar$FREQ <- round(pvar$FREQ, 5)
+    names(pvar)[names(pvar) == 'FREQ'] <- paste0('REF.FRQ.', pop)
+  }
+  
+  pvar <- pvar[, c("CHR", "ID", "RSID", "BP_GRCh36", "BP_GRCh37", "BP_GRCh38", "A1", "A2", "REF.FRQ.EUR", "REF.FRQ.EAS", "REF.FRQ.AFR", "REF.FRQ.AMR", "REF.FRQ.CSA", "REF.FRQ.MID"), with=F]
+  
+  saveRDS(pvar, file = paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr', i,'.rds'))
+}
+
+```
+
+***
+
+### Package for zenodo
+
+<ref_dir>
+├── ref.chr<1-22>.<pgen/pvar/psam>
+├── ref.chr<1-22>.rds
+├── ref.pop.txt (#IID, POP - with header)
+├── keep_files
+│   └──<POP>.keep (#IID - with header)
+└── freq_files
+    └──<POP>
+        └──ref.<POP>.chr<CHR>.afreq # PLINK2 .afreq format
+
+```{bash}
+
+# Copy over all the relavent files
+mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref
+
+for chr in $(seq 1 22) X Y; do
+  for file in $(echo pgen pvar psam rds); do
+    cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/hgdp_1kg.chr${chr}.${file} /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/ref.chr${chr}.${file}
+  done
+done
+
+cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/pop.txt /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/ref.pop.txt
+
+mkdir /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/keep_files
+
+cp /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred/keep_files/*.keep /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/keep_files/
+
+cp -r /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/freq_files /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/
+
+for pop in $(ls /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/freq_files); do
+  for chr in $(seq 1 22) X Y; do
+  mv /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.afreq /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/freq_files/${pop}/ref.${pop}.chr${chr}.afreq
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel/ref/freq_files/${pop}/hgdp_1kg.chr${chr}.log
+ done
+done
+
+# Compress folder and upload to google drive
+cd /users/k1806347/oliverpainfel/Data/hgdp_1kg/genopred_dense_multi_indel
+tar -czvf genopred_dense_multi_indel_1kg_hgdp.tar.gz ref
+~/oliverpainfel/Software/gdrive files upload genopred_dense_multi_indel_1kg_hgdp.tar.gz
+```
+
+***
+
 # Make a full set of reference data
 
 Here will will extract information for all SNPs present in the 1KG+HGDP reference. Ultimately, we want .rds files for each chromosome, containing CHR, BP (in builds GRCh36,37,38), SNP, A1, A2. This will be used to harmonise external datasets without loosing SNPs unnessecearily. 

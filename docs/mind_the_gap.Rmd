@@ -544,6 +544,9 @@ for(i in score_list$name){
   nonambig_snp <- gsub('After removal of variants that are not SNPs or are ambiguous, ', '', nonambig_snp)
   nonambig_snp <- gsub(' variants remain.', '', nonambig_snp)
 
+  n_flip <- log[grepl('variants were flipped to match reference.', log)]
+  n_flip <- gsub(' variants were flipped to match reference.', '', n_flip)
+
   inref <- log[grepl('After matching variants to the reference', log)]
   inref <- gsub('After matching variants to the reference, ', '', inref)
   inref <- gsub(' variants remain.', '', inref)
@@ -554,6 +557,7 @@ for(i in score_list$name){
                original = original,
                nodup = nodup,
                nonambig_snp = nonambig_snp,
+               n_flip = n_flip,
                inref = inref
              ))
 }
@@ -561,6 +565,7 @@ for(i in score_list$name){
 nsnps$original <- as.numeric(nsnps$original)
 nsnps$nodup <- as.numeric(nsnps$nodup)
 nsnps$nonambig_snp <- as.numeric(nsnps$nonambig_snp)
+nsnps$n_flip <- as.numeric(nsnps$n_flip)
 nsnps$inref <- as.numeric(nsnps$inref)
 
 step_loss <- nsnps %>%
@@ -589,6 +594,10 @@ ggplot(step_loss, aes(step, lost_prop)) +
 # The vast majority of non-ambiguous variants are present in the reference, check some of the variants that are missing to see why they are not present.
 
 # Check overlap between harmonised score files and RsqBrowser data
+
+# 15 of the 78 score files required non-ambiguous variants to be flipped to the positive strand. In some cases just 1 of 6M variants had to be flipped. The maximum proportion of non-ambiguous variants that had to be flipped was 5%, but usually it is a tiny percentage. I suppose this means it is fairly safe to assume the ambiguous variants will also be on the positive strand more often than not.
+nsnps$prop_flip <- nsnps$n_flip/nsnps$nonambig_snp
+# It is hard to understand why the strand flips would have occured. Some of the score files with flips are from PRS-CS which should align everything to the PRS-CS reference, which is presumably on the forward strand. To make GenoPred fully flexible, it should probably allow for strand ambiguous variants, and just report the proportion of strand flips among non-ambiguous variants. Then user can use ambiguous variants if they are sure their data is on the forward strand, and set keep ambiguous in the config, like pgsc_calc. This will make the reference data much larger than it is now. This will allow for the SBayesRC 7M variant reference, and PGSC score files better.
 ```
 
 ```{r}
@@ -899,3 +908,15 @@ ggplot(pgs_r2, aes(x = array, y = rel_r2, fill = panel)) +
 dev.off()
 
 ```
+
+After talking with Naomi I have realised that this variance only (diagonal-only / 2pq) approach for estimating the relative decrease in PGS does not take into account covariance between SNPs, which will make the relative PGS R2 estimate less accurate. We can use the SBayesRC eigen decomposed LD matrices to account for the covariance properly.
+
+Another point that was made by Naomi, is that for an individual it is more about the genotype probabilities than the sample-level info. Often genotype probabilities are not available, and often we only have hard calls, so imputation quality is not available either. This PGS uncertainty due to imputation certainty can only be computed for some genotype data formats. If it is just hard calls then the relative PGS R2 can only account for missing variants, and assume variants that are present are well imputed. Calculating INFO will only be possible for samples with >100 individuals. 
+
+Steps forward, make GenoPred better for using external score files by including a denser reference, then include a relative PGS R2 estimator (using INFO if available - bgen,plink2,vcf and N > 100), and PGS R2 recovery method.
+
+***
+
+# Strand ambiguity
+
+Lets check what proportion of non-ambiguous variants are on the forward strand in PGS score files. This will help determine whether we can safely assume strand ambiguous variants are on the forward strand as well, and their use for downstream polygenic scoring is reliable. Probably easiest to do this with the GenoPred external_score processor script.

@@ -191,7 +191,8 @@ gwas_ids<-c(
   'GCST90001510',
   'GCST90001940',
   'GCST90001935',
-  'GCST90475282'
+  'GCST90475282',
+  'GCST006250'
 )
 
 gwas_cat_select <- gwas_cat[gwas_cat$`STUDY ACCESSION` %in% gwas_ids,]
@@ -200,9 +201,10 @@ gwas_cat_select$url <- NA
 # Download the summary statistics
 dir.create('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/')
 
+# Get the URL for each GWAS
 for(i in 1:nrow(gwas_cat_select)){
   print(i)
-  if(!file.exists(paste0('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], '.gz'))){
+  if(is.na(gwas_cat_select$url[i])){
     con <- curl::curl(gwas_cat_select$`SUMMARY STATS LOCATION`[i])
     lines <- readLines(con)
     close(con)
@@ -211,7 +213,7 @@ for(i in 1:nrow(gwas_cat_select)){
     files <- regmatches(lines, gregexpr('href="([^"]+)"', lines))
     files <- unlist(lapply(files, function(x) sub('href="([^"]+)"', '\\1', x)))
     files <- files[!files %in% c("../")]
-
+  
     if('harmonised/' %in% files){
       con <- curl::curl(paste0(gwas_cat_select$`SUMMARY STATS LOCATION`[i],'/harmonised'))
       lines <- readLines(con)
@@ -224,24 +226,24 @@ for(i in 1:nrow(gwas_cat_select)){
       
       url <- files[grepl('.h.tsv.gz$', files)]
       url <- paste0(gwas_cat_select$`SUMMARY STATS LOCATION`[i],'/harmonised/', url)
-      
       gwas_cat_select$url[i] <- url
-      
-      log <- system(
-        paste0(
-          'wget -q --no-check-certificate -O ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], '.gz ', url))
+    
     } else {
       url <- files[grepl('.tsv$|.tsv.gz', files)]
       url <- paste0(gwas_cat_select$`SUMMARY STATS LOCATION`[i],'/', url)
-      ending <- ifelse(any(grepl('.gz$', url)), '.gz', '')
-
       gwas_cat_select$url[i] <- url
-
-      log <- system(
-        paste0(
-          'wget -q --no-check-certificate -O ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], ending, ' ', url))
     }
-    
+  }
+}
+
+# Download the sumstats
+for(i in 1:nrow(gwas_cat_select)){
+  print(i)
+  if(!file.exists(paste0('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], '.gz'))){
+    ending <- ifelse(any(grepl('.gz$', gwas_cat_select$url[i])), '.gz', '')
+    log <- system(
+      paste0(
+        'wget -q --no-check-certificate -O ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], ending, ' ', url))
     if(log != 0){
       system(paste0('rm ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/',gwas_cat_select$`STUDY ACCESSION`[i], '.gz'))
     }
@@ -262,6 +264,76 @@ ss$N<-ss$Neff
 ss$Neff<-NULL
 ss$Nsum<-NULL
 fwrite(ss, '~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/GCST007320.gz', quote = F, na ='NA', sep=' ')
+```
+
+Download the SCZ and FTD sumstats, which are not in the GWAS catalogue.
+
+```{bash}
+###
+# FTD - This can't be downloaded using wget
+###
+wget https://rdr.ucl.ac.uk/ndownloader/files/45643512 -O ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/ftd.manzoni.txt
+
+###
+# SCZ
+###
+wget https://figshare.com/ndownloader/files/34517828 -O ~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/scz.trubetskoy.gz
+
+```
+
+```{r}
+# Insert A2 information into FTD sumstats
+ss<-fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/ftd.manzoni.txt')
+
+var_info<-data.table(do.call(rbind, strsplit(ss$SNP, ':')))
+names(var_info)<-c('CHR','BP','A1','A2')
+ss$A2<-NA
+ss$A2[ss$A1 == var_info$A1] <- var_info$A2[ss$A1 == var_info$A1]
+ss$A2[ss$A1 == var_info$A2] <- var_info$A1[ss$A1 == var_info$A2]
+ss <- ss[, c('CHR','BP','A1','A2','OR','SE','PVALUE'), with=F]
+fwrite(ss, '~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/ftd.manzoni.txt', sep = ' ', quote = F, na = 'NA')
+```
+
+```{r}
+gwas_cat_select <- fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info.csv')
+
+gwas_cat_select<-apply(gwas_cat_select, 2, as.character)
+
+gwas_cat_select <- rbind(
+  gwas_cat_select, 
+  data.table(
+    PUBMEDID = '38889728',
+    `FIRST AUTHOR` = 'Manzoni C',
+    DATE = '2024-07-11',
+    `DISEASE/TRAIT` = 'Sporadic frontotemporal dementia',
+    `INITIAL SAMPLE SIZE` = '4,685 sFTD cases and 15,308 controls',
+    `REPLICATION SAMPLE SIZE` = NA,
+    `ASSOCIATION COUNT` = NA,
+    `MAPPED_TRAIT`  = NA,
+    `STUDY ACCESSION` = NA,
+    `SUMMARY STATS LOCATION` =  'https://rdr.ucl.ac.uk/ndownloader/files/24952874',
+    url = 'https://rdr.ucl.ac.uk/ndownloader/files/24952874'
+  ))
+
+gwas_cat_select <- rbind(
+  gwas_cat_select, 
+  data.table(
+    PUBMEDID = '35396580',
+    `FIRST AUTHOR` = 'Trubetskoy V',
+    DATE = '2022-04-08',
+    `DISEASE/TRAIT` = 'Schizophrenia',
+    `INITIAL SAMPLE SIZE` = '76,755 individuals with schizophrenia and 243,649 control individuals',
+    `REPLICATION SAMPLE SIZE` = NA,
+    `ASSOCIATION COUNT` = NA,
+    `MAPPED_TRAIT`  = NA,
+    `STUDY ACCESSION` = NA,
+    `SUMMARY STATS LOCATION` =  'https://figshare.com/ndownloader/files/34517828',
+    url = 'https://figshare.com/ndownloader/files/34517828'
+  ))
+
+  
+write.csv(gwas_cat_select, '~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info_2.csv', row.names = F)
+
 ```
 
 ***
@@ -298,10 +370,7 @@ write.table(
 )
 
 # Create gwas_list
-gwas_cat_select <- fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info.csv')
-
-# Remove the Qatari GWAS
-gwas_cat_select <- gwas_cat_select[gwas_cat_select$`STUDY ACCESSION` != 'GCST90161640',]
+gwas_cat_select <- fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info_2.csv')
 
 gwas_list <- data.table(
   name=gwas_cat_select$`STUDY ACCESSION`,
@@ -314,45 +383,35 @@ gwas_list <- data.table(
   sd = NA,
   label = paste0("\"", gwas_cat_select$`FIRST AUTHOR`, ' - ', gwas_cat_select$DATE, ' - ', gwas_cat_select$`DISEASE/TRAIT`, "\""))
 
-gwas_list$n <- c(
-  NA,
-  3475,
-  3677,
-  NA,
-  NA,
-  NA,
-  NA,
-  NA,
-  NA,
-  NA,
-  NA,
-  NA,
-  5366 ,
-  5361,
-  6618,
-  NA,
-  138086,
-  NA,
-  NA,
-  NA,
-  NA,
-  NA,
-  496,
-  NA,
-  3301,
-  3301,
-  3301,
-  2923,
-  39034,
-  39236,
-  NA
-)
+gwas_list$path[is.na(gwas_list$name)] <- c(
+  paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/ftd.manzoni.txt'),
+  paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/scz.trubetskoy.gz'))
+gwas_list$name[is.na(gwas_list$name)] <- c('ftd.manzoni','scz.trubetskoy')
 
-gwas_list$sampling [15] <- 2591 / (2591 + 4027)
-gwas_list$sampling [17] <- 27205 / (27205 + 110881)
+gwas_list$n <- NA
+gwas_list$n[gwas_list$name == 'GCST004455'] <- 3475
+gwas_list$n[gwas_list$name == 'GCST004454'] <- 3677
+gwas_list$n[gwas_list$name == 'GCST90088221'] <- 5366
+gwas_list$n[gwas_list$name == 'GCST90088237'] <- 5361
+gwas_list$n[gwas_list$name == 'GCST90001390'] <- 6618
+gwas_list$n[gwas_list$name == 'GCST90027164'] <- 138086
+gwas_list$n[gwas_list$name == 'GCST90277655'] <- 496
+gwas_list$n[gwas_list$name == 'GCST90241611'] <- 3301
+gwas_list$n[gwas_list$name == 'GCST90241612'] <- 3301
+gwas_list$n[gwas_list$name == 'GCST90241613'] <- 3301
+gwas_list$n[gwas_list$name == 'GCST90179335'] <- 2923
+gwas_list$n[gwas_list$name == 'GCST90428414'] <- 39034
+gwas_list$n[gwas_list$name == 'GCST90428415'] <- 39236
+gwas_list$n[gwas_list$name == 'ftd.manzoni'] <- 14989
 
-gwas_list$prevalence [15] <- 0.004
-gwas_list$prevalence [17] <- 0.00005
+gwas_list$sampling[gwas_list$name == 'GCST90001390'] <- 2591 / (2591 + 4027)
+gwas_list$sampling[gwas_list$name == 'GCST90027164'] <- 27205 / (27205 + 110881)
+gwas_list$sampling[gwas_list$name == 'ftd.manzoni'] <- 3756 / (3756 + 11233)
+gwas_list$sampling[gwas_list$name == 'scz.trubetskoy'] <- 76755 / (76755 + 243649)
+gwas_list$prevalence[gwas_list$name == 'GCST90001390'] <- 0.004
+gwas_list$prevalence[gwas_list$name == 'GCST90027164'] <- 0.00005
+gwas_list$prevalence[gwas_list$name == 'ftd.manzoni'] <- 0.0002
+gwas_list$prevalence[gwas_list$name == 'scz.trubetskoy'] <- 0.01
 
 write.table(
   gwas_list,
@@ -431,10 +490,12 @@ for(i in gwas_list$name){
   )
 }
 
-gwas_cat_select <- fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info.csv')
+gwas_cat_select <- fread('~/oliverpainfel/Data/GWAS_sumstats/mirocalstrial/gwas_info_2.csv')
+gwas_cat_select$ID <- gwas_cat_select$`STUDY ACCESSION`
+gwas_cat_select$ID[is.na(gwas_cat_select$ID)] <- c('ftd.manzoni','scz.trubetskoy')
 
-gwas_cat_select<-merge(gwas_cat_select, ldsc, by.x = 'STUDY ACCESSION', by.y='name')
-ldsc <- gwas_cat_select[, c('STUDY ACCESSION','FIRST AUTHOR','DATE','DISEASE/TRAIT','est','se','z','p'), with = F]
+gwas_cat_select<-merge(gwas_cat_select, ldsc, by.x = 'ID', by.y='name')
+ldsc <- gwas_cat_select[, c('ID','STUDY ACCESSION','FIRST AUTHOR','DATE','DISEASE/TRAIT','est','se','z','p'), with = F]
 
 write.csv(
   ldsc,
@@ -442,7 +503,7 @@ write.csv(
   row.names = F
 )
 
-gwas_list<-gwas_list[name %in% ldsc$`STUDY ACCESSION`[ldsc$z > 2],]
+gwas_list<-gwas_list[name %in% ldsc$ID[ldsc$z > 2],]
 gwas_list$label <- paste0("\"", gwas_list$label, "\"")
 
 write.table(
@@ -489,6 +550,8 @@ I can generate the PGS and hand them over, or do the analysis? Depends on how Ah
 ***
 
 # Clinical data
+
+The original paper found no effect of the treatment in the unadjusted analysis, but did find a significant effect when including the following covariates: age, ALSFRS-R, CSF-pNFH levels, plasma-CCL2 levels, absolute number of Tregs, and Treatment by CSF-pNFH interaction.
 
 I have been sent some preliminary clinical data for the trial. Lets have a look at it:
 
@@ -698,6 +761,284 @@ for(i in gwas_list$name){
 
 ```
 
+***
+
+I have been sent new clinical data. Rerun the analyses.
+
+```{r}
+library(data.table)
+library(readxl)
+
+# Read in data
+data <- read_excel("~/oliverpainfel/Data/miraclestrial/original/MIROCALS_AAK_unlocked.xlsx")
+data <- data.table(data)
+
+# There are multiple columns with duplicate headers
+all(data$`COUNTRY_ID...1` == data$COUNTRY_ID...9, na.rm = T)
+sum(is.na(data$`COUNTRY_ID...1`))
+sum(is.na(data$`COUNTRY_ID...9`))
+data$`COUNTRY_ID...9` <- NULL
+names(data)[names(data) == 'COUNTRY_ID...1']<-'COUNTRY_ID'
+
+all(data$SITE_ID...2 == data$SITE_ID...10, na.rm = T)
+sum(is.na(data$`SITE_ID...2`))
+sum(is.na(data$`SITE_ID...10`))
+data$`SITE_ID...10` <- NULL
+names(data)[names(data) == 'SITE_ID...2']<-'SITE_ID'
+
+all(data$SUBJECT_REF...3 == data$SUBJECT_REF...6, na.rm = T)
+sum(is.na(data$`SUBJECT_REF...3`))
+sum(is.na(data$`SUBJECT_REF...6`))
+data$`SUBJECT_REF...6` <- NULL
+names(data)[names(data) == 'SUBJECT_REF...3']<-'SUBJECT_REF'
+
+all(data$MIRCODE...4 == data$MIRCODE...11, na.rm = T)
+sum(is.na(data$`MIRCODE...4`)) # There were no NAs in this
+sum(is.na(data$`MIRCODE...11`)) 
+data$`MIRCODE...11` <- NULL
+names(data)[names(data) == 'MIRCODE...4']<-'MIRCODE'
+
+all(data$ID...5 == data$ID...12, na.rm = T)
+sum(is.na(data$`ID...5`)) # There were no NAs in this
+sum(is.na(data$`ID...12`)) 
+data$`ID...12` <- NULL
+names(data)[names(data) == 'ID...5']<-'ID'
+
+all(data$RANDO_num...13 == data$RANDO_num...24, na.rm = T)
+sum(is.na(data$`RANDO_num...13`)) 
+sum(is.na(data$`RANDO_num...24`)) 
+data$`RANDO_num...24` <- NULL
+names(data)[names(data) == 'RANDO_num...13']<-'RANDO_num'
+
+all(data$SEX...14 == data$SEX...25, na.rm = T)
+sum(is.na(data$`SEX...14`)) 
+sum(is.na(data$`SEX...25`)) 
+data$`SEX...25` <- NULL
+names(data)[names(data) == 'SEX...14']<-'SEX'
+
+all(data$AGEONSET_C...16 == data$AGEONSET_C...26, na.rm = T)
+sum(is.na(data$`AGEONSET_C...16`)) 
+sum(is.na(data$`AGEONSET_C...26`)) 
+data$`AGEONSET_C...26` <- NULL
+names(data)[names(data) == 'AGEONSET_C...16']<-'AGEONSET_C'
+
+# Run unadjusted cox regression to test effect of treatment on survival
+cox_model <- coxph(Surv(RECLIFE, STATUS) ~ ARM_C, data = data)
+summary(cox_model)
+# 0.331
+
+fit <- survfit(Surv(RECLIFE, STATUS) ~ ARM_C, data = data)
+plot(fit, col = c("blue", "red"), xlab = "Time (years)", ylab = "Survival probability")
+legend("bottomleft", legend = c("Control", "Treatment"), col = c("blue", "red"), lty = 1)
+# These results look identical to those in the paper.
+
+# Test effect of age, ALSFRS-R, CSF-pNFH levels, plasma-CCL2 levels, absolute number of Tregs
+cox_model <- coxph(
+  Surv(RECLIFE, STATUS) ~ AGEINC_C + ALSFRS_RND + PNFHCSF_IMP_RDN + CCL2PLASMA_RDN + NTREG_RDN_IMP,
+  data = data
+)
+summary(cox_model)
+# All show significant effect as in paper
+
+# Test for interaction between ARM_C * PNFHCSF_IMP_RDN
+cox_model <- coxph(
+  Surv(RECLIFE, STATUS) ~ ARM_C * PNFHCSF_IMP_RDN,
+  data = data
+)
+summary(cox_model)
+# Significant interaction as in paper
+
+# Test effect of treatment with these prognostic factors: age, ALSFRS-R, CSF-pNFH levels, plasma-CCL2 levels, absolute number of Tregs, and Treatment by CSF-pNFH interaction
+cox_model <- coxph(
+  Surv(RECLIFE, STATUS) ~ AGEINC_C + ALSFRS_RND + PNFHCSF_IMP_RDN + CCL2PLASMA_RDN + NTREG_RDN_IMP + ARM_C * PNFHCSF_IMP_RDN,
+  data = data
+)
+summary(cox_model)
+# treatment p = 0.00696, which is consistent with the manuscript.
+
+####
+# Check overlap between clinical data and genetic data
+####
+
+# Restrict clinical data to the 220 individuals who meet all criteria
+data_clean <- data[!is.na(data$RECLIFE),]
+
+# Read in the ancestry inference results
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+source('../functions/misc.R')
+source_all('../functions')
+config <- '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml'
+
+ancestry <- list()
+ancestry[['miracles_batch1']] <- read_ancestry(config = config, name = 'miracles_batch1')
+ancestry[['miracles_batch2']] <- read_ancestry(config = config, name = 'miracles_batch2')
+
+pop_mem <- NULL
+for(i in 1:length(ancestry)){
+  tmp <- ancestry[[i]]
+  tmp$model_pred$population <- 'Unassigned'
+  for(j in 1:length(tmp$keep_files)){
+    tmp$model_pred$population[tmp$model_pred$IID %in% tmp$keep_files[[j]]$V1] <- names(tmp$keep_files)[j]
+  }
+  tmp <- tmp$model_pred[, c('FID','IID','population'), with = F]
+  pop_mem <- rbind(pop_mem, tmp)
+}
+
+# Combine the data
+data_clean_pop <- merge(data_clean, pop_mem, by.x = 'ID', by.y = 'IID')
+nrow(data_clean_pop) # 208
+
+# Test whether treatment effect varies across populations
+cox_model <- coxph(
+  Surv(RECLIFE, STATUS) ~ ARM_C,
+  data = data_clean_pop
+)
+summary(cox_model)
+# treatment p = 0.326, similar to unadjusted analysis in full sample
+
+cox_model_full <- coxph(
+  Surv(RECLIFE, STATUS) ~ AGEINC_C + ALSFRS_RND + PNFHCSF_IMP_RDN + CCL2PLASMA_RDN + NTREG_RDN_IMP + ARM_C * PNFHCSF_IMP_RDN,
+  data = data_clean_pop
+)
+summary(cox_model_full)
+# treatment p = 0.00595, which is consistent with the manuscript.
+
+# Now run within EUR only
+cox_model_eur <- coxph(
+  Surv(RECLIFE, STATUS) ~ ARM_C,
+  data = data_clean_pop[data_clean_pop$population == 'EUR',]
+)
+summary(cox_model_eur)
+
+cox_model_full_eur <- coxph(
+  Surv(RECLIFE, STATUS) ~ AGEINC_C + ALSFRS_RND + PNFHCSF_IMP_RDN + CCL2PLASMA_RDN + NTREG_RDN_IMP + ARM_C * PNFHCSF_IMP_RDN,
+  data = data_clean_pop[data_clean_pop$population == 'EUR',]
+)
+summary(cox_model_full_eur)
+# The results are very similar.
+
+####
+# PGS interactions
+####
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+source('../functions/misc.R')
+source_all('../functions')
+
+config <- '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/config.yaml'
+
+# Read in the PGS and within sample PCs
+pgs <- read_pgs(config = config)
+gwas_list <- read_param(config = config, param = 'gwas_list')
+
+# Read in PCs
+pcs <-list()
+pcs[['miracles_batch1']] <- fread('~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_batch1/pcs/within_sample/miracles_batch1.outlier_detection.EUR.PCs.txt')
+pcs[['miracles_batch2']] <- fread('~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_batch2/pcs/within_sample/miracles_batch2.outlier_detection.EUR.PCs.txt')
+
+# Combine the data across batches
+pgs_both <- NULL
+for(i in 1:2){
+  a<-pgs[[paste0('miracles_batch', i)]]$TRANS
+  merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE), lapply(a, function(x) x$sbayesrc))
+  names(merged_df) <- gsub('_SBayesRC','', names(merged_df))
+  pgs_both <- rbind(pgs_both, merged_df)
+}
+
+pcs_both <- NULL
+for(i in 1:2){
+  a <- pcs[[paste0('miracles_batch', i)]]
+  a$batch <- paste0('miracles_batch', i)
+  pcs_both <- rbind(pcs_both, a)
+}
+
+genetics <- merge(pgs_both, pcs_both, by = c('FID','IID'))
+trial_data_gen <- merge(data, genetics, by.x = 'ID', by.y = 'IID')
+
+# Rerun unadjusted cox model to see if anything has changed
+cox_model <- coxph(Surv(RECLIFE, STATUS) ~ ARM_C, data = trial_data_gen)
+summary(cox_model)
+# I am loosing 12 individuals due to merge with genetic data. That means there are 12 individuals that were included in the trial that do not have genetic data. There are also 10 people that are not EUR, so don't have PCs.
+
+# Test again with PGS but split by batch and with PCs 
+int_res_no_pgs <- NULL
+for(j in unique(trial_data_gen$batch)){
+  cox_model <- coxph(as.formula(paste0("Surv(RECLIFE, STATUS) ~ ARM_C + ", paste0('PC', 1:10, collapse = ' + '))), 
+                     data = trial_data_gen[trial_data_gen$batch == j,])
+  cox_model_sum <- summary(cox_model)
+  int_res_no_pgs<-rbind(
+    int_res_no_pgs,
+    data.table(
+      Batch = j,
+      Term = row.names(coef(cox_model_sum)),
+      coef = coef(cox_model_sum)[,1],
+      se = coef(cox_model_sum)[,3],
+      p = coef(cox_model_sum)[,5]
+    )
+  )
+}
+
+# Meta analyse across batches
+library(meta)
+
+int_res_no_pgs_meta <- NULL
+for(term in unique(int_res_no_pgs$Term)){
+  m <- metagen(TE = int_res_no_pgs$coef[int_res_no_pgs$Term == term], seTE = int_res_no_pgs$se[int_res_no_pgs$Term == term], sm = "HR",)
+  
+  int_res_no_pgs_meta<-rbind(
+    int_res_no_pgs_meta,
+    data.table(
+      Term = term,
+      coef = m$TE.common,
+      se = m$seTE.common,
+      p = m$pval.common
+    )
+  )
+}
+
+# Test interaction between each PGS and the trial arm
+int_res <- NULL
+for(j in unique(trial_data_gen$batch)){
+  for(i in gwas_list$name){
+    cox_model <- coxph(as.formula(paste0("Surv(RECLIFE, STATUS) ~ ARM_C * ", i, " + ", paste0('PC', 1:10, collapse = ' + '))), 
+                       data = trial_data_gen[trial_data_gen$batch == j,])
+    cox_model_sum <- summary(cox_model)
+    int_res<-rbind(
+      int_res,
+      data.table(
+        Batch = j,
+        PGS = i,
+        Term = row.names(coef(cox_model_sum)),
+        coef = coef(cox_model_sum)[,1],
+        se = coef(cox_model_sum)[,3],
+        p = coef(cox_model_sum)[,5]
+      )
+    )
+  }
+}
+
+# Meta analyse across batches
+library(meta)
+
+int_res_meta <- NULL
+for(i in gwas_list$name){
+  tmp <- int_res[int_res$PGS == i,]
+  for(term in unique(tmp$Term)){
+    m <- metagen(TE = tmp$coef[tmp$Term == term], seTE = tmp$se[tmp$Term == term], sm = "HR",)
+    
+    int_res_meta<-rbind(
+      int_res_meta,
+      data.table(
+        PGS = i,
+        Term = term,
+        coef = m$TE.common,
+        se = m$seTE.common,
+        p = m$pval.common
+      )
+    )
+  }
+}
 
 
-
+```
