@@ -423,15 +423,28 @@ if "sbayesrc" in config["pgs_methods"]:
 # Check reference data
 ####
 
+if str(config.get("restrict_to_target_variants", "True")).lower() in ["t", "true"]:
+  if 'target_list' in config and config["target_list"] != 'NA':
+    raise ValueError(f"User cannot specify restrict_to_target_variants without target_list.")
+
 if config['refdir'] == 'NA':
     # If using the dense reference, update refdir path and set restrict_to_target_variants to True
     if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
-      refdir = f"{resdir}/data/ref_dense"
+      if str(config.get("keep_ambiguous", "False")).lower() in ["f", "false"]:
+        refdir = f"{resdir}/data/ref_dense"
+      else :
+        refdir = f"{resdir}/data/ref_dense_incl_ambig"
+      
       ref_input=f"{refdir}/ref.pop.txt"
-      config["restrict_to_target_variants"] = "True"
+      if 'target_list' in config and config["target_list"] != 'NA':
+        config["restrict_to_target_variants"] = "True"
     else:
       refdir = f"{resdir}/data/ref"
       ref_input=f"{refdir}/ref.pop.txt"
+      
+      if str(config.get("keep_ambiguous", "False")).lower() in ["t", "true"]:
+        print("NOTE: keep_ambiguous=T has no effect when dense_reference=F; "
+              "the default sparse (HapMap3) reference does not contain ambiguous variants.")
 else:
     if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
         raise ValueError(f"User cannot specify refdir while dense_reference is True.")
@@ -1027,7 +1040,7 @@ rule install_genoutils_sbayesrc:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
     }} > {log} 2>&1
     """
 
@@ -1278,6 +1291,27 @@ rule download_dense_ref:
     }} > {log} 2>&1
     """
 
+# Download preprocessed reference data (1KG+HGDP Dense)
+rule download_dense_ref_incl_ambig:
+  output:
+    f"{resdir}/data/ref_dense_incl_ambig/ref.pop.txt"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_dense_ref_incl_ambig.txt"
+  log:
+    f"{resdir}/data/logs/download_dense_ref_incl_ambig.log"
+  shell:
+    """
+    {{
+      rm -r {resdir}/data/ref_dense_incl_ambig; \
+      mkdir -p {resdir}/data/ref_dense_incl_ambig; \
+      gdown --id 1Jal9ns-rO-j21kBVMwVz8KaSS0kRIt6E -O {resdir}/data/ref_dense_incl_ambig/genopred_dense_1kg_hgdp.tar.gz; \
+      tar -xzvf {resdir}/data/ref_dense_incl_ambig/genopred_dense_1kg_hgdp.tar.gz -C {resdir}/data/ref_dense_incl_ambig/; \
+      mv {resdir}/data/ref_dense_incl_ambig/ref/* {resdir}/data/ref_dense_incl_ambig/; \
+      rm -r {resdir}/data/ref_dense_incl_ambig/ref; \
+      rm {resdir}/data/ref_dense_incl_ambig/genopred_dense_1kg_hgdp.tar.gz
+    }} > {log} 2>&1
+    """
+
 # install ggchicklet
 rule install_ggchicklet:
   input:
@@ -1349,7 +1383,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@ff3e64d543ecd82af06c2c91ec44ec5f01d83487\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
     }} > {log} 2>&1
     """
 
@@ -1404,7 +1438,7 @@ rule install_genoutils_xwing:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
     }} > {log} 2>&1
     """
 
@@ -1554,7 +1588,7 @@ rule install_genoutils_bridgeprs:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
+      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
     }} > {log} 2>&1
     """
 

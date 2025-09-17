@@ -236,8 +236,13 @@ read_param <- function(config, param, return_obj = T, quiet = F){
       resdir <- read_param(config = config, param = 'resdir', return_obj = F, quiet = quiet)
       dense_ref <- read_param(config = config, param = 'dense_reference', return_obj = FALSE, quiet = quiet)
       dense_ref <- tolower(as.character(dense_ref)) %in% c("true", "t", "1", "yes")
+      keep_ambig <- read_param(config = config, param = 'keep_ambiguous', return_obj = FALSE, quiet = quiet)
+      keep_ambig <- tolower(as.character(keep_ambig)) %in% c("true", "t", "1", "yes")
       if(dense_ref){
         file <- paste0(resdir, '/data/ref_dense')
+        if(keep_ambig){
+          file <- paste0(resdir, '/data/ref_dense_incl_ambig')
+        }
       } else {
         file <- paste0(resdir, '/data/ref')
       }

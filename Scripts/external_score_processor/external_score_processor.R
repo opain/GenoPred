@@ -88,9 +88,12 @@ if(pgsc_header){
 
 # Read in the score file
 score <- read_score(score = opt$score, chr = CHROMS, log_file = log_file)
-n_snp_orig <- nrow(score)
-
 log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing duplicates.'))
+
+# Remove variants with no effect
+score <- score[score$effect_weight != 0,]
+log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing variant with effect size of zero.'))
+n_snp_orig <- nrow(score)
 
 #####
 # Insert IUPAC codes into target
@@ -99,10 +102,7 @@ log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score)
 # Insert IUPAC codes into target
 score$IUPAC<-snp_iupac(score$A1, score$A2)
 
-# Retain only non-ambiguous SNPs
-score <- remove_ambig(score)
-
-log_add(log_file = log_file, message = paste0('After removal of variants that are not SNPs or are ambiguous, ',nrow(score),' variants remain.'))
+log_add(log_file = log_file, message = paste0('Score file contains ', sum(score$IUPAC %in% c('S','W')), ' ambiguous variants.'))
 
 #####
 # Harmonise per chromosome with reference
@@ -145,9 +145,6 @@ if(chr_bp_avail){
 		for(i in unique(score$CHR)){
 			# Read reference data
 			ref_i<-readRDS(file = paste0(ref_rds,i,'.rds'))
-
-			# Retain only non-ambiguous SNPs
-			ref_i<-remove_ambig(ref_i)
 
 			# Rename columns prior to merging with target
 			names(ref_i)<-paste0('REF.',names(ref_i))
@@ -230,10 +227,19 @@ if(is.na(target_build) & rsid_avail){
 }
 
 log_add(log_file = log_file, message = paste0('After matching variants to the reference, ',nrow(targ_matched),' variants remain.'))
-log_add(log_file = log_file, message = paste0(sum(flip_logical_all), ' variants were flipped to match reference.'))
+
+# Report flipping and strand ambiguity
+if(sum(flip_logical_all) > 0){
+  log_add(log_file = log_file, message = paste0(sum(flip_logical_all), ' non-ambiguous variants were flipped to match reference.'))
+  if(sum(score$IUPAC %in% c('S','W')) > 0){
+    log_add(log_file = log_file, message = paste0('WARNING: ambiguous variants are present, but non-ambiguous variants required some flipping, indicating score file and reference data are not consistently on the same strand.'))
+  }
+} else {
+  log_add(log_file = log_file, message = paste0('No variants were flipped, indicating score file and reference are consistently on the same strand.'))
+}
 
 if(nrow(targ_matched) < opt$min_overlap*n_snp_orig){
-	log_add(log_file = log_file, message = paste0("<", opt$min_overlap*100, "% of variants in score file are present in the reference (", nrow(targ_matched)," out of ", n_snp_orig, ")"))
+	log_add(log_file = log_file, message = paste0("<", opt$min_overlap*100, "% of non-zero variants in score file are present in the reference (", nrow(targ_matched)," out of ", n_snp_orig, ")"))
 	log_add(log_file = log_file, message = 'Skipping')
 
 } else {

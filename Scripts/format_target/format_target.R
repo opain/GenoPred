@@ -50,6 +50,7 @@ log_add(log_file = log_file, message = 'Reading in reference SNP data.')
 ref<-readRDS(paste0(opt$ref,'.rds'))
 
 log_add(log_file = log_file, message = paste0('Reference data contains ', nrow(ref),' variants.'))
+log_add(log_file = log_file, message = paste0('Reference data contains ', sum(ref$IUPAC %in% c('S','W')),' ambiguous variants.'))
 
 ###################
 # Read in target SNP data
@@ -92,7 +93,7 @@ ref_target<-merge(target_snp, ref_subset, by=c('CHR','BP'))
 names(ref_target)[names(ref_target) == 'IUPAC']<-'IUPAC.y'
 ref_target$IUPAC.x<-snp_iupac(ref_target$A1.x, ref_target$A2.x)
 
-# Only retain variants that are non-ambiguous SNPs in the target
+# Only retain variants that are SNPs in the target
 # Some might have been retained due to matching CHR and BP position with SNPs in reference
 ref_target<-ref_target[!is.na(ref_target$IUPAC.x),]
 
@@ -157,7 +158,12 @@ targ_pvar<-targ_pvar[,c('CHR','BP','SNP','A2','A1'),with=F]
 if(sum(flip) > 0){
   targ_pvar$A1[targ_pvar$SNP %in% flip_id]<-snp_allele_comp(targ_pvar$A1[targ_pvar$SNP %in% flip_id])
   targ_pvar$A2[targ_pvar$SNP %in% flip_id]<-snp_allele_comp(targ_pvar$A2[targ_pvar$SNP %in% flip_id])
-  log_add(log_file = log_file, message = paste0('Flipped ', sum(flip), ' variants in target.'))
+  log_add(log_file = log_file, message = paste0('Flipped ', sum(flip), ' non-ambiguous variants in target.'))
+  if(sum(targ_pvar$IUPAC %in% c('S','W')) > 0){
+    log_add(log_file = log_file, message = paste0('WARNING: ambiguous variants are present, but non-ambiguous variants required some flipping, indicating target and reference data are not consistently on the same strand.'))
+  }
+} else {
+  log_add(log_file = log_file, message = paste0('No variants were flipped, indicating target and reference are consistently on the same strand.'))
 }
 
 # Label SNP with _dup if the RSID is duplicated, so these variants are removed.
