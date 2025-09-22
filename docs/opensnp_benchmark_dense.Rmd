@@ -159,7 +159,7 @@ conf <- c(
   'target_list: misc/opensnp/target_list.txt',
   "pgs_scaling: ['discrete','continuous']",
   "target_populations: ['EUR']",
-  "pgs_methods: ['ptclump','megaprs']"
+  "pgs_methods: ['ptclump','megaprs','sbayesrc']"
 )
 
 dir.create('misc/opensnp/', recursive = T)
@@ -176,7 +176,7 @@ conf <- c(
   'target_list: misc/opensnp/target_list.txt',
   "pgs_scaling: ['discrete','continuous']",
   "target_populations: ['EUR']",
-  "pgs_methods: ['ptclump','megaprs']"
+  "pgs_methods: ['ptclump','megaprs','sbayesrc']"
 )
 
 dir.create('misc/opensnp/', recursive = T)
@@ -193,7 +193,7 @@ conf <- c(
   'target_list: misc/opensnp/target_list.txt',
   "pgs_scaling: ['discrete','continuous']",
   "target_populations: ['EUR']",
-  "pgs_methods: ['ptclump','megaprs']"
+  "pgs_methods: ['ptclump','megaprs','sbayesrc']"
 )
 
 dir.create('misc/opensnp/', recursive = T)
@@ -211,7 +211,7 @@ conf <- c(
   'target_list: misc/opensnp/target_list.txt',
   "pgs_scaling: ['discrete','continuous']",
   "target_populations: ['EUR']",
-  "pgs_methods: ['ptclump']"
+  "pgs_methods: ['ptclump','megaprs','sbayesrc']"
 )
 
 dir.create('misc/opensnp/', recursive = T)
@@ -319,6 +319,8 @@ snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_dense_inc
 
 Note. ~5M dense reference variants were present in OpenSNP. This leads to the external score files that go beyond HapMap3 variants to be dropped due to <75% of variants being present. This highlights that this issue is not just a consequence of using the default HapMap3 restricted reference data, but generally poor generalisability across target datasets due to missing variants.
 
+Note. When using dense reference of common variants incl ambiguous variants, there are still ~10% missed when using the ExpressWeb weights. This appears to be due to score files containing rarer variants.
+
 <details><summary>Show code</summary>
 
 ```{r}
@@ -339,7 +341,8 @@ pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/heigh
 pgs <- list(
   sparse = read_pgs(config = 'misc/opensnp/config_sparse.yaml', name = 'opensnp')$opensnp,
   sparse_restricted = read_pgs(config = 'misc/opensnp/config_sparse_restricted.yaml', name = 'opensnp')$opensnp,
-  dense = read_pgs(config = 'misc/opensnp/config_dense.yaml', name = 'opensnp')$opensnp
+  dense = read_pgs(config = 'misc/opensnp/config_dense.yaml', name = 'opensnp')$opensnp,
+  dense_incl_ambig = read_pgs(config = 'misc/opensnp/config_dense_incl_ambig.yaml', name = 'opensnp')$opensnp
 )
 
 # Estimate correlation between pheno and pgs
@@ -396,7 +399,7 @@ cor_eur_subset <- NULL
 for(test_i in unique(cor_eur$test)){
   for(pop_i in unique(cor_eur$pop)){
     for(gwas_i in unique(cor_eur$gwas[cor_eur$pop == pop_i])){
-      for(pgs_method_i in unique(cor_eur$pgs_method[cor_eur$pop == pop_i & cor_eur$gwas == gwas_i])){
+      for(pgs_method_i in unique(cor_eur$pgs_method[cor_eur$pop == pop_i & cor_eur$gwas == gwas_i & cor_eur$test == test_i])){
         
         # Subset relevant results
         cor_eur_i <- cor_eur[
@@ -413,7 +416,7 @@ for(test_i in unique(cor_eur$test)){
         }
 
         # PseudoVal
-        if(pgs_method_i %in% c('ptclump','sbayesr','ldpred2','megaprs','prscs','lassosum','dbslmm','prscsx')){
+        if(pgs_method_i %in% c('ptclump','sbayesr','sbayesrc','ldpred2','megaprs','prscs','lassosum','dbslmm','prscsx')){
           pseudo_param <- find_pseudo(config = paste0('misc/opensnp/config_',test_i,'.yaml'), gwas = gwas_i, pgs_method = pgs_method_i)
           pseudo_i <- cor_eur_i[grepl(paste0(pseudo_param,'$'), cor_eur_i$name),]
           pseudo_i$model <- 'Pseudo'
@@ -438,8 +441,8 @@ cor_eur_subset$model <- factor(cor_eur_subset$model, levels = c('Top','Pseudo','
 cor_eur_subset$test <-
   factor(
     cor_eur_subset$test,
-    levels = c('sparse', 'sparse_restricted', 'dense'),
-    labels = c('HapMap3', "HapMap3\n(restricted)", "Dense")
+    levels = c('sparse', 'sparse_restricted', 'dense','dense_incl_ambig'),
+    labels = c('HapMap3', "HapMap3\n(restricted)", "Dense", "Dense\n(incl. ambiguous)")
   )
 
 cor_eur_subset$gwas <-
@@ -480,7 +483,7 @@ plot_obj_eur <-
 
 png('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP/genopred-dense_eur.png',
     units = 'px',
-    width = 2000,
+    width = 2500,
     height = 2500,
     res = 300)
 

@@ -396,8 +396,6 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
 # Set sbayesrc reference path
 if "sbayesrc" in config["pgs_methods"]:
   if config['sbayesrc_ldref'] == 'NA':
-    sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
-  
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR', 'EAS', 'AFR'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
@@ -406,6 +404,11 @@ if "sbayesrc" in config["pgs_methods"]:
       raise ValueError(
         f"Default sbayesrc reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own sbayesrc reference data using the sbayesrc_ldref parameter."
       )
+      
+    if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
+      sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref_dense"
+    else:
+      sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
   else:
     sbayesrc_ldref=config['sbayesrc_ldref']
   
@@ -424,7 +427,7 @@ if "sbayesrc" in config["pgs_methods"]:
 ####
 
 if str(config.get("restrict_to_target_variants", "True")).lower() in ["t", "true"]:
-  if 'target_list' in config and config["target_list"] != 'NA':
+  if 'target_list' not in config or config["target_list"] == 'NA':
     raise ValueError(f"User cannot specify restrict_to_target_variants without target_list.")
 
 if config['refdir'] == 'NA':
@@ -1005,6 +1008,39 @@ rule download_sbayesrc_ref:
 rule download_sbayesrc_ref_all:
   input:
     lambda w: expand(f"{resdir}/data/sbayesrc_ref/{{population}}/block148.eigen.bin", population=['EUR', 'EAS', 'AFR'])
+
+# Download dense SBayesRC reference data
+# Links to developer gdrive
+sbayesrc_ref_dense_dev_urls = {
+    'EUR': '1mKQ3uU_XD6zlNefxEWMl1M42I0gTyOs3',
+    'EAS': '1wCv3o7c_pz8O9BEKCnruw00qV1tOuEXM',
+    'AFR': '166Jpdmqp1EZW_rDGFjbwai-tpZ8Q5JH7'
+}
+
+rule download_sbayesrc_ref_dense:
+  output:
+    f"{resdir}/data/sbayesrc_ref_dense/{{population}}/block148.eigen.bin"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_sbayesrc_ref_dense-{{population}}.txt"
+  log:
+    f"{resdir}/data/logs/download_sbayesrc_ref_dense-{{population}}.log"
+  params:
+    id=lambda w: sbayesrc_ref_dense_dev_urls.get(w.population)
+  shell:
+    """
+    {{
+      mkdir -p {resdir}/data/sbayesrc_ref_dense; \
+      rm -r -f {resdir}/data/sbayesrc_ref_dense/{wildcards.population}; \
+      gdown {params.id} -O {resdir}/data/sbayesrc_ref_dense/{wildcards.population}.xz; \
+      tar -xJf {resdir}/data/sbayesrc_ref_dense/{wildcards.population}.xz -C {resdir}/data/sbayesrc_ref_dense/; \
+      mv {resdir}/data/sbayesrc_ref_dense/ukb{wildcards.population}_Imputed {resdir}/data/sbayesrc_ref_dense/{wildcards.population}; \
+      rm {resdir}/data/sbayesrc_ref_dense/{wildcards.population}.xz
+    }} > {log} 2>&1
+    """
+
+rule download_sbayesrc_ref_dense_all:
+  input:
+    lambda w: expand(f"{resdir}/data/sbayesrc_ref_dense/{{population}}/block148.eigen.bin", population=['EUR', 'EAS', 'AFR'])
 
 # Download SBayesRC R package
 rule install_sbayesrc:

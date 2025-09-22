@@ -143,6 +143,15 @@ SBayesRC::impute(
   log2file = T
 )
 
+# Check number of imputed variants
+nsnp_imp <- system(paste0('wc -l ', tmp_dir, '/tidy.imp.ma'), intern = T)
+nsnp_imp <- as.numeric(gsub(' .*', '', nsnp_imp)) - 1
+
+log_add(
+  log_file = log_file,
+  message = paste0(nsnp_imp, ' variants remain after SBayesRC imputation step.')
+)
+
 ###
 # Run SBayesRC
 ###
@@ -213,7 +222,12 @@ tryCatch(
 # Process score file
 ###
 
+log_add(log_file = log_file, message = 'Processing score file...')
+
 score <- fread(paste0(tmp_dir, '/sbrc.txt'))
+
+log_add(log_file = log_file, message = paste0('Score file contains ', nrow(score), ' variants.'))
+log_add(log_file = log_file, message = paste0(sum(score$BETA != 0, na.rm = T), ' variants have non-zero effect.'))
 
 # Insert A2 column
 ma_imp <- fread(paste0(tmp_dir, '/tidy.imp.ma'))
@@ -232,6 +246,9 @@ names(score) <- c('SNP', 'A1', 'A2', 'SCORE_SBayesRC')
 # Flip effects to match reference alleles
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
 score_new <- map_score(ref = ref, score = score)
+
+log_add(log_file = log_file, message = paste0(sum(score$SNP %in% ref$SNP), ' variants present in reference.'))
+log_add(log_file = log_file, message = paste0(sum(score$SNP[score$SCORE_SBayesRC != 0] %in% ref$SNP), ' variants with non-zero effect present in reference.'))
 
 fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 

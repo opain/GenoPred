@@ -1,10 +1,10 @@
 ---
 title: "GenoPred Report"
 params:
-  name:
-  id:
-  config:
-  cwd:
+  name: ''
+  id: ''
+  config: ''
+  cwd: ''
 output:
   html_document:
     toc: true
@@ -136,7 +136,7 @@ nvar_in_target <-
 
 nvar_in_ref <-
   sum(sapply(format_target_logs, function(x)
-    as.numeric(gsub('.* ','', gsub(' variants', '', x[grepl('^Reference data contains ', x)])))))
+    as.numeric(gsub('.* ','', gsub(' variants', '', x[grepl('^Reference data contains ', x) & !grepl('ambiguous', x)])))))
 
 if(imp_incl){
   
@@ -289,15 +289,31 @@ column_interp <- list()
 for(gwas in gwas_list$name) {
     log <- readLines(paste0(outdir,'/reference/gwas_sumstat/', gwas, '/', gwas, '-cleaned.log'))
     
-    orig_n <- as.numeric(gsub(' .*', '', gsub('GWAS contains ','', log[grepl('^GWAS contains ', log)])))
+    orig_n <- as.numeric(gsub(' .*', '', gsub('GWAS contains ','', log[grepl('^GWAS contains ', log) & !grepl('ambiguous', log)])))
     final_n <- as.numeric(gsub(' .*', '', gsub('After removal of SNPs with SE == 0, ','', log[grepl('^After removal of SNPs with SE == 0, ', log)])))
+    
+    ambig_n <- as.numeric(gsub(' .*', '', gsub('GWAS contains ','', log[grepl('^GWAS contains ', log) & grepl('ambiguous', log)])))
+
+    if(ambig_n == 0){
+      strand_warning <- 'No ambiguous variants'
+    } else {
+      if(any(grepl('WARNING: ambiguous', log))){
+        non_ambig_n <- orig_n - ambig_n
+        flipped_n <- as.numeric(gsub(' .*', '', log[grepl('non-ambiguous variants were flipped', log)]))
+  
+        strand_warning <- paste0('Warning: ', flipped_n, ' of ', non_ambig_n, " non-ambiguous variants were strand flipped. Inclusion of ambiguous variants (N=", ambig_n, ") may therefore be unreliable.")
+      } else {
+        strand_warning <- 'No variants required flipping'
+      }
+    }
     
     sumstat_qc <- rbind(sumstat_qc, data.frame(
       name = gwas,
       label = gwas_list$label[gwas_list$name == gwas],
       population = gwas_list$population[gwas_list$name == gwas],
       orig_n = orig_n,
-      final_n = final_n))
+      final_n = final_n,
+      strand_warning = strand_warning))
     
     column_interp_i <-
       log[
@@ -320,7 +336,7 @@ for(gwas in gwas_list$name) {
     column_interp[[gwas]] <- column_interp_i
 }
 
-names(sumstat_qc) <- c('Name', 'Label', 'Population', 'NSNP Original', 'NSNP Final')
+names(sumstat_qc) <- c('Name', 'Label', 'Population', 'NSNP Original', 'NSNP Final','Strand check')
 
 datatable(sumstat_qc, 
           rownames = FALSE,
@@ -378,18 +394,35 @@ score_qc <- NULL
 for(score in score_list$name) {
     log <- readLines(paste0(outdir,'/reference/pgs_score_files/external/', score, '/ref-', score, '.log'))
 
-    orig_n <- as.numeric(gsub(' .*', '', gsub('Score file contains ','', log[grepl('^Score file contains ', log)])))
+    orig_n <- as.numeric(gsub(' .*', '', gsub('Score file contains ','', log[grepl('after removing duplicates.', log)])))
+    nonzero_n <- as.numeric(gsub(' .*', '', gsub('Score file contains ','', log[grepl('effect size of zero.', log)])))
     final_n <- as.numeric(gsub(' .*', '', gsub('After matching variants to the reference, ','', log[grepl('^After matching variants to the reference, ', log)])))
-    
+    ambig_n <- as.numeric(gsub(' .*', '', gsub('Score file contains ','', log[grepl('ambiguous variants.$', log)])))
+
+    if(ambig_n == 0){
+      strand_warning <- 'No ambiguous variants'
+    } else {
+      if(any(grepl('WARNING: ambiguous', log))){
+        non_ambig_n <- orig_n - ambig_n
+        flipped_n <- as.numeric(gsub(' .*', '', log[grepl('non-ambiguous variants were flipped', log)]))
+  
+        strand_warning <- paste0('Warning: ', flipped_n, ' of ', non_ambig_n, " non-ambiguous variants were strand flipped. Inclusion of ambiguous variants (N=", ambig_n, ") may therefore be unreliable.")
+      } else {
+        strand_warning <- 'No variants required flipping'
+      }
+    }
+
     score_qc <- rbind(score_qc, data.frame(
       name = score,
       label = score_list$label[score_list$name == score],
       orig_n = orig_n,
+      nonzero_n = nonzero_n,
       final_n = final_n,
+      strand_warning = strand_warning,
       pass = all(!grepl('^Skipping', log))))
 }
 
-names(score_qc) <- c('Name', 'Label', 'NSNP Original', 'NSNP Final', 'Pass')
+names(score_qc) <- c('Name', 'Label', 'NSNP\n(original)', 'NSNP\n(non-zero)', 'NSNP\n(final)', 'Strand check', 'Sufficient overlap')
 
 datatable(score_qc, 
           rownames = FALSE,
@@ -404,8 +437,7 @@ datatable(score_qc,
           width = '100%',
           selection = 'none')
 
-cat0("**Note.** The `Pass` column indicates whether a sufficient number of variants within the score file were present in the reference data.\n\n")
-
+cat0("**Note.** The `Sufficient overlap` column indicates whether a sufficient number of variants within the score file were present in the reference data.\n\n")
 cat0("***\n\n")
 
 ```
@@ -562,15 +594,21 @@ if(!is.null(score_list)){
   )
 }
 
+# Remove gwas with invalid pseudoval results
+pseudoval_clean <- pseudoval
+pseudoval_clean$pseudoval_r2obs[pseudoval$pseudoval_r2obs < 0 | pseudoval$pseudoval_r2obs > 1] <- NA
+pseudoval_clean$pseudoval_auc[pseudoval$pseudoval_auc < 0 | pseudoval$pseudoval_auc > 1] <- NA
+pseudoval_clean <- pseudoval[apply(pseudoval[,-1], 1, function(x) !all(is.na(x))),]
+
 # Calculate absolute risk
 abs_res <- NULL
 n_quant <- 1000
-for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
+for(gwas_i in unique(pseudoval_clean$gwas)){
   for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
     
     pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
     
-    if (is.na(gwas_list$prevalence[gwas_list$name == gwas_i])) {
+    if (!is.na(gwas_list$mean[gwas_list$name == gwas_i]) & !is.na(gwas_list$mean[gwas_list$name == gwas_i])) {
       quant <-
         which_quant(PRS_z_score = pgs_dat_i$value, n_quantile = n_quant)
       
@@ -594,7 +632,8 @@ for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
           sd = indiv_result$x_sd
         )
       )
-    } else {
+    } 
+    if (!is.na(gwas_list$prevalence[gwas_list$name == gwas_i]) & !is.na(gwas_list$sampling[gwas_list$name == gwas_i])) {
       risk_quantiles <-
         ccprobs.f(
           d = pseudoval$pseudoval_d[pseudoval$gwas == gwas_i],
@@ -662,7 +701,7 @@ for(gwas_i in unique(pgs_dat$gwas)){
       labs(y='Number of people', x='Polygenic Score', title='Polygenic Score Distribution') +
       theme(plot.title = element_text(hjust = 0.5))
     
-    if(pgs_method_i != 'external'){
+    if(pgs_method_i != 'external' & gwas_i %in% abs_res$gwas & gwas_i %in% pseudoval_clean$gwas){
       # Create absolute plot
       if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
         # Define parameters
@@ -791,7 +830,7 @@ for(gwas_i in unique(pgs_dat$gwas)){
           "text",
           x = 0.5,
           y = 0.5,
-          label = "Automatic conversion to absolute scale is unavailable\nfor externally derived polygenic scores.\nSee below for more information.",
+          label = "Automatic conversion to absolute scale is unavailable.\nEither due to use of external PGS, population distribution,\n unspecified in gwas_list, or invalid estimated PGS accuracy metric.",
           size = 4,
           hjust = 0.5,
           vjust = 0.5
@@ -828,10 +867,10 @@ if(!is.null(gwas_list)){
   score_info<-rbind(score_info, gwas_list_brief)
 }
 
-all_dat<-merge(pgs_dat, abs_res, by=c('gwas','pgs_method'))
-all_dat<-merge(all_dat, score_info, by='gwas')
+all_dat<-merge(pgs_dat, abs_res, by=c('gwas','pgs_method'), all.x = T)
+all_dat<-merge(all_dat, score_info, by='gwas', all = T)
 
-for(pgs_method_i in unique(all_dat$pgs_method)){
+for(pgs_method_i in pgs_methods_list){
   
   all_dat_i<-all_dat[all_dat$pgs_method == pgs_method_i, ]
   all_dat_i$pgs_method <- NULL
@@ -854,7 +893,7 @@ for(pgs_method_i in unique(all_dat$pgs_method)){
   
   cat('***\n\n')
 
-  for(gwas_i in unique(all_dat$gwas[all_dat$pgs_method == pgs_method_i])){
+  for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method == pgs_method_i])){
     cat0('#### GWAS: ',all_dat$label[all_dat$gwas == gwas_i & all_dat$pgs_method == pgs_method_i],' {.tabset .tabset-fade}\n')
     
     cat0("<center>\n")
@@ -866,9 +905,9 @@ for(pgs_method_i in unique(all_dat$pgs_method)){
     pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
     abs_res_i <- abs_res[abs_res$pgs_method == pgs_method_i & abs_res$gwas == gwas_i,]
 
-    cat0('- Your PGS Z-score for ', all_dat$label[all_dat$gwas == gwas_i], ' is ', pgs_dat_i$value,' which is higher than ', paste0(round(100*pnorm(pgs_dat_i$value),1),'%'),' of other ', top_pop,' individuals.\n\n')
+    cat0('- Your PGS Z-score for ', all_dat$label[all_dat$gwas == gwas_i & all_dat$pgs_method == pgs_method_i], ' is ', pgs_dat_i$value,' which is higher than ', paste0(round(100*pnorm(pgs_dat_i$value),1),'%'),' of other ', top_pop,' individuals.\n\n')
     
-    if(pgs_method_i != 'external'){
+    if(gwas_i %in% abs_res$gwas){
       if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
         
         cat0('- Assuming the PGS explains ', round(100*pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],1),'% of the variance in ', gwas_list$label[gwas_list$name == gwas_i],',\n and the mean and SD of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$mean[gwas_list$name == gwas_i],' and ',gwas_list$sd[gwas_list$name == gwas_i],' respectively,\n on average people with your PGS have a ', gwas_list$label[gwas_list$name == gwas_i],' of ', round(abs_res_i$mean,2), " (95% CI = ",round(lowCI,2),' - ',round(highCI,2),").\n\n")

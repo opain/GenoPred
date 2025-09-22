@@ -178,6 +178,12 @@ fwrite(targ_pvar, paste0(tmp_dir,'/subset.pvar'), col.names=T, row.names=F, quot
 # Extract variants based on new reference RSIDs
 system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --extract ', tmp_dir,'/extract_list_2.txt --make-pgen --threads 1 --out ', tmp_dir,'/subset'))
 
+#################
+# Quantify variant-level missingness
+#################
+
+system(paste0(opt$plink2,' --pfile ', tmp_dir,'/subset --missing --threads 1 --out ', opt$output))
+
 ##################
 # Insert missing SNPs into the reference data
 ##################
