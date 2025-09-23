@@ -249,14 +249,14 @@ if(nrow(targ_matched) < opt$min_overlap*n_snp_orig){
 
   score <- targ_matched
   
-  # Save harmonised version of the score file
-  fwrite(score, paste0(opt$output,'.harmonised.gz'), col.names=T, sep='\t', quote=F)
+  # Save unmapped version of the score file
+  # Keep CHR and BP information
+  score <- score[, c('CHR','BP','SNP','A1','A2','effect_weight'), with = F]
+  names(score)[names(score) == 'effect_weight']<-paste0('SCORE_external')
+  fwrite(score, paste0(opt$output,'.unmapped.score.gz'), col.names=T, sep=' ', quote=F)
+  score$CHR <- NULL
+  score$BP <- NULL
   
-	score$CHR <- NULL
-	score$BP <- NULL
-	score <- score[, c('SNP','A1','A2','effect_weight'), with = F]
-	names(score)[names(score) == 'effect_weight']<-paste0('SCORE_external')
-
 	# Flip effects to match reference alleles
 	ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
 	score_new <- map_score(ref = ref, score = score)

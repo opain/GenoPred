@@ -441,9 +441,9 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
     plink_opt<-paste0(plink_opt, '--extract ', extract, ' ')
   }
   if(!is.null(frq)){
-    plink_opt<-paste0(plink_opt, '--read-freq ', frq,'CHROMOSOME_NUMBER.afreq --score ', score,' header-read cols=+scoresums,-scoreavgs ')
+    plink_opt<-paste0(plink_opt, '--read-freq ', frq,'CHROMOSOME_NUMBER.afreq --score ', score,' center header-read cols=+scoresums,-scoreavgs ')
   } else {
-    plink_opt<-paste0(plink_opt, '--score ', score,' header-read no-mean-imputation cols=+scoresums,-scoreavgs ')
+    plink_opt<-paste0(plink_opt, '--score ', score,' center header-read no-mean-imputation cols=+scoresums,-scoreavgs ')
   }
   if(n_scores > 1){
     plink_opt<-paste0(plink_opt, '--score-col-nums 4-',3+n_scores, ' ')

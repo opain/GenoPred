@@ -1,17 +1,15 @@
 ---
 title: "GenoPred Report"
 params:
-  name: ""
-  config: ""
-  cwd: ""
+  name: "opensnp"
+  config: "misc/opensnp/config_sparse.yaml"
+  cwd: "/cephfs/volumes/hpc_data_prj/oliverpainfel/2fd316b8-548d-450d-a56b-a5d85eb3f04c/Software/MyGit/GenoPred/pipeline"
 output:
   html_document:
-    toc: true
     theme: cosmo
-    toc_depth: 3
-    toc_float: true
     fig_caption: yes
-
+    css: "report.css"
+    self_contained: true
 ---
 
 ```{r setup, include=FALSE}
@@ -30,6 +28,23 @@ library(DT)
 knit_hooks$set(optipng = hook_optipng)
 knit_hooks$set(pngquant = hook_pngquant)
 
+```
+
+```{r, results='asis', eval = T}
+cat("
+<div class='gp-hero'>
+<div class='gp-hero__brand'>
+<img src='../../docs/Images/logo/Horizontal.png' alt='GenoPred' class='gp-logo'>
+<div class='gp-title'>
+<div style='font-size: 2rem; font-weight: 700; margin-top:1rem;'>
+Sample Report for '", params$name, "' dataset
+</div>
+<p class='gp-subtitle'>Polygenic scoring & QC summary</p>
+</div>
+</div>
+</div>
+<hr class='gp-divider'>
+", sep = '')
 ```
 
 ```{r, include = F}
@@ -85,17 +100,14 @@ pgs_incl <- !all(c(is.null(gwas_list), is.null(score_list)))
 
 ```
 
-```{r, results='asis', eval = targ_incl}
-
-cat0("***\n\n")
-
-cat0("<font size='4'> \n\n")
-cat0("ID: ", params$name, "\n\n")
-cat0("</font>\n\n")
-
-cat0("***\n\n")
+```{r, results='asis', eval = T}
+cat0("# {.tabset .tabset-fade} \n\n")
+cat0("## Input processing {.tabset .tabset-fade} \n\n")
+cat0("This section documents how input data were processed, including quality control steps and harmonisation against the reference panel.\n\n")
+```
   
-cat0("# Target Descriptives \n\n")
+```{r, results='asis', eval = targ_incl}
+cat0("### Target data \n\n")
 
 # Read in the .psam file to identify the number of samples
 target_psam <- fread(paste0(outdir, '/', params$name, '/geno/', params$name, '.ref.chr', CHROMS[1], '.psam'))
@@ -120,80 +132,12 @@ cat0("- The target genotype data was provided in ", target_list$type[target_list
 cat0("- Of the ", as.character(nvar_in_ref), " variants in the reference, ", as.character(nvar_in_target), " were available in the target (", round(nvar_in_target/nvar_in_ref*100, 1),"%).\n\n")
 
 cat0("***\n\n")
-  
-cat0("# Ancestry \n\n")
-
-# Read in ancestry classification log file  
-ancestry_log <- readLines(paste0(outdir,'/',params$name,'/ancestry/', params$name,'.Ancestry.log'))
-
-# Create table listing ancestry classifications
-ancestry_log <- ancestry_log[(which(grepl('N per group based on model:', ancestry_log)) + 2):which(grepl('Unassigned', ancestry_log))]
-target_classifications <- data.frame(
-  Population = gsub(' .*','', gsub('^ ','', ancestry_log)),
-  N = as.numeric(gsub('.* ','', gsub('^ ','', ancestry_log))))
-
-cat0("- ", sum(target_classifications$N[target_classifications$Population != 'Unassigned']), " out of ", nrow(target_psam), " target individuals in the sample, were assigned to a reference population with a probability >", ancestry_prob_thresh*100, "%.\n")
-cat0("- The number of individuals assigned to each population were:\n\n")
-
-```
-
-```{r, eval = targ_incl}
-
-datatable(target_classifications, 
-          rownames = FALSE,
-          options = list(
-            dom = 't', 
-            ordering = FALSE,
-            columnDefs = list(
-              list(className = "dt-center", targets = "_all")  # Apply the class to all columns
-            ),
-            scrollX = TRUE
-          ),
-          selection = 'none',
-          width = '35%')
-      
-
-```
-
-```{r, results='asis', eval = targ_incl}
-if(is.na(refdir)){
-  cat0("Note. AFR = African, AMR = American, EAS = East Asian, EUR = European, CSA = Central and South Asian, MID = Middle Eastern.")
-}
-
-cat0("</br>\n\n")
-cat0("<details><summary>Show principal component plots</summary>\n\n")
-
-cat0(paste0("![](", normalizePath(outdir, mustWork = FALSE), '/', params$name, '/ancestry/', params$name, ".Ancestry.pc_plot.png)"))
-
-cat0("**Target Principal Component Scores Compared to Reference Populations.**\n\n")
-cat0("**Note.** Black circles indicate target sample individuals.\n\n")
-cat0("</details> \n\n")
-
-cat0("*** \n\n")
-
-```
-
-```{r, results='asis', eval = pgs_incl}
-
-cat0("# Polygenic Scores \n\n")
-
-cat0("- ", ifelse(is.null(gwas_list), 0, nrow(gwas_list)), " GWAS summary statistics were provided for polygenic scoring.\n")
-cat0("- ", ifelse(is.null(gwas_groups), 0, nrow(gwas_groups)), " GWAS groups were specified.\n")
-cat0("- ", length(pgs_methods_list), " PGS methods were applied, including ", paste0(pgs_methods_list, collapse = ', '), ".\n")
-
-if(is.null(score_list)){
-  cat0("- No external score files were provided in score_list.\n\n")
-} else {
-  cat0("- ", ifelse(is.null(score_list), 0, nrow(score_list)), " external score files were provided for polygenic scoring.\n\n")
-}
-
-cat0("***\n\n")
 
 ```
 
 ```{r, results='asis', eval = all(pgs_incl, !is.null(gwas_list))}
 
-cat0("## GWAS summary statistics \n\n")
+cat0("### GWAS sumstats {.tabset .tabset-fade} \n\n")
 
 # Create a summary table for GWAS sumstats
 sumstat_qc <- NULL
@@ -248,13 +192,14 @@ for(gwas in gwas_list$name) {
     column_interp[[gwas]] <- column_interp_i
 }
     
-names(sumstat_qc) <- c('Name', 'Label', 'Population', 'NSNP Original', 'NSNP Final','Strand check')
+names(sumstat_qc) <- c('Name', 'Label', 'Population', 'NSNP\n(original)', 'NSNP\n(final)','Strand check')
 
 datatable(sumstat_qc, 
           rownames = FALSE,
           options = list(
             dom = 't',
             ordering = FALSE,
+            paging = FALSE,
             columnDefs = list(
               list(className = "dt-center", targets = '_all')
             ),
@@ -263,13 +208,11 @@ datatable(sumstat_qc,
           width = '100%',
           selection = 'none')
 
-cat0("***\n\n")
+cat0("**GWAS header interpretations** \n\n")
 
-cat0("<details><summary>Show GWAS header interpretations</summary>\n\n")
 for(i in 1:length(column_interp)){
-  cat0("**",names(column_interp)[i], "** \n\n")
-  cat0("\n\n")
-  
+  cat0("#### ",names(column_interp)[i], " \n\n")
+
   # Print the datatable
   print(htmltools::tagList(
     datatable(
@@ -278,6 +221,7 @@ for(i in 1:length(column_interp)){
     options = list(
       dom = 't',
       ordering = FALSE,
+      paging = FALSE,
       columnDefs = list(
         list(className = "dt-center", targets = '_all')
       ),
@@ -291,15 +235,13 @@ for(i in 1:length(column_interp)){
 
 }
 cat0("**Note.** Columns that were dropped are not shown here.\n\n")
-cat0("</details> \n\n")
-
 cat0("***\n\n")
 
 ```
 
 ```{r, results='asis', eval = all(pgs_incl, !is.null(score_list))}
 
-cat0("## Score files \n\n")
+cat0("### External score files \n\n")
 
 # Create a summary table for score files
 score_qc <- NULL
@@ -341,6 +283,7 @@ datatable(score_qc,
           options = list(
             dom = 't',
             ordering = FALSE,
+            paging = FALSE,
             columnDefs = list(
               list(className = "dt-center", targets = '_all')
             ),
@@ -355,17 +298,104 @@ cat0("***\n\n")
 
 ```
 
+```{r, results='asis', eval = targ_incl}
+
+cat0("## Ancestry inference \n\n")
+
+cat0("This section documents the target sample ancestry inference results.\n\n")
+
+# Read in ancestry classification log file  
+ancestry_log <- readLines(paste0(outdir,'/',params$name,'/ancestry/', params$name,'.Ancestry.log'))
+
+# Create table listing ancestry classifications
+ancestry_log <- ancestry_log[(which(grepl('N per group based on model:', ancestry_log)) + 2):which(grepl('Unassigned', ancestry_log))]
+target_classifications <- data.frame(
+  Population = gsub(' .*','', gsub('^ ','', ancestry_log)),
+  N = as.numeric(gsub('.* ','', gsub('^ ','', ancestry_log))))
+
+cat0("- ", sum(target_classifications$N[target_classifications$Population != 'Unassigned']), " out of ", nrow(target_psam), " target individuals in the sample, were assigned to a reference population with a probability >", ancestry_prob_thresh*100, "%.\n")
+cat0("- The number of individuals assigned to each population were:\n\n")
+
+```
+
+```{r, eval = targ_incl}
+
+datatable(target_classifications, 
+          rownames = FALSE,
+          options = list(
+            dom = 't', 
+            ordering = FALSE,
+            paging = FALSE,
+            columnDefs = list(
+              list(className = "dt-center", targets = "_all")  # Apply the class to all columns
+            ),
+            scrollX = TRUE
+          ),
+          selection = 'none',
+          width = '35%')
+      
+
+```
+
+```{r, results='asis', eval = targ_incl}
+if(is.na(refdir)){
+  cat0("Note. AFR = African, AMR = American, EAS = East Asian, EUR = European, CSA = Central and South Asian, MID = Middle Eastern.")
+}
+
+cat0("</br>\n\n")
+
+cat0("**Target Principal Component Scores Compared to Reference Populations.**\n\n")
+cat0(paste0("![](", normalizePath(outdir, mustWork = FALSE), '/', params$name, '/ancestry/', params$name, ".Ancestry.pc_plot.png)"))
+cat0("**Note.** Black circles indicate target sample individuals.\n\n")
+
+cat0("*** \n\n")
+
+```
+
 ```{r, results='asis', eval = pgs_incl}
 
-cat0("## PGS correlation \n\n")
+cat0("## Polygenic Scores {.tabset .tabset-fade} \n\n")
+
+cat0("- ", ifelse(is.null(gwas_list), 0, nrow(gwas_list)), " GWAS summary statistics were provided for polygenic scoring.\n")
+cat0("- ", ifelse(is.null(gwas_groups), 0, nrow(gwas_groups)), " GWAS groups were specified.\n")
+cat0("- ", length(pgs_methods_list), " PGS methods were applied, including ", paste0(pgs_methods_list, collapse = ', '), ".\n")
+
+if(is.null(score_list)){
+  cat0("- No external score files were provided in score_list.\n\n")
+} else {
+  cat0("- ", ifelse(is.null(score_list), 0, nrow(score_list)), " external score files were provided for polygenic scoring.\n\n")
+}
+
+cat0("***\n\n")
+
+```
+
+```{r, results='asis', eval = pgs_incl}
+
+cat0("### PGS correlation \n\n")
 cat0("This section shows the correlation between PGS in the reference sample. This is intended as a sanity check that the PGS correlations are in the expected direction, thereby confirming the GWAS alleles are being interpreted correctly.\n\n")
 
 ```
 
 ```{r, eval = pgs_incl, include = F}
+# Identify pgs_scaling parameter
+pgs_scaling <- read_param(config = params$config, param = 'pgs_scaling', return_obj = F)
+
+if('continuous' %in% pgs_scaling){
+  ref_pop <- 'TRANS'
+} else {
+  # Read in keep_list to determine populations available
+  keep_list_i <- fread(paste0(outdir,'/',params$name,'/ancestry/keep_list.txt'))
+  
+  # Check whether output for a specific populations was requested in the config
+  target_populations <- read_param(config = params$config, param = 'target_populations', return_obj = F)
+  keep_list_i <- keep_list_i[keep_list_i$POP %in% target_populations,]
+  
+  ref_pop <- keep_list_i$POP[1]
+}
 
 # Read in the reference pgs
-ref_pgs <- read_reference_pgs(config = params$config)
+ref_pgs <- read_reference_pgs(config = params$config, population = ref_pop)
 
 # Merge all PGS into single data.frame
 for(gwas_i in names(ref_pgs)){
@@ -408,14 +438,97 @@ dev.off()
 
 ```
 
+```{r, results='asis', eval = pgs_incl}
+
+cat0(paste0("![](", plot_file,")\n\n"))
+cat0("**Note.** Plot shows correlation between pseudovalidated PGS in ", ref_pop," population.\n\n")
+cat0("***\n\n")
+
+```
 
 ```{r, results='asis', eval = pgs_incl}
 
-cat0("<details><summary>Show reference PGS correlation matrix</summary>\n\n")
-cat0(paste0("![](", plot_file,")\n\n"))
-cat0("**Note.** Plot shows correlation between pseudovalidated PGS across all populations, adjusted for ancestry.\n\n")
-cat0("</details> \n\n")
-cat0("***\n\n")
+cat0("### PGS coverage \n\n")
+cat0("This section summarises the polygenic score files, including both GWAS-derived and external scores. It reports the number of SNPs per score, the proportion present in the target sample, and the relative R² accounting for missing variants. These metrics provide a check on score completeness, transferability, and the expected predictive utility in the target data.\n\n")
+
+```
+
+```{r, eval = pgs_incl, include = F}
+# List score files
+score_files<-list_score_files(params$config)
+
+# Identify pgs_scaling parameter
+pgs_scaling <- read_param(config = params$config, param = 'pgs_scaling', return_obj = F)
+
+# List populations
+targ_pops <- NULL
+if('continuous' %in% pgs_scaling){
+  targ_pops <- c(targ_pops, 'TRANS')
+}
+if('discrete' %in% pgs_scaling){
+  # Read in keep_list to determine populations available
+  keep_list_i <- fread(paste0(outdir,'/',params$name,'/ancestry/keep_list.txt'))
+  
+  # Check whether output for a specific populations was requested in the config
+  target_populations <- read_param(config = params$config, param = 'target_populations', return_obj = F)
+  keep_list_i <- keep_list_i[keep_list_i$POP %in% target_populations,]
+  
+  targ_pops <- c(targ_pops, keep_list_i$POP)
+}
+
+missingness <- NULL
+for (i in 1:nrow(score_files)) {
+  for (j in targ_pops) {
+    missingness <- rbind(missingness,
+                         data.table(population = j,
+                                    fread(
+                                      paste0(
+                                        outdir,
+                                        '/',
+                                        params$name,
+                                        '/pgs/',
+                                        j,
+                                        '/',
+                                        score_files$method[i],
+                                        '/',
+                                        score_files$name[i],
+                                        '/',
+                                        params$name,
+                                        '-',
+                                        score_files$name[i],
+                                        '-',
+                                        j,
+                                        '.missingness'
+                                      )
+                                    )))
+  }
+}
+
+missingness <- missingness[, c('name','method','population','n_nz','mean_nz_miss','rel_r2','n_in_eig'), with=F]
+missingness$rel_r2 <- paste0(round(missingness$rel_r2*100, 2),'%')
+missingness$mean_nz_miss <- round(missingness$mean_nz_miss, 3)
+names(missingness) <- c('ID', 'Method', 'Target population', "N SNP\n(non-zero)", 'Mean missingness in target', 'Relative R2', "N SNP overlap with LD reference")
+
+```
+
+```{r, eval = pgs_incl}
+
+datatable(missingness, 
+          rownames = FALSE,
+          options = list(
+            ordering = TRUE,
+            columnDefs = list(
+              list(className = "dt-center", targets = "_all")  # Apply the class to all columns
+            ),
+            scrollX = TRUE
+          ),
+          selection = 'none')
+
+```
+
+```{r, results='asis', eval = pgs_incl}
+
+cat0("**Note.** N SNP\n(non-zero) = Number of variants with non-zero effect in PGS; Mean missingness in target = Mean missingness of non-zero variants in target sample; Relative R2 = Estimated relative R2 of PGS in target sample given missing variants; N SNP overlap with LD reference = Number of non-zero variants present in LD reference data used to estimate relative R2.\n\n")
 
 ```
 
@@ -478,12 +591,12 @@ for(pgs_method_i in unique(pgs$pgs_method)){
 
 ```{r, results='asis', eval = pgs_incl}
 
-cat0("## PGS Distribution {.tabset .tabset-fade} \n\n")
+cat0("### PGS Distribution {.tabset .tabset-fade} \n\n")
 cat0("This section shows the distribution of PGS in the target sample. PGS are shown scaled according to each ancestry-match reference population. TRANS includes PGS across all populations after continuous adjustment for ancestry.\n\n")
 
 for(pgs_method_i in unique(pgs$pgs_method)){
   # Create a new tab for each method
-  cat0("### ", pgs_method_i, "\n")
+  cat0("#### ", pgs_method_i, "\n")
   
   # Show the plot
   cat0(paste0("![Density plot of PGS from ", pgs_method_i,"](", tmp_folder,'/plot_',pgs_method_i,".png)"))
@@ -492,19 +605,133 @@ for(pgs_method_i in unique(pgs$pgs_method)){
   cat0("\n\n")
 }
 
-cat0("## {-} \n\n")
+cat0("### {-} \n\n")
 cat0("**Note.** Plot shows distribution of pseudovalidated PGS.\n\n")
 
 ```
 
-***
-***
+```{r, results='asis', eval = T}
 
-```{r, echo = F, eval = T}
+cat0("*** \n\n")
+
+cat0("## Configuration {.tabset .tabset-fade} \n\n")
+
+cat0("### target_list \n\n")
+
+target_list[is.na(target_list)]<-'NA'
+
+datatable(target_list, 
+          rownames = FALSE,
+          options = list(
+            dom = 't', 
+            ordering = FALSE,
+            paging = FALSE,
+            columnDefs = list(
+              list(className = "dt-center", targets = "_all")  # Apply the class to all columns
+            ),
+            scrollX = TRUE
+          ),
+          selection = 'none')
+
+if(!is.null(gwas_list)){
+  cat0("### gwas_list \n\n")
+  
+  gwas_list[is.na(gwas_list)]<-'NA'
+  
+  datatable(gwas_list, 
+            rownames = FALSE,
+            options = list(
+              dom = 't', 
+              ordering = FALSE,
+              paging = FALSE,
+              columnDefs = list(
+                list(className = "dt-center", targets = "_all")  # Apply the class to all columns
+              ),
+              scrollX = TRUE
+            ),
+            selection = 'none')
+}
+
+if(!is.null(score_list)){
+  cat0("### score_list \n\n")
+  
+  score_list[is.na(score_list)]<-'NA'
+  
+  datatable(score_list, 
+            rownames = FALSE,
+            options = list(
+              dom = 't', 
+              ordering = FALSE,
+              paging = FALSE,
+              columnDefs = list(
+                list(className = "dt-center", targets = "_all")  # Apply the class to all columns
+              ),
+              scrollX = TRUE
+            ),
+            selection = 'none')
+}
+
+if(!is.null(gwas_groups)){
+  cat0("### gwas_groups \n\n")
+  
+  gwas_groups[is.na(gwas_groups)]<-'NA'
+  
+  datatable(gwas_groups, 
+            rownames = FALSE,
+            options = list(
+              dom = 't', 
+              ordering = FALSE,
+              paging = FALSE,
+              columnDefs = list(
+                list(className = "dt-center", targets = "_all")  # Apply the class to all columns
+              ),
+              scrollX = TRUE
+            ),
+            selection = 'none')
+}
+
+cat0("### configfile \n\n")
+
+# Make table showing config parameters
+default_config <- readLines('config.yaml')
+default_config<-default_config[!grepl('#', default_config)]
+default_config<-default_config[default_config != '']
+default_config<-data.frame(do.call(rbind, strsplit(default_config, ': ')))
+names(default_config)<-c('Parameter', 'Value')
+
+if(!is.na(read_param(config = params$config, param = 'config_file', return_obj = F))){
+  user_config <- readLines(params$config)
+  user_config<-user_config[!grepl('#', user_config)]
+  user_config<-user_config[user_config != '']
+  user_config<-data.frame(do.call(rbind, strsplit(user_config, ': ')))
+  names(user_config)<-c('Parameter', 'Value')
+  config_both <- rbind(user_config, default_config)
+  config_both <- config_both[!duplicated(config_both$Parameter),]
+} else {
+  config_both <- default_config
+}
+
+datatable(config_both, 
+          rownames = FALSE,
+          options = list(
+            dom = 't', 
+            ordering = FALSE,
+            paging = FALSE,
+            columnDefs = list(
+              list(className = "dt-center", targets = "_all")  # Apply the class to all columns
+            ),
+            scrollX = TRUE
+          ),
+          selection = 'none')
+
+cat0("### Version \n\n")
+
 repo_path <- system("git rev-parse --show-toplevel", intern = TRUE)
 repo_name <- basename(repo_path)
 git_tag <- system("git describe --tags", intern = TRUE)
+
+cat0("
+This report was created using ", repo_name, " (", git_tag, ").
+")
+
 ```
-
-This report was created using `r paste0(repo_name, " (", git_tag, ")")`.
-

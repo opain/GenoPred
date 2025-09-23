@@ -243,6 +243,9 @@ if(nrow(score) == nrow(ma_imp) & all(score$A1 == ma_imp$A1)){
 score <- score[,c('SNP', 'A1', 'A2', 'BETA'), with=F]
 names(score) <- c('SNP', 'A1', 'A2', 'SCORE_SBayesRC')
 
+# Save unmapped version of the score file
+fwrite(score, paste0(opt$output,'.unmapped.score.gz'), col.names=T, sep=' ', quote=F)
+
 # Flip effects to match reference alleles
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('SNP','A1','A2'), with=F]
 score_new <- map_score(ref = ref, score = score)

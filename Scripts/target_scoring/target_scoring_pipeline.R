@@ -119,9 +119,7 @@ if(!is.null(opt$score)){
 # Check overlap between score files and target
 ###
 
-restrict_to_target_variants <- as.logical(read_param(config = opt$config, param = 'restrict_to_target_variants', return_obj = F))
-
-if(!restrict_to_target_variants & file.exists(paste0(resdir, '/data/sbayesrc_ref/', opt$population))){
+if(file.exists(paste0(resdir, '/data/sbayesrc_ref/', opt$population))){
   
   log_add(log_file = log_file, message = paste0('Checking overlap between score files and target...'))
   
@@ -145,43 +143,44 @@ if(!restrict_to_target_variants & file.exists(paste0(resdir, '/data/sbayesrc_ref
   targ_v_miss[is.na(targ_v_miss)] <- 1
   
   check <- foreach(i = 1:nrow(score_files), .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
+    # Decide whether to use mapped or unmapped score file
+    # Unmapped should be used when score file contains variants that are not in the reference sample
+    unmapped <- ifelse(score_files$method[i] %in% c('sbayesrc','external'), '.unmapped', '')
+    score_i_path <- paste0(
+      outdir,
+      '/reference/pgs_score_files/',
+      score_files$method[i],
+      '/',
+      score_files$name[i],
+      '/ref-',
+      score_files$name[i],
+      unmapped,
+      '.score.gz'
+    )
+    
     # Read in score file, retaining pseudovalidated model only
-    score_i_header <-
-      names(fread(
-        paste0(
-          outdir,
-          '/reference/pgs_score_files/',
-          score_files$method[i],
-          '/',
-          score_files$name[i],
-          '/ref-',
-          score_files$name[i],
-          '.score.gz'
-        ), nThread = 1, nrows = 2))
-    
+    score_i_header <- names(fread(score_i_path, nThread = 1, nrows = 2))
     pseudo_param <- find_pseudo(config = opt$config, gwas = score_files$name[i], pgs_method = score_files$method[i])
-    
-    cols_keep <- c(1:3, which(grepl(paste0('SCORE_', pseudo_param,'$'), score_i_header)))
+    cols_keep <- c(which(!grepl('^SCORE_', score_i_header)), 
+                   which(grepl(paste0('SCORE_', pseudo_param,'$'), score_i_header)))
     
     score_i <-
       fread(cmd =
         paste0(
           'zcat ',
-          outdir,
-          '/reference/pgs_score_files/',
-          score_files$method[i],
-          '/',
-          score_files$name[i],
-          '/ref-',
-          score_files$name[i],
-          ".score.gz | cut -d ' ' -f ",
+          score_i_path,
+          " | cut -d ' ' -f ",
           paste0(cols_keep, collapse = ',')
         ), nThread = 1)
     
-    names(score_i)[4]<-'BETA'
+    names(score_i)[grepl('SCORE_', names(score_i))]<-'BETA'
     
     # Retain rows with non-zero effect
     score_i <- score_i[score_i$BETA != 0,]
+    
+    # Set variants in score file that are not in target to missing
+    targ_v_miss <- merge(score_i[, 'SNP', with = F], targ_v_miss, by = 'SNP', all.x = T)
+    targ_v_miss[is.na(targ_v_miss)] <- 1
     
     # Estimate relative PGS R2
     rel_r2 <- rel_pgs_r2_missing_eigen(
@@ -270,7 +269,7 @@ for(chr_i in CHROMS){
   # Identify score files with data for chromosome
   check <- foreach(i = 1:nrow(score_files), .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
     if(score_files$method[i] == 'external'){
-      ss_file <- paste0(outdir,'/reference/pgs_score_files/external/',score_files$name[i],'/ref-',score_files$name[i],'.harmonised.gz')
+      ss_file <- paste0(outdir,'/reference/pgs_score_files/external/',score_files$name[i],'/ref-',score_files$name[i],'.unmapped.score.gz')
     } 
     if(score_files$method[i] != 'external') {
       if(!(score_files$method[i] %in% c('prscsx','xwing')) & !grepl('_multi|tlprs_', score_files$method[i])){

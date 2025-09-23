@@ -873,61 +873,52 @@ readEig <- function(ldDir, block){
   return(list(m=m, k=k, sumLambda=sumLambda, thresh=thresh, lambda=lambda, U=mat))
 }
 
-#' Relative PGS R^2 retained given missing SNPs (LD-aware, eigen-LD)
-#' @param ld_dir directory with SBayesRC LD artefacts (snp.info, ldm.info, block*.eigen.bin)
-#' @param score_df data.frame/data.table with columns SNP, BETA (weights on 0/1/2 scale)
-#' @param present_snps character vector of SNP IDs available in the target (present = 1; others assumed missing)
-#' @return list(relative_R2 = num/den, num = V_present, den = V_full)
 rel_pgs_r2_missing_eigen <- function(ld_dir, score_df, f_miss) {
   snp_info <- fread(file.path(ld_dir, "snp.info"))
   snp_info$S <- sqrt(2 * snp_info$A1Freq * (1 - snp_info$A1Freq))
   names(snp_info)[names(snp_info) == 'ID'] <- 'SNP'
   
-  # Align score file with LD data
-  snp_info[, idx := .I]
-  score_df <- merge(snp_info[, .(SNP, idx)], score_df, by = "SNP")
+  # Count number of non-zero variants in score file that are present in reference
+  n_in_ref <- sum(score_df$SNP[score_df$BETA != 0] %in% snp_info$SNP)
   
+  # Align score file with LD data
+  score_df <- score_df[, names(score_df) %in% c('SNP','A1','A2','BETA'), with = F]
+  score_df <- map_score(ref = snp_info, score = score_df)
+  score_df[, idx := .I]
+
   # Insert missingness information
-  score_df <- merge(score_df, f_miss, by = 'SNP')
+  score_df <- merge(score_df, f_miss, by = 'SNP', sort = F, all.x =T)
+  score_df$F_MISS[is.na(score_df$F_MISS)] <- 1
   
   den_sum <- 0.0
   num_sum <- 0.0
   
   for (b in unique(snp_info$Block)) {
     idx_b <- which(snp_info$Block == b)
-
-    # weights present in this block
-    in_b <- score_df[idx %in% idx_b]
-    if (nrow(in_b) == 0) next
+    if (length(idx_b) == 0) next
     
-    # Read eigen-LD for block b
     eig <- readEig(ldDir = ld_dir, block = b)
     
-    # Build w_b = S * beta in block order; and masked weights m * w_b
-    pos <- match(in_b$idx, idx_b)                # positions within block
-    w_b <- numeric(length(idx_b))
-    w_b[pos] <- snp_info$S[in_b$idx] * in_b$BETA
+    # weights
+    w_b <- snp_info$S[idx_b] * score_df$BETA[idx_b]
     
-    # ---- attenuation by missingness ----
-    # call rate = 1 - F_MISS. use sqrt(call_rate) like sqrt(INFO)
-    call_rate <- 1 - in_b$F_MISS
-    att_vec   <- rep(0, length(idx_b))             # initialise fresh each block
-    att_vec[pos] <- sqrt(call_rate)                # attenuation only where we have weights
-    w_b_mask  <- att_vec * w_b                     # D * w (elementwise)
+    # attenuation
+    call_rate <- 1 - score_df$F_MISS[idx_b]
+    w_b_mask  <- sqrt(call_rate) * w_b
     
-    # Quadratic forms via eigen basis: V = || sqrt(lam) * t(U) %*% w ||^2
-    Ut_w    <- as.numeric(crossprod(eig$U, w_b))
-    den_b   <- sum((sqrt(eig$lambda) * Ut_w)^2)
+    # quadratic forms
+    Ut_w  <- as.numeric(crossprod(eig$U, w_b))
+    den_b <- sum((sqrt(eig$lambda) * Ut_w)^2)
     
-    Ut_wm   <- as.numeric(crossprod(eig$U, w_b_mask))
-    num_b   <- sum((sqrt(eig$lambda) * Ut_wm)^2)
+    Ut_wm <- as.numeric(crossprod(eig$U, w_b_mask))
+    num_b <- sum((sqrt(eig$lambda) * Ut_wm)^2)
     
     den_sum <- den_sum + den_b
     num_sum <- num_sum + num_b
   }
   
   rel <- if (den_sum > 0) num_sum / den_sum else NA_real_
-  list(relative_R2 = rel, n_in_ref = sum(score_df$BETA != 0))
+  list(relative_R2 = rel, n_in_ref = n_in_ref)
 }
 
 # ---- example usage ----

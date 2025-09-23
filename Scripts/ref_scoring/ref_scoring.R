@@ -143,7 +143,7 @@ for(chr_i in CHROMS){
   # Identify score files with data for chromosome
   check <- foreach(i = 1:nrow(score_files), .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
     if(score_files$method[i] == 'external'){
-      ss_file <- paste0(outdir,'/reference/pgs_score_files/external/',score_files$name[i],'/ref-',score_files$name[i],'.harmonised.gz')
+      ss_file <- paste0(outdir,'/reference/pgs_score_files/external/',score_files$name[i],'/ref-',score_files$name[i],'.unmapped.score.gz')
     } 
     if(score_files$method[i] != 'external') {
       if(!(score_files$method[i] %in% c('prscsx','xwing')) & !grepl('_multi|tlprs_', score_files$method[i])){
