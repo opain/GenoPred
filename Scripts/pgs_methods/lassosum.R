@@ -8,8 +8,6 @@ option_list = list(
 			help="Path to genome-wide reference PLINK files [required]"),
 	make_option("--ref_keep", action="store", default=NULL, type='character',
 			help="Keep file to subset individuals in reference for clumping [optional]"),
-	make_option("--ref_pcs", action="store", default=NULL, type='character',
-	    help="Reference PCs for continuous ancestry correction [optional]"),
 	make_option("--gwas_pop", action="store", default=NULL, type='character',
 			help="Population of GWAS sample [required]"),
   make_option("--pop_data", action="store", default=NULL, type='character',

@@ -8,8 +8,6 @@ option_list = list(
       help="Pipeline configuration file. Required when pseudo_only is TRUE [optional]"),
   make_option("--ref_plink_chr", action="store", default=NA, type='character',
       help="Path to per chromosome reference PLINK files [required]"),
-  make_option("--ref_pcs", action="store", default=NULL, type='character',
-      help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--pop_data", action="store", default=NULL, type='character',
       help="File containing the population code and location of the keep file [required]"),
   make_option("--ref_keep_dir", action="store", default=NULL, type='character',

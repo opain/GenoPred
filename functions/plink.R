@@ -410,7 +410,7 @@ plink_king<-function(bfile=NULL, pfile=NULL, extract = NULL, chr = 1:22, plink2=
   system(paste0('tail -n +2 ', tmp_dir, '/merged.king.cutoff.in.id > ', out, '.unrelated.keep'))
 }
 
-plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, plink2=NULL, threads=1, fbm = F){
+plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, chr=1:22, frq=NULL, plink2=NULL, threads=1, fbm = F, center = F){
   if(is.null(bfile) & is.null(pfile)){
     stop("bfile or pfile must be specified.")
   }
@@ -441,9 +441,9 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
     plink_opt<-paste0(plink_opt, '--extract ', extract, ' ')
   }
   if(!is.null(frq)){
-    plink_opt<-paste0(plink_opt, '--read-freq ', frq,'CHROMOSOME_NUMBER.afreq --score ', score,' center header-read cols=+scoresums,-scoreavgs ')
+    plink_opt<-paste0(plink_opt, '--read-freq ', frq,'CHROMOSOME_NUMBER.afreq --score ', score, ifelse(center, ' center', ''), ' header-read cols=+scoresums,-scoreavgs ')
   } else {
-    plink_opt<-paste0(plink_opt, '--score ', score,' center header-read no-mean-imputation cols=+scoresums,-scoreavgs ')
+    plink_opt<-paste0(plink_opt, '--score ', score, ifelse(center, ' center', ''), ' header-read no-mean-imputation cols=+scoresums,-scoreavgs ')
   }
   if(n_scores > 1){
     plink_opt<-paste0(plink_opt, '--score-col-nums 4-',3+n_scores, ' ')

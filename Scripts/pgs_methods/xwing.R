@@ -8,8 +8,6 @@ option_list = list(
       help="Path to per chromosome reference PLINK files [required]"),
   make_option("--ref_freq_chr", action="store", default=NULL, type='character',
       help="Path to per chromosome reference PLINK2 .afreq files [required]"),
-  make_option("--ref_pcs", action="store", default=NULL, type='character',
-      help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--xwing_repo", action="store", default=NULL, type='character',
       help="Path to X-WING repo [required]"),
   make_option("--logodetect_ref", action="store", default=NULL, type='character',

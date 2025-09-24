@@ -6,8 +6,6 @@ library("optparse")
 option_list = list(
   make_option("--ref_plink_chr", action="store", default=NULL, type='character',
       help="Path to per chromosome reference PLINK files [required]"),
-  make_option("--ref_pcs", action="store", default=NULL, type='character',
-      help="Reference PCs for continuous ancestry correction [optional]"),
   make_option("--ref_freq_chr", action="store", default=NULL, type='character',
       help="Path to per chromosome reference PLINK .frq files [required]"),
   make_option("--pop_data", action="store", default=NULL, type='character',

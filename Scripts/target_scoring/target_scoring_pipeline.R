@@ -119,69 +119,68 @@ if(!is.null(opt$score)){
 # Check overlap between score files and target
 ###
 
-if(file.exists(paste0(resdir, '/data/sbayesrc_ref/', opt$population))){
-  
-  log_add(log_file = log_file, message = paste0('Checking overlap between score files and target...'))
-  
-  # Create object showing missiness of variants in target
-  targ_v_miss<-NULL
-  for(chr in CHROMS){
-    targ_v_miss <- rbind(
-      targ_v_miss,
-      fread(
-        paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr', chr, '.vmiss')
-      )
+log_add(log_file = log_file, message = paste0('Checking overlap between score files and target...'))
+
+# Create object showing missiness of variants in target
+targ_v_miss<-NULL
+for(chr in CHROMS){
+  targ_v_miss <- rbind(
+    targ_v_miss,
+    fread(
+      paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr', chr, '.vmiss')
     )
-  }
-  targ_v_miss <- targ_v_miss[, c('ID','F_MISS'), with = F]
+  )
+}
+targ_v_miss <- targ_v_miss[, c('ID','F_MISS'), with = F]
+
+opt$target_plink_chr <- paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr')
+targ_pvar <- read_pvar(dat = opt$target_plink_chr, chr = CHROMS)
+targ_pvar <- targ_pvar[, 'SNP', with = F]
+
+targ_v_miss <- merge(targ_pvar, targ_v_miss, by.x = 'SNP', by.y = 'ID', all.x = T)
+targ_v_miss[is.na(targ_v_miss)] <- 1
   
-  opt$target_plink_chr <- paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr')
-  targ_pvar <- read_pvar(dat = opt$target_plink_chr, chr = CHROMS)
-  targ_pvar <- targ_pvar[, 'SNP', with = F]
+check <- foreach(i = 1:nrow(score_files), .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  # Decide whether to use mapped or unmapped score file
+  # Unmapped should be used when score file contains variants that are not in the reference sample
+  unmapped <- ifelse(score_files$method[i] %in% c('sbayesrc','external'), '.unmapped', '')
+  score_i_path <- paste0(
+    outdir,
+    '/reference/pgs_score_files/',
+    score_files$method[i],
+    '/',
+    score_files$name[i],
+    '/ref-',
+    score_files$name[i],
+    unmapped,
+    '.score.gz'
+  )
   
-  targ_v_miss <- merge(targ_pvar, targ_v_miss, by.x = 'SNP', by.y = 'ID', all.x = T)
+  # Read in score file, retaining pseudovalidated model only
+  score_i_header <- names(fread(score_i_path, nThread = 1, nrows = 2))
+  pseudo_param <- find_pseudo(config = opt$config, gwas = score_files$name[i], pgs_method = score_files$method[i])
+  cols_keep <- c(which(!grepl('^SCORE_', score_i_header)), 
+                 which(grepl(paste0('SCORE_', pseudo_param,'$'), score_i_header)))
+  
+  score_i <-
+    fread(cmd =
+      paste0(
+        'zcat ',
+        score_i_path,
+        " | cut -d ' ' -f ",
+        paste0(cols_keep, collapse = ',')
+      ), nThread = 1)
+  
+  names(score_i)[grepl('SCORE_', names(score_i))]<-'BETA'
+  
+  # Retain rows with non-zero effect
+  score_i <- score_i[score_i$BETA != 0,]
+  
+  # Set variants in score file that are not in target to missing
+  targ_v_miss <- merge(score_i[, 'SNP', with = F], targ_v_miss, by = 'SNP', all.x = T)
   targ_v_miss[is.na(targ_v_miss)] <- 1
   
-  check <- foreach(i = 1:nrow(score_files), .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
-    # Decide whether to use mapped or unmapped score file
-    # Unmapped should be used when score file contains variants that are not in the reference sample
-    unmapped <- ifelse(score_files$method[i] %in% c('sbayesrc','external'), '.unmapped', '')
-    score_i_path <- paste0(
-      outdir,
-      '/reference/pgs_score_files/',
-      score_files$method[i],
-      '/',
-      score_files$name[i],
-      '/ref-',
-      score_files$name[i],
-      unmapped,
-      '.score.gz'
-    )
-    
-    # Read in score file, retaining pseudovalidated model only
-    score_i_header <- names(fread(score_i_path, nThread = 1, nrows = 2))
-    pseudo_param <- find_pseudo(config = opt$config, gwas = score_files$name[i], pgs_method = score_files$method[i])
-    cols_keep <- c(which(!grepl('^SCORE_', score_i_header)), 
-                   which(grepl(paste0('SCORE_', pseudo_param,'$'), score_i_header)))
-    
-    score_i <-
-      fread(cmd =
-        paste0(
-          'zcat ',
-          score_i_path,
-          " | cut -d ' ' -f ",
-          paste0(cols_keep, collapse = ',')
-        ), nThread = 1)
-    
-    names(score_i)[grepl('SCORE_', names(score_i))]<-'BETA'
-    
-    # Retain rows with non-zero effect
-    score_i <- score_i[score_i$BETA != 0,]
-    
-    # Set variants in score file that are not in target to missing
-    targ_v_miss <- merge(score_i[, 'SNP', with = F], targ_v_miss, by = 'SNP', all.x = T)
-    targ_v_miss[is.na(targ_v_miss)] <- 1
-    
+  if(file.exists(paste0(resdir, '/data/sbayesrc_ref/', opt$population))){
     # Estimate relative PGS R2
     rel_r2 <- rel_pgs_r2_missing_eigen(
       ld_dir = ifelse(
@@ -191,19 +190,21 @@ if(file.exists(paste0(resdir, '/data/sbayesrc_ref/', opt$population))){
         ),
       score_df = score_i,
       f_miss = targ_v_miss)
-    
-    overlap <- data.table(
-      name = score_files$name[i],
-      method = score_files$method[i],
-      n_nz = nrow(score_i),
-      mean_nz_miss = mean(targ_v_miss$F_MISS[targ_v_miss$SNP %in% score_i$SNP]),
-      n_in_eig = rel_r2$n_in_ref,
-      rel_r2 = rel_r2$relative_R2
-    )
-    
-    dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T, showWarnings = F)
-    fwrite(overlap, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.missingness'), sep=' ', na='NA', quote=F, nThread = 1)
+  } else {
+    rel_r2 <- list(n_in_ref = NA, relative_R2 = NA)
   }
+  
+  overlap <- data.table(
+    name = score_files$name[i],
+    method = score_files$method[i],
+    n_nz = nrow(score_i),
+    mean_nz_miss = mean(targ_v_miss$F_MISS[targ_v_miss$SNP %in% score_i$SNP]),
+    n_in_eig = rel_r2$n_in_ref,
+    rel_r2 = rel_r2$relative_R2
+  )
+  
+  dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T, showWarnings = F)
+  fwrite(overlap, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.missingness'), sep=' ', na='NA', quote=F, nThread = 1)
 }
 
 ###
