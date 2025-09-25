@@ -201,7 +201,7 @@ fwrite(snp_weights, paste0(tmp_dir,'/ref.eigenvec.var'), row.names = F, quote=F,
 log_add(log_file = log_file, message = 'Computing reference PCs.')
 
 # Calculate PCs in the reference
-ref_pcs<-plink_score(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'), center = F)
+ref_pcs<-plink_score(pfile = opt$ref_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 
 # Scale across all individuals
 ref_pcs_centre_scale <- score_mean_sd(scores = ref_pcs)
@@ -229,7 +229,7 @@ saveRDS(model$finalModel, paste0(opt$output,'.model.rds'))
 #####
 
 log_add(log_file = log_file, message = 'Calculating PCs in the target sample.')
-targ_pcs<-plink_score(pfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'), center = F)
+targ_pcs<-plink_score(pfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 targ_pcs_scaled<-score_scale(score = targ_pcs, ref_scale = ref_pcs_centre_scale)
 
 ###

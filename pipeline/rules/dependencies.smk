@@ -431,7 +431,7 @@ if str(config.get("restrict_to_target_variants", "True")).lower() in ["t", "true
     raise ValueError(f"User cannot specify restrict_to_target_variants without target_list.")
 
 if config['refdir'] == 'NA':
-    # If using the dense reference, update refdir path and set restrict_to_target_variants to True
+    # If using the dense reference, update refdir path
     if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
       if str(config.get("keep_ambiguous", "False")).lower() in ["f", "false"]:
         refdir = f"{resdir}/data/ref_dense"
@@ -439,14 +439,12 @@ if config['refdir'] == 'NA':
         refdir = f"{resdir}/data/ref_dense_incl_ambig"
       
       ref_input=f"{refdir}/ref.pop.txt"
-      if 'target_list' in config and config["target_list"] != 'NA':
-        config["restrict_to_target_variants"] = "True"
     else:
       refdir = f"{resdir}/data/ref"
       ref_input=f"{refdir}/ref.pop.txt"
       
       if str(config.get("keep_ambiguous", "False")).lower() in ["t", "true"]:
-        print("NOTE: keep_ambiguous=T has no effect when dense_reference=F; "
+        print("NOTE: keep_ambiguous=T has no effect with default refdir and dense_reference=F; "
               "the default sparse (HapMap3) reference does not contain ambiguous variants.")
 else:
     if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
@@ -1327,7 +1325,7 @@ rule download_dense_ref:
     }} > {log} 2>&1
     """
 
-# Download preprocessed reference data (1KG+HGDP Dense)
+# Download preprocessed reference data (1KG+HGDP Dense with ambiguous)
 rule download_dense_ref_incl_ambig:
   output:
     f"{resdir}/data/ref_dense_incl_ambig/ref.pop.txt"

@@ -62,14 +62,6 @@ target_snp<-read_geno(target = opt$target, format = opt$format)
 
 log_add(log_file = log_file, message = paste0('Target data contains ', nrow(target_snp),' variants.'))
 
-# Throw an error if there are not enough SNPs in the target data
-if(opt$require_reference_overlap){
-  if(nrow(target_snp) < nrow(ref)*0.9){
-    log_add(log_file = log_file, message = 'Error: Check your target data has been imputed already.')
-    stop("Check your target data has been imputed already.")
-  }
-}
-
 ###################
 # Determine target genome build
 ###################
@@ -106,13 +98,6 @@ matched <- which((ref_target$IUPAC.x == ref_target$IUPAC.y) | flip)
 ref_target<-ref_target[matched,]
 
 log_add(log_file = log_file, message = paste0('Target contains ', nrow(ref_target),' reference variants.'))
-
-if(opt$require_reference_overlap){
-  if(nrow(ref_target) < nrow(ref)*0.7){
-    log_add(log_file = log_file, message = 'Error: Less than 70% of reference variants are present in the target.')
-    stop("Less than 70% of reference variants are present in the target")
-  }
-}
 
 # To avoid issues due to duplicate IDs, we must extract variants based on original ID, update IDs manually to the reference RSID, and then extract those SNPs from the PLINK files.
 write.table(ref_target$SNP.x, paste0(tmp_dir,'/extract_list_1.txt'), col.names = F, row.names = F, quote=F)
