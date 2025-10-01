@@ -15,7 +15,9 @@ make_option("--geno", action="store", default=0.02, type='numeric',
 make_option("--hwe", action="store", default=1e-6, type='numeric',
     help="Hardy Weinberg p-value threshold. [optional]"),
 make_option("--n_pcs", action="store", default=6, type='numeric',
-		help="Number of PCs [optional]"),
+    help="Number of PCs [optional]"),
+make_option("--extract", action="store", default=NULL, type='numeric',
+    help="List of variancs to restrict PCA to [optional]"),
 make_option("--plink2", action="store", default='plink2', type='character',
 		help="Path PLINKv2 software binary [optional]"),
 make_option("--output", action="store", default=NULL, type='character',
@@ -80,6 +82,15 @@ if(!is.null(opt$ref_keep)){
   opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset.chr')
 } else {
   opt$ref_plink_chr_subset<-opt$ref_plink_chr
+}
+
+###########
+# Extract opt$extract
+###########
+
+if(!is.null(opt$extract)){
+  plink_subset(chr = CHROMS, extract = opt$extract, plink2 = opt$plink2, pfile = opt$ref_plink_chr, out = paste0(tmp_dir,'/ref_subset.chr'))
+  opt$ref_plink_chr_subset<-paste0(tmp_dir,'/ref_subset.chr')
 }
 
 ###########

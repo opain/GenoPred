@@ -459,6 +459,11 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 	score <- fread(score)
 
 	log_add(log_file = log_file, message = paste0('Original score file contains ', nrow(score),' variants.'))
+
+	# Remove variants with no effect
+	score <- score[score$effect_weight != 0,]
+	log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing variant with effect size of zero.'))
+	n_snp_orig <- nrow(score)
 	
 	# Check whether harmonised columns present
 	if(any(c("hm_rsID", "hm_chr", "hm_pos") %in% names(score))){
@@ -489,7 +494,19 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
         log_add(log_file = log_file, message = 'A2 is missing so using PGSC inferred A2.')
       }
     }
-
+    
+	  # Remove variants that were not mapped during harmonisation
+	  score <- score[!is.na(score$hm_pos),]
+	  log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing variants that were not mapped during PGSC harmonisation.'))
+	  
+	  # Remove variants that have no A2 information
+	  score <- score[score$other_allele != '',]
+	  log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants missing inferred A2 information'))
+	  
+	  # Remove variants with multiple inferred A2 alleles
+	  score <- score[!grepl('/', score$other_allele), ]
+	  log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing multi-allelic variants with unspecified A2 allele.'))
+	  
 		# Relabel header
 		score <- score[, names(score) %in% c('hm_rsID','hm_chr','hm_pos','effect_allele','other_allele','effect_weight'), with = F]
 		names(score)[names(score) == 'hm_rsID'] <- 'SNP'
@@ -522,6 +539,7 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 	  # Remove for 'chr' string in CHR column
 	  score$CHR <- gsub('chr', '', score$CHR)
 	  score <- score[score$CHR %in% chr,]
+	  log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing those with chromosome not in: ', paste(chr, collapse = ', ')))
 	}
 	
 	# Remove columns that are all na
@@ -529,13 +547,15 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 	
 	# Remove duplicate variants, retaining the row with larger effect
 	score<-score[rev(abs(order(score$effect_weight))),]
-	if('SNP' %in% names(score)){
-	  score<-score[!duplicated(paste0(score$SNP,':', score$A1, ':', score$A2)),]
-	} else {
+	if(all(c('CHR','BP') %in% names(score))){
   	score<-score[!duplicated(paste0(score$CHR,':', score$BP,':', score$A1, ':', score$A2)),]
-	}
+  } else {
+    score<-score[!duplicated(paste0(score$SNP,':', score$A1, ':', score$A2)),]
+  }
 	
-	return(score)
+	log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing duplicates.'))
+	
+	return(list(n_snp_orig = n_snp_orig, score = score))
 }
 
 
@@ -893,9 +913,18 @@ rel_pgs_r2_missing_eigen <- function(ld_dir, score_df, f_miss) {
   den_sum <- 0.0
   num_sum <- 0.0
   
-  for (b in unique(snp_info$Block)) {
+  nz <- which(score_df$BETA != 0)
+  if (length(nz) == 0L) {
+    return(list(relative_R2 = NA_real_, n_in_ref = 0L))
+  }
+  nz_blocks <- unique(snp_info$Block[nz])
+  
+  for (b in nz_blocks) {
     idx_b <- which(snp_info$Block == b)
     if (length(idx_b) == 0) next
+    
+    # skip reading eigen if no non-zero SNPs in this block
+    if (!any(score_df$BETA[idx_b] != 0)) next
     
     eig <- readEig(ldDir = ld_dir, block = b)
     

@@ -88,12 +88,8 @@ if(pgsc_header){
 
 # Read in the score file
 score <- read_score(score = opt$score, chr = CHROMS, log_file = log_file)
-log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing duplicates.'))
-
-# Remove variants with no effect
-score <- score[score$effect_weight != 0,]
-log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing variant with effect size of zero.'))
-n_snp_orig <- nrow(score)
+n_snp_orig <- score$n_snp_orig
+score <- score$score
 
 #####
 # Insert IUPAC codes into target
@@ -101,7 +97,6 @@ n_snp_orig <- nrow(score)
 
 # Insert IUPAC codes into target
 score$IUPAC<-snp_iupac(score$A1, score$A2)
-
 log_add(log_file = log_file, message = paste0('Score file contains ', sum(score$IUPAC %in% c('S','W')), ' ambiguous variants.'))
 
 #####
@@ -149,7 +144,10 @@ if(chr_bp_avail){
 			# Rename columns prior to merging with target
 			names(ref_i)<-paste0('REF.',names(ref_i))
 			ref_i<-ref_i[, c('REF.CHR','REF.SNP',paste0('REF.BP_',target_build),'REF.A1','REF.A2','REF.IUPAC'), with=F]
-
+      
+			# Remove duplicate variants from ref (sometimes same variant has multiple RSID)
+			ref_i <- ref_i[!duplicated(paste0(ref_i[[paste0('REF.BP_',target_build)]],':', ref_i$REF.IUPAC)),]
+			
 			# Subset chromosome i from target
 			targ_i<-targ[targ$CHR == i,]
 
@@ -172,7 +170,12 @@ if(chr_bp_avail){
 			# Retain reference SNP and REF.FREQ data
 			matched<-matched[, names(matched) %in% c('CHR','BP','REF.SNP', 'A1','A2','effect_weight'), with=F]
 			names(matched)[names(matched) == 'REF.SNP']<-'SNP'
-
+      
+			if(nrow(matched) < nrow(targ_i)){
+			  print(matched)
+			  print(targ_i)
+			}
+			
 			targ_matched<-rbind(targ_matched, matched)
 		}
 	}

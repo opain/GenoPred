@@ -11,6 +11,7 @@ rule ref_pca_i:
     rules.install_genoutils.output,
     f"{resdir}/last_version.txt",
     "../Scripts/ref_pca/ref_pca.R",
+    f"{resdir}/data/benchmarks/download_hm3_snplist.txt"
   output:
     f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
   conda:
@@ -26,6 +27,7 @@ rule ref_pca_i:
     "Rscript ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ref_keep {params.ref_keep} \
+      --extract {resdir}/data/hm3_snplist/w_hm3.snplist \
       --pop_data {refdir}/ref.pop.txt \
       --output {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
       --test {params.testing} > {log} 2>&1"

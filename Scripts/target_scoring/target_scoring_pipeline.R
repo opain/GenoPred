@@ -139,7 +139,13 @@ targ_pvar <- targ_pvar[, 'SNP', with = F]
 
 targ_v_miss <- merge(targ_pvar, targ_v_miss, by.x = 'SNP', by.y = 'ID', all.x = T)
 targ_v_miss[is.na(targ_v_miss)] <- 1
-  
+
+ld_dir <- ifelse(
+  as.logical(read_param(config = opt$config, param = 'dense_reference', return_obj = F)),
+  paste0(resdir, '/data/sbayesrc_ref_dense/', opt$population),
+  paste0(resdir, '/data/sbayesrc_ref/', opt$population)
+)
+
 check <- foreach(i = 1:nrow(score_files), .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
   # Decide whether to use mapped or unmapped score file
   # Unmapped should be used when score file contains variants that are not in the reference sample
@@ -180,14 +186,10 @@ check <- foreach(i = 1:nrow(score_files), .combine = rbind, .options.multicore =
   targ_v_miss <- merge(score_i[, 'SNP', with = F], targ_v_miss, by = 'SNP', all.x = T)
   targ_v_miss[is.na(targ_v_miss)] <- 1
   
-  if(file.exists(paste0(resdir, '/data/sbayesrc_ref/', opt$population))){
+  if(file.exists(ld_dir)){
     # Estimate relative PGS R2
     rel_r2 <- rel_pgs_r2_missing_eigen(
-      ld_dir = ifelse(
-          as.logical(read_param(config = opt$config, param = 'dense_reference', return_obj = F)),
-          paste0(resdir, '/data/sbayesrc_ref_dense/', opt$population),
-          paste0(resdir, '/data/sbayesrc_ref/', opt$population)
-        ),
+      ld_dir = ld_dir,
       score_df = score_i,
       f_miss = targ_v_miss)
   } else {

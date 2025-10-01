@@ -65,7 +65,8 @@ rule pc_projection_i:
     "../envs/analysis.yaml"
   params:
     testing=config["testing"],
-    target_keep=lambda wildcards: "NA" if wildcards.population == "TRANS" else f"{outdir}/{wildcards.name}/ancestry/keep_files/model_based/{wildcards.population}.keep"
+    target_keep=lambda wildcards: "NA" if wildcards.population == "TRANS" else f"{outdir}/{wildcards.name}/ancestry/keep_files/model_based/{wildcards.population}.keep",
+    sbayesrc_ldref=lambda wildcards: f"{sbayesrc_ldref}/{wildcards.population}"
   shell:
     "Rscript ../Scripts/target_scoring/target_scoring.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
@@ -73,6 +74,7 @@ rule pc_projection_i:
       --ref_freq_chr {refdir}/freq_files/{wildcards.population}/ref.{wildcards.population}.chr \
       --ref_score {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.eigenvec.var.gz \
       --ref_scale {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs.{wildcards.population}.scale \
+      --ref_ld_eigen {params.sbayesrc_ldref} \
       --plink2 plink2 \
       --test {params.testing} \
       --output {outdir}/{wildcards.name}/pcs/projected/{wildcards.population}/{wildcards.name}-{wildcards.population} > {log} 2>&1"

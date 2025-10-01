@@ -9,7 +9,9 @@ make_option("--target_plink_chr", action="store", default=NULL, type='character'
 make_option("--target_keep", action="store", default=NA, type='character',
 		help="Path to keep file for target [optional]"),
 make_option("--ref_score", action="store", default=NULL, type='character',
-		help="Path to reference scoring files [required]"),
+    help="Path to reference scoring files [required]"),
+make_option("--ref_ld_eigen", action="store", default=NULL, type='character',
+    help="Path to reference LD eigen matrix [required]"),
 make_option("--ref_freq_chr", action="store", default=NULL, type='character',
 		help="Path to per chromosome reference PLINK2 .afreq files [required]"),
 make_option("--plink2", action="store", default='plink2', type='character',
@@ -68,7 +70,7 @@ log_file <- paste0(opt$output,'.log')
 log_header(log_file = log_file, opt = opt, script = 'target_scoring.R', start.time = start.time)
 
 # Set ref_keep to NULL if NA
-if(!is.null(opt$target_keep) && opt$target_keep == 'NA'){
+if(!is.null(opt$target_keep) && (opt$target_keep == 'NA' | is.na(opt$target_keep))){
   opt$target_keep<-NULL
 }
 
@@ -79,6 +81,70 @@ if(!is.na(opt$test) && opt$test == 'NA'){
 if(!is.na(opt$test)){
   CHROMS <- as.numeric(gsub('chr','',opt$test))
 }
+
+###
+# Check overlap between score files and target
+###
+
+log_add(log_file = log_file, message = paste0('Checking overlap between score files and target...'))
+
+# Create object showing missiness of variants in target
+targ_v_miss<-NULL
+for(chr in CHROMS){
+  targ_v_miss <- rbind(
+    targ_v_miss,
+    fread(
+      paste0(opt$target_plink_chr, chr, '.vmiss')
+    )
+  )
+}
+targ_v_miss <- targ_v_miss[, c('ID','F_MISS'), with = F]
+
+targ_pvar <- read_pvar(dat = opt$target_plink_chr, chr = CHROMS)
+targ_pvar <- targ_pvar[, 'SNP', with = F]
+
+targ_v_miss <- merge(targ_pvar, targ_v_miss, by.x = 'SNP', by.y = 'ID', all.x = T)
+targ_v_miss[is.na(targ_v_miss)] <- 1
+
+# Read in score file
+score_file <- fread(opt$ref_score, nThread = 1)
+
+# Estimate overlap for each score
+overlap_all <- NULL
+for(i in names(score_file)[-1:-3]){
+  score_file_i <- score_file[, c(1:3, which(names(score_file) == i)), with = F]
+  
+  names(score_file_i)[4]<-'BETA'
+  
+  # Retain rows with non-zero effect
+  score_file_i <- score_file_i[score_file_i$BETA != 0,]
+  
+  # Set variants in score file that are not in target to missing
+  targ_v_miss <- merge(score_file_i[, 'SNP', with = F], targ_v_miss, by = 'SNP', all.x = T)
+  targ_v_miss[is.na(targ_v_miss)] <- 1
+  
+  if(file.exists(opt$ref_ld_eigen)){
+    # Estimate relative PGS R2
+    rel_r2 <- rel_pgs_r2_missing_eigen(
+      ld_dir = opt$ref_ld_eigen,
+      score_df = score_file_i,
+      f_miss = targ_v_miss)
+  } else {
+    rel_r2 <- list(n_in_ref = NA, relative_R2 = NA)
+  }
+  
+  overlap <- data.table(
+    name = i,
+    n_nz = nrow(score_file_i),
+    mean_nz_miss = mean(targ_v_miss$F_MISS[targ_v_miss$SNP %in% score_file_i$SNP]),
+    n_in_eig = rel_r2$n_in_ref,
+    rel_r2 = rel_r2$relative_R2
+  )
+  
+  overlap_all <- rbind(overlap_all, overlap)
+}
+
+fwrite(overlap_all, paste0(opt$output,'.missingness'), sep=' ', na='NA', quote=F, nThread = 1)
 
 #####
 # Perform polygenic risk scoring
