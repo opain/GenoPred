@@ -893,7 +893,13 @@ readEig <- function(ldDir, block){
   return(list(m=m, k=k, sumLambda=sumLambda, thresh=thresh, lambda=lambda, U=mat))
 }
 
-rel_pgs_r2_missing_eigen <- function(ld_dir, score_df, f_miss) {
+rel_pgs_r2_missing_eigen <- function(ld_dir,
+                                     score_df,
+                                     f_miss,
+                                     metric = c("correlation", "variance")) {
+  
+  metric <- match.arg(metric)
+  
   snp_info <- fread(file.path(ld_dir, "snp.info"))
   snp_info$S <- sqrt(2 * snp_info$A1Freq * (1 - snp_info$A1Freq))
   names(snp_info)[names(snp_info) == 'ID'] <- 'SNP'
@@ -910,8 +916,10 @@ rel_pgs_r2_missing_eigen <- function(ld_dir, score_df, f_miss) {
   score_df <- merge(score_df, f_miss, by = 'SNP', sort = F, all.x =T)
   score_df$F_MISS[is.na(score_df$F_MISS)] <- 1
   
-  den_sum <- 0.0
-  num_sum <- 0.0
+  den_sum <- 0.0                # w' R w
+  sig_sum <- 0.0                # w' M R M w
+  cov_sum <- 0.0                # w' M R w
+  noise_sum <- 0.0              # sum_j (1 - c_j) w_j^2  nz <- which(score_df$BETA != 0)
   
   nz <- which(score_df$BETA != 0)
   if (length(nz) == 0L) {
@@ -930,29 +938,151 @@ rel_pgs_r2_missing_eigen <- function(ld_dir, score_df, f_miss) {
     
     # weights
     w_b <- snp_info$S[idx_b] * score_df$BETA[idx_b]
-    
+
     # attenuation
-    call_rate <- 1 - score_df$F_MISS[idx_b]
-    w_b_mask  <- sqrt(call_rate) * w_b
+    callb <- 1 - score_df$F_MISS[idx_b]
     
     # quadratic forms
     Ut_w  <- as.numeric(crossprod(eig$U, w_b))
-    den_b <- sum((sqrt(eig$lambda) * Ut_w)^2)
+    Ut_wm  <- as.numeric(crossprod(eig$U, sqrt(callb) * w_b))
     
-    Ut_wm <- as.numeric(crossprod(eig$U, w_b_mask))
-    num_b <- sum((sqrt(eig$lambda) * Ut_wm)^2)
-    
-    den_sum <- den_sum + den_b
-    num_sum <- num_sum + num_b
+    den_sum   <- den_sum   + sum(eig$lambda * Ut_w^2)
+    sig_sum   <- sig_sum   + sum(eig$lambda * Ut_wm^2)
+    cov_sum   <- cov_sum   + sum(eig$lambda * Ut_w * Ut_wm)
+    noise_sum <- noise_sum + sum((1 - callb) * (w_b^2))
   }
   
-  rel <- if (den_sum > 0) num_sum / den_sum else NA_real_
-  list(relative_R2 = rel, n_in_ref = n_in_ref)
+  if (metric == "variance") {
+    rel <- if (den_sum > 0) sig_sum / den_sum else NA_real_
+  } else { # correlation-consistent
+    denom_imp <- sig_sum + noise_sum
+    rel <- if (den_sum > 0 && denom_imp > 0) (cov_sum^2) / (den_sum * denom_imp) else NA_real_
+  }
+  
+  list(relative_R2 = rel,
+       parts = list(den = den_sum, sig = sig_sum, cov = cov_sum, noise = noise_sum),
+       n_in_ref = n_in_ref)
 }
 
-# ---- example usage ----
-# ld_dir      <- "/path/to/LD_EUR_eigen/"
-# score_df    <- fread("/path/to/pgs_score.txt")[, .(SNP, BETA)]
-# present_snps <- scan("/path/to/target_present_snps.txt", what = "character")  # one SNP ID per line
-# out <- rel_pgs_r2_missing_eigen(ld_dir, score_df, present_snps)
-# out$relative_R2
+rel_pgs_r2_missing_eigen_multi_par <- function(ld_dir,
+                                               score_df,   # columns: SNP,A1,A2,<BETA_set1>,<BETA_set2>,...
+                                               f_miss,     # columns: SNP,F_MISS  (call = 1 - F_MISS)
+                                               metric = c("correlation", "variance")) {
+  metric <- match.arg(metric)
+  
+  # ---- LD SNP info ----
+  snp_info <- fread(file.path(ld_dir, "snp.info"))
+  setnames(snp_info, "ID", "SNP")
+  snp_info[, S := sqrt(2 * A1Freq * (1 - A1Freq))]
+  snp_info[, idx := .I]
+  
+  # ---- Identify BETA columns, map/flip, reorder to LD order ----
+  base_cols <- c("SNP","A1","A2")
+  stopifnot(all(base_cols %in% names(score_df)))
+  beta_cols <- setdiff(names(score_df), base_cols)
+  if (!length(beta_cols)) stop("No BETA columns found after SNP/A1/A2.")
+  
+  sc <- score_df[, c(base_cols, beta_cols), with = FALSE]
+  sc <- map_score(ref = snp_info, score = sc)
+  
+  ord  <- match(snp_info$SNP, sc$SNP)
+  keep <- which(!is.na(ord))
+  if (!length(keep)) stop("No SNPs from the score file found in LD reference.")
+  snp_info <- snp_info[keep]
+  ord      <- ord[keep]
+  sc       <- sc[ord]
+  
+  # ---- Merge missingness to get call ----
+  sc <- merge(sc, f_miss, by = "SNP", all.x = TRUE, sort = FALSE)
+  sc[is.na(F_MISS), F_MISS := 1]                         # or 0 if you prefer "unknown = perfect"
+  sc[, call := pmin(pmax(1 - F_MISS, 0), 1)]
+  
+  # Count non-zero-in-ref per set (for reporting)
+  n_in_ref <- vapply(beta_cols, \(cl) sum(sc[[cl]] != 0 & !is.na(sc[[cl]])), integer(1))
+  
+  K <- length(beta_cols)
+  blocks <- unique(snp_info$Block)
+  
+  # optional: avoid nested threading inside BLAS per worker
+  # if (requireNamespace("RhpcBLASctl", quietly = TRUE))
+  #   clusterEvalQ(cl, { RhpcBLASctl::omp_set_num_threads(1); RhpcBLASctl::blas_set_num_threads(1) })
+  
+  # ---- Parallel loop over blocks ----
+  acc <- foreach(b = blocks,
+                 .combine = function(a, b) {
+                   # elementwise sum combiner for named numeric vectors
+                   if (is.null(a)) return(b)
+                   a[names(b)] <- a[names(b)] + b[names(b)]
+                   a
+                 },
+                 .multicombine = TRUE,
+                 .inorder = FALSE,
+                 .export = c("readEig"),
+                 .packages = "data.table") %dopar% {
+                   
+                   idx_b <- which(snp_info$Block == b)
+                   if (!length(idx_b)) return(setNames(numeric(4*K), NULL))
+                   
+                   # Skip reading eigen if all betas zero in this block
+                   any_nonzero <- FALSE
+                   for (k in seq_len(K)) {
+                     if (any(sc[[beta_cols[k]]][idx_b] != 0, na.rm = TRUE)) { any_nonzero <- TRUE; break }
+                   }
+                   if (!any_nonzero) {
+                     out <- numeric(4*K)
+                     names(out) <- c(paste0("den_", beta_cols),
+                                     paste0("sig_", beta_cols),
+                                     paste0("cov_", beta_cols),
+                                     paste0("noise_", beta_cols))
+                     return(out)
+                   }
+                   
+                   eig <- readEig(ld_dir, b)
+                   
+                   S_b    <- snp_info$S[idx_b]
+                   call_b <- sc$call[idx_b]
+                   
+                   # BETA matrix for this block (m_b x K)
+                   Bmat <- sapply(beta_cols, function(cl) sc[[cl]][idx_b])
+                   Bmat[is.na(Bmat)] <- 0
+                   
+                   W_b  <- S_b * Bmat
+                   Wm_b <- (sqrt(call_b) * S_b) * Bmat
+                   
+                   Ut_W  <- crossprod(eig$U, W_b)          # (k_eig x K)
+                   Ut_Wm <- crossprod(eig$U, Wm_b)         # (k_eig x K)
+                   
+                   den_b <- colSums((sqrt(eig$lambda) * Ut_W )^2)
+                   sig_b <- colSums((sqrt(eig$lambda) * Ut_Wm)^2)
+                   cov_b <- colSums((eig$lambda) * Ut_W * Ut_Wm)
+                   noise_b <- colSums((1 - call_b) * (W_b^2))
+                   
+                   out <- c( setNames(den_b,   paste0("den_",   beta_cols)),
+                             setNames(sig_b,   paste0("sig_",   beta_cols)),
+                             setNames(cov_b,   paste0("cov_",   beta_cols)),
+                             setNames(noise_b, paste0("noise_", beta_cols)) )
+                   out
+                 }
+  
+  # ---- Reduce totals per set ----
+  get_vec <- function(prefix) unname(acc[paste0(prefix, "_", beta_cols)])
+  den_sum   <- get_vec("den")
+  sig_sum   <- get_vec("sig")
+  cov_sum   <- get_vec("cov")
+  noise_sum <- get_vec("noise")
+  
+  # ---- Final metric ----
+  if (metric == "variance") {
+    rel <- ifelse(den_sum > 0, sig_sum / den_sum, NA_real_)
+  } else {
+    denom_imp <- sig_sum + noise_sum
+    rel <- ifelse(den_sum > 0 & denom_imp > 0, (cov_sum^2) / (den_sum * denom_imp), NA_real_)
+  }
+  
+  data.table(
+    beta_set    = beta_cols,
+    relative_R2 = rel,
+    den = den_sum, sig = sig_sum, cov = cov_sum, noise = noise_sum,
+    n_in_ref = n_in_ref
+  )
+}
