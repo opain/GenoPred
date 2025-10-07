@@ -108,6 +108,9 @@ if(as.logical(read_param(config = opt$config, param = 'restrict_to_target_varian
 # Read in reference SNP data
 ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('CHR','SNP','A1','A2'), with=F]
 
+# Read reference population data
+pop_data <- read_pop_data(paste0(refdir, '/ref.pop.txt'))
+
 # We will process score files and perform target scoring for one chromosome for efficiency
 score_files_orig <- score_files
 for(chr_i in CHROMS){
@@ -117,11 +120,6 @@ for(chr_i in CHROMS){
 
   # Initialize a matrix running PGS sum
   if(chr_i == CHROMS[1]){
-    
-    scores_ids <- fread(cmd=paste0('cut -f 1 ', opt$ref_plink_chr, CHROMS[1], '.psam'), header = T)
-    names(scores_ids)<-gsub('\\#', '', names(scores_ids))
-    scores_ids <- data.table(FID = scores_ids$IID, IID = scores_ids$IID)
-    
     cols <- NULL
     for(i in 1:nrow(score_files)){
       cols_i <- names(fread(cmd = paste0('zcat ', outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'.score.gz | head -n 1'), header=T))[-1:-3]
@@ -129,11 +127,36 @@ for(chr_i in CHROMS){
       cols <- c(cols, cols_i)
     }
     
-    scores <- matrix(
-      nrow = nrow(scores_ids),
-      ncol = length(cols),
-      data = 0
-    )
+    scores <- list()
+    scores_ids <- list()
+    for(pop in unique(pop_data$POP)){
+      scores_ids[[pop]] <- 
+      scores_ids[[pop]] <- fread(paste0(refdir, '/keep_files/', pop,'.keep'), header=F)
+      if (ncol(scores_ids[[pop]]) == 2) {
+        scores_ids[[pop]] <- data.table(FID = scores_ids[[pop]]$V1,
+                                        IID = scores_ids[[pop]]$V2)
+      } else {
+        scores_ids[[pop]] <- data.table(FID = scores_ids[[pop]]$V1,
+                                        IID = scores_ids[[pop]]$V1)
+      }
+      
+      scores[[pop]] <- matrix(
+        nrow = nrow(scores_ids[[pop]]),
+        ncol = length(cols),
+        data = 0
+      )
+    }
+    if(opt$continuous){
+      scores_ids[['TRANS']] <- fread(cmd=paste0('cut -f 1 ', opt$ref_plink_chr, CHROMS[1], '.psam'), header = T)
+      names(scores_ids[['TRANS']])<-gsub('\\#', '', names(scores_ids[['TRANS']]))
+      scores_ids[['TRANS']] <- data.table(FID = scores_ids[['TRANS']]$IID, IID = scores_ids[['TRANS']]$IID)
+      
+      scores[['TRANS']] <- matrix(
+        nrow = nrow(scores_ids[['TRANS']]),
+        ncol = length(cols),
+        data = 0
+      )    
+    }
   }
   
   #####
@@ -199,38 +222,71 @@ for(chr_i in CHROMS){
     system(paste0('rm ', paste(tmp_batch_files, collapse = " ")))
   
     # Perform polygenic risk scoring
-    scores_i <-
-      plink_score(
-        pfile = opt$ref_plink_chr,
-        chr = chr_i,
-        plink2 = opt$plink2,
-        score = paste0(tmp_dir,'/all_score.txt'),
-        threads = opt$n_cores
-      )
+    # Run for each reference population so centering is consistent in the target sample
+    for(pop in unique(pop_data$POP)){
+      scores_i <-
+        plink_score(
+          pfile = opt$ref_plink_chr,
+          chr = chr_i,
+          plink2 = opt$plink2,
+          keep = paste0(refdir, '/keep_files/', pop,'.keep'),
+          frq = paste0(refdir, '/freq_files/', pop,'/ref.', pop, '.chr'),
+          score = paste0(tmp_dir,'/all_score.txt'),
+          threads = opt$n_cores,
+          center = T
+        )
   
-    # Sum scores across chromosomes
-    # Reorder scores to match matrix
-    match_idx <- match(paste(scores_ids$FID, scores_ids$IID),
-                       paste(scores_i$FID, scores_i$IID))
-    
-    # In-place addition: for each score column
-    scores_i<-as.matrix(scores_i[,-1:-2])
-    for (j in cols) {
-      scores[, which(cols == j)] <- scores[, which(cols == j)] + scores_i[match_idx, which(colnames(scores_i) == j)]
+      # Sum scores across chromosomes
+      # Reorder scores to match matrix
+      match_idx <- match(paste(scores_ids[[pop]]$FID, scores_ids[[pop]]$IID),
+                         paste(scores_i$FID, scores_i$IID))
+      
+      # In-place addition: for each score column
+      scores_i <- as.matrix(scores_i[,-1:-2])
+      for (j in cols) {
+        scores[[pop]][, which(cols == j)] <- scores[[pop]][, which(cols == j)] + scores_i[match_idx, which(colnames(scores_i) == j)]
+      }
+      rm(scores_i)
     }
-
+    
+    if(opt$continuous){
+      scores_i <-
+        plink_score(
+          pfile = opt$ref_plink_chr,
+          chr = chr_i,
+          plink2 = opt$plink2,
+          frq = paste0(refdir, '/freq_files/TRANS/ref.TRANS.chr'),
+          score = paste0(tmp_dir,'/all_score.txt'),
+          threads = opt$n_cores,
+          center = T
+        )
+      
+      # Sum scores across chromosomes
+      # Reorder scores to match matrix
+      match_idx <- match(paste(scores_ids[['TRANS']]$FID, scores_ids[['TRANS']]$IID),
+                         paste(scores_i$FID, scores_i$IID))
+      
+      # In-place addition: for each score column
+      scores_i <- as.matrix(scores_i[,-1:-2])
+      for (j in cols) {
+        scores[['TRANS']][, which(cols == j)] <- scores[['TRANS']][, which(cols == j)] + scores_i[match_idx, which(colnames(scores_i) == j)]
+      }
+      rm(scores_i)
+    }
+    
     system(paste0('rm ', tmp_dir, '/all_score.txt'))
     system(paste0('rm ', tmp_dir, '/row_index.txt'))
     system(paste0('rm ', tmp_dir, '/map.txt'))
-    rm(scores_i)
     gc()
   }
 }
 
 # Combine score with IDs
-scores <- data.table(scores)
-setnames(scores, cols)
-scores <- cbind(scores_ids, scores)
+for(pop in names(scores)){
+  scores[[pop]] <- data.table(scores[[pop]])
+  setnames(scores[[pop]], cols)
+  scores[[pop]] <- cbind(scores_ids[[pop]], scores[[pop]])
+}
 
 ###
 # Scale the polygenic scores based on the reference
@@ -238,26 +294,26 @@ scores <- cbind(scores_ids, scores)
 
 log_add(log_file = log_file, message = paste0('Adjusting PGS for ancestry.'))
 
-pop_data <- read_pop_data(paste0(refdir, '/ref.pop.txt'))
-
 for(i in 1:nrow(score_files)){
-  scores_i <- scores[, c('FID','IID', names(scores)[grepl(paste0('^score_file_', i, '\\.'), names(scores))]), with=F]
-  names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), 'SCORE_', names(scores_i))
-
   output_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i], '/', score_files$name[i], '/ref-', score_files$name[i])
 
   if(opt$continuous){
+    scores_i <- scores[['TRANS']][, c('FID','IID', names(scores[['TRANS']])[grepl(paste0('^score_file_', i, '\\.'), names(scores[['TRANS']]))]), with=F]
+    names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), 'SCORE_', names(scores_i))
+    
     # Derive trans-ancestry PGS models and estimate PGS residual scale
     model_trans_pgs(scores=scores_i, pcs=paste0(outdir, '/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles'), output=output_i)
   }
   
   # Calculate scale within each reference population
   for(pop_i in unique(pop_data$POP)){
-    ref_pgs_scale_i <- score_mean_sd(scores = scores_i, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
+    scores_i <- scores[[pop_i]][, c('FID','IID', names(scores[[pop_i]])[grepl(paste0('^score_file_', i, '\\.'), names(scores[[pop_i]]))]), with=F]
+    names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), 'SCORE_', names(scores_i))
+    
+    ref_pgs_scale_i <- score_mean_sd(scores = scores_i)
     fwrite(ref_pgs_scale_i, paste0(output_i, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
-    scores_i_pop<-scores_i[paste0(scores_i$FID, '_', scores_i$IID) %in% paste0(pop_data$FID[pop_data$POP == pop_i], '_', pop_data$IID[pop_data$POP == pop_i]),]
-    scores_i_pop<-score_scale(score=scores_i_pop, ref_scale=ref_pgs_scale_i)
-    fwrite(scores_i_pop, paste0(output_i, '-', pop_i, '.profiles'), sep=' ', na='NA', quote=F)
+    scores_i<-score_scale(score=scores_i, ref_scale=ref_pgs_scale_i)
+    fwrite(scores_i, paste0(output_i, '-', pop_i, '.profiles'), sep=' ', na='NA', quote=F)
   }
 }
 

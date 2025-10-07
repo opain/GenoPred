@@ -1893,74 +1893,61 @@ library(cowplot)
 library(GenoUtils)
 library(foreach)
 library(doMC)
-registerDoMC(80)
+registerDoMC(20)
 
 source('../functions/misc.R')
 source_all('../functions')
 
 score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
-info_thresh <- c(0.5, 0.6, 0.7, 0.8)
+
+info_thresh <- c(0.6)
+
+# Combine all the score files
+ref <- fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        score_list$name[1],
+        '/ref-',
+        score_list$name[1],
+        '.score.gz'
+      ), nrows = 1000)[, c('SNP','A1','A2'), with=F]
+
+betas <- foreach(i = 1:10, .combine = cbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        score_list$name[i],
+        '/ref-',
+        score_list$name[i],
+        '.score.gz'
+      ), nThread= 1, nrows = 1000) [,-1:-3, with = F]
+}
+
+colnames(betas)<-score_list$name[1:10]
+score_file<-data.table(ref, betas)
+
+# Restrict score file to rows with non-zero betas
+score_file <- score_file[apply(betas, 1, function(x) !all(x == 0)),]
 
 # Restrict score files to variants present in target sample for comparability
 freq    <- fread("~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target.afreq")
 freq <- freq[, c('ID','REF','ALT','ALT_FREQS'), with = F]
 names(freq)<-c('SNP','A2','A1','FREQ')
 
-jobs <-
-  CJ(
-    id = score_list$name,
-    test = info_thresh,
-    unique = TRUE
-  )
+score_file <- score_file[score_file$SNP %in% freq$SNP,]
 
-foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  if(file.exists(
-    paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-      jobs$id[i],
-      '/ref-',
-      jobs$id[i],
-      '.mask_', 
-      jobs$test[i],
-      '.rsq.txt'
-    ))){
-    return(NULL)
-  }
-  
-  print(paste0(jobs$id[i],':', jobs$test[i]))
-  
-  snplist <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/rsq_p',jobs$test[i],'.list'), header=F)$V1
-  
-  # Read in score file
-  score_i <- fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-        jobs$id[i],
-        '/ref-',
-        jobs$id[i],
-        '.unmapped.score.gz'
-      ))
-  
-  names(score_i)[names(score_i) == 'SCORE_external'] <- 'BETA'
-  score_i <- score_i[, c('SNP','A1','A2','BETA'), with=F]
-  n_orig <- sum(score_i$BETA != 0)
-  
-  # Restrict to variants in target sample for comparability
-  score_i <- score_i[score_i$SNP %in% freq$SNP,]
-  score_i <- score_i[, c('SNP','A1','A2','BETA'), with=F]
-  n_in_targ <- sum(score_i$BETA != 0)
-  
-  # Create call rate data.frame
-  call_rate <- data.table(
-    SNP = score_i$SNP
-  )
-  call_rate$F_MISS <- 1
-  call_rate$F_MISS[call_rate$SNP %in% snplist] <- 0
-  
-  rel_r2 <- rel_pgs_r2_missing_eigen(
-    ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
-    score_df = score_i,
-    f_miss = call_rate, 
-    metric = 'correlation')
+# Create call rate data.frame
+snplist <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/rsq_p0.6.list'), header=F)$V1
+call_rate <- data.table(
+  SNP = score_file$SNP
+)
+call_rate$F_MISS <- 1
+call_rate$F_MISS[call_rate$SNP %in% snplist] <- 0
+
+# Calculate relative R2
+rel_r2 <- rel_pgs_r2_missing_eigen_multi_par(
+  ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
+  score_df = score_file,
+  f_miss = call_rate, 
+  metric = 'correlation')
   
   res <- data.table(
     ID = jobs$id[i],
@@ -2134,7 +2121,115 @@ ggplot(both, aes(x = both$est_rel_r2, y = both$obs_rel_r2)) +
 
 dev.off()
 
-# Good this confirms the approach is valid
+# Good this confirms the approach is valid.
+```
+
+***
+
+# Test multi-PGS R2 estimation function
+
+```{r}
+# Now estimate the relative R2 of PGS after masking variants
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(GenoUtils)
+library(foreach)
+library(doMC)
+registerDoMC(10)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
+info_thresh <- c(0.5, 0.6, 0.7, 0.8)
+
+# Restrict score files to variants present in target sample for comparability
+freq    <- fread("~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target.afreq")
+freq <- freq[, c('ID','REF','ALT','ALT_FREQS'), with = F]
+names(freq)<-c('SNP','A2','A1','FREQ')
+
+jobs <-
+  CJ(
+    id = score_list$name,
+    test = info_thresh,
+    unique = TRUE
+  )
+
+foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  if(file.exists(
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+      jobs$id[i],
+      '/ref-',
+      jobs$id[i],
+      '.mask_', 
+      jobs$test[i],
+      '.rsq.txt'
+    ))){
+    return(NULL)
+  }
+  
+  print(paste0(jobs$id[i],':', jobs$test[i]))
+  
+  snplist <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/rsq_p',jobs$test[i],'.list'), header=F)$V1
+  
+  # Read in score file
+  score_i <- fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        jobs$id[i],
+        '/ref-',
+        jobs$id[i],
+        '.score.gz'
+      ))
+  
+  names(score_i)[names(score_i) == 'SCORE_external'] <- 'BETA'
+  score_i <- score_i[, c('SNP','A1','A2','BETA'), with=F]
+  n_orig <- sum(score_i$BETA != 0)
+  
+  # Restrict to variants in target sample for comparability
+  score_i <- score_i[score_i$SNP %in% freq$SNP,]
+  score_i <- score_i[, c('SNP','A1','A2','BETA'), with=F]
+  n_in_targ <- sum(score_i$BETA != 0)
+  
+  # Create call rate data.frame
+  call_rate <- data.table(
+    SNP = score_i$SNP
+  )
+  call_rate$F_MISS <- 1
+  call_rate$F_MISS[call_rate$SNP %in% snplist] <- 0
+  
+  rel_r2 <- rel_pgs_r2_missing_eigen(
+    ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
+    score_df = score_i,
+    f_miss = call_rate, 
+    metric = 'correlation')
+  
+  res <- data.table(
+    ID = jobs$id[i],
+    group = jobs$test[i],
+    n_nz = n_orig,
+    n_in_targ = n_in_targ,
+    n_unmasked = sum(call_rate$SNP %in% snplist),
+    n_in_eig = rel_r2$n_in_ref,
+    rel_r2 = rel_r2$relative_R2
+  )
+  
+  write.table(
+    res, 
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+      jobs$id[i],
+      '/ref-',
+      jobs$id[i],
+      '.mask_', 
+      jobs$test[i],
+      '.rsq.txt'
+    ), col.names = T, row.names = F, quote = F)
+  
+  NULL
+}
 ```
 
 ***

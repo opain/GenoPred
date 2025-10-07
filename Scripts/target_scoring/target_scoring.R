@@ -159,7 +159,8 @@ scores <-
     score = opt$ref_score,
     keep = opt$target_keep,
     frq = opt$ref_freq_chr,
-    threads = opt$n_cores
+    threads = opt$n_cores,
+    center = T
   )
 
 ###

@@ -70,6 +70,13 @@ if(!is.na(opt$test)){
   CHROMS <- as.numeric(gsub('chr','',opt$test))
 }
 
+# Define eigen ld data for PGS coverage
+ld_dir <- ifelse(
+  as.logical(read_param(config = opt$config, param = 'dense_reference', return_obj = F)),
+  paste0(resdir, '/data/sbayesrc_ref_dense/', opt$population),
+  paste0(resdir, '/data/sbayesrc_ref/', opt$population)
+)
+
 # Identify score files to be combined
 score_files<-list_score_files(opt$config)
 
@@ -113,100 +120,6 @@ if(!is.null(opt$score)){
     stop('Requested score files not present in gwas_list or score_list')
   }
   score_files <- score_files[score_files$name == opt$score,]
-}
-
-###
-# Check overlap between score files and target
-###
-
-log_add(log_file = log_file, message = paste0('Checking overlap between score files and target...'))
-
-# Create object showing missiness of variants in target
-targ_v_miss<-NULL
-for(chr in CHROMS){
-  targ_v_miss <- rbind(
-    targ_v_miss,
-    fread(
-      paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr', chr, '.vmiss')
-    )
-  )
-}
-targ_v_miss <- targ_v_miss[, c('ID','F_MISS'), with = F]
-
-opt$target_plink_chr <- paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr')
-targ_pvar <- read_pvar(dat = opt$target_plink_chr, chr = CHROMS)
-targ_pvar <- targ_pvar[, 'SNP', with = F]
-
-targ_v_miss <- merge(targ_pvar, targ_v_miss, by.x = 'SNP', by.y = 'ID', all.x = T)
-targ_v_miss[is.na(targ_v_miss)] <- 1
-
-ld_dir <- ifelse(
-  as.logical(read_param(config = opt$config, param = 'dense_reference', return_obj = F)),
-  paste0(resdir, '/data/sbayesrc_ref_dense/', opt$population),
-  paste0(resdir, '/data/sbayesrc_ref/', opt$population)
-)
-
-check <- foreach(i = 1:nrow(score_files), .combine = rbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  # Decide whether to use mapped or unmapped score file
-  # Unmapped should be used when score file contains variants that are not in the reference sample
-  unmapped <- ifelse(score_files$method[i] %in% c('sbayesrc','external'), '.unmapped', '')
-  score_i_path <- paste0(
-    outdir,
-    '/reference/pgs_score_files/',
-    score_files$method[i],
-    '/',
-    score_files$name[i],
-    '/ref-',
-    score_files$name[i],
-    unmapped,
-    '.score.gz'
-  )
-  
-  # Read in score file, retaining pseudovalidated model only
-  score_i_header <- names(fread(score_i_path, nThread = 1, nrows = 2))
-  pseudo_param <- find_pseudo(config = opt$config, gwas = score_files$name[i], pgs_method = score_files$method[i])
-  cols_keep <- c(which(!grepl('^SCORE_', score_i_header)), 
-                 which(grepl(paste0('SCORE_', pseudo_param,'$'), score_i_header)))
-  
-  score_i <-
-    fread(cmd =
-      paste0(
-        'zcat ',
-        score_i_path,
-        " | cut -d ' ' -f ",
-        paste0(cols_keep, collapse = ',')
-      ), nThread = 1)
-  
-  names(score_i)[grepl('SCORE_', names(score_i))]<-'BETA'
-  
-  # Retain rows with non-zero effect
-  score_i <- score_i[score_i$BETA != 0,]
-  
-  # Set variants in score file that are not in target to missing
-  targ_v_miss <- merge(score_i[, 'SNP', with = F], targ_v_miss, by = 'SNP', all.x = T)
-  targ_v_miss[is.na(targ_v_miss)] <- 1
-  
-  if(file.exists(ld_dir)){
-    # Estimate relative PGS R2
-    rel_r2 <- rel_pgs_r2_missing_eigen(
-      ld_dir = ld_dir,
-      score_df = score_i,
-      f_miss = targ_v_miss)
-  } else {
-    rel_r2 <- list(n_in_ref = NA, relative_R2 = NA)
-  }
-  
-  overlap <- data.table(
-    name = score_files$name[i],
-    method = score_files$method[i],
-    n_nz = nrow(score_i),
-    mean_nz_miss = mean(targ_v_miss$F_MISS[targ_v_miss$SNP %in% score_i$SNP]),
-    n_in_eig = rel_r2$n_in_ref,
-    rel_r2 = rel_r2$relative_R2
-  )
-  
-  dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T, showWarnings = F)
-  fwrite(overlap, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.missingness'), sep=' ', na='NA', quote=F, nThread = 1)
 }
 
 ###
@@ -262,6 +175,8 @@ for(chr_i in CHROMS){
       backingfile = paste0(tmp_dir, '/PGS_fbm'),
       init = 0
     )
+    
+    overlap <- list()
   }
   
   #####
@@ -337,8 +252,10 @@ for(chr_i in CHROMS){
         keep = opt$target_keep,
         frq = opt$ref_freq_chr,
         threads = opt$n_cores,
-        fbm = T
+        fbm = T,
+        center = T
       )
+    
     # Sum scores across chromosomes
     # Reorder scores to match matrix
     match_idx <- match(paste(scores_ids$FID, scores_ids$IID),
@@ -353,6 +270,65 @@ for(chr_i in CHROMS){
                 scores_i$scores$rds)
     rm(scores_i)
     gc()
+    
+    ####
+    # Check PGS overlap with target
+    ####
+    
+    # Create object showing missiness of variants in target
+    targ_v_miss <- fread(paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr', chr_i, '.vmiss'))
+    targ_v_miss <- targ_v_miss[, c('ID','F_MISS'), with = F]
+    
+    opt$target_plink_chr <- paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr')
+    targ_pvar <- read_pvar(dat = opt$target_plink_chr, chr = chr_i)
+    targ_pvar <- targ_pvar[, 'SNP', with = F]
+    
+    targ_v_miss <- merge(targ_pvar, targ_v_miss, by.x = 'SNP', by.y = 'ID', all.x = T)
+    targ_v_miss[is.na(targ_v_miss)] <- 1
+    
+    # Read in the combined score file
+    score_file <- fread(paste0(tmp_dir,'/all_score.txt'))
+    
+    # Estimate relative PGS R2
+    if(file.exists(ld_dir)){
+      rel_r2_i <- rel_pgs_r2_missing_eigen(
+        ld_dir = ld_dir,
+        score_df = score_file,
+        f_miss = targ_v_miss,
+        chr = chr_i)
+    } else {
+      rel_r2_i <- data.table(
+        beta_set = names(score_file)[-1:-3], 
+        relative_R2 = NA,
+        den = NA, 
+        sig = NA, 
+        cov = NA, 
+        noise = NA, 
+        n_in_ref = NA
+      )
+    }
+    
+    # Count number of non-zero effects for each score
+    n_nz <- apply(score_file[, -1:-3, with = F], 2, function(x) {
+      sum(x != 0)
+    })
+    
+    # Calculate mean missingness for non-zero variants
+    mean_nz_miss <- sapply(names(score_file)[-1:-3], function(x){
+      mean(targ_v_miss$F_MISS[targ_v_miss$SNP %in% score_file$SNP[score_file[[x]] != 0]])
+    })
+
+    overlap[[as.character(chr_i)]] <- data.table(
+      chr = chr_i,
+      beta_set = rel_r2_i$beta_set,
+      den  = rel_r2_i$den,
+      sig  = rel_r2_i$sig,
+      cov  = rel_r2_i$cov,
+      noise= rel_r2_i$noise,
+      n_in_ref = rel_r2_i$n_in_ref,
+      n_nz = n_nz[names(n_nz) %in% rel_r2_i$beta_set],
+      mean_nz_miss = mean_nz_miss[names(mean_nz_miss) %in% rel_r2_i$beta_set]
+    )
   }
 }
 
@@ -360,6 +336,9 @@ for(chr_i in CHROMS){
 scores <- as.data.table(matrix(scores[,], ncol = length(cols)))
 setnames(scores, cols)
 scores <- cbind(scores_ids, scores)
+
+# Combine PGS coverage across chromosomes
+overlap_combined <- combine_rel_r2(overlap)
 
 ###
 # Scale the polygenic scores based on the reference
@@ -402,7 +381,7 @@ if(opt$population == 'TRANS'){
 }
 
 ###
-# Write out the target sample scores
+# Write out the target sample scores and PGS coverage results
 ###
 
 for(i in 1:nrow(score_files)){
@@ -410,6 +389,21 @@ for(i in 1:nrow(score_files)){
   names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), paste0(score_files$name[i], '_'), names(scores_i))
   dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T, showWarnings = F)
   fwrite(scores_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.profiles'), sep=' ', na='NA', quote=F)
+  
+  overlap_combined_i <- overlap_combined[grepl(paste0('^score_file_', i, '\\.'), overlap_combined$beta_set),]
+  overlap_combined_i$beta_set <- gsub(paste0('^score_file_', i, '\\.'), paste0(score_files$name[i], '_'), overlap_combined_i$beta_set)
+  
+  overlap_combined_i <- data.table(
+    name = overlap_combined_i$beta_set,
+    method = score_files$method[i],
+    n_nz = overlap_combined_i$n_nz,
+    mean_nz_miss = overlap_combined_i$mean_nz_miss,
+    n_in_eig = overlap_combined_i$n_in_ref,
+    rel_r2 = overlap_combined_i$relative_R2
+  )
+  
+  fwrite(overlap_combined_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.missingness'), sep=' ', na='NA', quote=F, nThread = 1)
+  
 }
 
 log_add(log_file = log_file, message = paste0('Saved polygenic scores.'))

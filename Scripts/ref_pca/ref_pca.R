@@ -141,7 +141,7 @@ system(paste0('gzip ',opt$output,'.eigenvec.var'))
 log_add(log_file = log_file, message = 'Computing reference PCs.')
 
 # Calculate PCs in the full reference
-ref_pcs<-plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'))
+ref_pcs<-plink_score(pfile = opt$ref_plink_chr, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'), center = T)
 
 # Scale reference scores across all individuals and save a scale file
 ref_pcs_scale_TRANS <- score_mean_sd(scores = ref_pcs)

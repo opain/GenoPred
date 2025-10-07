@@ -394,6 +394,14 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
         raise FileNotFoundError(f"The following quickprs_multi reference data are missing: {', '.join(missing_files)}")
 
 # Set sbayesrc reference path
+if config['sbayesrc_ldref'] == 'NA':
+  if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
+    sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref_dense"
+  else:
+    sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
+else:
+  sbayesrc_ldref=config['sbayesrc_ldref']
+
 if "sbayesrc" in config["pgs_methods"]:
   if config['sbayesrc_ldref'] == 'NA':
     # Check if gwas_list contains invalid populations
@@ -404,14 +412,7 @@ if "sbayesrc" in config["pgs_methods"]:
       raise ValueError(
         f"Default sbayesrc reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own sbayesrc reference data using the sbayesrc_ldref parameter."
       )
-      
-    if str(config.get("dense_reference", "True")).lower() in ["t", "true"]:
-      sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref_dense"
-    else:
-      sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
   else:
-    sbayesrc_ldref=config['sbayesrc_ldref']
-  
     # Check the sbayesrc ldref data is present for the required populations in the gwas_list
     if 'sbayesrc' in config['pgs_methods']:
       for pop in gwas_list_df['population'].unique():
