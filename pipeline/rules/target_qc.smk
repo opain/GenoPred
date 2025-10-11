@@ -111,14 +111,12 @@ if 'target_list' in config:
       refdir=config["refdir"],
       testing=config["testing"],
       prefix= lambda w: target_prefix(name = w.name),
-      type= lambda w: target_type(name = w.name),
-      require_reference_overlap = lambda wildcards: "F" if str(config.get("restrict_to_target_variants", "True")).lower() in ["t", "true"] else "T"
+      type= lambda w: target_type(name = w.name)
     shell:
       "Rscript ../Scripts/format_target/format_target.R \
         --target {params.prefix}.chr{wildcards.chr} \
         --format {params.type} \
         --ref {refdir}/ref.chr{wildcards.chr} \
-        --require_reference_overlap {params.require_reference_overlap} \
         --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr} > {log} 2>&1"
 
 rule format_target_all:

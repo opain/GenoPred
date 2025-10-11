@@ -8,8 +8,6 @@ make_option("--target", action="store", default=NA, type='character',
     help="Prefix to a target sample plink files for a given chromosome [required]"),
 make_option("--ref", action="store", default=NA, type='character',
     help="Prefix to a reference sample plink and .rds files for a given chromosome [required]"),
-make_option("--require_reference_overlap", action="store", default=T, type='logical',
-    help="Logical indicating whether a certain overlap between reference and target is required, and whether missing reference variants are inserted [required]"),
 make_option("--format", action="store", default=NA, type='character',
     help="Format of target files. Either plink1, plink2, bgen, or vcf. [required]"),
 make_option("--plink", action="store", default='plink', type='character',
@@ -161,47 +159,7 @@ names(targ_pvar)<-c('#CHROM','POS','ID','REF','ALT')
 fwrite(targ_pvar, paste0(tmp_dir,'/subset.pvar'), col.names=T, row.names=F, quote=F, na='NA', sep=' ')
 
 # Extract variants based on new reference RSIDs
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --extract ', tmp_dir,'/extract_list_2.txt --make-pgen --threads 1 --out ', tmp_dir,'/subset'))
-
-#################
-# Quantify variant-level missingness
-#################
-
-system(paste0(opt$plink2,' --pfile ', tmp_dir,'/subset --missing --threads 1 --out ', opt$output))
-
-##################
-# Insert missing SNPs into the reference data
-##################
-
-if(opt$require_reference_overlap){
-  log_add(log_file = log_file, message = 'Inserting missing reference variants.')
-
-  # Update IDs in reference to avoid conflict with the target
-  ref_psam<-fread(paste0(opt$ref,'.psam'))
-  names(ref_psam)<-gsub('\\#', '', names(ref_psam))
-  ref_psam <- ref_psam[, names(ref_psam) %in% c('FID', 'IID'), with = F]
-  if(ncol(ref_psam) == 1){
-    ref_ID_update<-data.frame(ref_psam$`IID`, paste0(ref_psam$`IID`,'_REF'))
-  } else {
-    ref_ID_update<-data.frame(ref_psam$`FID`, ref_psam$`IID`, paste0(ref_psam$`FID`,'_REF'), paste0(ref_psam$`IID`,'_REF'))
-  }
-  fwrite(ref_ID_update, paste0(tmp_dir,'/ref_ID_update.txt'), sep=' ', col.names=F)
-  system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --threads 1'))
-
-  # Merge target and reference plink files to insert missing SNPs
-  # plink2's pmerge only handles concatenation for the time being
-  # In the meantime, convert the ref and target into plink1 binaries, merge, and then convert back to plink2 binaries
-  system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --make-bed --threads 1 --out ',tmp_dir,'/subset'))
-  system(paste0(opt$plink2,' --pfile ',tmp_dir,'/REF --make-bed --out ',tmp_dir,'/REF --threads 1'))
-  system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --bmerge ',tmp_dir,'/REF --make-bed --allow-no-sex --out ',tmp_dir,'/ref_targ'))
-
-  # Extract only target individuals
-  system(paste0(opt$plink2,' --bfile ',tmp_dir,'/ref_targ --remove ',tmp_dir,'/REF.psam --make-pgen --threads 1 --out ',opt$output))
-} else {
-  system(paste0('mv ', tmp_dir,'/subset.pgen ', opt$output, '.pgen'))
-  system(paste0('mv ', tmp_dir,'/subset.pvar ', opt$output, '.pvar'))
-  system(paste0('mv ', tmp_dir,'/subset.psam ', opt$output, '.psam'))
-}
+system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --extract ', tmp_dir,'/extract_list_2.txt --make-pgen --missing --threads 1 --out ', opt$output))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

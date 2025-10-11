@@ -1,0 +1,369 @@
+---
+title: OpenSNP Benchmark with dense SNP list
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+library(knitr)
+```
+
+***
+
+Use the reference data as the target sample. I am doing this to check for issues with reference standardisation. Reference values and target values should be identical. If they are not then there is a problem.
+
+***
+
+## Create gwas_list, target_list and config
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+dir.create('misc/hgdp_1kg/', recursive = T)
+
+# Create target_list
+target_list <- fread('example_input/target_list.txt')
+target_list <- rbind(target_list,
+                     data.table(name = 'hgdp_1kg',
+                                path = 'resources/data/ref/ref',
+                                type = 'plink2',
+                                indiv_report = F))
+
+target_list <- target_list[target_list$name == 'hgdp_1kg', ]
+
+write.table(target_list, 'misc/hgdp_1kg/target_list.txt', col.names = T, row.names = F, quote = F, sep = ' ')
+
+# Create config file for sparse configuration
+conf <- c(
+  'outdir: /users/k1806347/oliverpainfel/Data/hgdp_1kg/GenoPred/sparse_test',
+  'config_file: misc/hgdp_1kg/config.yaml',
+  'gwas_list: example_input/gwas_list.txt',
+  'target_list: misc/hgdp_1kg/target_list.txt',
+  "pgs_scaling: ['discrete', 'continuous']",
+  "target_populations: ['EUR']",
+  "pgs_methods: ['ptclump']",
+  "testing: chr22"
+)
+
+dir.create('/users/k1806347/oliverpainfel/Data/hgdp_1kg/GenoPred', recursive = T)
+write.table(conf, 'misc/hgdp_1kg/config.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+***
+
+# Run GenoPred
+
+```{bash}
+
+snakemake \
+  -j 8 \
+  --use-conda \
+  --configfile=misc/hgdp_1kg/config.yaml \
+  output_all --retries 3 -n 
+
+```
+
+***
+
+# Check outputs
+
+```{r}
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+####
+# Discrete correction
+####
+
+# Read in target PGS
+target_pgs <- read_pgs(config = 'misc/hgdp_1kg/config.yaml', name = 'hgdp_1kg')$hgdp_1kg
+
+# Read in reference PGS
+ref_pgs <- read_reference_pgs(config = 'misc/hgdp_1kg/config.yaml', population = 'EUR')
+
+both <- merge(
+  target_pgs$EUR$BODY04$ptclump[, c('FID','IID','BODY04_0_1'), with = F], 
+  ref_pgs$BODY04$ptclump[, c('FID','IID','SCORE_0_1'), with = F],
+  by = c('FID','IID'))
+
+setnames(both, c('BODY04_0_1','SCORE_0_1'), c('target','reference'))
+
+identical(
+  both$target,
+  both$reference
+) # TRUE
+
+plot(
+  both$target,
+  both$reference
+)
+
+####
+# Continuous correction
+####
+
+# Read in target PGS
+target_pgs <- read_pgs(config = 'misc/hgdp_1kg/config.yaml', name = 'hgdp_1kg')$hgdp_1kg
+
+# Read in reference PGS
+ref_pgs <- read_reference_pgs(config = 'misc/hgdp_1kg/config.yaml', population = 'TRANS')
+
+both <- merge(
+  target_pgs$TRANS$BODY04$ptclump[, c('FID','IID','BODY04_0_1'), with = F], 
+  ref_pgs$BODY04$ptclump[, c('FID','IID','SCORE_0_1'), with = F],
+  by = c('FID','IID'))
+
+setnames(both, c('BODY04_0_1','SCORE_0_1'), c('target','reference'))
+
+identical(
+  both$target,
+  both$reference
+) # FALSE
+
+coef(summary(lm(
+  target ~ reference,
+  data = both
+)))
+
+#                 Estimate   Std. Error      t value     Pr(>|t|)
+# (Intercept) 0.0004269119 7.280911e-05     5.863441 4.979266e-09
+# reference   1.0000150829 7.281189e-05 13734.227854 0.000000e+00
+
+```
+
+When the target and reference data are identical, the outputs are near identical as expected. I see some deviation when using the OpenSNP data though. Let's try running again, but with some missingness in the target data.
+
+***
+
+# Missingness test
+
+Randomly remove 50% of variants from the target dataset.
+
+```{r}
+library(data.table)
+
+pvar <- NULL
+for(i in 1:22){
+  pvar <- rbind(
+    pvar,
+    fread(
+      paste0(
+        '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr', i, '.pvar'
+      )
+    )
+  )
+}
+
+set.seed(1)
+pvar_subset <- pvar[sample(1:nrow(pvar), floor(nrow(pvar)/2)),]
+
+pvar$REF[pvar$ID %in% pvar_subset$ID] <- 'Q'
+pvar$ID[pvar$ID %in% pvar_subset$ID] <- NA
+
+dir.create('/users/k1806347/oliverpainfel/Data/hgdp_1kg/GenoPred/missingness_test')
+for(i in 1:22){
+  write.table(
+    pvar[pvar$`#CHROM` == i, ],
+    paste0(
+      '/users/k1806347/oliverpainfel/Data/hgdp_1kg/GenoPred/missingness_test/ref.chr', i,'.pvar'
+    ),
+    col.names = T,
+    row.names = F,
+    quote = F
+  )
+}
+
+```
+
+```{bash}
+for i in $(seq 1 22); do
+  for file in $(echo pgen psam); do
+    ln -s \
+      /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr${i}.${file} \
+      /users/k1806347/oliverpainfel/Data/hgdp_1kg/GenoPred/missingness_test/ref.chr${i}.${file}
+  done
+done
+```
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+
+# Create target_list
+target_list <- fread('misc/hgdp_1kg/target_list.txt')
+target_list <- rbind(target_list,
+                     data.table(name = 'hgdp_1kg_miss',
+                                path = '/users/k1806347/oliverpainfel/Data/hgdp_1kg/GenoPred/missingness_test/ref',
+                                type = 'plink2',
+                                indiv_report = F))
+
+write.table(target_list, 'misc/hgdp_1kg/target_list.txt', col.names = T, row.names = F, quote = F, sep = ' ')
+
+```
+
+```{bash}
+snakemake \
+  -j 8 \
+  --use-conda \
+  --configfile=misc/hgdp_1kg/config.yaml \
+  output_all --retries 3 -n 
+```
+
+***
+
+## Check PGS distribution
+
+```{r}
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+####
+# Discrete correction
+####
+
+# Read in target PGS
+target_pgs <- read_pgs(config = 'misc/hgdp_1kg/config.yaml', name = 'hgdp_1kg')$hgdp_1kg
+
+# Read in reference PGS
+ref_pgs <- read_reference_pgs(config = 'misc/hgdp_1kg/config.yaml', population = 'EUR')
+
+both <- merge(
+  target_pgs$EUR$BODY04$ptclump[, c('FID','IID','BODY04_0_1'), with = F], 
+  ref_pgs$BODY04$ptclump[, c('FID','IID','SCORE_0_1'), with = F],
+  by = c('FID','IID'))
+
+setnames(both, c('BODY04_0_1','SCORE_0_1'), c('target','reference'))
+
+mean(both$target); sd(both$target)
+#[1] -0.0005454545
+#[1] 0.6121606
+
+mean(both$reference); sd(both$reference)
+#[1] -0.02658621
+#[1] 0.9874535
+
+cor(both$target, both$reference)^2
+#[1] 0.5998481
+
+####
+# Continuous correction
+####
+
+# Read in target PGS
+target_pgs <- read_pgs(config = 'misc/hgdp_1kg/config.yaml', name = 'hgdp_1kg_miss')$hgdp_1kg_miss
+
+# Read in reference PGS
+ref_pgs <- read_reference_pgs(config = 'misc/hgdp_1kg/config.yaml', population = 'TRANS')
+
+both <- merge(
+  target_pgs$TRANS$BODY04$ptclump[, c('FID','IID','BODY04_0_1'), with = F], 
+  ref_pgs$BODY04$ptclump[, c('FID','IID','SCORE_0_1'), with = F],
+  by = c('FID','IID'))
+
+setnames(both, c('BODY04_0_1','SCORE_0_1'), c('target','reference'))
+
+mean(both$target); sd(both$target)
+#[1] 0.01028494
+#[1] 0.6522877
+
+mean(both$reference); sd(both$reference)
+#[1] -3.126783e-06
+#[1] 1.000113
+
+cor(both$target, both$reference)^2
+#[1] 0.4910669
+
+```
+
+This is as expected. The mean is close to zero for the target PGS, but the SD is substantially reduced due to missingness. The R2 between the target and reference PGS is ~0.5, as expected as 50% of variants are missingness at random.
+
+Something weird is happening in the report though, where it says there is ~100% overlap with the target despite 50% of the variants missing.
+
+***
+
+## Check PGS R2
+
+Check correlation between PGS with and without missingness.
+
+```{r}
+nomiss_pgs <- read_pgs(config = 'misc/hgdp_1kg/config.yaml', name = 'hgdp_1kg')$hgdp_1kg
+withmiss_pgs <- read_pgs(config = 'misc/hgdp_1kg/config.yaml', name = 'hgdp_1kg_miss')$hgdp_1kg_miss
+
+obs <- NULL
+pred <- NULL
+for(gwas in names(nomiss_pgs$EUR)){
+  nomiss_pgs_gwas <- nomiss_pgs$EUR[[gwas]]$ptclump
+  withmiss_pgs_gwas <- withmiss_pgs$EUR[[gwas]]$ptclump
+  
+  pred <- rbind(
+    pred,
+    fread(
+      paste0(
+        '~/oliverpainfel/Data/hgdp_1kg/GenoPred/sparse_test/hgdp_1kg_miss/pgs/EUR/ptclump/',
+        gwas, 
+        '/hgdp_1kg_miss-',
+        gwas,
+        '-EUR.missingness')
+    )
+  )
+  
+  for(pt in names(nomiss_pgs_gwas)[-1:-2]){
+    both <- merge(
+      nomiss_pgs_gwas[, c('FID','IID', pt), with = F], 
+      withmiss_pgs_gwas[, c('FID','IID', pt), with = F], 
+      by = c('FID','IID'))
+    
+    obs <- rbind(
+      obs,
+      data.table(
+        gwas = gwas,
+        pt = pt,
+        r2 = cor(both[, 3:4, with = F])[1,2]^2
+      )
+    )
+  }
+}
+
+both_r2 <- merge(obs, pred, by.x = 'pt', by.y = 'name')
+both_r2$method <- NULL
+both_r2$gwas <- NULL
+
+cor(both_r2$r2, both_r2$rel_r2, use = 'p') 
+
+library(ggplot2)
+library(cowplot)
+
+ggplot(both_r2, aes(x = rel_r2, y = r2)) +
+  geom_abline(colour = 'red') +
+  geom_point() +
+  coord_fixed() +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = 'Estimated relative R2', y = 'Observed relative R2')
+
+# Very highly correlated, but the observed R2 is higher than the estimated.
+
+```
+
+

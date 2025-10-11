@@ -242,6 +242,9 @@ for(chr_i in CHROMS){
     system(paste0("paste -d ' ' ", tmp_dir,'/map.txt ', paste(tmp_batch_files, collapse = " "), ' > ', tmp_dir, '/all_score.txt'))
     system(paste0('rm ', paste(tmp_batch_files, collapse = " ")))
 
+    # Remove rows where all variants have zero effect
+    
+    
     # Perform polygenic risk scoring
     scores_i <-
       plink_score(
@@ -279,11 +282,9 @@ for(chr_i in CHROMS){
     targ_v_miss <- fread(paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr', chr_i, '.vmiss'))
     targ_v_miss <- targ_v_miss[, c('ID','F_MISS'), with = F]
     
-    opt$target_plink_chr <- paste0(outdir, '/', opt$name, '/geno/', opt$name, '.ref.chr')
-    targ_pvar <- read_pvar(dat = opt$target_plink_chr, chr = chr_i)
-    targ_pvar <- targ_pvar[, 'SNP', with = F]
-    
-    targ_v_miss <- merge(targ_pvar, targ_v_miss, by.x = 'SNP', by.y = 'ID', all.x = T)
+    ref_i <- ref[ref$CHR == chr_i, 'SNP', with = F]
+
+    targ_v_miss <- merge(ref_i, targ_v_miss, by.x = 'SNP', by.y = 'ID', all.x = T)
     targ_v_miss[is.na(targ_v_miss)] <- 1
     
     # Read in the combined score file
