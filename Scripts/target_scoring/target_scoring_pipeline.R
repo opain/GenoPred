@@ -300,6 +300,7 @@ for(chr_i in CHROMS){
     } else {
       rel_r2_i <- data.table(
         beta_set = names(score_file)[-1:-3], 
+        relative_variance = NA,
         relative_R2 = NA,
         den = NA, 
         sig = NA, 
@@ -400,7 +401,8 @@ for(i in 1:nrow(score_files)){
     n_nz = overlap_combined_i$n_nz,
     mean_nz_miss = overlap_combined_i$mean_nz_miss,
     n_in_eig = overlap_combined_i$n_in_ref,
-    rel_r2 = overlap_combined_i$relative_R2
+    rel_r2 = overlap_combined_i$relative_R2,
+    rel_var = overlap_combined_i$relative_variance
   )
   
   fwrite(overlap_combined_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.missingness'), sep=' ', na='NA', quote=F, nThread = 1)

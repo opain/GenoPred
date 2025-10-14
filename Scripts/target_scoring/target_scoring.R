@@ -138,7 +138,8 @@ for(i in names(score_file)[-1:-3]){
     n_nz = nrow(score_file_i),
     mean_nz_miss = mean(targ_v_miss$F_MISS[targ_v_miss$SNP %in% score_file_i$SNP]),
     n_in_eig = rel_r2$n_in_ref,
-    rel_r2 = rel_r2$relative_R2
+    rel_r2 = rel_r2$relative_R2,
+    rel_var = rel_r2$relative_variance
   )
   
   overlap_all <- rbind(overlap_all, overlap)

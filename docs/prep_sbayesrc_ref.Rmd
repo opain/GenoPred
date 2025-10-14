@@ -118,3 +118,96 @@ for pop in EUR EAS AFR; do
 done
   
 ```
+
+***
+
+# 1KG+HGDP (all common)
+
+Here we will do the same thing, but include variants with MAF > 0.01 in any super population. We will restrict to chromosome 22 initially.
+
+```{bash}
+conda activate sbayesrc # /users/k1806347/oliverpainfel/Software/sbayesrc.yaml
+module add parallel/20220522-gcc-13.2.0
+
+for pop in EUR; do
+
+# Set up directories and variables
+mkdir -p "/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}"
+outDir="/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/${pop}"
+
+# Create the merge list for PLINK
+chr=22
+
+# Convert to plink1 binary and subset EUR
+/users/k1806347/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref_dense/ref.chr${chr} \
+  --make-bed \
+  --mac 5 \
+  --keep /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref_dense/keep_files/${pop}.keep \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/ref.${pop}.chr${chr}
+
+# Create ma_file.txt
+echo -e "SNP\tA1\tA2" > /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/ma_file.txt
+cut -f 2,5,6 /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/ref.${pop}.chr${chr}.bim >> /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/ma_file.txt
+
+# Define variables for R scripts
+ma_file="/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/ma_file.txt"
+genotype="/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/ref.${pop}.chr${chr}"
+threads=1
+tool="/users/k1806347/oliverpainfel/Software/gctb_2.5.4_Linux/gctb"
+
+# Step 1: Generate the LD block information
+# Note. Updated script to use the tool parameter in this command
+Rscript -e "SBayesRC::LDstep1(mafile='$ma_file', genoPrefix='$genotype', outDir='$outDir', genoCHR='', blockRef='', log2file=TRUE, tool='$tool')"
+
+# Step 2: Submit the parallel jobs for LDstep2
+# Note. I tried to submit this as batch jobs in parallel, but the job kept completing halfway through. Very odd. I think it might have been a memory issue.
+seq 1 $(wc -l ${outDir}/ld.sh | cut -d ' ' -f 1) | parallel -j 1 'Rscript -e "SBayesRC::LDstep2(outDir=\"'$outDir'\", blockIndex={}, log2file=TRUE)"'
+
+# Step 3: Eigen decomposition for each LD block (submit and wait for Step 2 to complete)
+jobid_step3=$(sbatch --array=1-$(wc -l ${outDir}/ld.sh | cut -d ' ' -f 1) --parsable <<EOT
+#!/bin/bash
+#SBATCH --job-name=sbayesrc_eigen
+#SBATCH --partition=neurohack_cpu
+#SBATCH --cpus-per-task=${threads}
+#SBATCH --mem=2G
+#SBATCH --output=sbayesrc_eigen_%A_%a.out
+#SBATCH --error=sbayesrc_eigen_%A_%a.err
+export OMP_NUM_THREADS=$threads
+Rscript -e "SBayesRC::LDstep3(outDir='$outDir', blockIndex=\${SLURM_ARRAY_TASK_ID}, log2file=TRUE)"
+EOT
+)
+
+# Step 4: Merge LD information after Step 3 finishes
+sbatch --dependency=afterok:$jobid_step3 <<EOT
+#!/bin/bash
+#SBATCH --job-name=sbayesrc_merge
+#SBATCH --partition=neurohack_cpu
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=2G
+#SBATCH --output=sbayesrc_merge_%j.out
+#SBATCH --error=sbayesrc_merge_%j.err
+Rscript -e "SBayesRC::LDstep4(outDir='$outDir', log2file=TRUE)"
+EOT
+
+# Step5: clean if necessary
+# Essential for analysis: $outDir/ldm.info, $outDir/snp.info, $outDir/block*.eigen.bin 
+# Other files could be removed
+# Note: before removing, check all blocks were finished.
+
+# Add a delay or wait here if you want to ensure each population's processing finishes before starting the next.
+sleep 10
+done
+
+for pop in EUR; do
+  rm $outDir/b*.ldm.*
+  rm $outDir/*.log
+  rm $outDir/ld.sh
+  rm -r $outDir/snplist
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/ref.${pop}.GW*
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/common/${pop}.log
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/ma_file.txt
+  rm /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc_common/${pop}/mergelist.txt
+done
+  
+```

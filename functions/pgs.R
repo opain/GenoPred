@@ -135,12 +135,21 @@ map_score<-function(ref, score){
   }
   
   ref <- ref[, c('SNP','A1','A2'), with = F]
-  tmp <- merge(ref, score, by = 'SNP', all.x=T, sort = F)
+  
+  ref$IUPAC <- snp_iupac(ref$A1, ref$A2)
+  score$IUPAC <- snp_iupac(score$A1, score$A2)
+  
+  tmp <- merge(ref, score, by = c('SNP','IUPAC'), all.x=T, sort = F)
   flip <- which(tmp$A1.x != tmp$A1.y)
-  tmp <- as.matrix(tmp[, -1:-5, drop = FALSE])
+  tmp <- as.matrix(tmp[, -1:-6, drop = FALSE])
   tmp[flip, ] <- -tmp[flip, ,drop=F]
+  ref$IUPAC <-NULL
   new_score<-cbind(ref, tmp)
   new_score[is.na(new_score)]<-0
+
+  if(nrow(new_score) != nrow(ref)){
+    stop('Mapped score file has different number of rows to reference\n')
+  }
 
   return(new_score)
 }
@@ -546,12 +555,14 @@ read_score <- function(score, chr = 1:22, log_file = NULL){
 	score <- score[, apply(score, 2, function(x) !all(is.na(x))), with = F]
 	
 	# Remove duplicate variants, retaining the row with larger effect
-	score<-score[rev(abs(order(score$effect_weight))),]
+	score<-score[rev(order(abs(score$effect_weight))),]
+	score$IUPAC <- snp_iupac(score$A1, score$A2)
 	if(all(c('CHR','BP') %in% names(score))){
-  	score<-score[!duplicated(paste0(score$CHR,':', score$BP,':', score$A1, ':', score$A2)),]
+  	score<-score[!duplicated(paste0(score$CHR,':', score$BP,':', score$IUPAC)),]
   } else {
-    score<-score[!duplicated(paste0(score$SNP,':', score$A1, ':', score$A2)),]
+    score<-score[!duplicated(paste0(score$SNP,':', score$IUPAC)),]
   }
+	score$IUPAC <- NULL
 	
 	log_add(log_file = log_file, message = paste0('Score file contains ',nrow(score),' variants after removing duplicates.'))
 	
@@ -894,11 +905,9 @@ readEig <- function(ldDir, block){
 }
 
 rel_pgs_r2_missing_eigen <- function(ld_dir,
-                                     score_df,   # columns: SNP,A1,A2,<BETA_set1>,<BETA_set2>,...
-                                     f_miss,     # columns: SNP,F_MISS  (call = 1 - F_MISS)
-                                     metric = c("correlation", "variance"),
+                                     score_df,   # columns: SNP,A1,A2,<BETA_set1>,<BETA_set2>,
+                                     f_miss,     # columns: SNP,F_MISS  (call = 1 - F_MISS),
                                      chr = NULL) {
-  metric <- match.arg(metric)
   
   snp_info <- fread(file.path(ld_dir, "snp.info"))
   if(!is.null(chr)){
@@ -974,6 +983,9 @@ rel_pgs_r2_missing_eigen <- function(ld_dir,
    S_b    <- snp_info$S[idx_b]
    call_b <- score_df$call[idx_b]
    
+   # This is the scaling factor to convert R-variance to C-variance.
+   S2_block_avg <- mean(S_b^2, na.rm = TRUE)
+   
    # BETA matrix for this block (m_b x K)
    Bmat <- sapply(beta_cols, function(cl) score_df[[cl]][idx_b])
    Bmat[is.na(Bmat)] <- 0
@@ -984,10 +996,12 @@ rel_pgs_r2_missing_eigen <- function(ld_dir,
    Ut_W  <- crossprod(eig$U, W_b)          # (k_eig x K)
    Ut_Wm <- crossprod(eig$U, Wm_b)         # (k_eig x K)
    
-   den_b <- colSums((sqrt(eig$lambda) * Ut_W )^2)
-   sig_b <- colSums((sqrt(eig$lambda) * Ut_Wm)^2)
-   cov_b <- colSums((eig$lambda) * Ut_W * Ut_Wm)
-   noise_b <- colSums((1 - call_b) * (W_b^2))
+   # This scales the standardized variance components (from R) to the unstandardized
+   # variance components (from C) for the block: C_variance = S^2 * R_variance
+   den_b   <- S2_block_avg * colSums((sqrt(eig$lambda) * Ut_W )^2)
+   sig_b   <- S2_block_avg * colSums((sqrt(eig$lambda) * Ut_Wm)^2)
+   cov_b   <- S2_block_avg * colSums((eig$lambda) * Ut_W * Ut_Wm)
+   noise_b <- S2_block_avg * colSums((1 - call_b) * (W_b^2))
    
    out <- c( setNames(den_b,   paste0("den_",   beta_cols)),
              setNames(sig_b,   paste0("sig_",   beta_cols)),
@@ -1004,23 +1018,19 @@ rel_pgs_r2_missing_eigen <- function(ld_dir,
   noise_sum <- get_vec("noise")
   
   # ---- Final metric ----
-  if (metric == "variance") {
-    rel <- ifelse(den_sum > 0, sig_sum / den_sum, NA_real_)
-  } else {
-    denom_imp <- sig_sum + noise_sum
-    rel <- ifelse(den_sum > 0 & denom_imp > 0, (cov_sum^2) / (den_sum * denom_imp), NA_real_)
-  }
+  rel_var <- ifelse(den_sum > 0, sig_sum / den_sum, NA_real_)
+  rel_cor <- ifelse(den_sum > 0 & sig_sum > 0, (cov_sum^2) / (den_sum * sig_sum), NA_real_)
   
   data.table(
-    beta_set    = beta_cols,
-    relative_R2 = rel,
+    beta_set = beta_cols,
+    relative_variance = rel_var,
+    relative_R2 = rel_cor,
     den = den_sum, sig = sig_sum, cov = cov_sum, noise = noise_sum,
     n_in_ref = n_in_ref
   )
 }
 
-combine_rel_r2 <- function(res_list, metric = c("correlation","variance")) {
-  metric <- match.arg(metric)
+combine_rel_r2 <- function(res_list) {
   stopifnot(length(res_list) > 0)
   
   all_parts <- data.table::rbindlist(res_list, use.names = TRUE, fill = TRUE)
@@ -1047,85 +1057,57 @@ combine_rel_r2 <- function(res_list, metric = c("correlation","variance")) {
     }
   ), by = beta_set]
   
-  if (metric == "variance") {
-    agg[, relative_R2 := fifelse(den > 0, sig / den, NA_real_)]
-  } else {
-    agg[, denom_imp := sig + noise]
-    agg[, relative_R2 := fifelse(den > 0 & denom_imp > 0, (cov^2) / (den * denom_imp), NA_real_)]
-    agg[, denom_imp := NULL]
-  }
+  agg[, relative_variance := fifelse(den > 0, sig / den, NA_real_)]
+  agg[, relative_R2 := fifelse(den > 0 & sig > 0, (cov^2) / (den * sig), NA_real_)]
   
-  data.table::setcolorder(agg, c("beta_set","relative_R2","den","sig","cov","noise","n_in_ref","n_nz","mean_nz_miss"))
+  data.table::setcolorder(agg, c("beta_set","relative_variance","relative_R2","den","sig","cov","noise","n_in_ref","n_nz","mean_nz_miss"))
   agg[]
 }
 
-rel_pgs_r2_missing_eigen_old <- function(ld_dir,
-                                     score_df,
-                                     f_miss,
-                                     metric = c("correlation", "variance")) {
+# LD-naive method
+# LD-naive relative R^2 using only allele frequencies and call rate
+# f_miss must have: SNP, F_MISS  (q = 1 - F_MISS)
+rel_pgs_r2_missing_af <- function(ld_dir,
+                                  score_df,   # cols: SNP, A1, A2, <BETA_set1>, <BETA_set2>, ...
+                                  f_miss,     # cols: SNP, F_MISS
+                                  chr = NULL) {
   
-  metric <- match.arg(metric)
-  
+  # ---- Load AFs ----
   snp_info <- fread(file.path(ld_dir, "snp.info"))
-  snp_info$S <- sqrt(2 * snp_info$A1Freq * (1 - snp_info$A1Freq))
-  names(snp_info)[names(snp_info) == 'ID'] <- 'SNP'
+  if (!is.null(chr)) snp_info <- snp_info[Chrom == chr]
+  setnames(snp_info, "ID", "SNP")
+  snp_info[, S := sqrt(2 * A1Freq * (1 - A1Freq))]
   
-  # Count number of non-zero variants in score file that are present in reference
-  n_in_ref <- sum(score_df$SNP[score_df$BETA != 0] %in% snp_info$SNP)
+  # ---- Identify beta columns; drop all-zero rows ----
+  base_cols <- c("SNP","A1","A2")
+  stopifnot(all(base_cols %in% names(score_df)))
+  beta_cols <- setdiff(names(score_df), base_cols)
+  if (!length(beta_cols)) stop("No BETA columns found after SNP/A1/A2.")
+  score_df <- as.data.table(score_df)[, c(base_cols, beta_cols), with = FALSE]
+  score_df <- score_df[rowSums(score_df[, ..beta_cols] != 0, na.rm = TRUE) > 0]
   
-  # Align score file with LD data
-  score_df <- score_df[, names(score_df) %in% c('SNP','A1','A2','BETA'), with = F]
-  score_df <- map_score(ref = snp_info, score = score_df)
-  score_df[, idx := .I]
+  # ---- Align to reference (allele-orientation safe) ----
+  score_df <- map_score(ref = snp_info[, .(SNP, A1, A2)], score = score_df)
   
-  # Insert missingness information
-  score_df <- merge(score_df, f_miss, by = 'SNP', sort = F, all.x =T)
-  score_df$F_MISS[is.na(score_df$F_MISS)] <- 1
+  # ---- Merge in allele SD (S) ----
+  score_df <- merge(score_df, snp_info[, .(SNP, S)], by = "SNP", all.x = TRUE, sort = FALSE)
   
-  den_sum <- 0.0                # w' R w
-  sig_sum <- 0.0                # w' M R M w
-  cov_sum <- 0.0                # w' M R w
-  noise_sum <- 0.0              # sum_j (1 - c_j) w_j^2  nz <- which(score_df$BETA != 0)
+  # ---- Add call rate (q = 1 - F_MISS) ----
+  fm <- as.data.table(f_miss)[, .(SNP, F_MISS)]
+  score_df <- merge(score_df, fm, by = "SNP", all.x = TRUE, sort = FALSE)
+  score_df[is.na(F_MISS), F_MISS := 1]
+  score_df[, q := pmax(0, pmin(1, 1 - F_MISS))]
   
-  nz <- which(score_df$BETA != 0)
-  if (length(nz) == 0L) {
-    return(list(relative_R2 = NA_real_, n_in_ref = 0L))
-  }
-  nz_blocks <- unique(snp_info$Block[nz])
-  
-  for (b in nz_blocks) {
-    idx_b <- which(snp_info$Block == b)
-    if (length(idx_b) == 0) next
-    
-    # skip reading eigen if no non-zero SNPs in this block
-    if (!any(score_df$BETA[idx_b] != 0)) next
-    
-    eig <- readEig(ldDir = ld_dir, block = b)
-    
-    # weights
-    w_b <- snp_info$S[idx_b] * score_df$BETA[idx_b]
-    
-    # attenuation
-    callb <- 1 - score_df$F_MISS[idx_b]
-    
-    # quadratic forms
-    Ut_w  <- as.numeric(crossprod(eig$U, w_b))
-    Ut_wm  <- as.numeric(crossprod(eig$U, sqrt(callb) * w_b))
-    
-    den_sum   <- den_sum   + sum(eig$lambda * Ut_w^2)
-    sig_sum   <- sig_sum   + sum(eig$lambda * Ut_wm^2)
-    cov_sum   <- cov_sum   + sum(eig$lambda * Ut_w * Ut_wm)
-    noise_sum <- noise_sum + sum((1 - callb) * (w_b^2))
-  }
-  
-  if (metric == "variance") {
-    rel <- if (den_sum > 0) sig_sum / den_sum else NA_real_
-  } else { # correlation-consistent
-    denom_imp <- sig_sum + noise_sum
-    rel <- if (den_sum > 0 && denom_imp > 0) (cov_sum^2) / (den_sum * denom_imp) else NA_real_
-  }
-  
-  list(relative_R2 = rel,
-       parts = list(den = den_sum, sig = sig_sum, cov = cov_sum, noise = noise_sum),
-       n_in_ref = n_in_ref)
+  # ---- Compute LD-free relative R^2 per beta set ----
+  out <- lapply(beta_cols, function(cl) {
+    b <- score_df[[cl]]; b[is.na(b)] <- 0
+    w2 <- (score_df$S * b)^2
+    denom <- sum(w2)
+    numer <- sum(w2 * score_df$q)
+    data.table(beta_set = cl,
+               relative_R2 = if (denom > 0) numer / denom else NA_real_,
+               denom = denom, numer = numer,
+               n_in_ref = sum(b != 0))
+  })
+  rbindlist(out)
 }

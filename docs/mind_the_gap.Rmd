@@ -350,7 +350,7 @@ write.table(config, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPre
 
 ```{bash}
 snakemake \
-  --profile slurm \
+  -j 20 \
   --use-conda \
   --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_cad.yaml \
   prep_pgs_external -n
@@ -623,7 +623,9 @@ nsnps$inref <- as.numeric(nsnps$inref)
 nsnps$original <- nsnps$original - (nsnps$a2 - nsnps$non_auto)
 nsnps$unmapped <- nsnps$unmapped - (nsnps$a2 - nsnps$non_auto)
 nsnps$a2 <- nsnps$a2 - (nsnps$a2 - nsnps$non_auto)
-  
+
+write.csv(nsnps, '~/oliverpainfel/Analyses/mind_the_gap/snp_data/n_snp.csv', row.names = F, quote= F)
+
 # Calculate loss at each stage
 step_loss <- nsnps %>%
   transmute(
@@ -1067,7 +1069,7 @@ Question for Naomi, the QS metric should be specific to a given target ancestry?
 
 ***
 
-# Estimate PGS performance drop accountng for LD
+# Estimate PGS performance drop accounting for LD
 
 Same as before but this time allowing for LD when estimating relative R2.
 
@@ -1080,12 +1082,10 @@ library(cowplot)
 library(GenoUtils)
 library(foreach)
 library(doMC)
-registerDoMC(80)
+registerDoMC(20)
 
 source('../functions/misc.R')
 source_all('../functions')
-
-score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
 
 # Read in rsq information
 rsq<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.rds')
@@ -1098,10 +1098,38 @@ rsq$BP <- NULL
 sbayesrc_info<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR/snp.info')
 rsq_subset <- rsq[rsq$SNP %in% sbayesrc_info$ID,]
 
-jobs <-
-  CJ(
-    id = score_list$name,
-    test = c(
+# Read in score list
+score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
+
+# Combine all the score files
+ref <- sbayesrc_info[, c('ID','A1','A2'), with =F]
+names(ref) <- c('SNP','A1','A2')
+
+betas <- foreach(i = 1:nrow(score_list), .combine = cbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  tmp <-  fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        score_list$name[i],
+        '/ref-',
+        score_list$name[i],
+        '.unmapped.score.gz'
+      ), nThread= 1)
+  
+  tmp$CHR <- NULL
+  tmp$BP <- NULL
+  tmp <- map_score(ref = ref, score = tmp)
+  print(i)
+  print(nrow(tmp))
+  tmp
+}
+
+betas <- betas[, names(betas) == 'SCORE_external', with = F]
+colnames(betas)<-score_list$name
+score_file<-data.table(ref, betas)
+
+# Restrict score file to rows with non-zero betas
+score_file <- score_file[apply(betas, 1, function(x) !all(x == 0)),]
+
+for(panel_i in c(
       "HC_1kg",
       "HC_hrc",
       "HC_top",
@@ -1114,75 +1142,25 @@ jobs <-
       "MG_1kg",
       "MG_hrc",
       "MG_top"
-    ),
-    unique = TRUE
-  )
+    )){
+  
+  # Subset rsqbrowser panel
+  rsq_subset_j <- rsq_subset[, c('SNP', panel_i), with = F]
+  rsq_subset_j$F_MISS <- 1 - rsq_subset_j[[panel_i]]
 
-foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  if(file.exists(
-    paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-      jobs$id[i],
-      '/ref-',
-      jobs$id[i],
-      '.', 
-      jobs$test[i],
-      '.rsq.txt'
-    ))){
-    return(NULL)
-  }
-  
-  print(paste0(jobs$id[i],':', jobs$test[i]))
-  
-  # Read in score file
-  score_i <- fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-        jobs$id[i],
-        '/ref-',
-        jobs$id[i],
-        '.unmapped.score.gz'
-      ))
-  
-  names(score_i)[names(score_i) == 'SCORE_external'] <- 'BETA'
-  score_i <- score_i[, c('SNP','A1','A2','BETA'), with=F]
-  n_orig <- sum(score_i$BETA != 0)
-  
-  # Restrict to variants in rsq browser to avoid this reference increasing missingness
-  score_i <- score_i[score_i$SNP %in% rsq_subset$SNP,]
-  n_rsqbrows <- sum(score_i$BETA != 0)
-
-  # Calculate relative PRS R2 across arrays and panels
-  rsq_subset_j <- rsq_subset[, c('SNP', jobs$test[i]), with = F]
-  rsq_subset_j$F_MISS <- 1 - rsq_subset_j[[jobs$test[i]]]
-
+  # Calculate relative R2
   rel_r2 <- rel_pgs_r2_missing_eigen(
-    ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
-    score_df = score_i,
-    f_miss = rsq_subset_j, 
-    metric = 'correlation')
-  
-  res <- data.table(
-    ID = jobs$id[i],
-    group = jobs$test[i],
-    n_nz = n_orig,
-    n_in_rsqbrowser = n_rsqbrows,
-    n_in_eig = rel_r2$n_in_ref,
-    rel_r2 = rel_r2$relative_R2
-  )
+      ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
+      score_df = score_file,
+      f_miss = rsq_subset_j)
   
   write.table(
-    res, 
+    rel_r2, 
     paste0(
       '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-      jobs$id[i],
-      '/ref-',
-      jobs$id[i],
-      '.', 
-      jobs$test[i],
+      panel_i,
       '.rsq.txt'
     ), col.names = T, row.names = F, quote = F)
-  
-  NULL
 }
 
 ```
@@ -1194,44 +1172,19 @@ library(dplyr)
 library(ggplot2)
 library(cowplot)
 
-score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
-
-jobs <-
-  CJ(
-    id = score_list$name,
-    test = c(
-      "HC_1kg",
-      "HC_hrc",
-      "HC_top",
-      "OE_1kg",
-      "OE_hrc",
-      "OE_top",
-      "IO_1kg",
-      "IO_hrc",
-      "IO_top",
-      "MG_1kg",
-      "MG_hrc",
-      "MG_top"
-    ),
-    unique = TRUE
-  )
+panels <- c( "HC_1kg", "HC_hrc", "HC_top", "OE_1kg", "OE_hrc", "OE_top", "IO_1kg", "IO_hrc", "IO_top", "MG_1kg", "MG_hrc", "MG_top")
 
 pgs_r2 <- NULL
-for(i in 1:nrow(jobs)){
-  pgs_r2 <- rbind(
-    pgs_r2,
-    fread(
-      paste0(
+for(i in panels){
+  tmp <- fread(
+    paste0(
       '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-      jobs$id[i],
-      '/ref-',
-      jobs$id[i],
-      '.', 
-      jobs$test[i],
+      i,
       '.rsq.txt'
-      )
     )
   )
+  tmp$group <- i
+  pgs_r2 <- rbind(pgs_r2, tmp)
 }
 
 pgs_r2$array <- gsub('_.*','', pgs_r2$group)
@@ -1251,26 +1204,7 @@ pgs_r2$array <- factor(
   labels = c("Core", "OmniExpress", "MEGA", "Omni 2.5M")
 )
 
-saveRDS(pgs_r2, '~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_eigen.rds')
-pgs_r2<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_eigen.rds')
-
-png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_eigen.png',
-    units = 'px',
-    width = 2500,
-    height = 1500,
-    res = 300)
-
-ggplot(pgs_r2[pgs_r2$ID %in% unique(pgs_r2$ID)[1:5],], aes(x = array, y = rel_r2, fill = ID)) +
-  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-  facet_grid(. ~ panel) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  labs(x = "Genotyping array", y = "Proportion", fill = "SNP list",
-       title = "Relative PGS performance by platform and array") +
-  theme_half_open() +
-  panel_border() +
-  background_grid() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) 
-dev.off()
+saveRDS(pgs_r2, '~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_ldaware.rds')
 
 png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_eigen.png',
     units = 'px',
@@ -1278,7 +1212,7 @@ png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_eigen.png',
     height = 1500,
     res = 300)
 
-ggplot(pgs_r2, aes(x = array, y = rel_r2, fill = panel)) +
+ggplot(pgs_r2, aes(x = array, y = relative_R2, fill = panel)) +
   geom_boxplot() +
   scale_y_continuous(labels = scales::percent) +
   labs(x = "Array", y = "Relative R2", title = "Distribution by metric, array, and panel") +
@@ -1286,8 +1220,27 @@ ggplot(pgs_r2, aes(x = array, y = rel_r2, fill = panel)) +
   background_grid()
 dev.off()
 
+# Plot histogram of relative R2 for bets array and panel
+png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rel_r2_omni_topmed_hist.png',
+    units = 'px', width = 1750, height = 1000, res = 300)
+ggplot(
+  pgs_r2[pgs_r2$group == 'IO_top',], 
+  aes(x = relative_R2)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  geom_histogram(bins = 60, width = 0.1, fill = "steelblue", alpha = 0.6, colour = 'black') +
+  labs(x = 'Relative PGS R2', y = 'N PGS') +
+  theme_half_open() +
+  background_grid()
+dev.off()
+
+# Read in the number of non-zero variants that were not in the eigen LD data
+nsnps <- fread('~/oliverpainfel/Analyses/mind_the_gap/snp_data/n_snp.csv')
+nsnps <- nsnps[, c('ID','inref'), with = F]
+names(nsnps) <- c('beta_set','n_nz')
+
 # Plot number of variants not in eigen reference
-pgs_r2$n_miss <- pgs_r2$n_nz - pgs_r2$n_in_eig
+pgs_r2 <- merge(pgs_r2, nsnps, by = 'beta_set')
+pgs_r2$n_miss <- pgs_r2$n_nz - pgs_r2$n_in_ref
 pgs_r2$prop_miss <- pgs_r2$n_miss / pgs_r2$n_nz
 
 png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/prop_miss_eigen_hist.png',
@@ -1306,25 +1259,9 @@ dev.off()
 median_table <- pgs_r2 %>%
   group_by(panel, array) %>%
   summarise(median_prop_miss = median(prop_miss, na.rm = TRUE),
-            median_rel_r2 = median(rel_r2, na.rm = TRUE),
+            median_rel_r2 = median(relative_R2, na.rm = TRUE),
             .groups = "drop") %>%
   arrange(panel, array)
-
-# Plot number of variants not in eigen reference
-pgs_r2$n_miss <- pgs_r2$n_nz - pgs_r2$n_in_eig
-pgs_r2$prop_miss <- pgs_r2$n_miss / pgs_r2$n_nz
-
-png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rel_r2_omni_topmed_hist.png',
-    units = 'px', width = 1750, height = 1000, res = 300)
-ggplot(
-  pgs_r2[pgs_r2$group == 'IO_top',], 
-  aes(x = rel_r2)) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
-  geom_histogram(bins = 60, width = 0.1, fill = "steelblue", alpha = 0.6, colour = 'black') +
-  labs(x = 'Relative PGS R2', y = 'N PGS') +
-  theme_half_open() +
-  background_grid()
-dev.off()
 
 ```
 
@@ -1395,7 +1332,7 @@ for id in $(tail -n+2 ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/scor
 done
 
 for id in $(tail -n+2 ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt | cut -f 1 -d ' '); do
-  sbatch --mem 2G -n 1 -p cpu -t 1:00:00 --wrap="
+  sbatch --mem 2G -n 1 -p neurohack_cpu -t 1:00:00 --wrap="
   plink2 \
     --pfile ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target \
     --score ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/${id}/ref-${id}.score.nonzero.gz 1 2 4 header cols=+scoresums center \
@@ -1433,7 +1370,7 @@ mkdir -p ~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked
 
 for rsq in $(echo 0.5 0.6 0.7 0.8); do
 for id in $(tail -n+2 ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt | cut -f 1 -d ' '); do
-  sbatch --mem 2G -n 1 -p cpu -t 1:00:00 --wrap="
+  sbatch --mem 2G -n 1 -p neurohack_cpu -t 1:00:00 --wrap="
   plink2 \
     --pfile ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target \
     --score ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/${id}/ref-${id}.score.nonzero.gz 1 2 4 header cols=+scoresums center \
@@ -1446,159 +1383,7 @@ done
 
 ***
 
-## Estimate relative PGS R2
-
-```{r}
-# Now estimate the relative R2 of PGS after masking variants
-setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
-library(data.table)
-library(ggplot2)
-library(cowplot)
-library(GenoUtils)
-library(foreach)
-library(doMC)
-registerDoMC(80)
-
-source('../functions/misc.R')
-source_all('../functions')
-
-score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
-info_thresh <- c(0.5, 0.6, 0.7, 0.8)
-
-# Restrict score files to variants present in target sample for comparability
-freq    <- fread("~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target.afreq")
-freq <- freq[, c('ID','REF','ALT','ALT_FREQS'), with = F]
-names(freq)<-c('SNP','A2','A1','FREQ')
-
-jobs <-
-  CJ(
-    id = score_list$name,
-    test = info_thresh,
-    unique = TRUE
-  )
-
-foreach(i = 1:nrow(jobs), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  if(file.exists(
-    paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-      jobs$id[i],
-      '/ref-',
-      jobs$id[i],
-      '.mask_', 
-      jobs$test[i],
-      '.rsq.txt'
-    ))){
-    return(NULL)
-  }
-  
-  print(paste0(jobs$id[i],':', jobs$test[i]))
-  
-  snplist <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/rsq_p',jobs$test[i],'.list'), header=F)$V1
-  
-  # Read in score file
-  score_i <- fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-        jobs$id[i],
-        '/ref-',
-        jobs$id[i],
-        '.unmapped.score.gz'
-      ))
-  
-  names(score_i)[names(score_i) == 'SCORE_external'] <- 'BETA'
-  score_i <- score_i[, c('SNP','A1','A2','BETA'), with=F]
-  n_orig <- sum(score_i$BETA != 0)
-  
-  # Restrict to variants in target sample for comparability
-  score_i <- score_i[score_i$SNP %in% freq$SNP,]
-  score_i <- score_i[, c('SNP','A1','A2','BETA'), with=F]
-  n_in_targ <- sum(score_i$BETA != 0)
-  
-  # Create call rate data.frame
-  call_rate <- data.table(
-    SNP = score_i$SNP
-  )
-  call_rate$F_MISS <- 1
-  call_rate$F_MISS[call_rate$SNP %in% snplist] <- 0
-  
-  rel_r2 <- rel_pgs_r2_missing_eigen_old(
-    ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
-    score_df = score_i,
-    f_miss = call_rate, 
-    metric = 'correlation')
-  
-  res <- data.table(
-    ID = jobs$id[i],
-    group = jobs$test[i],
-    n_nz = n_orig,
-    n_in_targ = n_in_targ,
-    n_unmasked = sum(call_rate$SNP %in% snplist),
-    n_in_eig = rel_r2$n_in_ref,
-    rel_r2 = rel_r2$relative_R2
-  )
-  
-  write.table(
-    res, 
-    paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-      jobs$id[i],
-      '/ref-',
-      jobs$id[i],
-      '.mask_', 
-      jobs$test[i],
-      '.rsq.txt'
-    ), col.names = T, row.names = F, quote = F)
-  
-  NULL
-}
-
-```
-
-```{r}
-library(data.table)
-library(tidyr)
-library(dplyr)
-library(ggplot2)
-library(cowplot)
-
-score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
-info_thresh <- c(0.5, 0.6, 0.7, 0.8)
-
-jobs <-
-  CJ(
-    id = score_list$name,
-    test = info_thresh,
-    unique = TRUE
-  )
-
-pgs_r2 <- NULL
-for(i in 1:nrow(jobs)){
-  tmp <- fread(
-      paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-      jobs$id[i],
-      '/ref-',
-      jobs$id[i],
-      '.mask_', 
-      jobs$test[i],
-      '.rsq.txt'
-      )
-    )
-  if(!any('n_unmasked' %in% names(tmp))){
-      tmp$n_unmasked <- NA
-  }
-  pgs_r2 <- rbind(
-    pgs_r2,
-    tmp
-  )
-}
-
-saveRDS(pgs_r2, '~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/rsq_metrics_pgs_eigen.rds')
-
-```
-
-***
-
-## Compare estimated and masking 'observed' relative R2
+## Calculate observed relative PGS R2
 
 ```{r}
 # Test variance explained between baseline and masked PGS
@@ -1640,14 +1425,111 @@ write.table(
 
 ```
 
+***
+
+## Estimate relative PGS R2
+
+```{r}
+# Now estimate the relative R2 of PGS after masking variants
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(GenoUtils)
+library(foreach)
+library(doMC)
+registerDoMC(20)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+info_thresh <- c(0.5, 0.6, 0.7, 0.8)
+
+score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
+
+# Combine all the score files
+ref <- fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        score_list$name[1],
+        '/ref-',
+        score_list$name[1],
+        '.score.gz'
+      ))[, c('SNP','A1','A2'), with=F]
+
+betas <- foreach(i = 1:nrow(score_list), .combine = cbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  tmp <-  fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+        score_list$name[i],
+        '/ref-',
+        score_list$name[i],
+        '.score.gz'
+      ), nThread= 1) [,-1:-3, with = F]
+  print(nrow(tmp))
+  tmp
+}
+
+colnames(betas)<-score_list$name
+score_file<-data.table(ref, betas)
+
+# Restrict score file to rows with non-zero betas
+score_file <- score_file[apply(betas, 1, function(x) !all(x == 0)),]
+
+# Restrict score files to variants present in target sample for comparability
+freq    <- fread("~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target.afreq")
+freq <- freq[, c('ID','REF','ALT','ALT_FREQS'), with = F]
+names(freq)<-c('SNP','A2','A1','FREQ')
+
+score_file <- score_file[score_file$SNP %in% freq$SNP,]
+
+for(i in info_thresh){
+  # Create call rate data.frame
+  snplist <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/rsq_p',i,'.list'), header=F)$V1
+  call_rate <- data.table(
+    SNP = score_file$SNP
+  )
+  call_rate$F_MISS <- 1
+  call_rate$F_MISS[call_rate$SNP %in% snplist] <- 0
+
+  # Calculate relative R2 (on each chromosome like in GenoPred)
+  rel_r2 <- rel_pgs_r2_missing_eigen(
+      ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
+      score_df = score_file,
+      f_miss = call_rate)
+  
+  write.table(
+    rel_r2,
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/relative.rsq_p',
+      i,
+      '.txt'
+    ),
+    col.names = T,
+    row.names = F,
+    quote = F
+  )
+}
+
+```
+
+***
+
+## Compare estimated and masking 'observed' relative R2
+
 ```{r}
 # Compare estimated and observed relative R2
 obs_rel_r2 <- fread('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/relative_r2_no_pheno.txt')
 setnames(obs_rel_r2, 'rel_r2_cor', 'obs_rel_r2')
+setnames(obs_rel_r2, 'rel_r2_var', 'obs_rel_var')
 
-est_rel_r2 <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/rsq_metrics_pgs_eigen.rds')
-setnames(est_rel_r2, 'rel_r2', 'est_rel_r2')
-setnames(est_rel_r2, 'group', 'rsq')
+info_thresh <- c(0.5, 0.6, 0.7, 0.8)
+
+est_rel_r2 <- NULL
+for(i in info_thresh){
+  tmp <- fread(paste0('/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/relative.rsq_p', i,'.txt'))
+  setnames(tmp, 'beta_set', 'ID')
+  tmp$rsq <- i
+  est_rel_r2 <- rbind(est_rel_r2, tmp)
+}
 
 both <- merge(obs_rel_r2, est_rel_r2, by = c('ID','rsq'))
 both$rsq <- paste0('Masked RSQ < ', both$rsq)
@@ -1656,36 +1538,36 @@ library(dplyr)
 
 N <- nrow(both)
 
+# Compare estimated and observed relative R2
 metrics <- both %>%
   group_by(rsq) %>%
   summarise(
-    pearson_r = cor(est_rel_r2, obs_rel_r2, use="complete.obs"),
-    spearman_rho = cor(est_rel_r2, obs_rel_r2, method="spearman", use="complete.obs"),
+    pearson_r = cor(relative_R2, obs_rel_r2, use="complete.obs"),
+    spearman_rho = cor(relative_R2, obs_rel_r2, method="spearman", use="complete.obs"),
     # Fisher z CI for Pearson r
     z = atanh(pearson_r),
     se_z = 1 / sqrt(N - 3),
     r_low = tanh(z - 1.96 * se_z),
     r_high = tanh(z + 1.96 * se_z),
     # Regression slope + CI
-    slope = coef(lm(obs_rel_r2 ~ est_rel_r2))[2],
-    slope_ci_low = confint(lm(obs_rel_r2 ~ est_rel_r2))[2,1],
-    slope_ci_high = confint(lm(obs_rel_r2 ~ est_rel_r2))[2,2],
+    slope = coef(lm(obs_rel_r2 ~ relative_R2))[2],
+    slope_ci_low = confint(lm(obs_rel_r2 ~ relative_R2))[2,1],
+    slope_ci_high = confint(lm(obs_rel_r2 ~ relative_R2))[2,2],
     .groups = "drop"
   )
 
-# Annotate with CI text
 metrics$text <- paste0("r = ", round(metrics$pearson_r, 2),
                        " [", round(metrics$r_low, 2), ", ", round(metrics$r_high, 2), "]",
                        "\nβ = ", round(metrics$slope, 2),
                        " [", round(metrics$slope_ci_low, 2), ", ", round(metrics$slope_ci_high, 2), "]")
 
-png('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/obs_est_validation.png',
+png('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/obs_est_rel_r2_validation.png',
     units = 'px',
     width = 2500,
     height = 2500,
     res = 300)
 
-ggplot(both, aes(x = both$est_rel_r2, y = both$obs_rel_r2)) +
+ggplot(both, aes(x = both$relative_R2, y = both$obs_rel_r2)) +
   geom_abline(colour = 'red') +
   geom_point() +
   facet_wrap(. ~ rsq) +
@@ -1701,8 +1583,162 @@ ggplot(both, aes(x = both$est_rel_r2, y = both$obs_rel_r2)) +
 
 dev.off()
 
-# Currently, the estimated PGS R2 is lower than the observed. This may be due to estimation method assuming SNP weights correspond to standardised genotypes.
+# Compare estimated and observed relative variance
+metrics <- both %>%
+  group_by(rsq) %>%
+  summarise(
+    pearson_r = cor(relative_variance, obs_rel_var, use="complete.obs"),
+    spearman_rho = cor(relative_variance, obs_rel_var, method="spearman", use="complete.obs"),
+    # Fisher z CI for Pearson r
+    z = atanh(pearson_r),
+    se_z = 1 / sqrt(N - 3),
+    r_low = tanh(z - 1.96 * se_z),
+    r_high = tanh(z + 1.96 * se_z),
+    # Regression slope + CI
+    slope = coef(lm(obs_rel_var ~ relative_variance))[2],
+    slope_ci_low = confint(lm(obs_rel_var ~ relative_variance))[2,1],
+    slope_ci_high = confint(lm(obs_rel_var ~ relative_variance))[2,2],
+    .groups = "drop"
+  )
 
+metrics$text <- paste0("r = ", round(metrics$pearson_r, 2),
+                       " [", round(metrics$r_low, 2), ", ", round(metrics$r_high, 2), "]",
+                       "\nβ = ", round(metrics$slope, 2),
+                       " [", round(metrics$slope_ci_low, 2), ", ", round(metrics$slope_ci_high, 2), "]")
+
+png('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/obs_est_rel_var_validation.png',
+    units = 'px',
+    width = 2500,
+    height = 2500,
+    res = 300)
+
+ggplot(both, aes(x = both$relative_variance, y = both$obs_rel_var)) +
+  geom_abline(colour = 'red') +
+  geom_point() +
+  facet_wrap(. ~ rsq) +
+  coord_fixed() +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = 'Estimated relative variance', y = 'Observed relative variance') +
+  geom_text(data = metrics, aes(x = 0.3, y = 0.95, label = text), inherit.aes = FALSE, size = 4)
+
+dev.off()
+
+# Compare observed relative R2 and observed relative variance
+metrics <- both %>%
+  group_by(rsq) %>%
+  summarise(
+    pearson_r = cor(obs_rel_r2, obs_rel_var, use="complete.obs"),
+    spearman_rho = cor(obs_rel_r2, obs_rel_var, method="spearman", use="complete.obs"),
+    # Fisher z CI for Pearson r
+    z = atanh(pearson_r),
+    se_z = 1 / sqrt(N - 3),
+    r_low = tanh(z - 1.96 * se_z),
+    r_high = tanh(z + 1.96 * se_z),
+    # Regression slope + CI
+    slope = coef(lm(obs_rel_var ~ obs_rel_r2))[2],
+    slope_ci_low = confint(lm(obs_rel_var ~ obs_rel_r2))[2,1],
+    slope_ci_high = confint(lm(obs_rel_var ~ obs_rel_r2))[2,2],
+    .groups = "drop"
+  )
+
+metrics$text <- paste0("r = ", round(metrics$pearson_r, 2),
+                       " [", round(metrics$r_low, 2), ", ", round(metrics$r_high, 2), "]",
+                       "\nβ = ", round(metrics$slope, 2),
+                       " [", round(metrics$slope_ci_low, 2), ", ", round(metrics$slope_ci_high, 2), "]")
+
+metrics$text <- paste0("r = ", round(metrics$pearson_r, 2),
+                       " [", round(metrics$r_low, 2), ", ", round(metrics$r_high, 2), "]",
+                       "\nβ = ", round(metrics$slope, 2),
+                       " [", round(metrics$slope_ci_low, 2), ", ", round(metrics$slope_ci_high, 2), "]")
+
+png('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/obs_rel_var_rel_r2_comparison.png',
+    units = 'px',
+    width = 2500,
+    height = 2500,
+    res = 300)
+
+ggplot(both, aes(x = both$obs_rel_var, y = both$obs_rel_r2)) +
+  geom_abline(colour = 'red') +
+  geom_point() +
+  facet_wrap(. ~ rsq) +
+  coord_fixed() +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1.01)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1.01)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = 'Observed relative variance', y = 'Observed relative R2') +
+  geom_text(data = metrics, aes(x = 0.7, y = 0.05, label = text), inherit.aes = FALSE, size = 4)
+
+dev.off()
+
+# Try and understand why they differ
+both$obs_diff <- both$obs_rel_r2 - both$obs_rel_var
+ggplot(both, aes(x = log10(both$n_in_ref), y = both$obs_diff)) +
+  geom_point() +
+  facet_wrap(. ~ rsq) +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = "log10(N SNP)", y = 'Difference between relative R2 and variance')
+
+# Compare estimated relative R2 and estimated relative variance
+metrics <- both %>%
+  group_by(rsq) %>%
+  summarise(
+    pearson_r = cor(relative_R2, relative_variance, use="complete.obs"),
+    spearman_rho = cor(relative_R2, relative_variance, method="spearman", use="complete.obs"),
+    # Fisher z CI for Pearson r
+    z = atanh(pearson_r),
+    se_z = 1 / sqrt(N - 3),
+    r_low = tanh(z - 1.96 * se_z),
+    r_high = tanh(z + 1.96 * se_z),
+    # Regression slope + CI
+    slope = coef(lm(relative_variance ~ relative_R2))[2],
+    slope_ci_low = confint(lm(relative_variance ~ relative_R2))[2,1],
+    slope_ci_high = confint(lm(relative_variance ~ relative_R2))[2,2],
+    .groups = "drop"
+  )
+
+metrics$text <- paste0("r = ", round(metrics$pearson_r, 2),
+                       " [", round(metrics$r_low, 2), ", ", round(metrics$r_high, 2), "]",
+                       "\nβ = ", round(metrics$slope, 2),
+                       " [", round(metrics$slope_ci_low, 2), ", ", round(metrics$slope_ci_high, 2), "]")
+
+metrics$text <- paste0("r = ", round(metrics$pearson_r, 2),
+                       " [", round(metrics$r_low, 2), ", ", round(metrics$r_high, 2), "]",
+                       "\nβ = ", round(metrics$slope, 2),
+                       " [", round(metrics$slope_ci_low, 2), ", ", round(metrics$slope_ci_high, 2), "]")
+
+png('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/est_rel_var_rel_r2_comparison.png',
+    units = 'px',
+    width = 2500,
+    height = 2500,
+    res = 300)
+
+ggplot(both, aes(x = both$relative_variance, y = both$relative_R2)) +
+  geom_abline(colour = 'red') +
+  geom_point() +
+  facet_wrap(. ~ rsq) +
+  coord_fixed() +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1.01)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1.01)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = 'Estimated relative variance', y = 'Estimated relative R2') +
+  geom_text(data = metrics, aes(x = 0.7, y = 0.05, label = text), inherit.aes = FALSE, size = 4)
+
+dev.off()
 ```
 
 ***
@@ -1764,12 +1800,12 @@ est_rel_r2$rel_r2[est_rel_r2$group == rsq & est_rel_r2$ID == id] # 0.5616335
 
 ***
 
-# Test multi-PGS R2 estimation function
+# Compare LD-naive and LD-aware estimates
 
-Combine the score files in advance and then run relative PGS R2 estimator.
+## Run LD-naive approach using same variants as LD-aware approach
 
 ```{r}
-# Now estimate the relative R2 of PGS after masking variants
+
 setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
 library(data.table)
 library(ggplot2)
@@ -1782,16 +1818,23 @@ registerDoMC(20)
 source('../functions/misc.R')
 source_all('../functions')
 
-score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')[1:20]
+# Read in rsq information
+rsq<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.rds')
+
+# We will merge by SNP, A1 and A2 information, so delete other information
+rsq$CHR <- NULL
+rsq$BP <- NULL
+
+# Restrict to variants in the dense SBayesRC reference
+sbayesrc_info<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR/snp.info')
+rsq_subset <- rsq[rsq$SNP %in% sbayesrc_info$ID,]
+
+# Read in score list
+score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
 
 # Combine all the score files
-ref <- fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
-        score_list$name[1],
-        '/ref-',
-        score_list$name[1],
-        '.score.gz'
-      ))[, c('SNP','A1','A2'), with=F]
+ref <- sbayesrc_info[, c('ID','A1','A2'), with =F]
+names(ref) <- c('SNP','A1','A2')
 
 betas <- foreach(i = 1:nrow(score_list), .combine = cbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
   tmp <-  fread(paste0(
@@ -1799,10 +1842,15 @@ betas <- foreach(i = 1:nrow(score_list), .combine = cbind, .options.multicore = 
         score_list$name[i],
         '/ref-',
         score_list$name[i],
-        '.score.gz'
-      ), nThread= 1) [,-1:-3, with = F]
+        '.unmapped.score.gz'
+      ), nThread= 1)
+  
+  tmp$CHR <- NULL
+  tmp$BP <- NULL
+  tmp <- map_score(ref = ref, score = tmp)
+  print(i)
   print(nrow(tmp))
-  tmp
+  tmp[,'SCORE_external', with =F]
 }
 
 colnames(betas)<-score_list$name
@@ -1811,118 +1859,157 @@ score_file<-data.table(ref, betas)
 # Restrict score file to rows with non-zero betas
 score_file <- score_file[apply(betas, 1, function(x) !all(x == 0)),]
 
-# Restrict score files to variants present in target sample for comparability
-freq    <- fread("~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target.afreq")
-freq <- freq[, c('ID','REF','ALT','ALT_FREQS'), with = F]
-names(freq)<-c('SNP','A2','A1','FREQ')
+foreach(panel_i = c(
+      "HC_1kg",
+      "HC_hrc",
+      "HC_top",
+      "OE_1kg",
+      "OE_hrc",
+      "OE_top",
+      "IO_1kg",
+      "IO_hrc",
+      "IO_top",
+      "MG_1kg",
+      "MG_hrc",
+      "MG_top"
+    ), .options.multicore = list(preschedule = FALSE)) %dopar% {
+  # Subset rsqbrowser panel
+  rsq_subset_j <- rsq_subset[, c('SNP', panel_i), with = F]
+  rsq_subset_j$F_MISS <- 1 - rsq_subset_j[[panel_i]]
 
-score_file <- score_file[score_file$SNP %in% freq$SNP,]
+  # Calculate relative R2
+  rel_r2 <- rel_pgs_r2_missing_af(
+      ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
+      score_df = score_file,
+      f_miss = rsq_subset_j)
+  
+  write.table(
+    rel_r2, 
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+      panel_i,
+      '.rsq_ld_naive.txt'
+    ), col.names = T, row.names = F, quote = F)
+}
 
-# Create call rate data.frame
-snplist <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/rsq_p0.6.list'), header=F)$V1
-call_rate <- data.table(
-  SNP = score_file$SNP
+```
+
+```{r}
+panels <- c( "HC_1kg", "HC_hrc", "HC_top", "OE_1kg", "OE_hrc", "OE_top", "IO_1kg", "IO_hrc", "IO_top", "MG_1kg", "MG_hrc", "MG_top")
+
+pgs_r2 <- NULL
+for(i in panels){
+  tmp <- fread(
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/',
+      i,
+      '.rsq_ld_naive.txt'
+    )
+  )
+  tmp$group <- i
+  pgs_r2 <- rbind(pgs_r2, tmp)
+}
+
+pgs_r2$array <- gsub('_.*','', pgs_r2$group)
+pgs_r2$panel <- gsub('.*_','', pgs_r2$group)
+
+# Recode panels
+pgs_r2$panel <- factor(
+  pgs_r2$panel,
+  levels = c("1kg", "hrc", "top"),
+  labels = c("1000 Genomes", "HRC", "TOPMed")
 )
-call_rate$F_MISS <- 1
-call_rate$F_MISS[call_rate$SNP %in% snplist] <- 0
 
-# Calculate relative R2 (on each chromosome like in GenoPred)
-rel_r2 <- rel_pgs_r2_missing_eigen(
-    ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
-    score_df = score_file,
-    f_miss = call_rate, 
-    metric = 'correlation')
+# Recode arrays
+pgs_r2$array <- factor(
+  pgs_r2$array,
+  levels = c("HC", "OE", "MG", "IO"),
+  labels = c("Core", "OmniExpress", "MEGA", "Omni 2.5M")
+)
 
-write.table(
-  rel_r2, 
-  paste0(
-    '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/relative.rsq.txt'
-  ), col.names = T, row.names = F, quote = F)
+saveRDS(pgs_r2, '~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_ldnaive.rds')
+```
+***
+
+## Compare results
+
+```{r}
+no_ld_res<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_ldnaive.rds')
+with_ld_res<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_ldaware.rds')
+
+ggplot(with_ld_res, aes(x = relative_variance, y = relative_R2)) +
+  geom_abline(colour = 'red') +
+  geom_point() +
+  facet_grid(panel ~ array) +
+  coord_fixed() +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.5,1)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.5,1)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = "Estimated relative variance", y = "Estimated relative R2")
+
+pgs_r2 <- merge(no_ld_res, with_ld_res, by = c('beta_set','group','array','panel'))
+
+ggplot(pgs_r2, aes(x = relative_R2.x, y = relative_R2.y)) +
+  geom_abline(colour = 'red') +
+  geom_point() +
+  facet_grid(panel ~ array) +
+  coord_fixed() +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.5,1)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.5,1)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = "Estimated relative R2 (LD-naive)", y = "Estimated relative R2 (LD-aware)")
+
+ggplot(pgs_r2, aes(x = relative_R2.x, y = relative_variance)) +
+  geom_abline(colour = 'red') +
+  geom_point() +
+  facet_grid(panel ~ array) +
+  coord_fixed() +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.5,1)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.5,1)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = "Estimated relative R2 (LD-naive)", y = "Estimated relative variance (LD-aware)")
+
+
+no_ld_res <- no_ld_res[, c('beta_set','relative_R2','group','array','panel'), with = F]
+with_ld_res <- with_ld_res[, c('beta_set','relative_R2','group','array','panel'), with = F]
+
+no_ld_res$method <- 'LD-naive'
+with_ld_res$method <- 'LD-aware'
+
+pgs_r2_melt <- rbind(no_ld_res, with_ld_res)
+pgs_r2 <- merge(no_ld_res, with_ld_res, by = c('beta_set','group','array','panel'))
+
+ggplot(pgs_r2, aes(x = relative_R2.x, y = relative_R2.y)) +
+  geom_abline(colour = 'red') +
+  geom_point() +
+  facet_grid(panel ~ array) +
+  coord_fixed() +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.5,1)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.5,1)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x = "Estimated relative R2 (LD-naive)", y = "Estimated relative R2 (LD-aware)")
+
+# The LD naive approach seems to really over estimate the decrease in relative R2 due to poor imputation. I am not sure we can use it for the PGS catalogue scores. We could potentially use it for some ptclump scores that I create though.
 
 ```
 
 ***
 
-### Compare estimated and masking 'observed' relative R2
-
-```{r}
-# Compare estimated and observed relative R2
-obs_rel_r2 <- fread('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/relative_r2_no_pheno.txt')
-setnames(obs_rel_r2, 'rel_r2', 'obs_rel_r2')
-
-est_rel_r2 <- fread('/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/relative.rsq.txt')
-setnames(est_rel_r2, 'relative_R2', 'est_rel_r2')
-est_rel_r2$rsq <- 0.6
-
-est_rel_r2_orig <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/rsq_metrics_pgs_eigen.rds')
-setnames(est_rel_r2_orig, 'rel_r2', 'est_rel_r2_orig')
-setnames(est_rel_r2_orig, 'group', 'rsq')
-
-both <- merge(obs_rel_r2, est_rel_r2, by.x = c('ID','rsq'), by.y = c('beta_set','rsq'))
-both <- merge(both, est_rel_r2_orig, by = c('ID','rsq'))
-both$rsq <- paste0('Masked RSQ < ', both$rsq)
-
-ggplot(both, aes(x = est_rel_r2, y = est_rel_r2_orig)) +
-  geom_abline(colour = 'red') +
-  geom_point() +
-  facet_wrap(. ~ rsq) +
-  coord_fixed() +
-  theme_half_open() +
-  panel_border() +
-  background_grid() +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(x = "Estimated relative R2 (new)", y = "Estimated relative R2 (old)")
-
-# They are identical
-
-# Compare correlation-based R2 to variance based R2
-both$var_based_rel_r2 <- both$sig / both$den
-
-ggplot(both, aes(x = est_rel_r2, y = var_based_rel_r2)) +
-  geom_abline(colour = 'red') +
-  geom_point() +
-  facet_wrap(. ~ rsq) +
-  coord_fixed() +
-  theme_half_open() +
-  panel_border() +
-  background_grid() +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(x = "Estimated relative R2 (cor-based)", y = "Estimated relative R2 (var-based)")
-
-ggplot(both, aes(x = var_based_rel_r2, y = obs_rel_r2)) +
-  geom_abline(colour = 'red') +
-  geom_point() +
-  facet_wrap(. ~ rsq) +
-  coord_fixed() +
-  theme_half_open() +
-  panel_border() +
-  background_grid() +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(x = "Estimated relative R2 (var-based)", y = "Observed relative R2")
-
-ggplot(both, aes(x = est_rel_r2, y = obs_rel_r2)) +
-  geom_abline(colour = 'red') +
-  geom_point() +
-  facet_wrap(. ~ rsq) +
-  coord_fixed() +
-  theme_half_open() +
-  panel_border() +
-  background_grid() +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(x = "Estimated relative R2 (cor-based)", y = "Observed relative R2")
-cor(rel_r2$var_based_rel_r2, rel_r2$relative_R2)
-coef(summary(lm(rel_r2$var_based_rel_r2 ~ rel_r2$relative_R2)))
+# Estimate PGS R2 with more dense LD eigen data
 
 
-```
 
 ***
 
@@ -2151,8 +2238,7 @@ for(panel_i in panels){
   rel_r2 <- rel_pgs_r2_missing_eigen(
       ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR',
       score_df = score_file,
-      f_miss = rsq_subset_j, 
-      metric = 'correlation')
+      f_miss = rsq_subset_j)
   
   write.table(
     rel_r2, 
@@ -2249,8 +2335,7 @@ for(panel_i in panels){
   rel_r2 <- rel_pgs_r2_missing_eigen(
       ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR',
       score_df = score_file,
-      f_miss = rsq_subset_j, 
-      metric = 'correlation')
+      f_miss = rsq_subset_j)
   
   write.table(
     rel_r2, 
@@ -2338,8 +2423,8 @@ ggplot(rel_r2, aes(x = array, y = relative_R2, fill = panel)) +
   scale_y_continuous(labels = scales::percent) +
   labs(x = "Array", y = "Relative R2", title = "Distribution by metric, array, and panel") +
   facet_grid(. ~ snplist) +
-  panel_border() +
   theme_half_open() +
+  panel_border() +
   background_grid()
 dev.off()
 
@@ -2767,3 +2852,10 @@ ggplot(
 dev.off()
 
 ```
+
+*** 
+
+# To do:
+
+I think the 'gap' I had hypothesised is currently being hidden by my method using LD data for variant with MAF > 0.01 and RSQ > 0.6. We should quanitfy how many variants do not fufill this criteria, and that ignoring these variants will inflate the relative PGS R2. Two approaches to demonstrate this, derive eigen LD data for chromosome 22 without MAF and INFO restrictions, and use an LD-naive approach.
+
