@@ -1823,6 +1823,108 @@ est_rel_r2$rel_r2[est_rel_r2$group == rsq & est_rel_r2$ID == id] # 0.5616335
 
 ***
 
+## Validated using simulated phenotype
+
+Here we will simulate a phenotype based on the baseline PGS, and then check relative variance explained by the masked PGS. This can also be a oppurtunity to play out the impact of reduced PGS variance on calibration.
+
+```{r}
+score_list<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt')
+
+results <- NULL
+for(i in score_list$name[1:20]){
+  if(!file.exists(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/pgs/baseline/', i,'.sscore'))){
+    next
+  }
+  
+  # Read in baseline PGS
+  baseline_pgs <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/pgs/baseline/', i,'.sscore'))[['SCORE1_SUM']]
+
+  # Read in masked PGS
+  masked_pgs <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/',i,'.rsq_p0.8.sscore'))[['SCORE1_SUM']]
+
+  r <- cor(baseline_pgs, masked_pgs)
+  var_baseline <- var(baseline_pgs)
+  var_masked <- var(masked_pgs)
+
+  # Simulate phenotype with R2 of 0.2
+  R2_star <- 0.20 
+  sigma_eps <- sqrt(var_baseline * ((1 - R2_star) / R2_star))
+  set.seed(1)
+  
+  # Do some repeats to make the results more precise
+  reps <- 1000
+  
+  ratios <- replicate(reps, {
+    Y <- baseline_pgs + rnorm(length(baseline_pgs), 0, sigma_eps)
+    m_star <- lm(Y ~ baseline_pgs)
+    m_imp  <- lm(Y ~ masked_pgs)
+    
+    # restore variance in masked PGS
+    masked_pgs_rescaled <- masked_pgs * (r * sqrt(var_baseline/var_masked))
+    m_imp_rescaled  <- lm(Y ~ masked_pgs_rescaled)
+
+    c(
+      slope_star = coef(m_star)[2],
+      slope_imp  = coef(m_imp)[2],
+      slope_imp_rescaled  = coef(m_imp_rescaled)[2],
+      slope_ratio = coef(m_imp)[2]/coef(m_star)[2],
+      slope_ratio_rescaled = coef(m_imp_rescaled)[2]/coef(m_star)[2],
+      R2_star = summary(m_star)$r.squared,
+      R2_imp  = summary(m_imp)$r.squared,
+      R2_imp_rescaled  = summary(m_imp_rescaled)$r.squared,
+      R2_ratio = summary(m_imp)$r.squared/summary(m_star)$r.squared,
+      R2_ratio_rescaled = summary(m_imp_rescaled)$r.squared/summary(m_star)$r.squared,
+      r = r, 
+      r2 = r^2,
+      est_slope_ratio = r*sqrt(var_baseline/var_masked),
+      var_star = var_baseline,
+      var_imp = var_masked,
+      var_imp_rescaled = var(masked_pgs_rescaled))
+  })
+  
+  results<-rbind(results,
+                 data.table(id = i, t(colMeans(t(ratios)))))
+
+}
+results
+names(results)<-gsub('\\..*','', names(results))
+
+results_long <- melt(
+  results,
+  id.vars = c("id"),
+  measure.vars = c("slope_ratio", "slope_ratio_rescaled"),
+  variable.name = "type",
+  value.name = "slope_ratio_value"
+)
+
+ggplot(results_long, aes(x = id, y = slope_ratio_value, fill = type)) +
+  geom_col(position = "dodge") +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  labs(
+    x = "PGS ID",
+    y = "Slope ratio (masked / baseline)",
+    title = "Calibration before and after rescaling"
+  ) +
+  scale_fill_manual(values = c("#E69F00", "#56B4E9"),
+                    labels = c("Uncorrected", "Rescaled")) +
+  theme_bw(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(results, aes(x = var_imp / var_star, y = slope_ratio)) +
+  geom_point(size = 3, colour = "#009E73") +
+  geom_smooth(method = "lm", se = FALSE, colour = "black", linetype = "dotted") +
+  labs(
+    x = expression(paste("Relative variance (Var"[masked], "/Var"[baseline], ")")),
+    y = "Observed slope ratio",
+    title = "Variance shrinkage leads to slope inflation"
+  ) +
+  theme_bw(base_size = 13)
+
+
+```
+
+***
+
 # Compare LD-naive and LD-aware estimates
 
 The LD naive approach does not estimate relative R2, it estimate relative variance. This is not the same thing, particularly when scores contains variants in LD.
