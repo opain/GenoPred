@@ -2459,7 +2459,7 @@ snakemake \
   --use-conda \
   --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse.yaml \
   prep_pgs -n
-  
+
 snakemake \
   --profile slurm \
   --use-conda \
@@ -2481,10 +2481,8 @@ Across arrays and imputation.
 
 ```{r}
 
-setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
 library(data.table)
-library(ggplot2)
-library(cowplot)
 library(GenoUtils)
 library(foreach)
 library(doMC)
@@ -2493,8 +2491,50 @@ registerDoMC(20)
 source('../functions/misc.R')
 source_all('../functions')
 
-# Read list of traits
-traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse.yaml'
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+refdir <- read_param(config = config, param = 'refdir', return_obj = F)
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+###
+# Read in score files
+###
+# Combine all the score files
+ref <- read_pvar(paste0(refdir,'/ref.chr'))
+ref <- ref[, c('SNP','A1','A2'), with = F]
+
+betas <-
+  foreach(
+    i = 1:nrow(scores),
+    .combine = cbind,
+    .options.multicore = list(preschedule = FALSE)
+  ) %dopar% {
+    tmp <-  fread(
+      paste0(
+        outdir,
+        '/reference/pgs_score_files/',
+        scores$method[i],
+        '/',
+        scores$name[i],
+        '/ref-',
+        scores$name[i],
+        '.score.gz'
+      ),
+      nThread = 1
+    ) [, -1:-3, with = F, drop = F]
+    names(tmp) <- gsub('SCORE', paste0(scores$name[i],'_',scores$method[i]), names(tmp))
+    print(nrow(tmp))
+    tmp
+  }
+
+score_file<-data.table(ref, betas)
 
 # Read in rsq information
 rsq<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.rds')
@@ -2507,33 +2547,6 @@ rsq$BP <- NULL
 sbayesrc_info<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR/snp.info')
 rsq_subset <- rsq[rsq$SNP %in% sbayesrc_info$ID,]
 
-###
-# Read in score files
-###
-# Combine all the score files
-ref <- fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
-        traits[1],
-        '/ref-',
-        traits[1],
-        '.score.gz'
-      ))[, c('SNP','A1','A2'), with=F]
-
-betas <- foreach(i = 1:length(traits), .combine = cbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  tmp <-  fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
-        traits[i],
-        '/ref-',
-        traits[i],
-        '.score.gz'
-      ), nThread= 1) [,-1:-3, with = F]
-  print(nrow(tmp))
-  tmp
-}
-
-colnames(betas)<-traits
-score_file<-data.table(ref, betas)
-
 # Restrict score file to variants in the rsq browser
 score_file <- score_file[score_file$SNP %in% rsq_subset$SNP,]
 
@@ -2542,7 +2555,7 @@ panels <- c( "HC_1kg", "HC_hrc", "HC_top", "OE_1kg", "OE_hrc", "OE_top", "IO_1kg
 for(panel_i in panels){
   if(file.exists(
     paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/',
       panel_i,
       '.rsq.txt'
     ))){
@@ -2564,7 +2577,7 @@ for(panel_i in panels){
   write.table(
     rel_r2, 
     paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/',
       panel_i,
       '.rsq.txt'
     ), col.names = T, row.names = F, quote = F)
@@ -2578,10 +2591,8 @@ for(panel_i in panels){
 
 ```{r}
 
-setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
 library(data.table)
-library(ggplot2)
-library(cowplot)
 library(GenoUtils)
 library(foreach)
 library(doMC)
@@ -2590,8 +2601,50 @@ registerDoMC(20)
 source('../functions/misc.R')
 source_all('../functions')
 
-# Read list of traits
-traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
+# Get some key variables from config
+config<-'/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_dense.yaml'
+pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
+outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+refdir <- read_param(config = config, param = 'refdir', return_obj = F)
+
+# Get a list of score files
+scores <- list_score_files(config)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+###
+# Read in score files
+###
+# Combine all the score files
+ref <- read_pvar(paste0(refdir,'/ref.chr'))
+ref <- ref[, c('SNP','A1','A2'), with = F]
+
+betas <-
+  foreach(
+    i = 1:nrow(scores),
+    .combine = cbind,
+    .options.multicore = list(preschedule = FALSE)
+  ) %dopar% {
+    tmp <-  fread(
+      paste0(
+        outdir,
+        '/reference/pgs_score_files/',
+        scores$method[i],
+        '/',
+        scores$name[i],
+        '/ref-',
+        scores$name[i],
+        '.score.gz'
+      ),
+      nThread = 1
+    ) [, -1:-3, with = F, drop = F]
+    names(tmp) <- gsub('SCORE', paste0(scores$name[i],'_',scores$method[i]), names(tmp))
+    print(nrow(tmp))
+    tmp
+  }
+
+score_file<-data.table(ref, betas)
 
 # Read in rsq information
 rsq<-readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.rds')
@@ -2601,35 +2654,8 @@ rsq$CHR <- NULL
 rsq$BP <- NULL
 
 # Restrict to variants in the dense SBayesRC reference
-sbayesrc_info<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref_dense/EUR/snp.info')
+sbayesrc_info<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR/snp.info')
 rsq_subset <- rsq[rsq$SNP %in% sbayesrc_info$ID,]
-
-###
-# Read in score files
-###
-# Combine all the score files
-ref <- fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense/reference/pgs_score_files/sbayesrc/',
-        traits[1],
-        '/ref-',
-        traits[1],
-        '.score.gz'
-      ))[, c('SNP','A1','A2'), with=F]
-
-betas <- foreach(i = 1:length(traits), .combine = cbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  tmp <-  fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense/reference/pgs_score_files/sbayesrc/',
-        traits[i],
-        '/ref-',
-        traits[i],
-        '.score.gz'
-      ), nThread= 1) [,-1:-3, with = F]
-  print(nrow(tmp))
-  tmp
-}
-
-colnames(betas)<-traits
-score_file<-data.table(ref, betas)
 
 # Restrict score file to variants in the rsq browser
 score_file <- score_file[score_file$SNP %in% rsq_subset$SNP,]
@@ -2639,7 +2665,7 @@ panels <- c( "HC_1kg", "HC_hrc", "HC_top", "OE_1kg", "OE_hrc", "OE_top", "IO_1kg
 for(panel_i in panels){
   if(file.exists(
     paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense/reference/pgs_score_files/sbayesrc/',
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense/reference/pgs_score_files/',
       panel_i,
       '.rsq.txt'
     ))){
@@ -2661,7 +2687,7 @@ for(panel_i in panels){
   write.table(
     rel_r2, 
     paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense/reference/pgs_score_files/sbayesrc/',
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense/reference/pgs_score_files/',
       panel_i,
       '.rsq.txt'
     ), col.names = T, row.names = F, quote = F)
@@ -2674,6 +2700,9 @@ for(panel_i in panels){
 ## Plot results
 
 ```{r}
+library(data.table)
+library(ggplot2)
+library(cowplot)
 
 panels <- c( "HC_1kg", "HC_hrc", "HC_top", "OE_1kg", "OE_hrc", "OE_top", "IO_1kg", "IO_hrc", "IO_top", "MG_1kg", "MG_hrc", "MG_top")
 
@@ -3166,6 +3195,13 @@ for(pop in populations){
 ### Plot results
 
 ```{r}
+setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+library(GenoUtils)
+
+source('../functions/misc.R')
+source_all('../functions')
+
 # Get some key variables from config
 config<-'/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_dense.yaml'
 pgs_methods <- read_param(config = config, param = 'pgs_methods', return_obj = F)
@@ -3628,80 +3664,101 @@ Upload the MVP score files for SBayesRC and pT+clump
 dx upload /reference/pgs_score_files/ptclump/TC/ref-TC.score.gz
 ```
 
-```{bash}
-# Merge chromosome 1-22
-# Subset to SBayesRC reference variants
-# Subset to EURmodule add plink2
-plink2 \
-  --pmerge-list ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/merge_list.txt \
-  --extract ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/extract.txt \
-  --keep /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref_dense_incl_ambig/keep_files/EUR.keep \
-  --freq \
-  --make-pgen \
-  --out ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target
+***
 
-```
+## Estimate relative R2 and variance for masked PGS
 
-```{bash}
-# Calculate PGS in target using CAD PGS files
-mkdir -p ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/pgs/baseline
-
-for id in $(tail -n+2 ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt | cut -f 1 -d ' '); do
-  sbatch --mem 2G -n 1 -p neurohack_cpu -t 1:00:00 --wrap="
-  zcat ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/${id}/ref-${id}.score.gz \
-    | awk 'NR==1 || \$4 != 0' \
-    | gzip > ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/${id}/ref-${id}.score.nonzero.gz"
-done
-
-for id in $(tail -n+2 ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt | cut -f 1 -d ' '); do
-  sbatch --mem 2G -n 1 -p neurohack_cpu -t 1:00:00 --wrap="
-  plink2 \
-    --pfile ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target \
-    --score ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/${id}/ref-${id}.score.nonzero.gz 1 2 4 header cols=+scoresums center \
-    --out ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/pgs/baseline/${id}"
-done
-
-```
+We are evaluating PGS in UKB WGS data. We examine two approaches for masking, removing variants randomly, or based on their imputation quality in different UKB populations (INFO > 0.95). Estimate the relative R2 and variance of these masked scores, so we can compare these estimates to the observed values.
 
 ***
 
-## Calculate PGS with missingness
+### Sparse
 
 ```{r}
-# List variants with RSQ > x
-dir.create('~/oliverpainfel/Analyses/mind_the_gap/sim/masking')
-
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
 library(data.table)
-freq    <- fread("~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target.afreq")
-freq <- freq[, c('ID','REF','ALT','ALT_FREQS'), with = F]
-names(freq)<-c('SNP','A2','A1','FREQ')
-rsqtab  <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.rds')
-rsqtab_subset <- rsqtab[, c('SNP','HC_1kg'), with = F]
-names(rsqtab_subset) <- c('SNP','call')
-rsqtab_subset <- rsqtab_subset[rsqtab_subset$SNP %in% freq$SNP,]
+library(ggplot2)
+library(cowplot)
+library(GenoUtils)
+library(foreach)
+library(doMC)
+registerDoMC(20)
 
-info_thresh <- c(0.5, 0.6, 0.7, 0.8)
-for(i in info_thresh){
-  fwrite(rsqtab_subset[call > i, 'SNP', with = F], paste0('~/oliverpainfel/Analyses/mind_the_gap/sim/masking/rsq_p',i,'.list'), col.names=F, quote = F)
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read list of traits
+traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
+
+# Restrict to variants in the dense SBayesRC reference
+sbayesrc_info<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR/snp.info')
+rsq_subset <- rsq[rsq$SNP %in% sbayesrc_info$ID,]
+
+###
+# Read in score files
+###
+# Combine all the score files
+ref <- fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
+        traits[1],
+        '/ref-',
+        traits[1],
+        '.score.gz'
+      ))[, c('SNP','A1','A2'), with=F]
+
+betas <- foreach(i = 1:length(traits), .combine = cbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
+  tmp <-  fread(paste0(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
+        traits[i],
+        '/ref-',
+        traits[i],
+        '.score.gz'
+      ), nThread= 1) [,-1:-3, with = F]
+  print(nrow(tmp))
+  tmp
+}
+
+colnames(betas)<-traits
+score_file<-data.table(ref, betas)
+
+# Restrict score file to variants in the rsq browser
+score_file <- score_file[score_file$SNP %in% rsq_subset$SNP,]
+
+panels <- c( "HC_1kg", "HC_hrc", "HC_top", "OE_1kg", "OE_hrc", "OE_top", "IO_1kg", "IO_hrc", "IO_top", "MG_1kg", "MG_hrc", "MG_top")
+
+for(panel_i in panels){
+  if(file.exists(
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
+      panel_i,
+      '.rsq.txt'
+    ))){
+    next
+  }
+  
+  print(panel_i)
+  
+  # Subset rsqbrowser panel
+  rsq_subset_j <- rsq_subset[, c('SNP', panel_i), with = F]
+  rsq_subset_j$F_MISS <- 1 - rsq_subset_j[[panel_i]]
+
+  # Calculate relative R2 (on each chromosome like in GenoPred)
+  rel_r2 <- rel_pgs_r2_missing_eigen(
+      ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR',
+      score_df = score_file,
+      f_miss = rsq_subset_j)
+  
+  write.table(
+    rel_r2, 
+    paste0(
+      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
+      panel_i,
+      '.rsq.txt'
+    ), col.names = T, row.names = F, quote = F)
 }
 
 ```
 
-```{bash}
-mkdir -p ~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked
-
-for rsq in $(echo 0.5 0.6 0.7 0.8); do
-for id in $(tail -n+2 ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/score_list_cad.txt | cut -f 1 -d ' '); do
-  sbatch --mem 2G -n 1 -p neurohack_cpu -t 1:00:00 --wrap="
-  plink2 \
-    --pfile ~/oliverpainfel/Analyses/mind_the_gap/sim/emp/target/target \
-    --score ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output/reference/pgs_score_files/external/${id}/ref-${id}.score.nonzero.gz 1 2 4 header cols=+scoresums center \
-    --extract ~/oliverpainfel/Analyses/mind_the_gap/sim/masking/rsq_p${rsq}.list \
-    --out ~/oliverpainfel/Analyses/mind_the_gap/sim/masking/target/pgs/masked/${id}.rsq_p${rsq}"
-done
-done
-
-```
 
 ***
 
