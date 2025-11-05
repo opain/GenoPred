@@ -2798,6 +2798,10 @@ dev.off()
 
 ***
 
+
+
+***
+
 # Multi-Ancestry Estimation of PGS Portability
 
 Objective: To quantify and compare the expected decay in PGS performance across European, African, Hispanic/Latino, and Finnish populations, demonstrating the generalisability of your findings and highlighting ancestry-specific differences.
@@ -3376,7 +3380,7 @@ dev.off()
 
 ***
 
-# Plot intformational redundancy
+# Plot informational redundancy
 
 ```{r}
 setwd('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
@@ -3666,100 +3670,1358 @@ dx upload /reference/pgs_score_files/ptclump/TC/ref-TC.score.gz
 
 ***
 
-## Estimate relative R2 and variance for masked PGS
+## Generate PGS models for WGS GWAS
 
-We are evaluating PGS in UKB WGS data. We examine two approaches for masking, removing variants randomly, or based on their imputation quality in different UKB populations (INFO > 0.95). Estimate the relative R2 and variance of these masked scores, so we can compare these estimates to the observed values.
+We have run GWAS using the WGS UKB data. Ru SBayesRC and ptclump on those GWAS.
 
-***
-
-### Sparse
+```{bash}
+# Download sumstats
+cd /users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap
+dx download -r mind_the_gap/gwas/*.txt.gz
+```
 
 ```{r}
-setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
-library(data.table)
-library(ggplot2)
-library(cowplot)
-library(GenoUtils)
-library(foreach)
-library(doMC)
-registerDoMC(20)
+# Subset GWAS to variants considered by sbayesrc to make ptclump PGS comparable
+sbayesrc_snpinfo <- fread('~/oliverpainfel/Data/SBayesRC/ukbEUR_Imputed/snp.info') # Build GRCh37
 
-source('../functions/misc.R')
-source_all('../functions')
-
-# Read list of traits
 traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
-
-# Restrict to variants in the dense SBayesRC reference
-sbayesrc_info<-fread('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR/snp.info')
-rsq_subset <- rsq[rsq$SNP %in% sbayesrc_info$ID,]
-
-###
-# Read in score files
-###
-# Combine all the score files
-ref <- fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
-        traits[1],
-        '/ref-',
-        traits[1],
-        '.score.gz'
-      ))[, c('SNP','A1','A2'), with=F]
-
-betas <- foreach(i = 1:length(traits), .combine = cbind, .options.multicore = list(preschedule = FALSE)) %dopar% {
-  tmp <-  fread(paste0(
-        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
-        traits[i],
-        '/ref-',
-        traits[i],
-        '.score.gz'
-      ), nThread= 1) [,-1:-3, with = F]
-  print(nrow(tmp))
-  tmp
-}
-
-colnames(betas)<-traits
-score_file<-data.table(ref, betas)
-
-# Restrict score file to variants in the rsq browser
-score_file <- score_file[score_file$SNP %in% rsq_subset$SNP,]
-
-panels <- c( "HC_1kg", "HC_hrc", "HC_top", "OE_1kg", "OE_hrc", "OE_top", "IO_1kg", "IO_hrc", "IO_top", "MG_1kg", "MG_hrc", "MG_top")
-
-for(panel_i in panels){
-  if(file.exists(
-    paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
-      panel_i,
-      '.rsq.txt'
-    ))){
-    next
-  }
-  
-  print(panel_i)
-  
-  # Subset rsqbrowser panel
-  rsq_subset_j <- rsq_subset[, c('SNP', panel_i), with = F]
-  rsq_subset_j$F_MISS <- 1 - rsq_subset_j[[panel_i]]
-
-  # Calculate relative R2 (on each chromosome like in GenoPred)
-  rel_r2 <- rel_pgs_r2_missing_eigen(
-      ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR',
-      score_df = score_file,
-      f_miss = rsq_subset_j)
-  
-  write.table(
-    rel_r2, 
-    paste0(
-      '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/',
-      panel_i,
-      '.rsq.txt'
-    ), col.names = T, row.names = F, quote = F)
+for(i in traits){
+  print(i)
+  ss <- fread(paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/',i,'.gw.txt.gz'))
+  ss <- ss[ss$ID %in% sbayesrc_snpinfo$ID, ]
+  fwrite(
+    ss,
+    paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/',i,'.gw.sbayesrc.txt.gz'),
+    sep = ' ',
+    quote = F,
+    na = 'NA'
+  )
 }
 
 ```
 
+```{r}
+library(data.table)
 
+#####
+# gwas_list
+#####
+
+traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
+
+gwas_list <- data.table(
+  name = paste0('UKB_WGS_',traits),
+  path = paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/',traits,'.gw.sbayesrc.txt.gz'),
+  population = 'EUR',
+  n = NA,
+  sampling = NA,
+  prevalence = NA,
+  mean = NA, 
+  sd = NA,
+  label = paste0('UKB_WGS_',traits)
+)
+
+write.table(gwas_list, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_wgs.txt', col.names = T, row.names = F, quote = F)
+
+######
+# config
+######
+
+config_sparse<-c(
+  "outdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse",
+  "config_file: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_wgs.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_wgs.txt",
+  "pgs_methods: ['sbayesrc','ptclump']",
+  "cores_prep_pgs: 10",
+  "dense_reference: F"
+)
+
+write.table(config_sparse, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_wgs.yaml', col.names = F, row.names = F, quote = F)
+
+config_dense<-c(
+  "outdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense",
+  "config_file: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_dense_ukb_wgs.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_wgs.txt",
+  "pgs_methods: ['sbayesrc','ptclump']",
+  "cores_prep_pgs: 10",
+  "dense_reference: T",
+  "keep_ambiguous: T"
+)
+
+write.table(config_dense, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_dense_ukb_wgs.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_wgs.yaml \
+  prep_pgs -n
+
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_dense_ukb_wgs.yaml \
+  prep_pgs -n
+```
+
+```{bash}
+# Started using upload agent as dx upload was freezing
+for pheno in $(cut -f 1 -d' ' /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt | tail -n +2); do
+  ./ua --progress --do-not-resume --project Oliver_Pain_Fellowship --folder /mind_the_gap/score_files/dense/sbayesrc/ ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense/reference/pgs_score_files/sbayesrc/UKB_WGS_${pheno}/ref-UKB_WGS_${pheno}.score.gz
+
+  ./ua --progress --do-not-resume --project Oliver_Pain_Fellowship --folder /mind_the_gap/score_files/dense/ptclump/ ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense/reference/pgs_score_files/ptclump/UKB_WGS_${pheno}/ref-UKB_WGS_${pheno}.score.gz
+
+  ./ua --progress --do-not-resume --project Oliver_Pain_Fellowship --folder /mind_the_gap/score_files/sparse/sbayesrc/ ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc/UKB_WGS_${pheno}/ref-UKB_WGS_${pheno}.score.gz
+
+  ./ua --progress --do-not-resume --project Oliver_Pain_Fellowship --folder /mind_the_gap/score_files/sparse/ptclump/ ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/ptclump/UKB_WGS_${pheno}/ref-UKB_WGS_${pheno}.score.gz
+done
+```
+
+***
+
+# Test denoising hypothesis
+
+Florian says imputation not taken into account properly. effect size is inflated by low imputation quality, and so is SE.
+
+```{r}
+library(ggplot2)
+
+# ----- Peter's imputation models -----
+simulate_imputed <- function(X_true, R2, mode = c("BG","DS")) {
+  mode <- match.arg(mode)
+  n <- nrow(X_true); m <- ncol(X_true)
+  E <- matrix(rnorm(n*m), n, m)
+  if (mode == "BG") {
+    rho <- sqrt(R2)
+    sweep(X_true, 2, rho, `*`) + sweep(E, 2, sqrt(1 - rho^2), `*`)     # Var = 1
+  } else { # DS
+    sweep(X_true, 2, R2, `*`) + sweep(E, 2, sqrt(R2*(1-R2)), `*`)      # Var = R2
+  }
+}
+
+# ----- Main simulation per Peter's advice -----
+simulate_denoise <- function(
+  m_snps   = 2000,        # number of unlinked SNPs
+  n_train  = 3000,        # GWAS sample size
+  n_test   = 5000,        # validation sample size
+  h2       = 0.5,         # SNP-heritability for SBLUP lambda
+  R2_min   = 0.3,         # INFO range
+  R2_max   = 1.0,
+  imp_mode = c("BG","DS"),
+  score_on = c("TRUE","IMPUTED"),   # TRUE isolates effect in GWAS only
+  info_cor = FALSE,
+  seed     = 1
+){
+  set.seed(seed)
+  imp_mode <- match.arg(imp_mode)
+  score_on <- match.arg(score_on)
+
+  # 1) True effects and INFO
+  beta_true <- rnorm(m_snps, 0, sqrt(h2 / m_snps))   # per-SD effects; SNPs indep.
+  INFO      <- runif(m_snps, R2_min, R2_max)
+  rho       <- sqrt(INFO)
+
+  # 2) Simulate TRAIN & TEST true genotypes; impute per Peter
+  Xtr_true <- matrix(rnorm(n_train*m_snps), n_train, m_snps)
+  Xte_true <- matrix(rnorm(n_test *m_snps), n_test,  m_snps)
+
+  Xtr_imp  <- simulate_imputed(Xtr_true, INFO, imp_mode)
+  Xte_imp  <- simulate_imputed(Xte_true, INFO, imp_mode)
+
+  # Estimate info in training data
+  var_obs <- apply(Xtr_imp, 2, var)
+  if (imp_mode == "DS") {
+    INFO_use <- pmin(pmax(var_obs, 0), 1)   # ≈ Var = INFO
+  } else { # BG: variance ~ 1, cannot infer INFO from variance alone
+    INFO_use <- rep(NA_real_, m_snps)
+  }
+      
+  # 3) Phenotypes from TRUE genotypes (both sets)
+  g_tr <- as.vector(Xtr_true %*% beta_true)
+  ytr  <- scale(g_tr) * sqrt(h2) + rnorm(n_train, 0, sqrt(1 - h2))
+
+  g_te <- as.vector(Xte_true %*% beta_true)
+  yte  <- scale(g_te) * sqrt(h2) + rnorm(n_test,  0, sqrt(1 - h2))
+
+  # --- GWAS on imputed training genotypes (NO predictor scaling) ---
+  # center X by column and y by mean
+  Xc <- sweep(Xtr_imp, 2, colMeans(Xtr_imp), FUN = "-")   # n x m
+  yc <- ytr - mean(ytr)                                   # n
+  
+  # per-SNP covariance and variance
+  xcov <- as.numeric(crossprod(Xc, yc))                   # m x 1
+  xvar <- colSums(Xc^2)                                   # length m
+  
+  # guard against zero-variance columns
+  xvar[xvar == 0] <- NA_real_
+  
+  # marginal OLS betas on raw imputed dosages
+  beta_hat <- xcov / xvar
+  
+  # Optionally correct BETA for INFO
+  if(info_cor){
+    beta_hat <- beta_hat * sqrt(INFO_use)
+  }
+  
+  # SBLUP shrinkage with external lambda
+  lambda    <- m_snps * ((1 / h2) - 1)
+  beta_blup <- beta_hat / (1 + lambda)
+  
+  # 5) Validation scores
+  if (score_on == "TRUE") {
+    Xte <- scale(Xte_true, center = TRUE, scale = TRUE)  # perfect WGS-like
+  } else {
+    Xte <- scale(Xte_imp,  center = TRUE, scale = TRUE)  # imputed in target too
+  }
+
+  s_all  <- as.vector(Xte %*% beta_blup)
+  r2_all <- cor(s_all, yte)^2
+
+  # Masking by INFO thresholds
+  thr_grid <- seq(min(INFO), 0.95, by = 0.05)
+  results <- data.frame(threshold = thr_grid,
+                        obs_rel_r2 = NA_real_,
+                        est_rel_r2 = NA_real_)
+
+  for (i in seq_along(thr_grid)) {
+    keep <- INFO >= thr_grid[i]
+    beta_mask <- beta_blup
+    beta_mask[!keep] <- 0
+
+    s_keep <- as.vector(Xte %*% beta_mask)
+
+    r2_keep <- if (sd(s_keep) > 0) cor(s_keep, yte)^2 else 0
+    results$obs_rel_r2[i] <- r2_keep / r2_all
+    results$est_rel_r2[i] <- if (sd(s_keep) > 0) cor(s_all, s_keep)^2 else NA_real_
+  }
+
+  list(results = results,
+       INFO = INFO,
+       beta_true = beta_true,
+       beta_hat = beta_hat,
+       beta_blup = beta_blup,
+       lambda = lambda,
+       imp_mode = imp_mode,
+       score_on = score_on)
+}
+
+sim_DS_true <- simulate_peter(imp_mode="DS", score_on="TRUE", info_cor = F, seed=5)
+
+ggplot(sim_DS_true$results, aes(est_rel_r2, obs_rel_r2, color = threshold)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  geom_point(size = 3) +
+  scale_color_viridis_c(option = "C") +
+  coord_equal(xlim = c(0,1), ylim = c(0,1.1)) +
+  labs(x = "corr² between baseline & masked PGS",
+       y = "R²(masked)/R²(all)",
+       color = "INFO\nthreshold") +
+  theme_minimal(base_size = 13)
+
+sim_BG_true <- simulate_peter(imp_mode="BG", score_on="TRUE", info_cor = F, seed=5)
+
+ggplot(sim_DS_true$results, aes(est_rel_r2, obs_rel_r2, color = threshold)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  geom_point(size = 3) +
+  scale_color_viridis_c(option = "C") +
+  coord_equal(xlim = c(0,1), ylim = c(0,1.1)) +
+  labs(x = "corr² between baseline & masked PGS",
+       y = "R²(masked)/R²(all)",
+       color = "INFO\nthreshold") +
+  theme_minimal(base_size = 13)
+
+sim_DS_true <- simulate_peter(imp_mode="DS", score_on="TRUE", info_cor = T, seed=5)
+
+ggplot(sim_DS_true$results, aes(est_rel_r2, obs_rel_r2, color = threshold)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  geom_point(size = 3) +
+  scale_color_viridis_c(option = "C") +
+  coord_equal(xlim = c(0,1), ylim = c(0,1.1)) +
+  labs(x = "corr² between baseline & masked PGS",
+       y = "R²(masked)/R²(all)",
+       color = "INFO\nthreshold") +
+  theme_minimal(base_size = 13)
+```
+
+
+```{r}
+# Simulate imputed training genotypes from true X and INFO=R2
+# BG:  x_bg = R * x + e,     Var=1
+# DS:  x_d  = R^2 * x + e,   Var=R^2
+simulate_imputed <- function(X_true, R2, mode = c("BG","DS")) {
+  mode <- match.arg(mode)
+  n <- nrow(X_true); m <- ncol(X_true)
+  E <- matrix(rnorm(n*m), n, m)
+  if (mode == "BG") {
+    R <- sqrt(R2)
+    X_imp <- sweep(X_true, 2, R, `*`) + sweep(E, 2, sqrt(1 - R2), `*`)
+  } else {
+    X_imp <- sweep(X_true, 2, R2, `*`) + sweep(E, 2, sqrt(R2*(1 - R2)), `*`)
+  }
+  X_imp
+}
+
+# ----- One full run -----
+
+run_once <- function(m_snps = 2000,
+                     n_train = 5000,
+                     n_test  = 2000,
+                     h2 = 0.5,
+                     R2_min = 0.3,
+                     R2_max = 1.0,
+                     mode = c("BG","DS"),
+                     seed = 1) {
+  set.seed(seed)
+  mode <- match.arg(mode)
+
+  # True effects and INFO per SNP
+  beta_true <- rnorm(m_snps, 0, sqrt(h2 / m_snps))
+  R2 <- runif(m_snps, R2_min, R2_max)
+  rho <- sqrt(R2)                    # Corr(true, imputed) for both BG & DS
+
+  # Training: true and imputed genotypes
+  Xtr_true <- matrix(rnorm(n_train * m_snps), n_train, m_snps)
+  Xtr_imp  <- simulate_imputed(Xtr_true, R2, mode)
+
+  # Phenotypes from true genotypes
+  g_tr <- as.vector(Xtr_true %*% beta_true)
+  ytr  <- scale(g_tr) * sqrt(h2) + rnorm(n_train, 0, sqrt(1 - h2))
+
+  # BLUP (ridge) on *imputed* X; standardise columns for stable ridge
+  Xtr <- scale(Xtr_imp, center = TRUE, scale = TRUE)
+  ytr <- scale(ytr,     center = TRUE, scale = TRUE)
+
+  lambda <- m_snps * (1 - h2) / h2
+  XtX <- crossprod(Xtr)
+  Xty <- crossprod(Xtr, ytr)
+  beta_imp <- solve(XtX + diag(lambda, m_snps), Xty)    # fitted on imputed scale
+
+  # ---- Map fitted betas onto the TRUE-genotype scale for scoring ----
+  # For independent SNPs, best linear mapping is alpha = rho * beta_imp
+  # Replace the "perfect mapping":
+  # alpha_true <- as.numeric(rho) * as.numeric(beta_imp)
+  
+  # With "no correction" (realistic miscalibration):
+  alpha_true <- as.numeric(beta_imp)
+
+  # Test set: TRUE (perfect) genotypes only
+  Xte_true <- matrix(rnorm(n_test * m_snps), n_test, m_snps)
+  # Standardise columns to unit variance for scoring on true scale
+  Xte <- scale(Xte_true, center = TRUE, scale = TRUE)
+
+  # Phenotypes in test from true genotypes
+  g_te <- as.vector(Xte_true %*% beta_true)
+  yte  <- scale(g_te) * sqrt(h2) + rnorm(n_test, 0, sqrt(1 - h2))
+
+  # Baseline PGS with all SNPs (on true scale)
+  s_all <- as.vector(Xte %*% alpha_true)
+  r2_all <- cor(s_all, yte)^2
+
+  # Grid of INFO thresholds
+  thr_grid <- seq(min(R2), 0.95, by = 0.05)
+
+  # Theoretical independent-SNPs estimate on TRUE scale
+  a2 <- alpha_true^2
+  denom <- sum(a2)
+
+  results <- data.frame(
+    mode = mode, threshold = thr_grid,
+    obs_rel_r2 = NA_real_,
+    est_rel_r2 = NA_real_,
+    est_rel_r2_theory = NA_real_
+  )
+
+  for (i in seq_along(thr_grid)) {
+    thr <- thr_grid[i]
+    keep <- R2 >= thr
+
+    alpha_mask <- alpha_true
+    alpha_mask[!keep] <- 0
+    s_keep <- as.vector(Xte %*% alpha_mask)
+
+    r2_keep <- if (sd(s_keep) > 0) cor(s_keep, yte)^2 else 0
+    results$obs_rel_r2[i] <- r2_keep / r2_all
+
+    results$est_rel_r2[i] <- if (sd(s_keep) > 0) cor(s_all, s_keep)^2 else NA_real_
+
+    results$est_rel_r2_theory[i] <- sum(a2[keep]) / denom
+  }
+
+  list(results = results, R2 = R2, alpha_true = alpha_true)
+}
+
+# ----- Run both imputation models but score on PERFECT target genotypes -----
+
+sim_BG <- run_once(mode = "BG", seed = 11)
+sim_DS <- run_once(mode = "DS", seed = 12)
+
+res <- rbind(sim_BG$results, sim_DS$results)
+
+# ----- Plots -----
+
+# Observed vs Estimated (empirical), with 45° line, facet by mode
+p1 <- ggplot(res, aes(x = est_rel_r2, y = obs_rel_r2, color = threshold)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  geom_point(size = 3, alpha = 0.9) +
+  scale_color_viridis_c(option = "C") +
+  coord_equal(xlim = c(0,1), ylim = c(0,1)) +
+  labs(title = "Observed relative R² vs Estimated (corr² of scores)",
+       subtitle = "GWAS trained on imputed X (BG/DS); target scored on PERFECT (true) genotypes",
+       x = "Estimated relative R² (corr² between baseline & masked PGS)",
+       y = "Observed relative R² (R²_masked / R²_baseline)",
+       color = "INFO\nthreshold") +
+  facet_wrap(~ mode) +
+  theme_minimal(base_size = 13)
+
+print(p1)
+
+```
+
+```{r}
+make_ld <- function(m, block=50, rho=0.8) {
+  R <- diag(m)
+  for (b in seq(1, m, by = block)) {
+    e <- min(m, b + block - 1)
+    k <- e - b + 1
+    G <- rho ^ abs(outer(1:k, 1:k, "-"))   # AR(1) within block
+    R[b:e, b:e] <- G
+  }
+  R
+}
+
+# draw true standardized genotypes with LD
+rnorm_ld <- function(n, R) {
+  m <- ncol(R)
+  U <- chol(R)
+  matrix(rnorm(n*m), n, m) %*% U
+}
+
+run_with_ld <- function(m_snps=4000, n_train=3000, n_test=2000, h2=0.5,
+                        R2_min=.3, R2_max=1, mode=c("BG","DS"), seed=1,
+                        block=50, rho_ld=.8) {
+  set.seed(seed); mode <- match.arg(mode)
+  R2  <- runif(m_snps, R2_min, R2_max); rho <- sqrt(R2)
+  beta_true <- rnorm(m_snps, 0, sqrt(h2/m_snps))
+
+  Rld <- make_ld(m_snps, block=block, rho=rho_ld)
+
+  Xtr_true <- rnorm_ld(n_train, Rld)
+  Xte_true <- rnorm_ld(n_test,  Rld)
+
+  # Peter’s imputation models
+  simulate_imputed <- function(X, R2, mode) {
+    n <- nrow(X); m <- ncol(X); E <- matrix(rnorm(n*m), n, m)
+    if (mode=="BG") {
+      R <- sqrt(R2); sweep(X,2,R,`*`) + sweep(E,2,sqrt(1-R2),`*`)
+    } else {
+      sweep(X,2,R2,`*`) + sweep(E,2,sqrt(R2*(1-R2)),`*`)
+    }
+  }
+  Xtr_imp <- simulate_imputed(Xtr_true, R2, mode)
+
+  g_tr <- as.vector(Xtr_true %*% beta_true)
+  ytr  <- scale(g_tr) * sqrt(h2) + rnorm(n_train, 0, sqrt(1-h2))
+  g_te <- as.vector(Xte_true %*% beta_true)
+  yte  <- scale(g_te) * sqrt(h2) + rnorm(n_test, 0, sqrt(1-h2))
+
+  # Ridge on imputed X (standardised for stability)
+  Xtr <- scale(Xtr_imp, center=TRUE, scale=TRUE)
+  ytr <- scale(ytr,     center=TRUE, scale=TRUE)
+  lambda <- m_snps * (1-h2)/h2
+  beta_imp <- solve(crossprod(Xtr) + diag(lambda, m_snps), crossprod(Xtr, ytr))
+
+  # Score on TRUE target without per-SNP rho correction (intentional miscalibration)
+  Xte <- scale(Xte_true, center=TRUE, scale=TRUE)
+  alpha <- as.numeric(beta_imp)
+
+  s_all <- as.vector(Xte %*% alpha)
+  r2_all <- cor(s_all, yte)^2
+
+  thr_grid <- seq(min(R2), 0.95, by=.05)
+  res <- data.frame(threshold = thr_grid, obs_rel_r2 = NA, est_rel_r2 = NA)
+  for (i in seq_along(thr_grid)) {
+    keep <- R2 >= thr_grid[i]
+    alpha_k <- alpha; alpha_k[!keep] <- 0
+    s_k <- as.vector(Xte %*% alpha_k)
+    r2_k <- cor(s_k, yte)^2
+    res$obs_rel_r2[i] <- r2_k / r2_all
+    res$est_rel_r2[i] <- cor(s_all, s_k)^2
+  }
+  res
+}
+
+res_BG <- run_with_ld(mode="BG", seed=1)
+res_DS <- run_with_ld(mode="DS", seed=11)
+
+library(ggplot2)
+res_BG$mode <- "BG"; res_DS$mode <- "DS"
+res <- rbind(res_BG, res_DS)
+ggplot(res, aes(est_rel_r2, obs_rel_r2, color=threshold)) +
+  geom_abline(slope=1, intercept=0, linetype="dashed") +
+  geom_point(size=3) + scale_color_viridis_c() +
+  coord_equal(xlim=c(0,1), ylim=c(0,1)) +
+  facet_wrap(~mode) +
+  labs(title="Observed rel R² vs corr² with LD (block AR(1))",
+       subtitle="Train on imputed X; target scored on perfect X; no rho correction",
+       x="corr²(s_all, s_keep)", y="R²_keep / R²_all")
+```
+
+```{r}
+simulate_denoising <- function(
+  m_snps   = 2000,
+  n_train  = 10000,     # GWAS sample size
+  n_test   = 5000,     # validation sample size
+  h2       = 0.5,      # SNP-heritability used for SBLUP lambda
+  R2_min   = 0.3,      # INFO range
+  R2_max   = 1.0,
+  lambda   = NULL,     # if NULL, use SBLUP: m * (1/h2 - 1)
+  seed     = 1
+){
+  set.seed(seed)
+
+  ## 1) True effects and INFO per SNP
+  beta_true <- rnorm(m_snps, 0, sqrt(h2 / m_snps))   # per-SD effects; SNPs independent
+  INFO      <- runif(m_snps, R2_min, R2_max)
+
+  ## 2) GWAS summary statistics on imputed training data (unbiased, INFO-dependent SE)
+  sigma2 <- 1.0  # noise scale (doesn't need to match anything exactly)
+  gwas_noise <- rnorm(m_snps, 0, sqrt(sigma2 / (n_train * INFO)))
+  beta_hat   <- beta_true + gwas_noise
+
+  ## 3) BLUP / ridge shrinkage with SBLUP lambda
+  if (is.null(lambda)) lambda <- m_snps * ((1 / h2) - 1)   # COJO-SBLUP
+  c_shrink   <- 1 / (1 + lambda)                           # R = I  =>  (I+λI)^{-1}
+  beta_blup  <- c_shrink * beta_hat
+
+  ## 4) Target: PERFECT (WGS-like) genotypes, independent SNPs
+  Xte_true <- matrix(rnorm(n_test * m_snps), nrow = n_test, ncol = m_snps)
+  Xte <- scale(Xte_true, center = TRUE, scale = TRUE)
+
+  ## Phenotype from true genetic component
+  g_te <- as.vector(Xte_true %*% beta_true)
+  yte  <- scale(g_te) * sqrt(h2) + rnorm(n_test, 0, sqrt(1 - h2))
+
+  ## 5) Baseline PGS with all SNPs
+  s_all  <- as.vector(Xte %*% beta_blup)
+  r2_all <- cor(s_all, yte)^2
+
+  ## 6) Mask by INFO thresholds
+  thr_grid <- seq(min(INFO), 0.95, by = 0.05)
+  results <- data.frame(threshold = thr_grid,
+                        obs_rel_r2 = NA_real_,
+                        est_rel_r2 = NA_real_)
+
+  for (i in seq_along(thr_grid)) {
+    keep <- INFO >= thr_grid[i]
+
+    beta_mask <- beta_blup
+    beta_mask[!keep] <- 0
+
+    s_keep <- as.vector(Xte %*% beta_mask)
+
+    r2_keep <- if (sd(s_keep) > 0) cor(s_keep, yte)^2 else 0
+    results$obs_rel_r2[i] <- r2_keep / r2_all
+    results$est_rel_r2[i] <- if (sd(s_keep) > 0) cor(s_all, s_keep)^2 else NA_real_
+  }
+
+  list(results = results, INFO = INFO,
+       beta_true = beta_true, beta_hat = beta_hat, beta_blup = beta_blup,
+       lambda = lambda, shrink = c_shrink)
+}
+
+sim <- simulate_denoising(seed = 1)
+
+res <- sim$results
+
+ggplot(res, aes(x = est_rel_r2, y = obs_rel_r2, color = threshold)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  geom_point(size = 3) +
+  scale_color_viridis_c(option = "C") +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1.1)) +
+  labs(title = "Observed relative R² vs Estimated (corr² of scores) — no LD",
+       subtitle = "GWAS betas unbiased but less precise when INFO is low; BLUP uses global λ (external)",
+       x = "Estimated relative R² (corr² between baseline & masked PGS)",
+       y = "Observed relative R² (R²_masked / R²_all)",
+       color = "INFO\nthreshold") +
+  theme_minimal(base_size = 13)
+```
+
+```{r}
+# -----------------------------
+# Simulation: Imputation quality, BLUP, masking by R^2
+# Implements Peter Visscher's BG and DS definitions.
+# -----------------------------
+
+suppressPackageStartupMessages({
+  library(ggplot2)
+})
+
+simulate_imputed <- function(X_true, R2, mode = c("BG","DS")) {
+  mode <- match.arg(mode)
+  n <- nrow(X_true); m <- ncol(X_true)
+  E <- matrix(rnorm(n*m), n, m)
+  if (mode == "BG") {
+    R <- sqrt(R2)
+    X_imp <- sweep(X_true, 2, R, `*`) + sweep(E, 2, sqrt(1 - R2), `*`)   # Var = 1
+  } else {
+    X_imp <- sweep(X_true, 2, R2, `*`) + sweep(E, 2, sqrt(R2 * (1 - R2)), `*`) # Var = R2
+  }
+  X_imp
+}
+
+run_once <- function(m_snps = 1000,
+                     n_train = 5000,
+                     n_test  = 2000,
+                     h2 = 0.5,
+                     R2_min = 0.1,
+                     R2_max = 1.0,
+                     mode = c("BG","DS"),
+                     seed = 1) {
+  set.seed(seed)
+  mode <- match.arg(mode)
+
+  # 1) True effects
+  beta_true <- rnorm(m_snps, 0, sqrt(h2 / m_snps))
+  R2 <- runif(m_snps, R2_min, R2_max)
+
+  # 2) Training X (true) and imputed X' (BG or DS)
+  Xtr_true <- matrix(rnorm(n_train * m_snps), n_train, m_snps)
+  Xtr_imp  <- simulate_imputed(Xtr_true, R2, mode)
+
+  # 3) Phenotype from true genetic component
+  g_tr <- as.vector(Xtr_true %*% beta_true)
+  ytr  <- scale(g_tr) * sqrt(h2) + rnorm(n_train, 0, sqrt(1 - h2))
+
+  # 4) BLUP / Ridge on *imputed* X (fit and score on same scale!)
+  # Standardise columns of Xtr_imp; keep scaling to apply to test set
+  Xtr <- scale(Xtr_imp, center = TRUE, scale = TRUE)
+  ytr <- scale(ytr, center = TRUE, scale = TRUE)
+
+  lambda <- m_snps * (1 - h2) / h2
+  XtX <- crossprod(Xtr)
+  Xty <- crossprod(Xtr, ytr)
+  beta_hat <- solve(XtX + diag(lambda, m_snps), Xty)  # m x 1
+
+  # 5) Test set (true and imputed), score with same scaling as training
+  Xte_true <- matrix(rnorm(n_test * m_snps), n_test, m_snps)
+  Xte_imp  <- simulate_imputed(Xte_true, R2, mode)
+  Xte <- scale(Xte_true,
+               center = attr(Xtr, "scaled:center"),
+               scale  = attr(Xtr, "scaled:scale"))
+  #Xte <- Xte_true
+  
+  g_te <- as.vector(Xte_true %*% beta_true)
+  yte  <- scale(g_te) * sqrt(h2) + rnorm(n_test, 0, sqrt(1 - h2))
+
+  # Baseline score with all SNPs
+  s_all <- as.vector(Xte %*% beta_hat)
+  r2_all <- cor(s_all, yte)^2
+
+  # Threshold grid
+  thr_grid <- seq(min(R2), 0.95, by = 0.05)
+
+  # For independent SNPs, the theoretical corr^2(s_all, s_keep) equals:
+  # Var(s_keep)/Var(s_all) = sum_kept a_j^2 Var(Z'_j) / sum_all a_j^2 Var(Z'_j)
+  # where a_j are the learned coefficients after standardising Xtr_imp.
+  # Var(Z'_j) is 1 for BG, R2_j for DS.
+  var_col <- if (mode == "BG") rep(1, m_snps) else R2
+  a2V <- as.numeric(beta_hat)^2 * var_col
+  denom <- sum(a2V)
+
+  results <- data.frame(
+    mode = mode,
+    threshold = thr_grid,
+    obs_rel_r2 = NA_real_,
+    est_rel_r2 = NA_real_,
+    est_rel_r2_theory = NA_real_
+  )
+
+  for (i in seq_along(thr_grid)) {
+    thr <- thr_grid[i]
+    keep <- R2 >= thr
+
+    beta_mask <- beta_hat
+    beta_mask[!keep] <- 0
+    s_keep <- as.vector(Xte %*% beta_mask)
+
+    # Observed relative R^2 (vs phenotype)
+    r2_keep <- if (sd(s_keep) > 0) cor(s_keep, yte)^2 else 0
+    results$obs_rel_r2[i] <- r2_keep / r2_all
+
+    # Estimated relative R^2 proxy (corr^2 of scores)
+    results$est_rel_r2[i] <- if (sd(s_keep) > 0) cor(s_all, s_keep)^2 else NA_real_
+
+    # Independent-SNPs theoretical corr^2(s_all, s_keep)
+    results$est_rel_r2_theory[i] <- sum(a2V[keep]) / denom
+  }
+
+  list(results = results, beta_hat = beta_hat, R2 = R2)
+}
+
+# ---- Run both modes and plot ----
+
+sim_BG <- run_once(mode = "BG", seed = 42)
+sim_DS <- run_once(mode = "DS", seed = 43)
+
+res <- rbind(sim_BG$results, sim_DS$results)
+
+# Plot: Observed vs Estimated (empirical), with 45° line; color by threshold, facet by mode
+p1 <- ggplot(res, aes(x = est_rel_r2, y = obs_rel_r2, color = threshold)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  geom_point(size = 3, alpha = 0.9) +
+  scale_color_viridis_c(option = "C") +
+  labs(title = "Observed relative R² vs Estimated (corr² of scores)",
+       subtitle = "BLUP trained on imputed X; masking by INFO (R²) threshold",
+       x = "Estimated relative R² (corr² between baseline & masked PGS)",
+       y = "Observed relative R² (R²_masked / R²_baseline)",
+       color = "INFO\nthreshold") +
+  facet_wrap(~ mode) +
+  theme_minimal(base_size = 13)
+
+p1
+
+# Optional: compare empirical estimated vs independent-SNPs theory (should align closely)
+p2 <- ggplot(res, aes(x = est_rel_r2_theory, y = est_rel_r2, color = threshold)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
+  geom_point(size = 3, alpha = 0.9) +
+  scale_color_viridis_c(option = "C") +
+  labs(title = "Empirical corr² vs independent-SNPs theory",
+       subtitle = "Theory: sum_kept (a_j² Var(Z'_j)) / sum_all (a_j² Var(Z'_j))",
+       x = "Theoretical corr²(s_all, s_keep)",
+       y = "Empirical corr²(s_all, s_keep)",
+       color = "INFO\nthreshold") +
+  facet_wrap(~ mode) +
+  theme_minimal(base_size = 13)
+
+print(p1)
+print(p2)
+```
+
+
+```{r}
+# R Code to Simulate and Test the "Denoising" Theory
+#
+# --- VERSION 2 (Cleaner Test) ---
+#
+# This version implements the user's suggestion to use "perfect" (true)
+# genotypes in the test/validation set.
+#
+# This isolates the source of error to *only* the noisy GWAS betas
+# from the training step, providing a cleaner test of the "denoising" theory.
+
+library(ggplot2)
+
+set.seed(42) # For reproducible results
+
+# --- 1. Simulation Parameters ---
+m_snps <- 1000   # Number of unlinked SNPs
+n_train <- 5000  # Individuals in GWAS (training)
+n_test <- 2000   # Individuals in PGS validation (test)
+h2 <- 0.5        # Phenotype heritability
+
+cat("--- Starting Simulation (v2: Clean Test Set) ---\n")
+cat(sprintf("SNPs: %d, Training N: %d, Test N: %d, h²: %.2f\n", m_snps, n_train, n_test, h2))
+
+# --- 2. Create the "True" World (Betas, Imputation R²) ---
+# (Step 1 from email)
+true_beta <- rnorm(m_snps, 0, sqrt(h2 / m_snps))
+snp_imputation_r2 <- runif(m_snps, 0.3, 1.0)
+
+# --- 3. Create Training Set (GWAS) ---
+# (This section is identical to v1)
+
+# Simulate true, standardized genotypes ~ N(0,1)
+x_train_true <- matrix(rnorm(n_train * m_snps), nrow = n_train, ncol = m_snps)
+
+# Simulate imputed dosages (x_d)
+cat("Simulating training set imputed dosages...\n")
+x_train_imputed <- matrix(NA, nrow = n_train, ncol = m_snps)
+for (j in 1:m_snps) {
+  R2 <- snp_imputation_r2[j]
+  true_x_j <- x_train_true[, j]
+  error_var_j <- R2 * (1 - R2)
+  if (error_var_j < 0) error_var_j <- 0 
+  error_j <- rnorm(n_train, 0, sqrt(error_var_j))
+  x_train_imputed[, j] <- R2 * true_x_j + error_j
+}
+
+# Simulate phenotype (y) based on *TRUE* genotypes
+# (Step 2 from email)
+true_pgs_train <- x_train_true %*% true_beta
+true_pgs_train_scaled <- scale(true_pgs_train) * sqrt(h2)
+error_train <- rnorm(n_train, 0, sqrt(1 - h2))
+y_train <- true_pgs_train_scaled + error_train
+
+# --- 4. Mimic GWAS ---
+# (This section is identical to v1)
+# Regress y_train on *IMPUTED* genotypes (x_train_imputed)
+# This creates the "noisy" beta estimates (beta_hat)
+cat("Running simulated GWAS...\n")
+beta_hat_noisy <- numeric(m_snps)
+for (j in 1:m_snps) {
+  model <- lm(y_train ~ x_train_imputed[, j])
+  beta_hat_noisy[j] <- coef(model)[2]
+}
+
+# --- 5. Create Test Set (Validation) ---
+# (Step 1, repeated for test sample)
+
+# Simulate true, standardized genotypes ~ N(0,1)
+# *** NOTE: We will use THIS for the PGS calculation ***
+x_test_true <- matrix(rnorm(n_test * m_snps), nrow = n_test, ncol = m_snps)
+
+# Simulate phenotype (y) based on *TRUE* genotypes
+# (Step 2, repeated for test sample)
+true_pgs_test <- x_test_true %*% true_beta
+true_pgs_test_scaled <- scale(true_pgs_test) * sqrt(h2)
+error_test <- rnorm(n_test, 0, sqrt(1 - h2))
+y_test <- true_pgs_test_scaled + error_test
+
+# --- 6. Perform Out-of-Sample Validation & Test Theory ---
+# (Step 5 from email)
+# *** MODIFIED SECTION ***
+
+cat("Calculating metrics across INFO thresholds (using TRUE test genotypes)...\n")
+info_thresholds <- seq(min(snp_imputation_r2), 0.95, by = 0.05)
+results <- data.frame(
+  threshold = info_thresholds,
+  obs_rel_r2 = NA_real_,
+  est_rel_r2 = NA_real_
+)
+
+# Calculate the "baseline" PGS using ALL noisy betas
+# This is our 's' (the "noisy" score)
+beta_baseline <- beta_hat_noisy
+
+# *** CHANGE ***
+# Apply betas to TRUE genotypes, not imputed ones
+s_baseline <- x_test_true %*% beta_baseline 
+
+# Calculate its R² against the phenotype. This is our denominator (R²_baseline).
+r2_baseline_vs_pheno <- cor(s_baseline, y_test)^2
+
+for (i in 1:length(info_thresholds)) {
+  thresh <- info_thresholds[i]
+  
+  # Create the mask for "denoising"
+  mask <- snp_imputation_r2 >= thresh
+  
+  # Create the masked (denoised) beta vector
+  beta_masked <- beta_hat_noisy
+  beta_masked[!mask] <- 0
+  
+  # Create the masked PGS (s')
+  # *** CHANGE ***
+  # Apply masked betas to TRUE genotypes
+  s_masked <- x_test_true %*% beta_masked
+  
+  # --- Calculate the two metrics ---
+  
+  # 1. "Observed Relative R²" (Y-axis)
+  #    This is R²(s', Y) / R²(s_baseline, Y)
+  r2_masked_vs_pheno <- cor(s_masked, y_test)^2
+  results$obs_rel_r2[i] <- r2_masked_vs_pheno / r2_baseline_vs_pheno
+  
+  # 2. "Estimated Relative R²" (X-axis)
+  #    This is cor(s_baseline, s_masked)²
+  if (var(s_masked) == 0 || var(s_baseline) == 0) {
+    results$est_rel_r2[i] <- NA
+  } else {
+    results$est_rel_r2[i] <- cor(s_baseline, s_masked)^2
+  }
+}
+
+# --- 7. Plot the Results ---
+cat("Generating plot...\n")
+print(results)
+
+denoising_plot_v2 <- ggplot(results, aes(x = est_rel_r2, y = obs_rel_r2)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red", linewidth = 1) +
+  geom_point(aes(color = threshold), size = 4, alpha = 0.8) +
+  geom_text(aes(label = sprintf("%.2f", threshold)), vjust = -1, size = 3.5, color = "black") +
+  labs(
+    title = "Simulation Test of 'Denoising' Theory (v2: Clean Test Set)",
+    subtitle = "Isolating the effect of noisy GWAS betas. Points above the red line support the theory.",
+    x = "Estimated Relative R² ( cor(s_baseline, s_masked)² )",
+    y = "Observed Relative R² ( R²(s_masked, Y) / R²(s_baseline, Y) )",
+    color = "INFO Threshold"
+  ) +
+  scale_color_gradient(low = "blue", high = "orange") +
+  theme_minimal(base_size = 14) +
+  xlim(0, 1) +
+  ylim(min(results$obs_rel_r2, 0, na.rm = TRUE), max(results$obs_rel_r2, 1.2, na.rm = TRUE)) # Allow Y to go > 1
+
+print(denoising_plot_v2)
+```
+
+```{r}
+# R Code to Simulate and Test the "Denoising" Theory
+#
+# --- VERSION 3 (BLUP/Ridge Regression) ---
+#
+# This version implements the user's request to incorporate Step 4
+# from the email: "Estimate SNP effects using BLUP".
+#
+# We replace the single-SNP regressions with a single, joint
+# BLUP (Ridge Regression) model. This is a more realistic
+# model of how modern PGS weights are estimated.
+#
+# This will test if the "denoising" theory holds even when the
+# estimation method already shrinks weights based on variance.
+
+# Install/load libraries
+# You may need to install 'MASS' if you don't have it: install.packages("MASS")
+library(ggplot2)
+library(MASS) # For lm.ridge
+
+set.seed(42) # For reproducible results
+
+# --- 1. Simulation Parameters ---
+m_snps <- 1000   # Number of unlinked SNPs
+n_train <- 20000  # Individuals in GWAS (training)
+n_test <- 5000   # Individuals in PGS validation (test)
+h2 <- 0.5        # Phenotype heritability
+
+cat("--- Starting Simulation (v3: BLUP/Ridge Regression) ---\n")
+cat(sprintf("SNPs: %d, Training N: %d, Test N: %d, h²: %.2f\n", m_snps, n_train, n_test, h2))
+
+# --- 2. Create the "True" World (Betas, Imputation R²) ---
+true_beta <- rnorm(m_snps, 0, sqrt(h2 / m_snps))
+snp_imputation_r2 <- runif(m_snps, 0.1, 0.9)
+
+# --- 3. Create Training Set (GWAS) ---
+# Simulate true, standardized genotypes ~ N(0,1)
+x_train_true <- matrix(rnorm(n_train * m_snps), nrow = n_train, ncol = m_snps)
+
+# Simulate imputed dosages (x_d)
+cat("Simulating training set imputed dosages...\n")
+x_train_imputed <- matrix(NA, nrow = n_train, ncol = m_snps)
+for (j in 1:m_snps) {
+  R2 <- snp_imputation_r2[j]
+  true_x_j <- x_train_true[, j]
+  error_var_j <- R2 * (1 - R2)
+  if (error_var_j < 0) error_var_j <- 0 
+  error_j <- rnorm(n_train, 0, sqrt(error_var_j))
+  x_train_imputed[, j] <- R2 * true_x_j + error_j
+}
+
+# Simulate phenotype (y) based on *TRUE* genotypes
+true_pgs_train <- x_train_true %*% true_beta
+true_pgs_train_scaled <- scale(true_pgs_train) * sqrt(h2)
+error_train <- rnorm(n_train, 0, sqrt(1 - h2))
+y_train <- true_pgs_train_scaled + error_train
+
+# --- 4. Estimate SNP Effects using BLUP ---
+# (This replaces the old Step 4)
+# We will use Ridge Regression, which is equivalent to BLUP
+# for SNP effect estimation.
+# y = Xb + e
+# The BLUP solution shrinks betas: b_hat = (X'X + lambda*I)^-1 * X'y
+# The shrinkage parameter lambda = (m_snps * (1-h2) / h2)
+cat("Running BLUP (Ridge Regression) to get noisy betas...\n")
+
+# Center data (to avoid fitting an intercept)
+X_train_imputed_centered <- scale(x_train_imputed, center = TRUE, scale = FALSE)
+X_train_true_centered <- scale(x_train_true, center = TRUE, scale = FALSE)
+y_train_centered <- scale(y_train, center = TRUE, scale = FALSE)
+
+# Calculate lambda
+lambda_blup <- m_snps * (1 - h2) / h2
+
+# Calculate GBLUP/Ridge Regression estimates
+# Note: solve(A, b) is the efficient way to solve A*x = b for x
+# We want to solve (X'X + lambda*I) * b = X'y
+XtX <- t(X_train_true_centered) %*% X_train_true_centered
+Xty <- t(X_train_imputed_centered) %*% y_train_centered
+lambda_I <- diag(lambda_blup, m_snps)
+
+# These are the "noisy" (but shrunken) beta estimates
+beta_hat_noisy_blup <- solve(XtX + lambda_I) %*% Xty
+beta_hat_noisy_blup <- as.vector(beta_hat_noisy_blup)
+
+# --- 5. Create Test Set (Validation) ---
+# (Identical to v2)
+x_test_true <- matrix(rnorm(n_test * m_snps), nrow = n_test, ncol = m_snps)
+true_pgs_test <- x_test_true %*% true_beta
+true_pgs_test_scaled <- scale(true_pgs_test) * sqrt(h2)
+error_test <- rnorm(n_test, 0, sqrt(1 - h2))
+y_test <- true_pgs_test_scaled + error_test
+
+# --- 6. Perform Out-of-Sample Validation & Test Theory ---
+cat("Calculating metrics across INFO thresholds (using BLUP betas)...\n")
+info_thresholds <- seq(min(snp_imputation_r2), 0.95, by = 0.05)
+results <- data.frame(
+  threshold = info_thresholds,
+  obs_rel_r2 = NA_real_,
+  est_rel_r2 = NA_real_
+)
+
+# Center the true test genotypes using the *training* data's mean
+# (This is the correct procedure for applying the model)
+x_test_centered <- scale(x_test_true, center = colMeans(x_train_imputed), scale = FALSE)
+
+# Calculate the "baseline" PGS using ALL noisy BLUP betas
+beta_baseline <- beta_hat_noisy_blup
+s_baseline <- x_test_centered %*% beta_baseline 
+r2_baseline_vs_pheno <- cor(s_baseline, y_test)^2
+
+for (i in 1:length(info_thresholds)) {
+  thresh <- info_thresholds[i]
+  mask <- snp_imputation_r2 >= thresh
+  
+  beta_masked <- beta_hat_noisy_blup
+  beta_masked[!mask] <- 0
+  
+  s_masked <- x_test_centered %*% beta_masked
+  
+  # 1. "Observed Relative R²" (Y-axis)
+  r2_masked_vs_pheno <- cor(s_masked, y_test)^2
+  results$obs_rel_r2[i] <- r2_masked_vs_pheno / r2_baseline_vs_pheno
+  
+  # 2. "Estimated Relative R²" (X-axis)
+  if (var(s_masked) == 0 || var(s_baseline) == 0) {
+    results$est_rel_r2[i] <- NA
+  } else {
+    results$est_rel_r2[i] <- cor(s_baseline, s_masked)^2
+  }
+}
+
+# --- 7. Plot the Results ---
+cat("Generating plot...\n")
+print(results)
+
+denoising_plot_v3_blup <- ggplot(results, aes(x = est_rel_r2, y = obs_rel_r2)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red", linewidth = 1) +
+  geom_point(aes(color = threshold), size = 4, alpha = 0.8) +
+  geom_text(aes(label = sprintf("%.2f", threshold)), vjust = -1, size = 3.5, color = "black") +
+  labs(
+    title = "Simulation Test of 'Denoising' Theory (v3: BLUP Model)",
+    subtitle = "Using BLUP/Ridge Regression to estimate betas. Points above the red line support the theory.",
+    x = "Estimated Relative R² ( cor(s_baseline, s_masked)² )",
+    y = "Observed Relative R² ( R²(s_masked, Y) / R²(s_baseline, Y) )",
+    color = "INFO Threshold"
+  ) +
+  scale_color_gradient(low = "blue", high = "orange") +
+  theme_minimal(base_size = 14) +
+  xlim(0, 1) +
+  ylim(min(results$obs_rel_r2, 0, na.rm = TRUE), max(results$obs_rel_r2, 1.2, na.rm = TRUE))
+
+print(denoising_plot_v3_blup)
+
+```
+
+```{r}
+# R Code to Simulate and Test the "Denoising" Theory
+#
+# --- VERSION 5 (Realistic "Decoupled" BLUP Model) ---
+#
+# This version correctly implements the full, decoupled process:
+#
+# 1. (Step 3) A "realistic" GWAS is run (single-SNP `lm(y ~ x_d)`),
+#    which creates "noisy betas" (`beta_hat_noisy`).
+# 2. (Step 4.5) A BLUP model is applied to these noisy betas,
+#    simulating a method (like LDPred) that is "blind" to the
+#    GWAS imputation quality. In our unlinked case, this
+#    simplifies to a uniform shrinkage of all noisy betas.
+# 3. (Step 6) These new, shrunken BLUP betas are used to build the PGS.
+
+library(ggplot2)
+
+set.seed(42) # For reproducible results
+
+# --- 1. Simulation Parameters ---
+m_snps <- 1000   # Number of unlinked SNPs
+n_train <- 5000  # Individuals in GWAS (training)
+n_test <- 2000   # Individuals in PGS validation (test)
+h2 <- 0.5        # Phenotype heritability
+
+cat("--- Starting Simulation (v5: Realistic Decoupled BLUP) ---\n")
+cat(sprintf("SNPs: %d, Training N: %d, Test N: %d, h²: %.2f\n", m_snps, n_train, n_test, h2))
+
+# --- 2. Create the "True" World (Betas, Imputation R²) ---
+true_beta <- rnorm(m_snps, 0, sqrt(h2 / m_snps))
+snp_imputation_r2 <- runif(m_snps, 0.3, 1.0)
+
+# --- 3. Create Training Set (GWAS) ---
+# Simulate true, standardized genotypes ~ N(0,1)
+x_train_true <- matrix(rnorm(n_train * m_snps), nrow = n_train, ncol = m_snps)
+
+# Simulate imputed dosages (x_d)
+cat("Simulating training set imputed dosages...\n")
+x_train_imputed <- matrix(NA, nrow = n_train, ncol = m_snps)
+for (j in 1:m_snps) {
+  R2 <- snp_imputation_r2[j]
+  true_x_j <- x_train_true[, j]
+  error_var_j <- R2 * (1 - R2)
+  if (error_var_j < 0) error_var_j <- 0 
+  error_j <- rnorm(n_train, 0, sqrt(error_var_j))
+  x_train_imputed[, j] <- R2 * true_x_j + error_j
+}
+
+# Simulate phenotype (y) based on *TRUE* genotypes
+true_pgs_train <- x_train_true %*% true_beta
+true_pgs_train_scaled <- scale(true_pgs_train) * sqrt(h2)
+error_train <- rnorm(n_train, 0, sqrt(1 - h2))
+y_train <- true_pgs_train_scaled + error_train
+
+# --- 4. Estimate "Noisy" SNP Effects (Realistic GWAS) ---
+# (This is Step 3 from the email)
+# Regress y_train on *IMPUTED* genotypes (x_train_imputed)
+# This creates the "noisy" beta estimates
+cat("Running simulated GWAS (single-SNP regressions)...\n")
+beta_hat_noisy <- numeric(m_snps)
+for (j in 1:m_snps) {
+  model <- lm(y_train ~ x_train_imputed[, j])
+  beta_hat_noisy[j] <- coef(model)[2]
+}
+
+# --- 4.5 Apply "Decoupled" BLUP Shrinkage ---
+# (This is Step 4 from the email)
+# We apply BLUP shrinkage to the noisy betas from Step 4.
+# The external LD reference (R_ref) is the Identity matrix (I)
+# The BLUP formula is: beta_blup = (R_ref + lambda*I)^-1 * beta_hat
+# This simplifies to: beta_blup = (I + lambda*I)^-1 * beta_hat
+# This becomes: beta_blup = (1 / (1 + lambda)) * beta_hat
+# This is a *uniform* shrinkage of the noisy betas.
+
+cat("Applying decoupled BLUP (uniform shrinkage) to noisy betas...\n")
+# Calculate lambda (the shrinkage parameter)
+lambda_blup <- m_snps * (1 - h2) / h2
+shrinkage_factor <- 1 / (1 + lambda_blup)
+
+# Apply uniform shrinkage
+beta_blup <- beta_hat_noisy * shrinkage_factor
+
+# --- 5. Create Test Set (Validation) ---
+# (Identical to v4)
+x_test_true <- matrix(rnorm(n_test * m_snps), nrow = n_test, ncol = m_snps)
+true_pgs_test <- x_test_true %*% true_beta
+true_pgs_test_scaled <- scale(true_pgs_test) * sqrt(h2)
+error_test <- rnorm(n_test, 0, sqrt(1 - h2))
+y_test <- true_pgs_test_scaled + error_test
+
+# --- 6. Perform Out-of-Sample Validation & Test Theory ---
+cat("Calculating metrics across INFO thresholds (using BLUP-shrunken betas)...\n")
+info_thresholds <- seq(min(snp_imputation_r2), 0.95, by = 0.05)
+results <- data.frame(
+  threshold = info_thresholds,
+  obs_rel_r2 = NA_real_,
+  est_rel_r2 = NA_real_
+)
+
+# Calculate the "baseline" PGS using ALL BLUP betas
+# This is our 's' (the "noisy" score)
+beta_baseline <- beta_blup
+s_baseline <- x_test_true %*% beta_baseline 
+
+# Calculate its R² against the phenotype. This is our denominator (R²_baseline).
+r2_baseline_vs_pheno <- cor(s_baseline, y_test)^2
+
+for (i in 1:length(info_thresholds)) {
+  thresh <- info_thresholds[i]
+  
+  # Create the mask for "denoising"
+  mask <- snp_imputation_r2 >= thresh
+  
+  # Create the masked (denoised) beta vector
+  beta_masked <- beta_blup
+  beta_masked[!mask] <- 0
+  
+  # Create the masked PGS (s')
+  s_masked <- x_test_true %*% beta_masked
+  
+  # --- Calculate the two metrics ---
+  
+  # 1. "Observed Relative R²" (Y-axis)
+  #    This is R²(s', Y) / R²(s_baseline, Y)
+  r2_masked_vs_pheno <- cor(s_masked, y_test)^2
+  results$obs_rel_r2[i] <- r2_masked_vs_pheno / r2_baseline_vs_pheno
+  
+  # 2. "Estimated Relative R²" (X-axis)
+  #    This is cor(s_baseline, s_masked)²
+  if (var(s_masked) == 0 || var(s_baseline) == 0) {
+    results$est_rel_r2[i] <- NA
+  } else {
+    results$est_rel_r2[i] <- cor(s_baseline, s_masked)^2
+  }
+}
+
+# --- 7. Plot the Results ---
+cat("Generating plot...\n")
+print(results)
+
+denoising_plot_v5 <- ggplot(results, aes(x = est_rel_r2, y = obs_rel_r2)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red", linewidth = 1) +
+  geom_point(aes(color = threshold), size = 4, alpha = 0.8) +
+  geom_text(aes(label = sprintf("%.2f", threshold)), vjust = -1, size = 3.5, color = "black") +
+  labs(
+    title = "Simulation Test of 'Denoising' Theory (v5: Realistic Decoupled BLUP)",
+    subtitle = "Using single-SNP betas + uniform BLUP shrinkage. Points above the red line support the theory.",
+    x = "Estimated Relative R² ( cor(s_baseline, s_masked)² )",
+    y = "Observed Relative R² ( R²(s_masked, Y) / R²(s_baseline, Y) )",
+    color = "INFO Threshold"
+  ) +
+  scale_color_gradient(low = "blue", high = "orange") +
+  theme_minimal(base_size = 14) +
+  xlim(0, 1) +
+  ylim(min(results$obs_rel_r2, 0, na.rm = TRUE), max(results$obs_rel_r2, 1.2, na.rm = TRUE)) # Allow Y to go > 1
+
+print(denoising_plot_v5)
+```
+
+```{r}
+# R Code to Simulate and Test the "Denoising" Theory
+#
+# --- VERSION 6 (SE-Aware Shrinkage Model) ---
+#
+# This version *correctly* implements the user's insight.
+#
+# 1. (Step 3) A "realistic" GWAS is run (single-SNP `lm(y ~ x_d)`)
+#    to generate *both* "noisy betas" (`beta_hat_noisy`) AND
+#    their "noisy Standard Errors" (`SE_noisy`).
+# 2. (Step 4) We implement a Bayesian shrinkage model (like a simple
+#    SBayesRC) that *uses* the per-SNP SE to shrink the noisy betas.
+# 3. (Step 6) We test if filtering *these* "smart-shrunk" betas
+#    by their original INFO score *still* produces a denoising effect.
+#
+# This tests the hypothesis that SBayesRC-like models can be
+# "fooled" by the model violation from low-INFO SNPs.
+
+library(ggplot2)
+
+set.seed(42) # For reproducible results
+
+# --- 1. Simulation Parameters ---
+m_snps <- 1000   # Number of unlinked SNPs
+n_train <- 10000  # Individuals in GWAS (training)
+n_test <- 5000   # Individuals in PGS validation (test)
+h2 <- 0.5        # Phenotype heritability
+h2_snp <- h2 / m_snps # Prior variance for a single SNP
+
+cat("--- Starting Simulation (v6: SE-Aware Shrinkage) ---\n")
+cat(sprintf("SNPs: %d, Training N: %d, Test N: %d, h²: %.2f\n", m_snps, n_train, n_test, h2))
+
+# --- 2. Create the "True" World (Betas, Imputation R²) ---
+true_beta <- rnorm(m_snps, 0, sqrt(h2_snp))
+snp_imputation_r2 <- runif(m_snps, 0.1, 1.0)
+
+# --- 3. Create Training Set (GWAS) ---
+x_train_true <- matrix(rnorm(n_train * m_snps), nrow = n_train, ncol = m_snps)
+x_train_imputed <- matrix(NA, nrow = n_train, ncol = m_snps)
+for (j in 1:m_snps) {
+  R2 <- snp_imputation_r2[j]
+  true_x_j <- x_train_true[, j]
+  error_var_j <- R2 * (1 - R2)
+  if (error_var_j < 0) error_var_j <- 0 
+  error_j <- rnorm(n_train, 0, sqrt(error_var_j))
+  x_train_imputed[, j] <- R2 * true_x_j + error_j
+}
+
+true_pgs_train <- x_train_true %*% true_beta
+true_pgs_train_scaled <- scale(true_pgs_train) * sqrt(h2)
+error_train <- rnorm(n_train, 0, sqrt(1 - h2))
+y_train <- true_pgs_train_scaled + error_train
+
+# --- 4. Estimate "Noisy" Betas and SEs (Realistic GWAS) ---
+# (This is Step 3 from the email)
+cat("Running simulated GWAS (getting noisy betas and SEs)...\n")
+beta_hat_noisy <- numeric(m_snps)
+se_hat_noisy <- numeric(m_snps)
+for (j in 1:m_snps) {
+  model_summary <- summary(lm(y_train ~ x_train_imputed[, j]))
+  beta_hat_noisy[j] <- model_summary$coefficients[2, 1]
+  se_hat_noisy[j] <- model_summary$coefficients[2, 2]
+}
+
+# --- 4.5 Apply "SE-Aware" Bayesian Shrinkage ---
+# (This simulates Step 4, a simple SBayesRC-like model)
+#
+# We use a standard Bayesian shrinkage formula (Normal-Normal model):
+# beta_shrunk = beta_hat * (prior_var / (prior_var + se^2))
+# This model *explicitly* uses the SE to shrink the beta.
+
+cat("Applying SE-Aware (SBayesRC-like) shrinkage to noisy betas...\n")
+prior_var <- h2_snp # Use the true per-SNP variance as our prior
+beta_shrunk <- beta_hat_noisy * (prior_var / (prior_var + se_hat_noisy^2))
+beta_shrunk <- beta_hat_noisy
+
+# --- 5. Create Test Set (Validation) ---
+x_test_true <- matrix(rnorm(n_test * m_snps), nrow = n_test, ncol = m_snps)
+true_pgs_test <- x_test_true %*% true_beta
+true_pgs_test_scaled <- scale(true_pgs_test) * sqrt(h2)
+error_test <- rnorm(n_test, 0, sqrt(1 - h2))
+y_test <- true_pgs_test_scaled + error_test
+
+# --- 6. Perform Out-of-Sample Validation & Test Theory ---
+cat("Calculating metrics across INFO thresholds (using SE-shrunk betas)...\n")
+info_thresholds <- seq(min(snp_imputation_r2), 0.95, by = 0.05)
+results <- data.frame(
+  threshold = info_thresholds,
+  obs_rel_r2 = NA_real_,
+  est_rel_r2 = NA_real_
+)
+
+# Calculate the "baseline" PGS using ALL SE-shrunk betas
+# This is our 's_baseline'
+beta_baseline <- beta_shrunk
+s_baseline <- x_test_true %*% beta_baseline 
+
+r2_baseline_vs_pheno <- cor(s_baseline, y_test)^2
+if (r2_baseline_vs_pheno == 0) r2_baseline_vs_pheno <- 1e-9 # Avoid division by zero
+
+for (i in 1:length(info_thresholds)) {
+  thresh <- info_thresholds[i]
+  
+  # Create the mask for "denoising"
+  mask <- snp_imputation_r2 >= thresh
+  
+  # Create the masked (denoised) beta vector
+  beta_masked <- beta_shrunk
+  beta_masked[!mask] <- 0
+  
+  # Create the masked PGS (s')
+  s_masked <- x_test_true %*% beta_masked
+  
+  # --- Calculate the two metrics ---
+  
+  # 1. "Observed Relative R²" (Y-axis)
+  r2_masked_vs_pheno <- cor(s_masked, y_test)^2
+  results$obs_r2[i] <- r2_baseline_vs_pheno
+  results$est_r2[i] <- r2_masked_vs_pheno
+  results$obs_rel_r2[i] <- r2_masked_vs_pheno / r2_baseline_vs_pheno
+  
+  # 2. "Estimated Relative R²" (X-axis)
+  if (var(s_masked) == 0 || var(s_baseline) == 0) {
+    results$est_rel_r2[i] <- NA
+  } else {
+    results$est_rel_r2[i] <- cor(s_baseline, s_masked)^2
+  }
+}
+
+# --- 7. Plot the Results ---
+cat("Generating plot...\n")
+print(results)
+
+denoising_plot_v6 <- ggplot(results, aes(x = est_rel_r2, y = obs_rel_r2)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red", linewidth = 1) +
+  geom_point(aes(color = threshold), size = 4, alpha = 0.8) +
+  geom_text(aes(label = sprintf("%.2f", threshold)), vjust = -1, size = 3.5, color = "black") +
+  labs(
+    title = "Simulation Test of 'Denoising' Theory (v6: SE-Aware Model)",
+    subtitle = "Using SE-aware shrinkage to mimic SBayesRC. Points above the red line support the theory.",
+    x = "Estimated Relative R² ( cor(s_baseline, s_masked)² )",
+    y = "Observed Relative R² ( R²(s_masked, Y) / R²(s_baseline, Y) )",
+    color = "INFO Threshold"
+  ) +
+  scale_color_gradient(low = "blue", high = "orange") +
+  theme_minimal(base_size = 14) +
+  xlim(0, 1) +
+  ylim(min(results$obs_rel_r2, 0, na.rm = TRUE), max(results$obs_rel_r2, 1.2, na.rm = TRUE)) # Allow Y to go > 1
+
+print(denoising_plot_v6)
+
+```
 ***
 
 # Find set of well imputed variants
