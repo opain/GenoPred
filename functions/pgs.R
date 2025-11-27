@@ -31,13 +31,6 @@ list_score_files <- function(config, quiet = F){
   outdir <- read_param(config = config, param = 'outdir', return_obj = F, quiet = quiet)
 
   if(!is.null(score_list)){
-    # Read in score_reporter output
-    score_reporter <- fread(paste0(outdir, "/reference/pgs_score_files/external/score_report.txt"))
-    score_list <- merge(score_list, score_reporter, by='name')
-
-    # Remove scores that did not pass ref harmonisation
-    score_list <- score_list[score_list$pass == T,]
-
     combos <- rbind(combos,
                     data.frame(
                       name = score_list$name,
@@ -609,7 +602,7 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
     squared_residuals <- residual_pgs^2
     squared_residuals <- pmax(squared_residuals, 1e-4)
 
-    pgs_pc_var_mod <- glm2(squared_residuals ~ ., data = tmp[, names(tmp) != 'y', with=F], family = Gamma(link = "log"))
+    pgs_pc_var_mod <- glm2::glm2(squared_residuals ~ ., data = tmp[, names(tmp) != 'y', with=F], family = Gamma(link = "log"))
     predicted_pgs_var <- exp(predict(pgs_pc_var_mod, newdata = tmp))
     
     scores_pcs_resid[[i]]<-residual_pgs/sqrt(predicted_pgs_var)

@@ -399,8 +399,8 @@ rule prep_pgs_sdpr_i:
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
 
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/MKL/lib; \
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{resdir}/software/sdpr/gsl/lib; \
+    export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/MKL/lib; \
+    export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/gsl/lib; \
 
     Rscript ../Scripts/pgs_methods/sdpr.R \
          --ref_plink_chr {refdir}/ref.chr \
@@ -805,7 +805,7 @@ rule leopard_quickprs_i:
     time_min=1000
   threads: config['cores_prep_pgs']
   input:
-    lambda w: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{outdir}/reference/target_checks/prep_pgs_quickprs_i-{{gwas}}.done", gwas=get_gwas_names(w.gwas_group)),
     lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{quickprs_multi_ldref}/{{population}}/{{population}}.subset_1.bed", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),
@@ -853,7 +853,7 @@ rule leopard_quickprs:
 single_source_methods = {"ptclump", "dbslmm", "prscs", "sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs"}
 
 # Find which single source methods have been requested
-requested_single_source_methods = list(single_source_methods.intersection(pgs_methods_all))
+requested_single_source_methods = list(single_source_methods.intersection(config["leopard_methods"]))
 
 rule prep_pgs_multi_i:
   input:

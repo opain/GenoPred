@@ -100,6 +100,7 @@ sumstats<-unlist(strsplit(opt$sumstats, ','))
 log_add(log_file = log_file, message = paste0(length(sumstats), ' sets of GWAS have been provided.'))
 
 gwas_N<-NULL
+gwas_CHROMS <- NULL
 for(i in 1:length(sumstats)){
 
   #####
@@ -109,8 +110,10 @@ for(i in 1:length(sumstats)){
   log_add(log_file = log_file, message = 'Reading in GWAS.')
 
   # Read in, check and format GWAS summary statistics
-  gwas <- read_sumstats(sumstats = sumstats[i], chr = CHROMS, log_file = log_file, req_cols = c('SNP','A1','A2','BETA','SE','N'))
-
+  gwas <- read_sumstats(sumstats = sumstats[i], chr = CHROMS, log_file = log_file, req_cols = c('CHR','SNP','A1','A2','BETA','SE','N'))
+  gwas_CHROMS <- c(gwas_CHROMS, unique(gwas$CHR))
+  gwas$CHR<-NULL
+  
   # Store average sample size
   gwas_N <- c(gwas_N, round(mean(gwas$N), 0))
 
@@ -121,7 +124,8 @@ for(i in 1:length(sumstats)){
 
 
 }
-
+gwas_CHROMS <- unique(gwas_CHROMS)
+print(gwas_CHROMS)
 # Record start time for test
 if(!is.na(opt$test)){
   test_start.time <- test_start(log_file = log_file)
@@ -132,9 +136,9 @@ if(!is.na(opt$test)){
 #####
 
 # Create a temporary reference bim files for PRS-CSx to match to
-pvar <- read_pvar(opt$ref_plink_chr, chr = CHROMS)
+pvar <- read_pvar(opt$ref_plink_chr, chr = gwas_CHROMS)
 pvar$POS<-0
-for(i in CHROMS){
+for(i in gwas_CHROMS){
   write.table(pvar[pvar$CHR == i, c('CHR','SNP','POS','BP','A1','A2'), with=F], paste0(tmp_dir,'/ref.chr',i,'.bim'), col.names=F, row.names=F, quote=F)
 }
 
@@ -143,7 +147,7 @@ gc()
 
 # Make a data.frame listing chromosome and phi combinations
 jobs<-NULL
-for(i in CHROMS){
+for(i in gwas_CHROMS){
   jobs<-rbind(jobs, data.frame(CHR=i, phi=phi_param))
 }
 
@@ -189,7 +193,7 @@ for(pop_i in c(unlist(strsplit(opt$populations, ',')), 'META')){
   score_pop<-NULL
   for(phi_i in phi_param){
     score_phi<-NULL
-    for(i in CHROMS){
+    for(i in gwas_CHROMS){
       score_phi_i<-fread(paste0(tmp_dir,'/output_',pop_i,'_pst_eff_a1_b0.5_phi',phi_i,'_chr',i,'.txt'))
       score_phi<-rbind(score_phi, score_phi_i)
     }
