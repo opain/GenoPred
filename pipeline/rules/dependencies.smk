@@ -708,7 +708,7 @@ prscs_ref_ukb_dropbox = {
     'eas': 'https://www.dropbox.com/s/fz0y3tb9kayw8oq/ldblk_ukbb_eas.tar.gz?dl=0',
     'afr': 'https://www.dropbox.com/s/dtccsidwlb6pbtv/ldblk_ukbb_afr.tar.gz?dl=0',
     'amr': 'https://www.dropbox.com/s/y7ruj364buprkl6/ldblk_ukbb_amr.tar.gz?dl=0',
-    'sas': 'https://www.dropbox.com/s/nto6gdajq8qfhh0/ldblk_ukbb_sas.tar.gz?dl=0',
+    'csa': 'https://www.dropbox.com/s/nto6gdajq8qfhh0/ldblk_ukbb_sas.tar.gz?dl=0',
 }
 
 rule download_prscs_ref_ukb:
@@ -733,7 +733,7 @@ rule download_prscs_ref_ukb:
 
 rule download_prscs_ref_ukb_all:
   input:
-    lambda w: expand(f"{resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
+    lambda w: expand(f"{resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{{population}}/ldblk_ukbb_chr1.hdf5", population=['eur','eas','afr','amr','csa'])
 
 # Download 1KG-based PRScs reference
 prscs_ref_1kg_dropbox = {
@@ -741,7 +741,7 @@ prscs_ref_1kg_dropbox = {
     'eas': 'https://www.dropbox.com/s/7ek4lwwf2b7f749/ldblk_1kg_eas.tar.gz?dl=0',
     'afr': 'https://www.dropbox.com/s/mq94h1q9uuhun1h/ldblk_1kg_afr.tar.gz?dl=0',
     'amr': 'https://www.dropbox.com/s/uv5ydr4uv528lca/ldblk_1kg_amr.tar.gz?dl=0',
-    'sas': 'https://www.dropbox.com/s/hsm0qwgyixswdcv/ldblk_1kg_sas.tar.gz?dl=0',
+    'csa': 'https://www.dropbox.com/s/hsm0qwgyixswdcv/ldblk_1kg_sas.tar.gz?dl=0',
 }
 
 rule download_prscs_ref_1kg:
@@ -766,7 +766,7 @@ rule download_prscs_ref_1kg:
 
 rule download_prscs_ref_1kg_all:
   input:
-    lambda w: expand(f"{resdir}/data/prscs_ref/1kg/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5", population=['eur','eas','afr','amr','sas'])
+    lambda w: expand(f"{resdir}/data/prscs_ref/1kg/ldblk_1kg_{{population}}/ldblk_1kg_chr1.hdf5", population=['eur','eas','afr','amr','csa'])
 
 # Download PRScs software
 rule download_prscs_software:

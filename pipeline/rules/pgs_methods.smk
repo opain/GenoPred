@@ -805,7 +805,7 @@ rule leopard_quickprs_i:
     time_min=1000
   threads: config['cores_prep_pgs']
   input:
-    lambda w: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=get_gwas_names(w.gwas_group)),
+    lambda w: expand(f"{outdir}/reference/target_checks/prep_pgs_quickprs_i-{{gwas}}.done", gwas=get_gwas_names(w.gwas_group)),
     lambda w: expand(f"{quickprs_ldref}/{{population}}/{{population}}.cors.bin", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{quickprs_multi_ldref}/{{population}}/{{population}}.subset_1.bed", population=[pop for pop in get_populations(w.gwas_group)]),
     lambda w: expand(f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz", gwas=get_gwas_names(w.gwas_group)),

@@ -602,7 +602,7 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
     squared_residuals <- residual_pgs^2
     squared_residuals <- pmax(squared_residuals, 1e-4)
 
-    pgs_pc_var_mod <- glm2(squared_residuals ~ ., data = tmp[, names(tmp) != 'y', with=F], family = Gamma(link = "log"))
+    pgs_pc_var_mod <- glm2::glm2(squared_residuals ~ ., data = tmp[, names(tmp) != 'y', with=F], family = Gamma(link = "log"))
     predicted_pgs_var <- exp(predict(pgs_pc_var_mod, newdata = tmp))
     
     scores_pcs_resid[[i]]<-residual_pgs/sqrt(predicted_pgs_var)
