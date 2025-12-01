@@ -1004,7 +1004,7 @@ rule download_ldpred2_ref:
     """
     {{
       mkdir -p {resdir}/data/ldpred2_ref/EUR && \
-      gdown 1kicPiSl19l4g8GEMdOw1Ntw1jgXjmIt5 -O {resdir}/data/ldpred2_ref/EUR/download.zip; \
+      gdown --no-cookies 1kicPiSl19l4g8GEMdOw1Ntw1jgXjmIt5 -O {resdir}/data/ldpred2_ref/EUR/download.zip; \
       unzip -o {resdir}/data/ldpred2_ref/EUR/download.zip -d {resdir}/data/ldpred2_ref/EUR/ && \
       rm {resdir}/data/ldpred2_ref/EUR/download.zip && \
       unzip -o {resdir}/data/ldpred2_ref/EUR/ldref_with_blocks.zip -d {resdir}/data/ldpred2_ref/EUR/ && \
@@ -1066,7 +1066,7 @@ rule download_ldak_map:
     {{
       rm -r {resdir}/data/ldak_map; \
       mkdir -p {resdir}/data/ldak_map; \
-      gdown 1mtw5Mx-F-Ws7lKLFqMh6nN4OrDGZTkZG -O {resdir}/data/ldak_map.tar.gz; \
+      gdown --no-cookies 1mtw5Mx-F-Ws7lKLFqMh6nN4OrDGZTkZG -O {resdir}/data/ldak_map.tar.gz; \
       tar -zxvf {resdir}/data/ldak_map.tar.gz -C {resdir}/data/; \
       rm {resdir}/data/ldak_map.tar.gz
     }} > {log} 2>&1
@@ -1151,7 +1151,7 @@ rule download_quickprs_ref:
     {{
       mkdir -p {resdir}/data/quickprs; \
       rm -r -f {resdir}/data/quickprs/{wildcards.population}; \
-      gdown {params.id} -O {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz; \
+      gdown --no-cookies {params.id} -O {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz; \
       tar -zxvf {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz -C {resdir}/data/quickprs/; \
       rm {resdir}/data/quickprs/ldak_quickprs_hm3_{wildcards.population}.tar.gz
     }} > {log} 2>&1
@@ -1185,7 +1185,7 @@ rule download_quickprs_leopard_ref:
     {{
       mkdir -p {resdir}/data/quickprs_leopard; \
       rm -r -f {resdir}/data/quickprs_leopard/{wildcards.population}; \
-      gdown {params.id} -O {resdir}/data/quickprs_leopard/ldak_quickprs_hm3_{wildcards.population}.tar.gz; \
+      gdown --no-cookies {params.id} -O {resdir}/data/quickprs_leopard/ldak_quickprs_hm3_{wildcards.population}.tar.gz; \
       tar -zxvf {resdir}/data/quickprs_leopard/ldak_quickprs_hm3_{wildcards.population}.tar.gz -C {resdir}/data/quickprs_leopard/; \
       rm {resdir}/data/quickprs_leopard/ldak_quickprs_hm3_{wildcards.population}.tar.gz
     }} > {log} 2>&1
