@@ -27,13 +27,13 @@ if not conda_env_name == 'genopred':
 ########
 
 # Create function to check whether path of gwas or score exist
-def check_list_paths(df):
+def check_list_paths(df, list_name = 'list'):
   for index, row in df.iterrows():
     file_path = row['path']
     if pd.isna(file_path):
         continue
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
+        raise FileNotFoundError(f"Check {list_name}: File not found: {file_path}")
 
 # Create function to return the range of chromosomes requested
 def get_chr_range(testing):
@@ -172,7 +172,7 @@ gwas_list_df['n'] = gwas_list_df['n'].replace({',': ''}, regex=True)
 check_for_duplicates(gwas_list_df, 'name', 'gwas_list')
 
 # Check whether gwas_list paths exist
-check_list_paths(gwas_list_df)
+check_list_paths(gwas_list_df, list_name = 'gwas_list')
 
 # Identify gwas_list with population == 'EUR'
 gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
@@ -189,7 +189,7 @@ if 'score_list' in config and config["score_list"] != 'NA':
   pgs_methods_all.append('external')
 
   # Check whether score_list paths exist
-  check_list_paths(score_list_df)
+  check_list_paths(score_list_df, list_name = 'score_list')
 else:
   score_list_df = pd.DataFrame(columns = ["name", "path", "label"])
   pgs_methods = config['pgs_methods']
@@ -199,7 +199,7 @@ else:
 check_for_duplicates(score_list_df, 'name', 'score_list')
 
 # Check whether score_list paths exist
-check_list_paths(score_list_df)
+check_list_paths(score_list_df, list_name = 'score_list')
 
 ###
 # gwas_groups
