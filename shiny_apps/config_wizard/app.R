@@ -180,6 +180,37 @@ genopred_css <- "
     background-color: #34495e; /* Dark background */
     color: #82ccdd;            /* Orange-red to make variables pop */
   }
+  
+    /* --- NOTIFICATIONS (User Request) --- */
+  .shiny-notification {
+    position: fixed; 
+    top: 20px;       /* Move to top */
+    bottom: auto;    /* Override default bottom position */
+    right: 20px;
+    width: 400px;
+    opacity: 1;
+    z-index: 99999;
+    border-radius: 5px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  }
+  
+  /* Error specific styling */
+  .shiny-notification-error {
+    background-color: #e74c3c !important; /* Bright Red */
+    color: #ffffff !important;
+    border: 1px solid #c0392b;
+  }
+  
+  /* Close button color fix for red background */
+  .shiny-notification-close {
+    color: #ffffff; 
+    opacity: 0.8;
+  }
+  .shiny-notification-close:hover {
+    color: #ecf0f1;
+    opacity: 1;
+  }
+
 "
 
 # --- 1. DEFINE COLUMN STRUCTURES ---
