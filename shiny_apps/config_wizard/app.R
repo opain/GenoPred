@@ -297,7 +297,7 @@ ui <- fluidPage(
                  br(),
                  p(class="lead", "Define the GWAS summary statistics to be used by the pipeline."),
                  radioButtons("gwas_mode", "Source:",
-                              choices = c("Create new table" = "create", "Use existing file" = "existing", "None (NA)" = "none"),
+                              choices = c("None (NA)" = "none", "Create new table" = "create", "Use existing file" = "existing"),
                               inline = TRUE),
                  hr(),
                  conditionalPanel("input.gwas_mode == 'create'",
@@ -342,7 +342,7 @@ ui <- fluidPage(
                  br(),
                  p(class="lead", "Define the target genotype datasets for polygenic scoring."),
                  radioButtons("target_mode", "Source:",
-                              choices = c("Create new table" = "create", "Use existing file" = "existing", "None (NA)" = "none"),
+                              choices = c("None (NA)" = "none", "Create new table" = "create", "Use existing file" = "existing"),
                               inline = TRUE),
                  hr(),
                  conditionalPanel("input.target_mode == 'create'",
@@ -382,7 +382,7 @@ ui <- fluidPage(
                  br(),
                  p(class="lead", "Define external scoring files (e.g., from PGS Catalog)."),
                  radioButtons("score_mode", "Source:",
-                              choices = c("Create new table" = "create", "Use existing file" = "existing", "None (NA)" = "none"),
+                              choices = c("None (NA)" = "none", "Create new table" = "create", "Use existing file" = "existing"),
                               inline = TRUE),
                  hr(),
                  conditionalPanel("input.score_mode == 'create'",
@@ -422,7 +422,7 @@ ui <- fluidPage(
                  br(),
                  p(class="lead", "Define groups of GWAS for multi-source methods or meta-analysis."),
                  radioButtons("groups_mode", "Source:",
-                              choices = c("Create new table" = "create", "Use existing file" = "existing", "None (NA)" = "none"),
+                              choices = c("None (NA)" = "none", "Create new table" = "create", "Use existing file" = "existing"),
                               inline = TRUE),
                  hr(),
                  conditionalPanel("input.groups_mode == 'create'",
@@ -487,6 +487,7 @@ ui <- fluidPage(
                  br(),
                  fluidRow(
                    column(6,
+                          # 1. Global Resources
                           wellPanel(
                             h4("1. Resources & Reference"),
                             textInput("resdir", "Resources Directory", value = "NA"),
@@ -494,25 +495,28 @@ ui <- fluidPage(
                             hr(),
                             textInput("refdir", "Alternative Reference Path", placeholder = "/path/to/reference_plink_prefix")
                           ),
+                          # 2. Ancestry
                           wellPanel(
                             h4("2. Ancestry Settings"),
-                            
                             selectInput("ancestry_adjustment", "Ancestry Adjustment Approach", 
-                                        choices = c("Continuous Correction (Recommended)" = "continuous", 
+                                        choices = c("Continuous Correction" = "continuous", 
                                                     "Discrete Correction" = "discrete"),
                                         multiple = TRUE,
                                         selected = "continuous"),
-                            
-                            # Only show threshold if 'discrete' is selected
                             conditionalPanel(
                               condition = "input.ancestry_adjustment && input.ancestry_adjustment.indexOf('discrete') > -1",
                               numericInput("ancestry_threshold", "Ancestry Probability Threshold", value = 0.95, min = 0, max = 1, step = 0.05),
                               helpText("Threshold applies only to Discrete Correction.")
                             )
-                          )
-                   ),
-                   column(6,
-                          # Conditional Multi-Source Methods
+                          ),
+                          # 3. Multi-Source (Existing)
+                          conditionalPanel(
+                            condition = "input.groups_mode == 'none'",
+                            wellPanel(
+                              h4("3. Multi-Source Methods"),
+                              div(class = "note-box", strong("Disabled:"), "GWAS Groups are not active - Create or provide a GWAS Groups file in tab 4.")
+                            )
+                          ),
                           conditionalPanel(
                             condition = "input.groups_mode != 'none'",
                             wellPanel(
@@ -521,6 +525,8 @@ ui <- fluidPage(
                               
                               strong("Multi-Source PGS Methods (Jointly Optimised)"),
                               helpText("Methods that use multiple GWAS (e.g., PRS-CSx, X-Wing)."),
+                              p(style="font-size:0.85em; color:#bdc3c7;", "Note: Defaults used (PRS-CSx: phi=1e-6,1e-4,1e-2,1,auto; X-Wing: phi=auto)."),
+                              
                               div(class = "alert alert-warning", style="font-size: 0.9em;",
                                   icon("clock"), "Warning: 'Currently implemented' jointly optimised methods are computationally intensive and slow. We recommend using independently optimised methods (Single-Source) combined with LEOPARD+QuickPRS below."),
                               selectInput("pgs_methods_advanced", NULL,
@@ -528,23 +534,58 @@ ui <- fluidPage(
                                           multiple = TRUE),
                               hr(),
                               
-                              strong("LEOPARD + QuickPRS Combination"),
+                              strong("Leopard Combination"),
                               helpText("Combine PGS from single source methods for GWAS groups using weights derived using LEOPARD + QuickPRS."),
                               helpText(em("Only methods selected in 'Single-Source' (Tab 5) are available here.")),
                               selectInput("leopard_methods", NULL,
                                           choices = NULL, # Populated by server
                                           multiple = TRUE)
                             )
-                          ),
-                          
-                          conditionalPanel(
-                            condition = "input.groups_mode == 'none'",
-                            div(class = "alert alert-warning", 
-                                "Multi-Source PGS methods and Leopard are disabled because 'GWAS Groups' is set to None.")
-                          ),
-                          
+                          )
+                   ),
+                   column(6,
+                          # 4. Computational Resources
                           wellPanel(
-                            h4("4. Additional Parameters"),
+                            h4("4. Computational Resources"),
+                            tags$details(
+                              tags$summary("Expand", class = "btn btn-info btn-block"),
+                              br(),
+                              numericInput("cores_prep_pgs", "Cores: Polygenic Scoring", value = 10, min=1),
+                              numericInput("cores_target_pgs", "Cores: Target Scoring", value = 10, min=1),
+                              numericInput("mem_target_pgs", "Memory (Mb): Target Scoring", value = 10000, min=1000),
+                              numericInput("cores_impute_23andme", "Cores: 23andMe Imputation", value = 10, min=1),
+                              numericInput("cores_outlier_detection", "Cores: Outlier Detection", value = 5, min=1)
+                            )
+                          ),
+                          # 5. Method Specific Parameters 
+                          wellPanel(
+                            h4("5. PGS Method Parameters"),
+                            tags$details(
+                              tags$summary("Expand", class = "btn btn-info btn-block"),
+                              br(),
+                              textInput("ptclump_pts", "P+T Clumping P-values", placeholder  = 'Default: 5e-8, 1e-6, 1e-4, 1e-2, 0.1, 0.2, 0.3, 0.4, 0.5, 1'),
+                              textInput("dbslmm_h2f", "DBSLMM h2 folds", placeholder = 'Default: 0.8, 1, 1.2'),
+                              textInput("prscs_phi", "PRS-CS Phi", placeholder = 'Default: 1e-6, 1e-4, 1e-2, 1, auto'),
+                              selectInput("prscs_ldef", "PRS-CS LD Reference", choices = c("1000 Genomes (Default)" = "1kg", "UK Biobank" = "ukb"), selected="1kg"),
+                              selectInput("ldpred2_model", "LDpred2 Models", choices = c("auto", "grid", "inf"), multiple=TRUE, selected=c("auto", "grid", "inf"))
+                            )
+                          ),
+                          # 6. Method Specific Reference Data
+                          wellPanel(
+                            h4("6. Method-Specific Reference Data"),
+                            tags$details(
+                              tags$summary("Expand", class = "btn btn-info btn-block"),
+                              br(),
+                              textInput("sbayesr_ldref", "SBayesR", placeholder = "/path/to/ld_matrix/"),
+                              textInput("sbayesrc_ldref", "SBayesRC", placeholder = "/path/to/ld_matrix/"),
+                              textInput("ldpred2_ldref", "LDpred2/Lassosum2", placeholder = "/path/to/ld_matrix/"),
+                              textInput("quickprs_ref", "QuickPRS", placeholder = "/path/to/ld_matrix/"),
+                              textInput("quickprs_multi_ldref", "LEOPARD+QuickPRS", placeholder = "/path/to/ld_matrix/")
+                            )
+                          ),
+                          # 7. Additional Params (Existing)
+                          wellPanel(
+                            h4("7. Additional Parameters"),
                             p("For a full list of parameters, refer to the ", 
                               a(href="https://opain.github.io/GenoPred/pipeline_readme.html#Additional_parameters", target="_blank", "GenoPred Documentation"), "."),
                             helpText("Add any other keys here (YAML format)."),
@@ -775,12 +816,12 @@ server <- function(input, output, session) {
   output$download_bundle <- downloadHandler(
     filename = function() { paste0("genopred_config_", format(Sys.Date(), "%Y%m%d"), ".zip") },
     content = function(file) {
-      
+
       if (trimws(input$outdir) == "") {
         showNotification("Error: Output Directory must be specified!", type = "error")
         stop("Output Directory is mandatory.")
       }
-      
+
       tmpdir <- tempdir()
       setwd(tmpdir)
       files <- c()
@@ -789,7 +830,7 @@ server <- function(input, output, session) {
       if(input$groups_mode != "none" && !is.null(input$pgs_methods_advanced)) {
         combined_methods <- c(combined_methods, input$pgs_methods_advanced)
       }
-      
+
       config <- list(
         outdir = input$outdir,
         config_file = paste0(input$config_dir,'/config.yaml'),
@@ -807,7 +848,7 @@ server <- function(input, output, session) {
       if (!is.null(input$leopard_methods) && input$groups_mode != "none") {
         config$leopard_methods <- input$leopard_methods
       }
-      
+
       # Process Tables
       if(input$gwas_mode == "create") {
         df <- process_data(input$hot_gwas)
@@ -858,6 +899,31 @@ server <- function(input, output, session) {
         if(is.null(items) || length(items) == 0) return("[]")
         quoted_items <- paste0("'", items, "'")
         paste0("[", paste(quoted_items, collapse = ", "), "]")
+      }
+      
+      # Handles comma-separated lists from text inputs -> ['a','b']
+      format_text_list <- function(text_input, label, allow_auto = FALSE) {
+        if(trimws(text_input) == "") return(NULL)
+        
+        items <- trimws(unlist(strsplit(text_input, ",")))
+        
+        for (item in items) {
+          # Check for 'auto' if allowed (case insensitive)
+          is_auto <- allow_auto && tolower(item) == "auto"
+          
+          # Check for positive number
+          num_val <- suppressWarnings(as.numeric(item))
+          is_pos_num <- !is.na(num_val) && num_val > 0
+          
+          if (!is_auto && !is_pos_num) {
+            msg <- paste0("Error in '", label, "': Value '", item, "' is invalid. Must be a positive number", 
+                          if(allow_auto) " or 'auto'" else "", ".")
+            showNotification(msg, type = "error")
+            stop(msg) # Stop execution so config isn't downloaded
+          }
+        }
+        
+        format_list_string(items)
       }
       
       # Helper to prepend config directory if file was generated by app
@@ -942,6 +1008,38 @@ server <- function(input, output, session) {
       if(!is.null(config$refdir)) {
         yaml_lines <- c(yaml_lines, paste0("refdir: ", config$refdir))
       }
+      
+      # --- NEW PARAMETERS (Resources) ---
+      if(input$cores_prep_pgs != 10 & !is.na(input$cores_prep_pgs)) yaml_lines <- c(yaml_lines, paste0("cores_prep_pgs: ", input$cores_prep_pgs))
+      if(input$cores_target_pgs != 10 & !is.na(input$cores_target_pgs)) yaml_lines <- c(yaml_lines, paste0("cores_target_pgs: ", input$cores_target_pgs))
+      if(input$mem_target_pgs != 10000 & !is.na(input$mem_target_pgs)) yaml_lines <- c(yaml_lines, paste0("mem_target_pgs: ", input$mem_target_pgs))
+      if(input$cores_impute_23andme != 10 & !is.na(input$cores_impute_23andme)) yaml_lines <- c(yaml_lines, paste0("cores_impute_23andme: ", input$cores_impute_23andme))
+      if(input$cores_outlier_detection != 5 & !is.na(input$cores_outlier_detection)) yaml_lines <- c(yaml_lines, paste0("cores_outlier_detection: ", input$cores_outlier_detection))
+      
+      # --- NEW PARAMETERS (Method Params) ---
+      val_pt <- format_text_list(input$ptclump_pts, "P+T Clumping P-values")
+      if(!is.null(val_pt)) yaml_lines <- c(yaml_lines, paste0("ptclump_pts: ", val_pt))
+      
+      val_db <- format_text_list(input$dbslmm_h2f, "DBSLMM h2 folds")
+      if(!is.null(val_db) && input$dbslmm_h2f != "1") yaml_lines <- c(yaml_lines, paste0("dbslmm_h2f: ", val_db))
+      
+      val_phi <- format_text_list(input$prscs_phi, "PRS-CS Phi", allow_auto = TRUE)
+      if(!is.null(val_phi)) yaml_lines <- c(yaml_lines, paste0("prscs_phi: ", val_phi))
+      
+      if(input$prscs_ldef != "1kg") yaml_lines <- c(yaml_lines, paste0("prscs_ldef: ", input$prscs_ldef))
+      
+      # LDpred2 models (check if changed from default c("auto", "grid", "inf"))
+      # Simply check if all 3 are present. 
+      if(length(input$ldpred2_model) != 3) {
+        yaml_lines <- c(yaml_lines, paste0("ldpred2_model: ", format_list_string(input$ldpred2_model)))
+      }
+      
+      # --- NEW PARAMETERS (Method Refs) ---
+      if(trimws(input$sbayesr_ldref) != "") yaml_lines <- c(yaml_lines, paste0("sbayesr_ldref: ", trimws(input$sbayesr_ldref)))
+      if(trimws(input$sbayesrc_ldref) != "") yaml_lines <- c(yaml_lines, paste0("sbayesrc_ldref: ", trimws(input$sbayesrc_ldref)))
+      if(trimws(input$ldpred2_ldref) != "") yaml_lines <- c(yaml_lines, paste0("ldpred2_ldref: ", trimws(input$ldpred2_ldref)))
+      if(trimws(input$quickprs_ref) != "") yaml_lines <- c(yaml_lines, paste0("quickprs_ref: ", trimws(input$quickprs_ref)))
+      if(trimws(input$quickprs_multi_ldref) != "") yaml_lines <- c(yaml_lines, paste0("quickprs_multi_ldref: ", trimws(input$quickprs_multi_ldref)))
       
       writeLines(yaml_lines, "config.yaml")
       
