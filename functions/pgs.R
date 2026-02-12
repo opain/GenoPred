@@ -1165,7 +1165,7 @@ pgs_impute_block_tiled <- function(eig,
                                    S_b,
                                    W_b,
                                    typed_idx,
-                                   ridge = 1.5,
+                                   ridge = 2,
                                    window_size = 1000) {
   
   # eig: list(U, lambda)

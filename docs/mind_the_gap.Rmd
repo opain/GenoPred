@@ -2393,6 +2393,51 @@ for(i in traits){
   )
 }
 
+# Apply sqrt(INFO) correction to BETA and SE
+for(i in traits){
+  print(i)
+  ss <- fread(paste0(
+      '~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/',
+      i,
+      '.sbayesrc.txt.gz'
+    ))
+  ss$beta<-ss$beta*sqrt(ss$r2)
+  ss$standard_error<-ss$standard_error*sqrt(ss$r2)
+  fwrite(
+    ss,
+    paste0(
+      '~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/',
+      i,
+      '.sbayesrc.sqrtinfo.txt.gz'
+    ),
+    sep = ' ',
+    quote = F,
+    na = 'NA'
+  )
+}
+
+# Filter poorly imputed variants
+for(i in traits){
+  print(i)
+  ss <- fread(paste0(
+      '~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/',
+      i,
+      '.sbayesrc.txt.gz'
+    ))
+  ss<-ss[ss$r2 > 0.9,]
+  fwrite(
+    ss,
+    paste0(
+      '~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/',
+      i,
+      '.sbayesrc.rsq_90.txt.gz'
+    ),
+    sep = ' ',
+    quote = F,
+    na = 'NA'
+  )
+}
+
 ```
 
 ***
@@ -2411,18 +2456,23 @@ library(data.table)
 traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
 
 gwas_list <- data.table(
-  name = traits,
-  path = paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/', traits,'.sbayesrc.txt.gz'),
+  name = c(traits, paste0(traits,'_sqrtinfo'), paste0(traits,'_rsq_90')),
+  path = c(
+    paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/', traits,'.sbayesrc.txt.gz'),
+    paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/', traits,'.sbayesrc.sqrtinfo.txt.gz'),
+    paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/', traits,'.sbayesrc.rsq_90.txt.gz')),
   population = 'EUR',
   n = NA,
   sampling = NA,
   prevalence = NA,
   mean = NA, 
   sd = NA,
-  label = traits
+  label = c(traits, paste0(traits,'_sqrtinfo'), paste0(traits,'_rsq_90'))
 )
 
-write.table(gwas_list, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt', col.names = T, row.names = F, quote = F)
+write.table(gwas_list, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp_sparse.txt', col.names = T, row.names = F, quote = F)
+gwas_list_nocor<-gwas_list[!grepl('sqrtinfo|rsq_90', gwas_list$name),]
+write.table(gwas_list_nocor, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp_dense.txt', col.names = T, row.names = F, quote = F)
 
 ######
 # config
@@ -2431,7 +2481,7 @@ write.table(gwas_list, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/Geno
 config_sparse<-c(
   "outdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse",
   "config_file: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse.yaml",
-  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt",
+  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp_sparse.txt",
   "pgs_methods: ['sbayesrc','ptclump']",
   "cores_prep_pgs: 10",
   "dense_reference: F"
@@ -2442,7 +2492,7 @@ write.table(config_sparse, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/
 config_dense<-c(
   "outdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_dense",
   "config_file: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_dense.yaml",
-  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt",
+  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp_dense.txt",
   "pgs_methods: ['sbayesrc','ptclump']",
   "cores_prep_pgs: 10",
   "dense_reference: T",
@@ -2465,6 +2515,228 @@ snakemake \
   --use-conda \
   --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_dense.yaml \
   prep_pgs -n
+```
+
+***
+
+## Combine sqrtinfo scores into single file
+
+```{bash}
+set -euo pipefail
+
+# --- CONFIG ---
+traits=(HT HB PLT BMI BWT MCHC SBP NEU HDL TC)
+pgs_methods=(sbayesrc)
+
+base="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/"
+out="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_sparse_sbayesrc_sqrtinfo.txt"
+tmpdir="$(mktemp -d)"
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+
+# --- 1) Grab columns 1–3 (SNP, A1, A2) from the first available file ---
+ref_file=""
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    test_file="${base}/${method}/${trait}_sqrtinfo/ref-${trait}_sqrtinfo.score.gz"
+    if [[ -f "$test_file" ]]; then
+      ref_file="$test_file"
+      break 2
+    fi
+  done
+done
+
+if [[ -z "$ref_file" ]]; then
+  echo "Error: No reference score file found — cannot build header."
+  exit 1
+fi
+
+echo "Using reference: $ref_file"
+
+gzip -dc "$ref_file" \
+  | awk 'BEGIN{OFS=" "} {print $1,$2,$3}' \
+  > "${tmpdir}/ref_cols.txt"
+
+# --- 2) Extract columns 4..end from each available file ---
+col_files=()
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    f="${base}/${method}/${trait}_sqrtinfo/ref-${trait}_sqrtinfo.score.gz"
+    outcols="${tmpdir}/${method}_${trait}.cols.txt"
+
+    # Skip if file missing or empty
+    if [[ ! -s "$f" ]]; then
+      echo "Skipping missing file: $f"
+      continue
+    fi
+
+    echo "Processing $f"
+    gzip -dc "$f" | awk -v m="$method" -v t="$trait" '
+      BEGIN { FS="[ \t]+"; OFS=" " }
+      NR==1 {
+        for (i=4;i<=NF;i++) {
+          gsub(/^SCORE/, m"_"t"_SCORE", $i)
+        }
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+        next
+      }
+      {
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+      }' > "$outcols"
+
+    col_files+=("$outcols")
+  done
+done
+
+if [[ ${#col_files[@]} -eq 0 ]]; then
+  echo "No score columns found to combine."
+fi
+
+# --- 3) Paste reference cols + all available score columns ---
+paste -d' ' "${tmpdir}/ref_cols.txt" "${col_files[@]}" > "$out"
+
+# Compress and upload to project
+gzip $out
+dx upload $out.gz --path mind_the_gap/score_files/sparse/
+
+```
+
+***
+
+## Combine rsq_90 scores into single file
+
+```{bash}
+set -euo pipefail
+
+# --- CONFIG ---
+traits=(HT HB PLT BMI BWT MCHC SBP NEU HDL TC)
+pgs_methods=(sbayesrc)
+
+base="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/"
+out="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_sparse_sbayesrc_rsq_90.txt"
+tmpdir="$(mktemp -d)"
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+
+# --- 1) Grab columns 1–3 (SNP, A1, A2) from the first available file ---
+ref_file=""
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    test_file="${base}/${method}/${trait}_rsq_90/ref-${trait}_rsq_90.score.gz"
+    if [[ -f "$test_file" ]]; then
+      ref_file="$test_file"
+      break 2
+    fi
+  done
+done
+
+if [[ -z "$ref_file" ]]; then
+  echo "Error: No reference score file found — cannot build header."
+  exit 1
+fi
+
+echo "Using reference: $ref_file"
+
+gzip -dc "$ref_file" \
+  | awk 'BEGIN{OFS=" "} {print $1,$2,$3}' \
+  > "${tmpdir}/ref_cols.txt"
+
+# --- 2) Extract columns 4..end from each available file ---
+col_files=()
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    f="${base}/${method}/${trait}_rsq_90/ref-${trait}_rsq_90.score.gz"
+    outcols="${tmpdir}/${method}_${trait}.cols.txt"
+
+    # Skip if file missing or empty
+    if [[ ! -s "$f" ]]; then
+      echo "Skipping missing file: $f"
+      continue
+    fi
+
+    echo "Processing $f"
+    gzip -dc "$f" | awk -v m="$method" -v t="$trait" '
+      BEGIN { FS="[ \t]+"; OFS=" " }
+      NR==1 {
+        for (i=4;i<=NF;i++) {
+          gsub(/^SCORE/, m"_"t"_SCORE", $i)
+        }
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+        next
+      }
+      {
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+      }' > "$outcols"
+
+    col_files+=("$outcols")
+  done
+done
+
+if [[ ${#col_files[@]} -eq 0 ]]; then
+  echo "No score columns found to combine."
+fi
+
+# --- 3) Paste reference cols + all available score columns ---
+paste -d' ' "${tmpdir}/ref_cols.txt" "${col_files[@]}" > "$out"
+
+# Compress and upload to project
+gzip $out
+dx upload $out.gz --path mind_the_gap/score_files/sparse/
+
+```
+
+***
+
+### Calculate randomly masked MVP PGS
+
+```{bash}
+cmd='
+set -euo pipefail
+
+# dx download random subsets of variants
+tar -xvf /mnt/project/mind_the_gap/snplist_random_subset.prop.tar
+
+# ensure plink2 is executable (assumes it staged as ./plink2)
+chmod a+x ./plink2
+
+# number of score columns in the score file (NF on header line)
+n_scores=$(sed -n "1p" /mnt/project/mind_the_gap/score_files/sparse/score_file_sparse.txt | awk "{print NF}")
+export n_scores
+
+mkdir -p pgs_wgs/sparse/masked/
+
+printf "%s\n" 0.05 0.25 0.5 \
+| xargs -P 3 -I{} bash -c "
+  set -euo pipefail
+  PROP={}
+  echo \$PROP
+
+  ./plink2 \
+    --pfile /mnt/project/mind_the_gap/wgs/ukb_wgs_sbayesrc.test.EUR \
+    --score /mnt/project/mind_the_gap/score_files/sparse/score_file_sparse.txt header-read cols=+scoresums center \
+    --score-col-nums 4-\${n_scores} \
+    --extract snplist_random_subset.prop_\${PROP}.txt \
+    --memory 7000 \
+    --threads 2 \
+    --out pgs_wgs/sparse/masked/ukb.EUR.sparse.random.prop_\${PROP}
+"
+
+tar -cvf pgs_wgs_sparse_random_masked_mvp_gwas.tar pgs_wgs/
+rm -r pgs_wgs
+'
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife \
+  --brief --yes \
+  -iin="software/plink2" \
+  --priority high \
+  -icmd="${cmd}" \
+  --instance-type "mem2_ssd1_v2_x8" \
+  --destination="Oliver_Pain_Fellowship:mind_the_gap/"
 ```
 
 ***
@@ -2795,10 +3067,6 @@ ggplot(rel_r2, aes(x = array, y = relative_variance, fill = panel)) +
 dev.off()
 
 ```
-
-***
-
-
 
 ***
 
@@ -3721,6 +3989,18 @@ gwas_list <- data.table(
   label = paste0('UKB_WGS_',traits)
 )
 
+gwas_list_imp <- data.table(
+  name = paste0('UKB_imp_',traits),
+  path = paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ukb_imp/ukb.imp.gw.',traits,'.glm.linear'),
+  population = 'EUR',
+  n = NA,
+  sampling = NA,
+  prevalence = NA,
+  mean = NA, 
+  sd = NA,
+  label = paste0('UKB_imp_',traits)
+)
+
 write.table(gwas_list, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_wgs.txt', col.names = T, row.names = F, quote = F)
 
 ######
@@ -3777,6 +4057,593 @@ for pheno in $(cut -f 1 -d' ' /users/k1806347/oliverpainfel/Analyses/mind_the_ga
 
   ./ua --progress --do-not-resume --project Oliver_Pain_Fellowship --folder /mind_the_gap/score_files/sparse/ptclump/ ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/ptclump/UKB_WGS_${pheno}/ref-UKB_WGS_${pheno}.score.gz
 done
+```
+
+***
+
+## Generate PGS using UKB WGS GWAS with 1KG+HGDP reference
+
+```{r}
+config<-c(
+  "outdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse_1kghgdp_ref",
+  "config_file: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_ukb_wgs_1kghgdp_ref.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_wgs.txt",
+  "pgs_methods: ['sbayesrc']",
+  "cores_prep_pgs: 10",
+  "dense_reference: F",
+  "sbayesrc_ldref: /users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/hm3"
+)
+
+write.table(config, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_ukb_wgs_1kghgdp_ref.yaml', col.names = F, row.names = F, quote = F)
+```
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_ukb_wgs_1kghgdp_ref.yaml \
+  prep_pgs -n
+```
+
+***
+
+### Combine scorefile
+
+```{bash}
+set -euo pipefail
+
+# --- CONFIG ---
+traits=(HT HB PLT BMI BWT MCHC SBP NEU HDL TC)
+pgs_methods=(sbayesrc)
+
+base="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse_1kghgdp_ref/reference/pgs_score_files/"
+out="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse_1kghgdp_ref/score_file_wgs_sparse_sbayesrc_1kghgdp_ref.txt"
+tmpdir="$(mktemp -d)"
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+
+# --- 1) Grab columns 1–3 (SNP, A1, A2) from the first available file ---
+ref_file=""
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    test_file="${base}/${method}/UKB_WGS_${trait}/ref-UKB_WGS_${trait}.score.gz"
+    if [[ -f "$test_file" ]]; then
+      ref_file="$test_file"
+      break 2
+    fi
+  done
+done
+
+if [[ -z "$ref_file" ]]; then
+  echo "Error: No reference score file found — cannot build header."
+  exit 1
+fi
+
+echo "Using reference: $ref_file"
+
+gzip -dc "$ref_file" \
+  | awk 'BEGIN{OFS=" "} {print $1,$2,$3}' \
+  > "${tmpdir}/ref_cols.txt"
+
+# --- 2) Extract columns 4..end from each available file ---
+col_files=()
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    f="${base}/${method}/UKB_WGS_${trait}/ref-UKB_WGS_${trait}.score.gz"
+    outcols="${tmpdir}/${method}_${trait}.cols.txt"
+
+    # Skip if file missing or empty
+    if [[ ! -s "$f" ]]; then
+      echo "Skipping missing file: $f"
+      continue
+    fi
+
+    echo "Processing $f"
+    gzip -dc "$f" | awk -v m="$method" -v t="$trait" '
+      BEGIN { FS="[ \t]+"; OFS=" " }
+      NR==1 {
+        for (i=4;i<=NF;i++) {
+          gsub(/^SCORE/, m"_"t"_SCORE", $i)
+        }
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+        next
+      }
+      {
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+      }' > "$outcols"
+
+    col_files+=("$outcols")
+  done
+done
+
+if [[ ${#col_files[@]} -eq 0 ]]; then
+  echo "No score columns found to combine."
+fi
+
+# --- 3) Paste reference cols + all available score columns ---
+paste -d' ' "${tmpdir}/ref_cols.txt" "${col_files[@]}" > "$out"
+
+# Compress and upload to project
+gzip $out
+dx upload $out.gz --path mind_the_gap/score_files/sparse/
+
+```
+
+***
+
+### Calculate PGS in UKB
+
+#### Baseline
+
+```{bash}
+
+cmd='
+set -euxo pipefail
+
+chmod a+x ./plink2
+
+n_scores=$(zcat /mnt/project/mind_the_gap/score_files/sparse/score_file_wgs_sparse_sbayesrc_1kghgdp_ref.txt | sed -n "1p" | awk "{print NF}")
+
+mkdir -p pgs_wgs/wgs_sparse/baseline/
+
+./plink2 \
+  --pfile /mnt/project/mind_the_gap/wgs/ukb_wgs_sbayesrc.test.EUR \
+  --score /mnt/project/mind_the_gap/score_files/sparse/score_file_wgs_sparse_sbayesrc_1kghgdp_ref.txt.gz header-read cols=+scoresums center \
+  --score-col-nums 4-${n_scores} \
+  --memory 7000 \
+  --threads 8 \
+  --out pgs_wgs/wgs_sparse/baseline/ukb.EUR.sparse.1kghgdp_ref
+
+tar -cvf pgs_wgs_sparse_baseline_ukb_wgs_gwas_1kghgdp_ref.tar pgs_wgs/
+rm -r pgs_wgs
+'
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife \
+  --brief --yes \
+  -iin="software/plink2" \
+  --priority high \
+  -icmd="${cmd}" \
+  --instance-type "mem1_ssd1_v2_x8" \
+  --destination="Oliver_Pain_Fellowship:mind_the_gap/"
+```
+
+***
+
+#### Masked
+
+```{bash}
+cmd='
+set -euo pipefail
+
+# unpack snplists into current directory
+tar -xvf /mnt/project/mind_the_gap/snplist_rsq_subset.prop.tar
+
+# ensure plink2 is executable (assumes it staged as ./plink2)
+chmod a+x ./plink2
+
+# number of score columns in the score file (NF on header line)
+n_scores=$(zcat /mnt/project/mind_the_gap/score_files/sparse/score_file_wgs_sparse_sbayesrc_1kghgdp_ref.txt | sed -n "1p" | awk "{print NF}")
+export n_scores
+
+mkdir -p pgs_wgs/wgs_sparse/masked/
+
+printf "%s\n" 0.05 0.25 0.5 \
+| xargs -P 3 -I{} bash -c "
+  set -euo pipefail
+  PROP={}
+  echo \$PROP
+
+  ./plink2 \
+    --pfile /mnt/project/mind_the_gap/wgs/ukb_wgs_sbayesrc.test.EUR \
+    --score /mnt/project/mind_the_gap/score_files/sparse/score_file_wgs_sparse_sbayesrc_1kghgdp_ref.txt.gz header-read cols=+scoresums center \
+    --score-col-nums 4-\${n_scores} \
+    --extract snplist_rsq_subset.prop_\${PROP}.*.EUR.txt \
+    --memory 7000 \
+    --threads 2 \
+    --out pgs_wgs/wgs_sparse/masked/ukb.EUR.sparse.1kghgdp_ref.prop_\${PROP}
+"
+
+tar -cvf pgs_wgs_sparse_masked_ukb_wgs_gwas_1kghgdp_ref.tar pgs_wgs/
+rm -r pgs_wgs
+'
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife \
+  --brief --yes \
+  -iin="software/plink2" \
+  --priority high \
+  -icmd="${cmd}" \
+  --instance-type "mem2_ssd1_v2_x8" \
+  --destination="Oliver_Pain_Fellowship:mind_the_gap/"
+```
+
+***
+
+## Run GWAS using imputed UKB data
+
+```{bash}
+
+for chr in $(seq 1 22); do
+cmd="
+cp /mnt/project/software/plink2 plink2; \
+chmod a+x plink2; \
+./plink2 \
+  --bgen /mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype/ukb22828_c${chr}_b0_v3.bgen 'ref-first' \
+  --sample /mnt/project/Bulk/Imputation/UKB\ imputation\ from\ genotype/ukb22828_c${chr}_b0_v3.sample \
+  --pheno /mnt/project/mind_the_gap/phenotype/all_trait.EUR.gwas.txt \
+  --linear omit-ref allow-no-covars cols=+a1freq,+ax \
+  --extract /mnt/project/mind_the_gap/genotype/snplist.txt \
+  --out ukb.imp.chr${chr}
+"
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife \
+  --brief --yes \
+  --priority high \
+  -icmd="${cmd}" \
+  --instance-type "mem2_ssd1_v2_x8" \
+  --destination="Oliver_Pain_Fellowship:mind_the_gap/gwas/UKB_imputed/"
+done
+
+# dx download the sumstats and format for GenoPred
+mkdir -p /users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ukb_imp
+cd /users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ukb_imp
+
+set -euo pipefail
+
+phenos=(HT HB PLT BMI BWT MCHC SBP NEU HDL TC)
+
+for pheno in "${phenos[@]}"; do
+  echo "==> $pheno"
+
+  out="ukb.imp.gw.${pheno}.glm.linear"
+  tmp="${out}.tmp"
+  : > "$tmp"
+
+  for chr in $(seq 1 22); do
+    f="ukb.imp.chr${chr}.${pheno}.glm.linear"
+
+    # Download only if not already present
+    if [ ! -f "$f" ]; then
+      echo "  downloading $f"
+      dx download -f "mind_the_gap/gwas/UKB_imputed/${f}"
+    else
+      echo "  using cached $f"
+    fi
+
+    if [ "$chr" -eq 1 ]; then
+      cat "$f" >> "$tmp"
+    else
+      tail -n +2 "$f" >> "$tmp"
+    fi
+  done
+
+  # Drop REF/ALT (cols 4,5) and rename AX -> A2 in header
+  awk 'BEGIN{FS=OFS="\t"}
+       NR==1{
+         for(i=1;i<=NF;i++){
+           if($i=="AX") $i="A2"
+         }
+       }
+       {print}' "$tmp" \
+    | cut -f4,5 --complement \
+    > "$out"
+
+  rm -f "$tmp"
+
+  echo "Wrote $out"
+done
+
+```
+
+***
+
+## Generate PGS models for imputed GWAS
+
+```{r}
+library(data.table)
+
+#####
+# gwas_list
+#####
+
+traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
+
+gwas_list <- data.table(
+  name = paste0('UKB_imp_',traits),
+  path = paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ukb_imp/ukb.imp.gw.',traits,'.glm.linear'),
+  population = 'EUR',
+  n = NA,
+  sampling = NA,
+  prevalence = NA,
+  mean = NA, 
+  sd = NA,
+  label = paste0('UKB_imp_',traits)
+)
+
+write.table(gwas_list, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_imp.txt', col.names = T, row.names = F, quote = F)
+
+######
+# config
+######
+
+config_sparse<-c(
+  "outdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse",
+  "config_file: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_imp.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_imp.txt",
+  "pgs_methods: ['sbayesrc','ptclump']",
+  "cores_prep_pgs: 10",
+  "dense_reference: F"
+)
+
+write.table(config_sparse, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_imp.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_imp.yaml \
+  prep_pgs -n
+
+```
+
+***
+
+### Combine UKB IMP scores into single file
+
+```{bash}
+set -euo pipefail
+
+# --- CONFIG ---
+traits=(HT HB PLT BMI BWT MCHC SBP NEU HDL TC)
+pgs_methods=(sbayesrc)
+
+base="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/"
+out="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_imp_sparse_sbayesrc.txt"
+tmpdir="$(mktemp -d)"
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+
+# --- 1) Grab columns 1–3 (SNP, A1, A2) from the first available file ---
+ref_file=""
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    test_file="${base}/${method}/UKB_imp_${trait}/ref-UKB_imp_${trait}.score.gz"
+    if [[ -f "$test_file" ]]; then
+      ref_file="$test_file"
+      break 2
+    fi
+  done
+done
+
+if [[ -z "$ref_file" ]]; then
+  echo "Error: No reference score file found — cannot build header."
+  exit 1
+fi
+
+echo "Using reference: $ref_file"
+
+gzip -dc "$ref_file" \
+  | awk 'BEGIN{OFS=" "} {print $1,$2,$3}' \
+  > "${tmpdir}/ref_cols.txt"
+
+# --- 2) Extract columns 4..end from each available file ---
+col_files=()
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    f="${base}/${method}/UKB_imp_${trait}/ref-UKB_imp_${trait}.score.gz"
+    outcols="${tmpdir}/${method}_${trait}.cols.txt"
+
+    # Skip if file missing or empty
+    if [[ ! -s "$f" ]]; then
+      echo "Skipping missing file: $f"
+      continue
+    fi
+
+    echo "Processing $f"
+    gzip -dc "$f" | awk -v m="$method" -v t="$trait" '
+      BEGIN { FS="[ \t]+"; OFS=" " }
+      NR==1 {
+        for (i=4;i<=NF;i++) {
+          gsub(/^SCORE/, m"_"t"_SCORE", $i)
+        }
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+        next
+      }
+      {
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+      }' > "$outcols"
+
+    col_files+=("$outcols")
+  done
+done
+
+if [[ ${#col_files[@]} -eq 0 ]]; then
+  echo "No score columns found to combine."
+fi
+
+# --- 3) Paste reference cols + all available score columns ---
+paste -d' ' "${tmpdir}/ref_cols.txt" "${col_files[@]}" > "$out"
+
+# Compress and upload to project
+gzip $out
+dx upload $out.gz --path mind_the_gap/score_files/sparse/
+
+```
+
+***
+
+### Calculate imp-based GWAS PGS in UKB
+
+#### Baseline
+
+```{bash}
+
+cmd='
+set -euxo pipefail
+
+chmod a+x ./plink2
+
+n_scores=$(zcat /mnt/project/mind_the_gap/score_files/sparse/score_file_imp_sparse_sbayesrc.txt.gz | sed -n "1p" | awk "{print NF}")
+
+mkdir -p pgs_wgs/imp_sparse/baseline/
+
+./plink2 \
+  --pfile /mnt/project/mind_the_gap/wgs/ukb_wgs_sbayesrc.test.EUR \
+  --score /mnt/project/mind_the_gap/score_files/sparse/score_file_imp_sparse_sbayesrc.txt.gz header-read cols=+scoresums center \
+  --score-col-nums 4-${n_scores} \
+  --memory 7000 \
+  --threads 8 \
+  --out pgs_wgs/imp_sparse/baseline/ukb.EUR.sparse
+
+tar -cvf pgs_wgs_sparse_baseline_ukb_imp_gwas.tar pgs_wgs/
+rm -r pgs_wgs
+'
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife \
+  --brief --yes \
+  -iin="software/plink2" \
+  --priority high \
+  -icmd="${cmd}" \
+  --instance-type "mem1_ssd1_v2_x8" \
+  --destination="Oliver_Pain_Fellowship:mind_the_gap/"
+```
+
+***
+
+#### Masked
+
+```{bash}
+cmd='
+set -euo pipefail
+
+# unpack snplists into current directory
+tar -xvf /mnt/project/mind_the_gap/snplist_rsq_subset.prop.tar
+
+# ensure plink2 is executable (assumes it staged as ./plink2)
+chmod a+x ./plink2
+
+# number of score columns in the score file (NF on header line)
+n_scores=$(zcat /mnt/project/mind_the_gap/score_files/sparse/score_file_imp_sparse_sbayesrc.txt.gz | sed -n "1p" | awk "{print NF}")
+export n_scores
+
+mkdir -p pgs_wgs/imp_sparse/masked/
+
+printf "%s\n" 0.05 0.25 0.5 \
+| xargs -P 3 -I{} bash -c "
+  set -euo pipefail
+  PROP={}
+  echo \$PROP
+
+  ./plink2 \
+    --pfile /mnt/project/mind_the_gap/wgs/ukb_wgs_sbayesrc.test.EUR \
+    --score /mnt/project/mind_the_gap/score_files/sparse/score_file_imp_sparse_sbayesrc.txt.gz header-read cols=+scoresums center \
+    --score-col-nums 4-\${n_scores} \
+    --extract snplist_rsq_subset.prop_\${PROP}.*.EUR.txt \
+    --memory 7000 \
+    --threads 2 \
+    --out pgs_wgs/imp_sparse/masked/ukb.EUR.sparse.prop_\${PROP}
+"
+
+tar -cvf pgs_wgs_sparse_masked_ukb_imp_gwas.tar pgs_wgs/
+rm -r pgs_wgs
+'
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife \
+  --brief --yes \
+  -iin="software/plink2" \
+  --priority high \
+  -icmd="${cmd}" \
+  --instance-type "mem2_ssd1_v2_x8" \
+  --destination="Oliver_Pain_Fellowship:mind_the_gap/"
+```
+
+***
+
+# Compare UKB and MVP sumstats across INFO
+
+```{r}
+library(data.table)
+traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
+info <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/snp_data/rsq_browser.hm3_sbayesrc.rds')
+info <- info[, c('SNP','A1','A2','FREQ','HC_1kg'), with = F]
+
+results <- NULL
+for(trait in traits){
+  print(trait)
+  ukb_score <-
+    fread(
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/ptclump/',
+        trait,
+        '/ref-',
+        trait,
+        '.score.gz'
+      )
+    )
+  ukb_gwas <-
+    fread(
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/gwas_sumstat/UKB_WGS_',
+        trait,
+        '/UKB_WGS_',
+        trait,
+        '-cleaned.gz'
+      )
+    )
+  mvp_gwas <-
+    fread(
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/gwas_sumstat/',
+        trait,
+        '/',
+        trait,
+        '-cleaned.gz'
+      )
+    )
+  both_gwas <- merge(ukb_gwas[, c('SNP','A1','A2','BETA'), with = F], mvp_gwas[, c('SNP','A1','A2','BETA'), with = F], by = 'SNP')
+  both_gwas$BETA.y[both_gwas$A1.x != both_gwas$A1.y] <- -both_gwas$BETA.y[both_gwas$A1.x != both_gwas$A1.y]
+  both_gwas <- both_gwas[, c('SNP','BETA.x','BETA.y'), with = F]
+  names(both_gwas) <- c('SNP','BETA_ukb','BETA_mvp')
+  both_gwas_indep <- both_gwas[both_gwas$SNP %in% ukb_score$SNP[ukb_score$SCORE_0_1 != 0],]
+  both_gwas_indep_info <- merge(both_gwas_indep, info[, c('SNP','HC_1kg'), with = F], by = 'SNP')
+  both_gwas_indep_info <- na.omit(both_gwas_indep_info)
+  
+  both_gwas_indep_info[, info_bin := cut(HC_1kg, breaks=c(0, 0.3, 0.5, 0.7, 0.8, 0.9, 0.95, 0.98, 1.0), include.lowest=T)]
+
+  # Calculate Correlation per bin
+  bin_stats <- both_gwas_indep_info[, .(
+    n_snps = .N,
+    cor_beta = cor(BETA_ukb, BETA_mvp, method="pearson"),
+    slope = coef(lm(BETA_ukb ~ BETA_mvp))[2] # Calibration slope
+  ), by = info_bin]
+  
+  bin_stats[, trait := trait]
+  results <- rbind(results, bin_stats)
+}
+
+library(ggplot2)
+library(cowplot)
+ggplot(results, aes(x = info_bin, y = cor_beta, group = trait, color = trait)) +
+    geom_line() + 
+    geom_point() +
+    theme_cowplot() +
+    labs(
+      title = "Trans-Biobank Concordance Deteriorates with Imputation Quality",
+      subtitle = "Correlation of Independent SNP Effects (MVP vs UKB WGS)",
+      x = "MVP Imputation Quality (INFO)",
+      y = "Correlation of Betas (r)"
+    ) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ***
@@ -5775,7 +6642,6 @@ source_all('../functions')
 
 # Read in score file and restrict to SBayesRC
 score_file<-fread('/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/score_file_wgs_sparse.txt.gz')
-score_file <- score_file[, c('SNP','A1','A2', names(score_file)[grepl('SBayesRC', names(score_file))]), with =F]
 
 # Subset to UKB variants
 ukb_snps <- fread('~/oliverpainfel/Analyses/mind_the_gap/ukb_wgs_sbayesrc.test.EUR.pvar')$ID
@@ -5826,12 +6692,12 @@ for(i in 1:22){
 }
 
 score_all <- NULL
-for(prop_i in c(0.5, 0.25, 0.05)){
+for(prop_i in prop){
   score_i <- imp_scores[[paste0('prop_',prop_i)]] 
   score_i <- map_score(ref = ref, score = score_i)
   names(score_i) <- gsub('BETA_IMP_','', names(score_i))
-  names(score_i) <- gsub('SCORE_SBayesRC',paste0('SCORE_SBayesRC_rsq_', prop_i), names(score_i))
-  score_all <- cbind(score_all, score_i[, grepl('SBayesRC', names(score_i)), with = F])
+  names(score_i)[-1:-3] <- paste0(names(score_i)[-1:-3], '_rsq_', prop_i)
+  score_all <- cbind(score_all, score_i[, grepl('SCORE', names(score_i)), with = F])
 }
 
 score_all <- data.table(
@@ -5839,11 +6705,19 @@ score_all <- data.table(
   score_all
 )
 
+score_all[, (4:ncol(score_all)) := lapply(.SD, signif, digits = 7), .SDcols = 4:ncol(score_all)]
+
 fwrite(score_all, '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/score_file_wgs_sparse.convert.rimp.txt', col.names=T, sep=' ', quote=F)
 system('/users/k1806347/oliverpainfel/Software/pigz -f ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/score_file_wgs_sparse.convert.rimp.txt')
 system('dx upload ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/score_file_wgs_sparse.convert.rimp.txt.gz --path mind_the_gap/score_files/sparse/')
 system('dx upload ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.recovered.rimp.txt --path mind_the_gap/results/')
 ```
+
+***
+
+# Recover signal in CAD PGS
+
+
 
 ***
 

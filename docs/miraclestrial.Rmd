@@ -646,12 +646,50 @@ config <- '/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/conf
 
 # Read in the PGS and within sample PCs
 pgs <- read_pgs(config = config)
+
+# Save PGS into a single data from for each batch
+## 1) Merge all GWAS PGS within each batch
+merged_by_batch <- lapply(pgs, function(batch) {
+  dt_list <- lapply(batch$TRANS, `[[`, "sbayesrc")
+  Reduce(function(x, y)
+    merge(x, y, by = c("FID", "IID"), all = TRUE, sort = FALSE),
+    dt_list
+  )
+})
+
+## (Optional but useful) add a batch indicator column
+merged_by_batch <- Map(function(dt, nm) {
+  dt[, batch := nm]
+  # move batch to the front if you like
+  setcolorder(dt, c("batch", "FID", "IID", setdiff(names(dt), c("batch", "FID", "IID"))))
+  dt
+}, merged_by_batch, names(merged_by_batch))
+
+## 2) Bind all batches into one data.table
+all_pgs <- rbindlist(merged_by_batch, use.names = TRUE, fill = TRUE)
+
+write.table(all_pgs, '~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_pgs.txt', col.names = T, row.names = F, quote = F)
+
 gwas_list <- read_param(config = config, param = 'gwas_list')
 
 # Read in PCs
 pcs <-list()
 pcs[['miracles_batch1']] <- fread('~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_batch1/pcs/within_sample/miracles_batch1.outlier_detection.EUR.PCs.txt')
 pcs[['miracles_batch2']] <- fread('~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_batch2/pcs/within_sample/miracles_batch2.outlier_detection.EUR.PCs.txt')
+
+## (Optional but useful) add a batch indicator column
+merged_by_batch <- Map(function(dt, nm) {
+  dt[, batch := nm]
+  # move batch to the front if you like
+  setcolorder(dt, c("batch", "FID", "IID", setdiff(names(dt), c("batch", "FID", "IID"))))
+  dt
+}, pcs, names(pcs))
+
+## 2) Bind all batches into one data.table
+all_pcs <- rbindlist(merged_by_batch, use.names = TRUE, fill = TRUE)
+
+write.table(all_pcs, '~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_pcs.txt', col.names = T, row.names = F, quote = F)
+
 
 # Combine the data across batches
 pgs_both <- NULL

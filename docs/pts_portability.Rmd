@@ -1,0 +1,231 @@
+---
+title: "PTS portability"
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+library(knitr)
+```
+
+***
+
+# Phase 1: Data Preparation & Harmonization
+
+TWAS models have already been created based on EUR eQTLGen sumstats and AFR SABR sumstats.
+UKB sample has already been split into EUR training and EUR/AFR test subsets, and GWAS for 10 traits have been conducted in the training subset.
+
+***
+
+# Phase 2: TWAS & Gene Expression Prediction
+
+***
+
+## 2.1 Run TWAS (Discovery)
+
+Run a TWAS using the eQTLGen sumstats and EUR UKB GWAS sumstats.
+
+```{bash}
+
+conda activate ldsc
+mkdir -p /users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ldsc_munged
+for pheno in $(cut -f 1 -d' ' /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt | tail -n +2); do
+sbatch -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="
+~/oliverpainfel/Software/ldsc/munge_sumstats.py \
+  --sumstats /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/gwas_sumstat/UKB_WGS_${pheno}/UKB_WGS_${pheno}-cleaned.gz \
+  --out /users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ldsc_munged/${pheno} \
+  --chunksize 50000 \
+  --merge-alleles /users/k1806347/oliverpainfel/Data/ldsc/w_hm3.snplist
+"
+done
+
+conda activate eqtl_to_twas
+for pheno in $(cut -f 1 -d' ' /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt | tail -n +2); do
+mkdir -p /users/k1806347/oliverpainfel/Analyses/pts_portability/twas/${pheno}
+
+for chr in $(seq 1 22); do
+sbatch -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="
+Rscript /users/k1806347/oliverpainfel/Software/MyGit/eQTL_to_TWAS/FUSION.assoc_test.edit.R \
+    --sumstats /users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ldsc_munged/${pheno}.sumstats.gz \
+    --weights /users/k1806347/oliverpainfel/Data/eQTLGen/eQTL_to_TWAS/eQTLGen.eQTL.pos \
+    --weights_dir /users/k1806347/oliverpainfel/Data/eQTLGen/eQTL_to_TWAS/ \
+    --ref_ld_chr /users/k1806347/oliverpainfel/Data/1KG/FUSION/1000G.EUR. \
+    --out /users/k1806347/oliverpainfel/Analyses/pts_portability/twas/${pheno}/${pheno}.eqtlgen.chr${chr} \
+    --chr ${chr}
+"
+done
+done
+
+```
+
+```{r}
+# Combine per chromosome TWAS results
+phenos <- fread('/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt')$name
+
+for(pheno in phenos){
+  res <- NULL
+  for(i in 1:22){
+    res <- rbind(
+      res,
+      fread(
+        paste0(
+          '/users/k1806347/oliverpainfel/Analyses/pts_portability/twas/',pheno,'/', pheno,'.eqtlgen.chr', i
+        )
+      )
+    )
+  }
+  fwrite(res, 
+         paste0(
+          '/users/k1806347/oliverpainfel/Analyses/pts_portability/twas/',pheno,'/', pheno,'.eqtlgen.gw.txt.gz'
+         ),
+         sep = ' ', quote = F, na = 'NA')
+}
+```
+
+```{bash}
+for pheno in $(cut -f 1 -d' ' /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt | tail -n +2); do
+  dx upload /users/k1806347/oliverpainfel/Analyses/pts_portability/twas/${pheno}/${pheno}.eqtlgen.gw.txt.gz --path pts_portability/
+done
+```
+
+***
+
+## 2.2 Predict Expression (Reference)
+
+```{bash}
+conda activate eqtl_to_twas
+
+Rscript ~/MyGit/Predicting-TWAS-features/FeaturePred.V2.0.R \
+	--PLINK_prefix_chr /users/k1806347/oliverpainfel/Data/1KG/FUSION/1000G.EUR. \
+  --weights /users/k1806347/oliverpainfel/Data/eQTLGen/eQTL_to_TWAS/eQTLGen.eQTL.pos \
+  --weights_dir /users/k1806347/oliverpainfel/Data/eQTLGen/eQTL_to_TWAS/ \
+	--ref_ld_chr /users/k1806347/oliverpainfel/Data/1KG/FUSION/1000G.EUR. \
+	--plink /users/k1806347/oliverpainfel/Software/plink1.9/plink \
+	--ref_maf /users/k1806347/oliverpainfel/Data/1KG/FUSION/1000G.EUR. \
+	--pigz /users/k1806347/oliverpainfel/Software/pigz \
+	--n_cores 50 \
+	--model prscs \
+	--memory 80000 \
+	--output /users/k1806347/oliverpainfel/Data/1KG/pred_exp/EUR.GW
+	
+```
+
+***
+
+# Phase 3: Construct PTS (OmicScores)
+
+```{r}
+# Combine per chromosome TWAS results
+phenos <- fread('/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt')$name
+
+for(pheno in phenos){
+  
+  # Restrict to prscs model
+  twas <-
+    fread(
+      paste0(
+        '/users/k1806347/oliverpainfel/Analyses/pts_portability/twas/',
+        pheno,
+        '/',
+        pheno,
+        '.eqtlgen.gw.txt.gz'
+      )
+    )
+  twas<-twas[twas$MODEL == 'prscs',]
+  fwrite(twas, 
+         paste0(
+           '/users/k1806347/oliverpainfel/Analyses/pts_portability/twas/',
+           pheno,
+           '/',
+           pheno,
+           '.eqtlgen.prscs.gw.txt.gz'
+         ),
+         sep = ' ', quote = F, na = 'NA')
+}
+```
+
+```{bash}
+# Create the score file using IFRisk
+mkdir -p /users/k1806347/oliverpainfel/Analyses/pts_portability/pts/eqtlgen/eur/
+
+for pheno in $(cut -f 1 -d' ' /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_mvp.txt | tail -n +2); do
+  sbatch -p neurohack_cpu,interruptible_cpu -t 1:00:00 --wrap="
+    Rscript ~/MyGit/Inferred-functional-risk-scoring/IFRisk.V1.0.R \
+      --twas_results /users/k1806347/oliverpainfel/Analyses/pts_portability/twas/${pheno}/${pheno}.eqtlgen.prscs.gw.txt.gz \
+      --target_gene_exp /users/k1806347/oliverpainfel/Data/1KG/pred_exp/EUR.GW/FeaturePredictions_eQTLGen.eQTL.txt.gz \
+      --clump_thresh 0.1 \
+      --output /users/k1806347/oliverpainfel/Analyses/pts_portability/pts/eqtlgen/eur/${pheno}.eqtlgen.eur
+      
+    dx upload /users/k1806347/oliverpainfel/Analyses/pts_portability/pts/eqtlgen/eur/${pheno}.eqtlgen.eur.score --path pts_portability/
+  "
+done
+
+```
+
+***
+
+## Experiment with restrict results to genes with significant prediction
+
+```{r}
+# Restrict to genes that show significant positive prediction in GTEx
+twas<-fread('/users/k1806347/oliverpainfel/Analyses/pts_portability/twas/HT/HT.eqtlgen.gw.txt.gz')
+twas<-twas[twas$MODEL == 'prscs',]
+sig_genes<-fread('/users/k1806347/oliverpainfel/Data/eQTLGen/eQTL_to_TWAS/eQTLGen.eQTL.sig.pos')
+twas<-twas[twas$ID %in% sig_genes$ID,]
+fwrite(twas, 
+       paste0(
+        '/users/k1806347/oliverpainfel/Analyses/pts_portability/twas/',pheno,'/', pheno,'.eqtlgen.prscs.sig.gw.txt.gz'
+       ),
+       sep = ' ', quote = F, na = 'NA')
+```
+
+```{bash}
+Rscript ~/MyGit/Inferred-functional-risk-scoring/IFRisk.V1.0.R \
+  --twas_results /users/k1806347/oliverpainfel/Analyses/pts_portability/twas/HT/HT.eqtlgen.prscs.sig.gw.txt.gz \
+  --target_gene_exp /users/k1806347/oliverpainfel/Data/1KG/pred_exp/EUR.GW/FeaturePredictions_eQTLGen.eQTL.txt.gz \
+  --clump_thresh 0.1 \
+  --output /users/k1806347/oliverpainfel/Analyses/pts_portability/pts/eqtlgen/eur/HT.eqtlgen.sig.eur
+  
+dx upload /users/k1806347/oliverpainfel/Analyses/pts_portability/pts/eqtlgen/eur/HT.eqtlgen.sig.eur.score --path pts_portability/
+
+```
+
+Note. using height, this filter reduced the variance explained of PTS.
+
+***
+
+## Experiment with restricting results to genes present in both eQTLGen and SABR
+
+```{r}
+# Restrict to genes that show significant positive prediction in GTEx
+twas<-fread('/users/k1806347/oliverpainfel/Analyses/pts_portability/twas/HT/HT.eqtlgen.gw.txt.gz')
+twas<-twas[twas$MODEL == 'prscs',]
+sabr_genes<-fread('/users/k1806347/oliverpainfel/Data/SABR/processed/eqtl_to_twas/SABR.eQTL.pos')
+twas<-twas[twas$ID %in% sabr_genes$ID,]
+fwrite(twas, 
+       paste0(
+        '/users/k1806347/oliverpainfel/Analyses/pts_portability/twas/',pheno,'/', pheno,'.eqtlgen.prscs.in_sabr.gw.txt.gz'
+       ),
+       sep = ' ', quote = F, na = 'NA')
+```
+
+```{bash}
+Rscript ~/MyGit/Inferred-functional-risk-scoring/IFRisk.V1.0.R \
+  --twas_results /users/k1806347/oliverpainfel/Analyses/pts_portability/twas/HT/HT.eqtlgen.prscs.in_sabr.gw.txt.gz \
+  --target_gene_exp /users/k1806347/oliverpainfel/Data/1KG/pred_exp/EUR.GW/FeaturePredictions_eQTLGen.eQTL.txt.gz \
+  --clump_thresh 0.1 \
+  --output /users/k1806347/oliverpainfel/Analyses/pts_portability/pts/eqtlgen/eur/HT.eqtlgen.in_sabr.eur
+  
+dx upload /users/k1806347/oliverpainfel/Analyses/pts_portability/pts/eqtlgen/eur/HT.eqtlgen.in_sabr.eur.score --path pts_portability/
+
+```
