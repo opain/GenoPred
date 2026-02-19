@@ -2741,7 +2741,11 @@ ggplot(prop_long, aes(x = array, y = prop, fill = panel)) +
 
 ### Random masking
 
-#### Sparse
+Use sparse PGS.
+
+***
+
+#### Single iteration
 
 ```{bash}
 cd ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files
@@ -2813,10 +2817,158 @@ dx upload \
 
 ***
 
+#### 10 iteration
+
+```{bash}
+cd ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files
+dx download mind_the_gap/score_files/sparse/score_file_wgs_sparse.txt.gz
+
+mkdir -p snplist_random_subset.prop.10_it
+cd ~/oliverpainfel/Analyses/mind_the_gap/snplist_random_subset.prop.10_it
+dx download mind_the_gap/snplist_random_subset.prop.10_it.tar
+tar -xvf snplist_random_subset.prop.10_it.tar
+
+dx download mind_the_gap/wgs/ukb_wgs_sbayesrc.test.EUR.pvar
+
+```
+
+```{r}
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+library(GenoUtils)
+library(foreach)
+library(doMC)
+registerDoMC(20)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in score file
+score_file<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/score_file_wgs_sparse.txt.gz')
+
+# Remove variants that are not in UKB WGS data
+ukb_snps <- fread('~/oliverpainfel/Analyses/mind_the_gap/ukb_wgs_sbayesrc.test.EUR.pvar')$ID
+score_file <- score_file[score_file$SNP %in% ukb_snps,]
+
+for(iteration in 1:10){
+  print(iteration)
+  for(i in c(0.05, 0.25, 0.5)){
+    print(i)
+    # Read in list of randomly retained variants
+    unmasked <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/snplist_random_subset.prop.10_it/snplist_random_subset.prop_',i,'.iteration_',iteration,'.txt'), header = F)$V1
+    f_miss <- data.table(SNP = score_file$SNP, F_MISS = 1)
+    f_miss$F_MISS[f_miss$SNP %in% unmasked] <- 0
+  
+    rel_r2_all<-NULL
+    for(pop in c('EUR','AFR')){  
+      # Calculate relative R2 (on each chromosome like in GenoPred)
+      rel_r2 <- rel_pgs_r2_missing_eigen(
+          ld_dir = paste0('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/', pop),
+          score_df = score_file,
+          f_miss = f_miss)
+      
+      rel_r2$population <- pop
+      
+      rel_r2_all <- rbind(rel_r2_all, rel_r2)
+    }
+    
+    write.table(
+      rel_r2_all, 
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.random.',i,'.iteration_',iteration,'.txt'
+      ), col.names = T, row.names = F, quote = F)
+  }
+}
+```
+
+```{bash}
+dx upload \
+  ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.random.*.iteration_*.txt \
+  --path mind_the_gap/score_files/
+```
+
+***
+
+#### 10 iteration with external LD reference
+
+```{bash}
+cd ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files
+dx download mind_the_gap/score_files/sparse/score_file_wgs_sparse.txt.gz
+
+mkdir -p snplist_random_subset.prop.10_it
+cd ~/oliverpainfel/Analyses/mind_the_gap/snplist_random_subset.prop.10_it
+dx download mind_the_gap/snplist_random_subset.prop.10_it.tar
+tar -xvf snplist_random_subset.prop.10_it.tar
+
+dx download mind_the_gap/wgs/ukb_wgs_sbayesrc.test.EUR.pvar
+
+```
+
+```{r}
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+library(GenoUtils)
+library(foreach)
+library(doMC)
+registerDoMC(20)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in score file
+score_file<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/score_file_wgs_sparse.txt.gz')
+
+# Remove variants that are not in UKB WGS data
+ukb_snps <- fread('~/oliverpainfel/Analyses/mind_the_gap/ukb_wgs_sbayesrc.test.EUR.pvar')$ID
+score_file <- score_file[score_file$SNP %in% ukb_snps,]
+
+for(iteration in 1:10){
+  print(iteration)
+  for(i in c(0.05, 0.25, 0.5)){
+    print(i)
+    # Read in list of randomly retained variants
+    unmasked <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/snplist_random_subset.prop.10_it/snplist_random_subset.prop_',i,'.iteration_',iteration,'.txt'), header = F)$V1
+    f_miss <- data.table(SNP = score_file$SNP, F_MISS = 1)
+    f_miss$F_MISS[f_miss$SNP %in% unmasked] <- 0
+  
+    rel_r2_all<-NULL
+    for(pop in c('EUR')){  
+      # Calculate relative R2 (on each chromosome like in GenoPred)
+      rel_r2_old <- rel_pgs_r2_missing_eigen(
+          ld_dir = paste0('/users/k1806347/oliverpainfel/Data/hgdp_1kg/sbayesrc/hm3/', pop),
+          score_df = score_file,
+          f_miss = f_miss)
+      
+      rel_r2$population <- pop
+      
+      rel_r2_all <- rbind(rel_r2_all, rel_r2)
+    }
+    
+    write.table(
+      rel_r2_all, 
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.random.',i,'.iteration_',iteration,'.external_ld.txt'
+      ), col.names = T, row.names = F, quote = F)
+  }
+}
+```
+
+```{bash}
+dx upload \
+  ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.random.*.iteration_*.txt \
+  --path mind_the_gap/score_files/
+```
+
+***
+
 ### Test LD-naive estimation
 
 It is possible to estimate the relative variance without considering LD, but I hypothesise this would be less accurate. 
 Estimate the relative variance of sparse PGS using the LD naive approach.
+
+#### Single iteration
 
 ```{bash}
 cd ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files
@@ -2886,9 +3038,82 @@ dx upload \
 
 ***
 
+#### 10 iteration
+
+```{bash}
+cd ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files
+dx download mind_the_gap/score_files/sparse/score_file_wgs_sparse.txt.gz
+
+mkdir -p snplist_random_subset.prop.10_it
+cd ~/oliverpainfel/Analyses/mind_the_gap/snplist_random_subset.prop.10_it
+dx download mind_the_gap/snplist_random_subset.prop.10_it.tar
+tar -xvf snplist_random_subset.prop.10_it.tar
+
+dx download mind_the_gap/wgs/ukb_wgs_sbayesrc.test.EUR.pvar
+
+```
+
+```{r}
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+library(GenoUtils)
+library(foreach)
+library(doMC)
+registerDoMC(20)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in score file
+score_file<-fread('~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/score_file_wgs_sparse.txt.gz')
+
+# Remove variants that are not in UKB WGS data
+ukb_snps <- fread('~/oliverpainfel/Analyses/mind_the_gap/ukb_wgs_sbayesrc.test.EUR.pvar')$ID
+score_file <- score_file[score_file$SNP %in% ukb_snps,]
+
+for(iteration in 1:10){
+  print(iteration)
+  for(i in c(0.05, 0.25, 0.5)){
+    print(i)
+    # Read in list of randomly retained variants
+    unmasked <- fread(paste0('~/oliverpainfel/Analyses/mind_the_gap/snplist_random_subset.prop.10_it/snplist_random_subset.prop_',i,'.iteration_',iteration,'.txt'), header = F)$V1
+    f_miss <- data.table(SNP = score_file$SNP, F_MISS = 1)
+    f_miss$F_MISS[f_miss$SNP %in% unmasked] <- 0
+  
+    rel_r2_all<-NULL
+    for(pop in c('EUR','AFR')){  
+      # Calculate relative R2 (on each chromosome like in GenoPred)
+      rel_r2 <- rel_pgs_r2_missing_af(
+          ld_dir = paste0('~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/', pop),
+          score_df = score_file,
+          f_miss = f_miss)
+  
+      rel_r2$population <- pop
+      
+      rel_r2_all <- rbind(rel_r2_all, rel_r2)
+    }
+    
+    write.table(
+      rel_r2_all, 
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.random.',i,'.iteration_',iteration,'.ld_naive.txt'
+      ), col.names = T, row.names = F, quote = F)
+  }
+}
+```
+
+```{bash}
+dx upload \
+  ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.random.*.iteration_*.txt \
+  --path mind_the_gap/score_files/
+```
+
+***
+
 ### INFO-based masking
 
-#### Sparse
+Use sparse PGS.
 
 ```{bash}
 cd ~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files
