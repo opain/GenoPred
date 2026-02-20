@@ -24,7 +24,7 @@ rule ref_pca_i:
   log:
     f"{outdir}/reference/logs/ref_pca_i-{{population}}.log"
   shell:
-    "Rscript ../Scripts/ref_pca/ref_pca.R \
+    "Rscript --vanilla ../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ref_keep {params.ref_keep} \
       --extract {resdir}/data/hm3_snplist/w_hm3.snplist \
@@ -64,8 +64,8 @@ if 'gwas_list' in config:
       path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
     shell:
       """
-      sumstat_cleaner_script=$(Rscript -e 'cat(system.file("scripts", "sumstat_cleaner.R", package = "GenoUtils"))' 2>&1 | grep -Eo "/.*sumstat_cleaner.R")
-      Rscript $sumstat_cleaner_script \
+      sumstat_cleaner_script=$(Rscript --vanilla -e 'cat(system.file("scripts", "sumstat_cleaner.R", package = "GenoUtils"))' 2>&1 | grep -Eo "/.*sumstat_cleaner.R")
+      Rscript --vanilla $sumstat_cleaner_script \
         --sumstats {params.path} \
         --n {params.n} \
         --ref_chr {refdir_intersect}/ref.chr \
@@ -101,7 +101,7 @@ rule ldsc_i:
     prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/ldsc/ldsc.R \
+    "Rscript --vanilla ../Scripts/ldsc/ldsc.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --munge_sumstats {resdir}/software/ldsc/munge_sumstats.py \
@@ -140,7 +140,7 @@ rule prep_pgs_ptclump_i:
       """
     (
     rm -r -f {outdir}/reference/pgs_score_files/ptclump/{wildcards.gwas}; \
-    Rscript ../Scripts/pgs_methods/ptclump.R \
+    Rscript --vanilla ../Scripts/pgs_methods/ptclump.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -216,7 +216,7 @@ rule prep_pgs_dbslmm_i:
     h2f= ",".join(map(str, config["dbslmm_h2f"])),
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/dbslmm.R \
+    "Rscript --vanilla ../Scripts/pgs_methods/dbslmm.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -266,7 +266,7 @@ rule prep_pgs_prscs_i:
     export NUMEXPR_NUM_THREADS=1; \
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/prscs.R \
+    Rscript --vanilla ../Scripts/pgs_methods/prscs.R \
     --ref_plink_chr {refdir_intersect}/ref.chr \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
     --output {outdir}/reference/pgs_score_files/prscs/{wildcards.gwas}/ref-{wildcards.gwas} \
@@ -316,7 +316,7 @@ rule prep_pgs_sbayesr_i:
     """
     (
       rm -r -f {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}; \
-      Rscript ../Scripts/pgs_methods/sbayesr.R \
+      Rscript --vanilla ../Scripts/pgs_methods/sbayesr.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb/gctb_2.03beta_Linux/gctb \
@@ -360,7 +360,7 @@ rule prep_pgs_lassosum_i:
     testing=config["testing"],
     pseudo_only_flag = lambda wildcards: "T" if str(config.get("lassosum_pseudo_only", "False")).lower() in ["t", "true"] else "F"
   shell:
-    "Rscript ../Scripts/pgs_methods/lassosum.R \
+    "Rscript --vanilla ../Scripts/pgs_methods/lassosum.R \
      --ref_plink_chr {refdir_intersect}/ref.chr \
      --ref_keep {refdir}/keep_files/{params.population}.keep \
      --gwas_pop {params.population} \
@@ -406,7 +406,7 @@ rule prep_pgs_sdpr_i:
     export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/MKL/lib; \
     export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/gsl/lib; \
 
-    Rscript ../Scripts/pgs_methods/sdpr.R \
+    Rscript --vanilla ../Scripts/pgs_methods/sdpr.R \
          --ref_plink_chr {refdir_intersect}/ref.chr \
          --ref_keep {refdir}/keep_files/{params.population}.keep \
          --gwas_pop {params.population} \
@@ -456,7 +456,7 @@ rule prep_pgs_ldpred2_i:
     testing=config["testing"]
   shell:
     "export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/ldpred2.R \
+    Rscript --vanilla ../Scripts/pgs_methods/ldpred2.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -500,7 +500,7 @@ rule prep_pgs_lassosum2_i:
     testing=config["testing"]
   shell:
     "export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/lassosum2.R \
+    Rscript --vanilla ../Scripts/pgs_methods/lassosum2.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -542,7 +542,7 @@ rule prep_pgs_megaprs_i:
     testing=config["testing"],
     pseudo_only_flag = lambda wildcards: "T" if str(config.get("megaprs_pseudo_only", "False")).lower() in ["t", "true"] else "F"
   shell:
-    "Rscript ../Scripts/pgs_methods/megaprs.R \
+    "Rscript --vanilla ../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -582,7 +582,7 @@ rule prep_pgs_megaprs6_i:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/megaprs.R \
+    "Rscript --vanilla ../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -637,7 +637,7 @@ rule prep_pgs_quickprs_i:
     """
     (
     rm -r -f {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}; \
-    Rscript ../Scripts/pgs_methods/quickprs.R \
+    Rscript --vanilla ../Scripts/pgs_methods/quickprs.R \
     --ref_plink_chr {refdir_intersect}/ref.chr \
     --ref_keep {refdir}/keep_files/{params.population}.keep \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -685,7 +685,7 @@ rule prep_pgs_sbayesrc_i:
     testing=config["testing"]
   shell:
     "export OMP_NUM_THREADS={threads}; \
-    Rscript ../Scripts/pgs_methods/sbayesrc.R \
+    Rscript --vanilla ../Scripts/pgs_methods/sbayesrc.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --gctb {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux/gctb \
@@ -757,7 +757,7 @@ rule prep_pgs_external_i:
     "../envs/analysis.yaml"
   shell:
     "rm -r -f {outdir}/reference/pgs_score_files/external/{wildcards.score}; \
-     Rscript ../Scripts/external_score_processor/external_score_processor.R \
+     Rscript --vanilla ../Scripts/external_score_processor/external_score_processor.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --score {params.score} \
       --min_overlap {params.min_overlap} \
@@ -808,7 +808,7 @@ rule leopard_quickprs_i:
     """
     (
     rm -r -f {outdir}/reference/pgs_score_files/leopard/{wildcards.gwas_group}; \
-    Rscript ../Scripts/pgs_methods/leopard_quickprs.R \
+    Rscript --vanilla ../Scripts/pgs_methods/leopard_quickprs.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --pop_data {refdir}/ref.pop.txt \
       --sumstats {params.sumstats} \
@@ -844,7 +844,7 @@ checkpoint leopard_reporter:
   params:
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/pipeline_misc/leopard_reporter.R {params.config_file} > {log} 2>&1"
+    "Rscript --vanilla ../Scripts/pipeline_misc/leopard_reporter.R {params.config_file} > {log} 2>&1"
 
 ####
 # Combine single-source PGS using LEOPARD weights
@@ -893,7 +893,7 @@ rule prep_pgs_multi_i:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/pgs_methods/apply_leopard_weights.R \
+    "Rscript --vanilla ../Scripts/pgs_methods/apply_leopard_weights.R \
       --config {params.config_file} \
       --gwas_group {wildcards.gwas_group} \
       --method {wildcards.method} \
@@ -927,7 +927,7 @@ rule pgsmeta_i:
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/pgsmeta.R \
+    "Rscript --vanilla ../Scripts/pgs_methods/pgsmeta.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --pop_data {refdir}/ref.pop.txt \
       --sumstats {params.sumstats} \
@@ -979,7 +979,7 @@ rule prep_pgs_prscsx_i:
     export NUMEXPR_NUM_THREADS=1; \
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/prscsx.R \
+    Rscript --vanilla ../Scripts/pgs_methods/prscsx.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
@@ -1032,7 +1032,7 @@ rule prep_pgs_xwing_i:
     export NUMEXPR_NUM_THREADS=1; \
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/xwing.R \
+    Rscript --vanilla ../Scripts/pgs_methods/xwing.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ref_freq_chr {refdir}/freq_files \
       --sumstats {params.sumstats} \
@@ -1080,7 +1080,7 @@ rule prep_pgs_tlprs_i:
     config_file = config["config_file"]
   shell:
     """
-    Rscript ../Scripts/pgs_methods/tlprs.R \
+    Rscript --vanilla ../Scripts/pgs_methods/tlprs.R \
       --config {params.config_file} \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --sumstats {params.sumstats} \
@@ -1122,7 +1122,7 @@ rule prep_pgs_bridgeprs_i:
     testing=config["testing"]
   shell:
     """
-    Rscript ../Scripts/pgs_methods/bridgeprs.R \
+    Rscript --vanilla ../Scripts/pgs_methods/bridgeprs.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --sumstats {params.sumstats} \
       --populations {params.populations} \
@@ -1207,7 +1207,7 @@ rule ref_pgs:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/ref_scoring/ref_scoring.R \
+    "Rscript --vanilla ../Scripts/ref_scoring/ref_scoring.R \
       --config {params.config_file} \
       --continuous {params.continuous} \
       --plink2 plink2 \

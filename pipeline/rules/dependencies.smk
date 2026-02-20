@@ -1056,7 +1056,7 @@ rule install_sbayesrc:
   shell:
     """
     {{
-      Rscript -e 'install.packages(\"https://github.com/zhilizheng/SBayesRC/releases/download/v0.2.6/SBayesRC_0.2.6.tar.gz\", repos=NULL, type=\"source\")'
+      Rscript --vanilla -e 'install.packages(\"https://github.com/zhilizheng/SBayesRC/releases/download/v0.2.6/SBayesRC_0.2.6.tar.gz\", repos=NULL, type=\"source\")'
     }} > {log} 2>&1
     """
 
@@ -1075,7 +1075,7 @@ rule install_genoutils_sbayesrc:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
     }} > {log} 2>&1
     """
 
@@ -1362,7 +1362,7 @@ rule install_ggchicklet:
   shell:
     """
     {{
-      Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\")'
+      Rscript --vanilla -e 'remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\")'
     }} > {log} 2>&1
     """
 
@@ -1381,7 +1381,7 @@ rule install_lassosum:
   shell:
     """
     {{
-      Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'
+      Rscript --vanilla -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'
     }} > {log} 2>&1
     """
 
@@ -1418,7 +1418,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
     }} > {log} 2>&1
     """
 
@@ -1454,7 +1454,7 @@ rule install_xpass:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"YangLabHKUST/XPASS@65877ffba60dce69e0a6aa31c2e61045bf36dc40\")'
+      Rscript --vanilla -e 'devtools::install_github(\"YangLabHKUST/XPASS@65877ffba60dce69e0a6aa31c2e61045bf36dc40\")'
     }} > {log} 2>&1
     """
 
@@ -1473,7 +1473,7 @@ rule install_genoutils_xwing:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
     }} > {log} 2>&1
     """
 
@@ -1604,7 +1604,7 @@ rule install_tlprs:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/TLPRS@5a5528a3f709ca7d627381a3f09ccdcb923b50f4\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/TLPRS@5a5528a3f709ca7d627381a3f09ccdcb923b50f4\")'
     }} > {log} 2>&1
     """
 
@@ -1623,7 +1623,7 @@ rule install_genoutils_bridgeprs:
   shell:
     """
     {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
     }} > {log} 2>&1
     """
 

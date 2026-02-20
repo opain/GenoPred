@@ -34,7 +34,7 @@ if 'target_list' in config:
       name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
       path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
     shell:
-      "Rscript ../Scripts/23andMe_imputer/23andMe_imputer.R \
+      "Rscript --vanilla ../Scripts/23andMe_imputer/23andMe_imputer.R \
         --FID {params.name} \
         --IID {params.name} \
         --geno {params.path} \
@@ -113,7 +113,7 @@ if 'target_list' in config:
       prefix= lambda w: target_prefix(name = w.name),
       type= lambda w: target_type(name = w.name)
     shell:
-      "Rscript ../Scripts/format_target/format_target.R \
+      "Rscript --vanilla ../Scripts/format_target/format_target.R \
         --target {params.prefix}.chr{wildcards.chr} \
         --format {params.type} \
         --ref {refdir}/ref.chr{wildcards.chr} \
@@ -150,7 +150,7 @@ rule ancestry_inference_i:
   shell:
     "rm -r -f {outdir}/{wildcards.name}/ancestry; \
      rm -f {outdir}/reference/target_checks/{wildcards.name}/ancestry_reporter.done; \
-     Rscript ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
+     Rscript --vanilla ../Scripts/Ancestry_identifier/Ancestry_identifier.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --ref_plink_chr {refdir}/ref.chr \
       --output {outdir}/{wildcards.name}/ancestry/{wildcards.name}.Ancestry \
@@ -174,7 +174,7 @@ checkpoint ancestry_reporter:
   conda:
     "../envs/analysis.yaml"
   shell:
-    "Rscript ../Scripts/pipeline_misc/ancestry_reporter.R {wildcards.name} {outdir} > {log} 2>&1"
+    "Rscript --vanilla ../Scripts/pipeline_misc/ancestry_reporter.R {wildcards.name} {outdir} > {log} 2>&1"
 
 rule run_ancestry_reporter:
   input: expand(f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done", name=target_list_df['name'])
@@ -201,7 +201,7 @@ rule outlier_detection_i:
     testing=config["testing"],
     unrel= lambda w: target_list_df.loc[target_list_df['name'] == w.name, 'unrel'].iloc[0]
   shell:
-    "Rscript ../Scripts/outlier_detection/outlier_detection.R \
+    "Rscript --vanilla ../Scripts/outlier_detection/outlier_detection.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --keep_list {outdir}/{wildcards.name}/ancestry/keep_list.txt \
       --unrel {params.unrel} \
@@ -232,7 +232,7 @@ rule find_intersecting_variants:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/find_intersecting_variants/find_intersecting_variants.R \
+    "Rscript --vanilla ../Scripts/find_intersecting_variants/find_intersecting_variants.R \
       --config {params.config_file} \
       --test {params.testing} > {log} 2>&1"
       

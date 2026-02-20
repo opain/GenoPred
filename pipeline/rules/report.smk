@@ -49,7 +49,7 @@ rule sample_report_i:
       mkdir -p {params.tempdir} ; \
       cp ../Scripts/pipeline_reports/samp_report_creator.Rmd {params.tempdir}/samp_report_creator.Rmd ; \
       mkdir -p {outdir}/{wildcards.name}/reports; \
-      Rscript -e \"rmarkdown::render(\'{params.tempdir}/samp_report_creator.Rmd\', \
+      Rscript --vanilla -e \"rmarkdown::render(\'{params.tempdir}/samp_report_creator.Rmd\', \
       output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-report.html\', \
       params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
       rm -r {params.tempdir}
@@ -105,7 +105,7 @@ rule indiv_report_i:
       mkdir -p {params.tempdir} ; \
       cp ../Scripts/pipeline_reports/indiv_report_creator.Rmd {params.tempdir}/indiv_report_creator.Rmd ; \
       mkdir -p {outdir}/{wildcards.name}/reports/individual; \
-      Rscript -e \"rmarkdown::render(\'{params.tempdir}/indiv_report_creator.Rmd\', \
+      Rscript --vanilla -e \"rmarkdown::render(\'{params.tempdir}/indiv_report_creator.Rmd\', \
       output_file = \'{params.report_out}/{wildcards.name}/reports/individual/{wildcards.name}-{wildcards.id}-report.html\', \
       params = list(name = \'{wildcards.name}\', id = \'{wildcards.id}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
       rm -r {params.tempdir}
