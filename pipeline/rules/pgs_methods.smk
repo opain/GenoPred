@@ -219,7 +219,6 @@ rule prep_pgs_dbslmm_i:
     "Rscript --vanilla ../Scripts/pgs_methods/dbslmm.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
-      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --ld_blocks {resdir}/data/ld_blocks/{params.ld_block_pop} \
       --plink {resdir}/software/plink/plink \
