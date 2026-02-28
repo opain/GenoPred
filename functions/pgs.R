@@ -1108,64 +1108,11 @@ rel_pgs_r2_missing_af <- function(ld_dir,
 ## Helper: block-wise PGS-impute using eigen-LD
 ## ------------------------------------------------------------------
 
-pgs_impute_block_eigen <- function(eig,
-                                   S_b,
-                                   W_b,
-                                   Ut_W,
-                                   typed_idx,
-                                   ridge = 0.1) {
-
-  U      <- eig$U
-  lambda <- eig$lambda
-  
-  m <- length(S_b)
-  K <- ncol(W_b)
-  
-  if (!length(typed_idx) || K == 0L) {
-    return(matrix(0, nrow = m, ncol = K))
-  }
-  
-  # --- 1. LHS Construction (Matrix to Invert) ---
-  # Construct LD_tt (Target vs Target)
-  U_T    <- U[typed_idx, , drop = FALSE]
-  UL_T   <- sweep(U_T, 2, sqrt(lambda), "*")
-  LD_tt  <- UL_T %*% t(UL_T)
-  
-  # Add Ridge to LHS (You were already doing this)
-  diag(LD_tt) <- diag(LD_tt) + ridge 
-  
-  chol_LD_tt <- chol(LD_tt)
-  
-  # --- 2. RHS Construction (Target vs Full Correlation) ---
-  # Calculate R_tf * Beta_full
-  tmp        <- sweep(Ut_W, 1, lambda, "*")
-  LDW_b_mat  <- U %*% tmp                    
-  LDW_T_mat  <- LDW_b_mat[typed_idx, , drop = FALSE]
-  
-  # *** THE FIX: Add Ridge to RHS ***
-  # In GCTB, the covariance between a SNP and itself is (1 + ridge).
-  # We must add (ridge * W_b) to the RHS for the typed SNPs.
-  W_b_typed <- W_b[typed_idx, , drop = FALSE]
-  LDW_T_mat <- LDW_T_mat + (ridge * W_b_typed)
-  
-  # --- 3. Solve System ---
-  X <- backsolve(chol_LD_tt,
-                 forwardsolve(t(chol_LD_tt), LDW_T_mat))
-  
-  # --- 4. Back to Beta Scale ---
-  beta_imp_T_mat <- sweep(X, 1, S_b[typed_idx], "/")
-  
-  Bimp_b <- matrix(0, nrow = m, ncol = K)
-  Bimp_b[typed_idx, ] <- beta_imp_T_mat
-  
-  Bimp_b
-}
-
 pgs_impute_block_tiled <- function(eig,
                                    S_b,
                                    W_b,
                                    typed_idx,
-                                   ridge = 2,
+                                   ridge = 0.1,
                                    window_size = 1000) {
   
   # eig: list(U, lambda)
@@ -1265,105 +1212,95 @@ pgs_impute_block_tiled <- function(eig,
 # PGS-imputation with continuous weight based on quality
 ####
 
-pgs_impute_block_continuous_eigen <- function(eig,
-                                              S_b,       # length m_b: sqrt(2 p (1-p))
-                                              Bmat,      # m_b x K: baseline betas
-                                              q_b,       # length m_b: quality in [0,1]
-                                              q_min = 0, # min quality to be a recipient
-                                              ridge_base = 1e-4,
-                                              ridge_q = 0) {
-  # eig: list(U, lambda) from readEig()
-  # S_b: numeric, length m_b
-  # Bmat: numeric matrix (m_b x K), baseline betas per block
-  # q_b: numeric, length m_b, quality measure in [0,1]
-  # q_min: threshold for being allowed as a *recipient* of redistributed effect
-  # ridge_base: base ridge term on LD_tt diag
-  # ridge_q: additional ridge proportional to (1 - q_T) to discourage low-q recipients
+pgs_impute_block_tiled_continuous <- function(eig,
+                                             S_b,
+                                             W_b,
+                                             q_b,
+                                             q_min = 0.05, 
+                                             ridge = 0.1,
+                                             window_size = 1000) {
   
-  U      <- eig$U
-  lambda <- eig$lambda
+  # eig: list(U, lambda) from spectral decomposition
+  # S_b: vector length m (standard deviations)
+  # W_b: Matrix m x K (standardized weights)
+  # q_b: vector length m (imputation quality in [0,1])
+  # q_min: minimum quality required to act as a "recipient" of redistributed weights
+  # ridge: diagonal penalty for matrix inversion (GCTB default = 0.1)
+  # window_size: tiling window size
   
-  m <- length(S_b)
-  K <- ncol(Bmat)
-  if (m == 0L || K == 0L) {
-    return(list(
-      B_adj       = matrix(0, nrow = m, ncol = K),
-      B_keep      = matrix(0, nrow = m, ncol = K),
-      B_donor     = matrix(0, nrow = m, ncol = K),
-      B_donor_imp = matrix(0, nrow = m, ncol = K)
-    ))
+  m <- nrow(eig$U)
+  K <- ncol(W_b)
+  
+  # Prepare output matrix
+  Bimp_b <- matrix(0, nrow = m, ncol = K)
+  
+  if (m == 0L || K == 0L) return(Bimp_b)
+  
+  # 1. Reconstruct Full LD Block
+  U_scaled <- sweep(eig$U, 2, sqrt(pmax(eig$lambda, 0)), "*")
+  R_block <- tcrossprod(U_scaled)
+  
+  # 2. Split weights into 'Kept' and 'Donor' components
+  # W_keep represents the signal natively retained based on quality.
+  # W_donor represents the lost signal that needs to be redistributed.
+  W_keep  <- sweep(W_b, 1, q_b, "*")
+  W_donor <- sweep(W_b, 1, 1 - q_b, "*")
+  
+  # Initialize the final weights with the kept signal.
+  # Note: Even poor quality SNPs (q < q_min) keep their native q_b fraction,
+  # they just aren't allowed to RECEIVE redistributed signal from other SNPs.
+  W_final <- W_keep
+  
+  # 3. Iterate over Windows (The "Tiling" Strategy)
+  num_windows <- ceiling(m / window_size)
+  
+  for (w in 0:(num_windows - 1)) {
+    
+    # Define window boundaries
+    start <- (w * window_size) + 1
+    end   <- min((w + 1) * window_size, m)
+    win_idxs <- start:end
+    
+    # Identify "Recipient" SNPs in this window
+    # These act exactly like the `typed_idx` in the binary implementation
+    typed_in_win <- win_idxs[q_b[win_idxs] >= q_min]
+    
+    if (length(typed_in_win) == 0) next
+    
+    # --- Construct Local Matrices ---
+    
+    # R_tt: Correlation among RECIPIENT SNPs
+    R_tt <- R_block[typed_in_win, typed_in_win, drop = FALSE]
+    
+    # Add Ridge to Diagonal for stability
+    diag(R_tt) <- diag(R_tt) + ridge
+    
+    # R_tf: Correlation between RECIPIENTS (rows) and ALL SNPs IN WINDOW (cols)
+    R_tf <- R_block[typed_in_win, win_idxs, drop = FALSE]
+    
+    # W_donor_win: The donor weights from ALL SNPs in this window
+    W_donor_win <- W_donor[win_idxs, , drop = FALSE]
+    
+    # RHS Construction: Maps the missing/donor signal to the recipients via LD
+    RHS <- R_tf %*% W_donor_win
+    
+    # --- Solve Local System ---
+    
+    chol_R_tt <- chol(R_tt)
+    X_redist <- backsolve(chol_R_tt, forwardsolve(t(chol_R_tt), RHS))
+    
+    # --- Add Redistributed Signal to Recipients ---
+    # Final weight = Kept native weight + Recovered proxy weight
+    W_final[typed_in_win, ] <- W_final[typed_in_win, ] + X_redist
   }
   
-  # 1) Split into "keep" and "donor" components
-  #    beta_keep_i = q_i * beta_i
-  #    beta_donor_i = (1-q_i) * beta_i
-  B_keep  <- sweep(Bmat, 1L, q_b,     "*")
-  B_donor <- sweep(Bmat, 1L, (1 - q_b), "*")
+  # 4. Convert back to Beta scale (Beta = W / S)
+  Bimp_b <- sweep(W_final, 1, S_b, "/")
   
-  # If no donor signal at all, return baseline (all kept)
-  if (all(B_donor == 0)) {
-    return(list(
-      B_adj       = B_keep,
-      B_keep      = B_keep,
-      B_donor     = B_donor,
-      B_donor_imp = matrix(0, nrow = m, ncol = K)
-    ))
-  }
+  # Replace any NaNs/Infs caused by dividing by zero standard deviation
+  Bimp_b[S_b == 0, ] <- 0
   
-  # 2) W_donor = S * beta_donor
-  W_donor <- S_b * B_donor                         # (m x K)
-  
-  # Transform donor into eigen space
-  Ut_W_donor <- crossprod(U, W_donor)              # (k x K)
-  
-  # 3) Define "recipient" SNPs: high enough quality to receive redistributed effect
-  typed_idx <- which(q_b >= q_min)
-  if (!length(typed_idx)) {
-    # No recipients -> can't redistribute; everything stays as keep
-    return(list(
-      B_adj       = B_keep,
-      B_keep      = B_keep,
-      B_donor     = B_donor,
-      B_donor_imp = matrix(0, nrow = m, ncol = K)
-    ))
-  }
-  
-  # 4) Build LD_tt over recipients, with quality-aware ridge if desired
-  U_T  <- U[typed_idx, , drop = FALSE]             # (m_T x k)
-  UL_T <- sweep(U_T, 2L, sqrt(lambda), "*")        # UL_T = U_T %*% diag(sqrt(lambda))
-  LD_tt <- UL_T %*% t(UL_T)                        # (m_T x m_T)
-  
-  # Ridge on diagonal: base + optional extra for low-q recipients
-  q_T <- q_b[typed_idx]
-  diag(LD_tt) <- diag(LD_tt) + ridge_base + ridge_q * (1 - q_T)
-  
-  chol_LD_tt <- chol(LD_tt)
-  
-  # 5) Compute LD * W_donor (on full block), then restrict to recipients
-  tmp          <- sweep(Ut_W_donor, 1L, lambda, "*") # (k x K)
-  LDW_donor    <- U %*% tmp                          # (m x K)
-  LDW_T_donor  <- LDW_donor[typed_idx, , drop = FALSE]  # (m_T x K)
-  
-  # 6) Solve LD_tt %*% X = LDW_T_donor  for all K simultaneously
-  X <- backsolve(chol_LD_tt,
-                 forwardsolve(t(chol_LD_tt), LDW_T_donor))
-  
-  # Convert back to per-allele scale: beta_imp_T = X / S_T
-  beta_imp_T <- sweep(X, 1L, S_b[typed_idx], "/")  # (m_T x K)
-  
-  # Put donor-imputed betas into full-length matrix
-  B_donor_imp <- matrix(0, nrow = m, ncol = K)
-  B_donor_imp[typed_idx, ] <- beta_imp_T
-  
-  # 7) Final adjusted betas: keep local part + redistributed donor part
-  B_adj <- B_keep + B_donor_imp
-  
-  list(
-    B_adj       = B_adj,
-    B_keep      = B_keep,
-    B_donor     = B_donor,
-    B_donor_imp = B_donor_imp
-  )
+  return(Bimp_b)
 }
 
 # ------------------------------------------------------------------
@@ -1374,12 +1311,14 @@ eval_pgs_recovery <- function(ld_dir,
                                      score_df,   # cols: SNP, A1, A2, <BETA_set1>, <BETA_set2>, ...
                                      f_miss,     # cols: SNP, F_MISS  (call = 1 - F_MISS)
                                      chr = NULL,
-                                     impute = FALSE) {
+                                     impute = FALSE,
+                                     ridge = 0.1) {
   # ld_dir: directory with snp.info and eigen LD blocks (readEig)
   # score_df: score file(s) aligned roughly to LD reference (will be map_score()'d)
   # f_miss: missingness info per SNP in target (F_MISS); if NA -> treated as missing
   # chr: optional chromosome filter for snp.info
   # impute: if TRUE, perform PGS-impute and estimate its performance; also return imputed weights
+  # ridge: ridge penalty applied to LD matrix when running PGS-impute
   
   require(data.table)
   
@@ -1429,7 +1368,7 @@ eval_pgs_recovery <- function(ld_dir,
   acc <- foreach::foreach(
     b        = nz_blocks,
     .packages = "data.table",
-    .export   = c("readEig", "pgs_impute_block_eigen")
+    .export   = c("readEig", "pgs_impute_block_tiled")
   ) %dopar% {
     
     print(b)
@@ -1487,12 +1426,251 @@ eval_pgs_recovery <- function(ld_dir,
           S_b         = S_b,
           W_b         = W_b,
           typed_idx   = typed_idx,
-          ridge       = 1.5, # Selected based on evaluation in UKB to give well calibrated weights
+          ridge       = ridge,
           window_size = 1000  # GCTB Default
         )
 
-        pgs_impute_block_eigen
+        Wimp_b  <- S_b * Bimp_b
+        Ut_Wimp <- crossprod(eig$U, Wimp_b)
         
+        sig_imp_b <- colSums((sqrt(eig$lambda) * Ut_Wimp)^2)
+        cov_imp_b <- colSums((eig$lambda) * Ut_W * Ut_Wimp)
+        
+        imp <- as.data.table(Bimp_b)
+        data.table::setnames(imp, paste0("BETA_IMP_", beta_cols))
+        imp[, idx := idx_b]
+      } else {
+        sig_imp_b <- rep(0, K)
+        cov_imp_b <- rep(0, K)
+        imp       <- data.table()
+      }
+      
+    } else {
+      sig_imp_b <- rep(0, K)
+      cov_imp_b <- rep(0, K)
+      imp       <- data.table()
+    }
+    
+    metrics <- c(
+      setNames(den_b,      paste0("den_",      beta_cols)),
+      setNames(sig_b,      paste0("sig_",      beta_cols)),
+      setNames(cov_b,      paste0("cov_",      beta_cols)),
+      setNames(sig_imp_b,  paste0("sig_imp_",  beta_cols)),
+      setNames(cov_imp_b,  paste0("cov_imp_",  beta_cols))
+    )
+    
+    list(metrics = metrics, imp = imp)
+  }
+  
+  ## ---- Reduce metrics across blocks ----
+  metrics_list <- lapply(acc, `[[`, "metrics")
+  imp_list     <- lapply(acc, `[[`, "imp")
+  
+  metrics_sum <- Reduce(function(a, b) {
+    if (length(a) == 0) return(b)
+    a[names(b)] <- a[names(b)] + b
+    a
+  }, metrics_list, init = numeric(0))
+  
+  get_vec <- function(prefix) {
+    nm <- paste0(prefix, "_", beta_cols)
+    out <- metrics_sum[nm]
+    # metrics_sum could be named numeric; unname it
+    unname(out)
+  }
+  
+  den_sum     <- get_vec("den")
+  sig_sum     <- get_vec("sig")
+  cov_sum     <- get_vec("cov")
+  sig_imp_sum <- get_vec("sig_imp")
+  cov_imp_sum <- get_vec("cov_imp")
+  
+  ## ---- Final metrics ----
+  # Masked PGS
+  rel_var_masked <- ifelse(den_sum > 0, sig_sum / den_sum, NA_real_)
+  rel_R2_masked  <- ifelse(den_sum > 0 & sig_sum > 0,
+                           (cov_sum^2) / (den_sum * sig_sum),
+                           NA_real_)
+  
+  # Imputed PGS
+  if (impute) {
+    rel_var_imputed <- ifelse(den_sum > 0, sig_imp_sum / den_sum, NA_real_)
+    rel_R2_imputed  <- ifelse(den_sum > 0 & sig_imp_sum > 0,
+                              (cov_imp_sum^2) / (den_sum * sig_imp_sum),
+                              NA_real_)
+  } else {
+    rel_var_imputed <- rep(NA_real_, K)
+    rel_R2_imputed  <- rep(NA_real_, K)
+  }
+  
+  metrics_dt <- data.table(
+    beta_set                 = beta_cols,
+    relative_variance_masked = rel_var_masked,
+    relative_R2_masked       = rel_R2_masked,
+    relative_variance_imputed = rel_var_imputed,
+    relative_R2_imputed       = rel_R2_imputed,
+    den         = den_sum,
+    sig_masked  = sig_sum,
+    cov_masked  = cov_sum,
+    sig_imputed = sig_imp_sum,
+    cov_imputed = cov_imp_sum,
+    n_in_ref    = n_in_ref
+  )
+  
+  ## ---- Build imputed weights (if requested) ----
+  if (impute) {
+    imp_all <- data.table::rbindlist(imp_list, use.names = TRUE, fill = TRUE)
+    
+    full_imp <- data.table(
+      idx = snp_info$idx,
+      SNP = snp_info$SNP,
+      A1  = snp_info$A1,
+      A2  = snp_info$A2
+    )
+    
+    if (nrow(imp_all)) {
+      full_imp <- merge(full_imp, imp_all, by = "idx", all.x = TRUE, sort = FALSE)
+    }
+    
+    # Ensure columns exist & fill NA with 0
+    for (cl in paste0("BETA_IMP_", beta_cols)) {
+      if (!cl %in% names(full_imp)) full_imp[[cl]] <- 0
+      full_imp[is.na(get(cl)), (cl) := 0]
+    }
+    
+    return(list(
+      metrics    = metrics_dt,
+      imp_scores = full_imp
+    ))
+    
+  } else {
+    return(list(
+      metrics = metrics_dt
+    ))
+  }
+}
+
+eval_pgs_recovery_continuous <- function(ld_dir,
+                              score_df,   # cols: SNP, A1, A2, <BETA_set1>, <BETA_set2>, ...
+                              f_miss,     # cols: SNP, F_MISS  (call = 1 - F_MISS)
+                              chr = NULL,
+                              impute = FALSE,
+                              ridge = 0.1) {
+  # ld_dir: directory with snp.info and eigen LD blocks (readEig)
+  # score_df: score file(s) aligned roughly to LD reference (will be map_score()'d)
+  # f_miss: missingness info per SNP in target (F_MISS); if NA -> treated as missing
+  # chr: optional chromosome filter for snp.info
+  # impute: if TRUE, perform PGS-impute and estimate its performance; also return imputed weights
+  # ridge: ridge penalty applied to LD matrix when running PGS-impute
+  
+  require(data.table)
+  
+  ## ---- Read and prepare SNP info ----
+  snp_info <- data.table::fread(file.path(ld_dir, "snp.info"))
+  if (!is.null(chr)) {
+    snp_info <- snp_info[Chrom == chr]
+  }
+  data.table::setnames(snp_info, "ID", "SNP")
+  snp_info[, S := sqrt(2 * A1Freq * (1 - A1Freq))]
+  snp_info[, idx := .I]
+  
+  ## ---- Identify BETA columns, drop all-zero rows, align with LD order ----
+  base_cols <- c("SNP", "A1", "A2")
+  stopifnot(all(base_cols %in% names(score_df)))
+  beta_cols <- setdiff(names(score_df), base_cols)
+  if (!length(beta_cols)) stop("No BETA columns found after SNP/A1/A2.")
+  
+  score_df <- as.data.table(score_df)[, c(base_cols, beta_cols), with = FALSE]
+  
+  # Drop rows where all betas are zero
+  all_zero <- apply(score_df[, ..beta_cols], 1L, function(x) all(x == 0))
+  score_df <- score_df[!all_zero]
+  
+  # Align score_df to snp_info (alleles + order)
+  score_df <- map_score(ref = snp_info, score = score_df)
+  score_df[, idx := .I]
+  
+  K <- length(beta_cols)
+  
+  ## ---- Insert missingness information ----
+  f_miss <- as.data.table(f_miss)
+  score_df <- merge(score_df, f_miss, by = "SNP", sort = FALSE, all.x = TRUE)
+  score_df$F_MISS[is.na(score_df$F_MISS)] <- 1
+  score_df[, call := 1 - F_MISS]
+  
+  ## ---- Count non-zero-in-ref per set (for reporting) ----
+  n_in_ref <- vapply(beta_cols, function(x) {
+    sum(score_df[[x]] != 0)
+  }, integer(1))
+  
+  ## ---- Identify blocks with any non-zero BETA ----
+  nz <- apply(score_df[, beta_cols, with = FALSE], 1L, function(x) any(x != 0))
+  nz_blocks <- unique(snp_info$Block[nz])
+  
+  ## ---- Parallel loop over blocks ----
+  acc <- foreach::foreach(
+    b        = nz_blocks,
+    .packages = "data.table",
+    .export   = c("readEig", "pgs_impute_block_tiled")
+  ) %dopar% {
+    
+    print(b)
+    
+    idx_b <- which(snp_info$Block == b)
+    if (!length(idx_b)) {
+      return(list(metrics = numeric(0), imp = data.table()))
+    }
+    
+    # Quick check: any non-zero betas at all in this block?
+    any_nonzero <- FALSE
+    for (k in seq_len(K)) {
+      if (any(score_df[[beta_cols[k]]][idx_b] != 0, na.rm = TRUE)) {
+        any_nonzero <- TRUE
+        break
+      }
+    }
+    if (!any_nonzero) {
+      metrics <- c(
+        setNames(rep(0, K), paste0("den_",      beta_cols)),
+        setNames(rep(0, K), paste0("sig_",      beta_cols)),
+        setNames(rep(0, K), paste0("cov_",      beta_cols)),
+        setNames(rep(0, K), paste0("sig_imp_",  beta_cols)),
+        setNames(rep(0, K), paste0("cov_imp_",  beta_cols))
+      )
+      return(list(metrics = metrics, imp = data.table()))
+    }
+    
+    eig <- readEig(ld_dir, b)
+    
+    S_b    <- snp_info$S[idx_b]
+    call_b <- score_df$call[idx_b]
+    
+    # BETA matrix (m_b x K)
+    Bmat <- sapply(beta_cols, function(cl) score_df[[cl]][idx_b])
+    Bmat[is.na(Bmat)] <- 0
+    
+    W_b  <- S_b * Bmat
+    Wm_b <- (sqrt(call_b) * S_b) * Bmat
+    
+    Ut_W  <- crossprod(eig$U, W_b)   # (k x K)
+    Ut_Wm <- crossprod(eig$U, Wm_b)  # (k x K)
+    
+    den_b   <- colSums((sqrt(eig$lambda) * Ut_W )^2)
+    sig_b   <- colSums((sqrt(eig$lambda) * Ut_Wm)^2)
+    cov_b   <- colSums((eig$lambda) * Ut_W * Ut_Wm)
+    
+    # ---- Optional: PGS-impute within block ----
+    if (impute) {
+      if (any(call_b > 0)) {
+        Bimp_b <- pgs_impute_block_tiled_continuous(
+          eig         = eig,
+          S_b         = S_b,
+          W_b         = W_b,
+          q_b         = call_b,
+          ridge       = ridge,
+          window_size = 1000  # GCTB Default
+        )
+          
         Wimp_b  <- S_b * Bimp_b
         Ut_Wimp <- crossprod(eig$U, Wimp_b)
         
