@@ -3303,6 +3303,8 @@ dx download -f mind_the_gap/results/wgs_mvp_sparse_results_10it_random.csv
 dx download -f mind_the_gap/results/wgs_mvp_sparse_results.csv
 dx download -f mind_the_gap/results/wgs_mvp_sparse_sqrt_info_pre_results.csv
 dx download -f mind_the_gap/results/wgs_mvp_sparse_rsq_90_results.csv
+
+dx download -f mind_the_gap/results/percentile_sparse_wgs_with_estimated.png
 ```
 
 ***
@@ -4871,6 +4873,17 @@ pgs_r2$array <- factor(
 
 saveRDS(pgs_r2, '~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_ldaware.rds')
 
+# Calculate median realtive variance and cor(s,s')^2 for each panel and impuation combo
+summary_table <- pgs_r2[, .(
+  median_rel_R2 = median(relative_R2, na.rm = TRUE),
+  median_rel_var = median(relative_variance, na.rm = TRUE)
+), by = .(array, panel)]
+
+write.csv(summary_table, '~/oliverpainfel/Analyses/mind_the_gap/pgsc/median_decay_per_panel_array.csv', row.names = F, quote = F)
+
+median(pgs_r2$relative_variance)
+median(pgs_r2$relative_R2)
+
 png('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_eigen.png',
     units = 'px',
     width = 2500,
@@ -6121,17 +6134,23 @@ results_dt$param_clean[results_dt$pgs_method == 'SBayesRC'] <- 'SBayesRC'
 results_dt<-results_dt[results_dt$param_clean %in% c('pT = 5e-08','pT = 1','SBayesRC'),]
 
 # Extract relative R2 masked, and relative R2 from GCTB and rimp PGS-impute
-results_dt_masked<-results_dt[, c('param','param_clean','trait','prop','call_rate','pgs_method',
-                                     'obs_rel_masked_r2','rel_r2_masked_low_ci','rel_r2_masked_high_ci',
-                                     'obs_rel_masked_var','rel_var_masked_low_ci','rel_var_masked_high_ci'), with = F]
-results_dt_masked$group <- 'masked'
+results_dt_masked<-results_dt[, 
+  c('param','param_clean','trait','prop','call_rate','pgs_method',
+    'obs_rel_masked_r2','rel_r2_masked_low_ci','rel_r2_masked_high_ci',
+    'obs_rel_masked_var','rel_var_masked_low_ci','rel_var_masked_high_ci',
+    'cor_baseline_masked_sq','cor_baseline_masked_sq_low_ci','cor_baseline_masked_sq_high_ci'
+  ), with = F]
 names(results_dt_masked)<-gsub('_masked','', names(results_dt_masked))
+results_dt_masked$group <- 'masked'
 
-results_dt_rimp<-results_dt[, c('param','param_clean','trait','prop','call_rate','pgs_method',
-                                     'obs_rel_recovered_r2','rel_r2_recovered_low_ci','rel_r2_recovered_high_ci',
-                                     'obs_rel_recovered_var','rel_var_recovered_low_ci','rel_var_recovered_high_ci'), with = F]
+results_dt_rimp<-results_dt[, 
+  c(
+    'param','param_clean','trait','prop','call_rate','pgs_method',
+    'obs_rel_recovered_r2','rel_r2_recovered_low_ci','rel_r2_recovered_high_ci',
+    'obs_rel_recovered_var','rel_var_recovered_low_ci','rel_var_recovered_high_ci',
+    'cor_baseline_recovered_sq','cor_baseline_recovered_sq_low_ci','cor_baseline_recovered_sq_high_ci'
+  ), with = F]
 names(results_dt_rimp)<-gsub('_recovered','', names(results_dt_rimp))
-
 results_dt_rimp$group <- 'recovered'
 
 results_dt_both <- do.call(rbind, list(results_dt_masked, results_dt_rimp))
@@ -6180,10 +6199,28 @@ p_var <- ggplot(results_dt_both, aes(x = trait, y = obs_rel_var, color = group))
        title = "Recovery of Relative Variance",
        color = "Model")
 
-# 3. Combine the plots
-combined_plot <- plot_grid(p_r2, p_var, labels = c('A', 'B'), ncol = 1, rel_heights = c(1.1, 1))
+# 3. cor(s,s')^2
+p_cor <- ggplot(results_dt_both, aes(x = trait, y = cor_baseline_sq, color = group)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
+  geom_point(position = position_dodge(width = 0.6), size = 2.5) +
+  geom_errorbar(aes(ymin = cor_baseline_sq_low_ci, ymax = cor_baseline_sq_high_ci), 
+                position = position_dodge(width = 0.6), width = 0.3) +
+  facet_grid(param_clean ~ call_rate) +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        legend.position = "none") + # Hide legend here since it's shared with the top plot
+  labs(x = "Trait", 
+       y = expression(Observed~Cor(s, s*minute)^2),
+       title = "Recovery of PGS Squared Correlation",
+       color = "Model")
 
-png('~/oliverpainfel/Analyses/mind_the_gap/results/plots/obs_rel_var_r2_rimp_sparse_sbayesrc_recovered.png', res = 300, width = 2500, height = 3500, units = 'px')
+# 3. Combine the plots
+combined_plot <- plot_grid(p_r2, p_var, p_cor, labels = c('A', 'B', 'C'), ncol = 1, rel_heights = c(1.1, 1, 1))
+
+png('~/oliverpainfel/Analyses/mind_the_gap/results/plots/obs_rel_var_r2_rimp_sparse_sbayesrc_recovered.png', res = 300, width = 2500, height = 4500, units = 'px')
 combined_plot
 dev.off()
 
@@ -6230,6 +6267,90 @@ median(
   na.rm = TRUE
 ) 
 # 0.7137504
+
+####
+# Make simplified plot
+####
+# Make boxplot showing average masked and recovered rel var, r2 and cor(s,s')^2 across call rates
+
+# Melt into long format so we can facet by metric
+plot_long <- melt(results_dt_both, 
+                  id.vars = c("call_rate", "group", "param_clean",'trait'),
+                  measure.vars = list(
+                    value   = c("obs_rel_var", "obs_rel_r2", "cor_baseline_sq"),
+                    ci_low  = c("rel_var_low_ci", "rel_r2_low_ci", "cor_baseline_sq_low_ci"),
+                    ci_high = c("rel_var_high_ci", "rel_r2_high_ci", "cor_baseline_sq_high_ci")
+                  ),
+                  variable.name = "metric", 
+                  value.name = c("value", "ci_low", "ci_high"))
+
+# Clean up factor levels for pretty facet headers
+plot_long[, metric := factor(metric,
+                             labels = c("Relative Variance", "Relative R²", "Squared Correlation"))]
+
+# Standardize group names (adjust if your data uses 'recovered (GCTB)' etc.)
+plot_long[, group := factor(group, levels = c("masked", "recovered"))]
+
+# Restrict to call rate of 0.5
+plot_long <- plot_long[plot_long$call_rate == 'Call rate = 0.5', ]
+
+p_violin <- ggplot(plot_long, aes(x = factor(group), y = value, fill = group)) +
+  # Add the 'Perfect' 100% reference line
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black", alpha = 0.6, linewidth = 0.8) +
+  
+  # Violins to show the full distribution density
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8), alpha = 0.6, scale = "width", color = "grey30") +
+  
+  # Narrow boxplots inside the violins for median/quartile summary
+  geom_boxplot(width = 0.2, position = position_dodge(width = 0.8), 
+               outlier.shape = 16, outlier.size = 1, outlier.alpha = 0.5, 
+               alpha = 0.9, color = "black") +
+  
+  # Horizontal facets by metric
+  facet_grid(param_clean ~ metric) +
+  
+  # Styling
+  theme_cowplot(font_size = 14) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    x = "Variant Call Rate",
+    y = "Metric Value",
+    fill = "PGS State",
+    title = "Distribution of Performance Metrics Across Call Rates"
+  ) +
+  theme(
+    legend.position = 'none',
+    plot.title = element_text(face = "bold"),
+    strip.background = element_rect(fill = "grey90", color = "black", linewidth = 0.5),
+    strip.text = element_text(face = "bold", size = 13),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+
+# Display the plot
+print(p_violin)
+
+p1 <- ggplot(plot_long, aes(x = trait, y = value, color = group)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
+  geom_point(position = position_dodge(width = 0.6), size = 2.5) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), 
+                position = position_dodge(width = 0.6), width = 0.3) +
+  facet_grid(param_clean ~ metric) +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        plot.title = element_text(face = "bold"),
+        legend.position = "bottom") + # Hide legend here since it's shared with the top plot
+  labs(
+        title = "PGS decay and recovery with 50% INFO-based masking",
+        x = "Trait", 
+       y = "Metric Value",
+       color = "PGS State")
+
+png('~/oliverpainfel/Analyses/mind_the_gap/results/plots/obs_rel_var_r2_rimp_sparse_sbayesrc_recovered_simple.png', res = 300, width = 2500, height = 2000, units = 'px')
+p1
+dev.off()
 
 #####
 # Compare estimated and observed relative R2 and variance
@@ -6634,7 +6755,14 @@ plot_dt[, state := factor(state, levels = 1:2, labels = c("Masked", "Recovered")
 plot_dt[, panel_clean := gsub("_", " ", panel)]
 
 plot_dt$array <- gsub(' .*','',plot_dt$panel_clean)
+plot_dt$array <- factor(plot_dt$array, 
+    levels = c("HC", "OE", "MG", "IO"),
+    labels = c("Core", "OmniExpress", "MEGA", "Omni 2.5M"))
+
 plot_dt$ref <- gsub('.* ','',plot_dt$panel_clean)
+plot_dt$ref <- factor(plot_dt$ref, 
+                                 levels = c('1kg','hrc','top'),
+                                 labels = c('1KG','HRC','TopMed'))
 
 # ==============================================================================
 # 2. Data Wrangling for Percentage Recovery
@@ -6660,11 +6788,18 @@ recovery_summary <- recovery_dt[, .(
 # Melt for grouped bar chart
 recovery_plot_dt <- melt(recovery_summary, id.vars = "panel", 
                          variable.name = "metric", value.name = "pct_recovered")
-recovery_plot_dt[, metric := factor(metric, levels = c("median_r2_rec", "median_var_rec"), 
-                                    labels = c("Relative R2", "Relative Variance"))]
+recovery_plot_dt[, metric := factor(metric, levels = c("median_var_rec", "median_r2_rec"), 
+                                    labels = c("Relative Variance", "Squared Correlation"))]
 
 recovery_plot_dt$array <- gsub(' .*','',recovery_plot_dt$panel)
+recovery_plot_dt$array <- factor(recovery_plot_dt$array, 
+    levels = c("HC", "OE", "MG", "IO"),
+    labels = c("Core", "OmniExpress", "MEGA", "Omni 2.5M"))
+
 recovery_plot_dt$ref <- gsub('.* ','',recovery_plot_dt$panel)
+recovery_plot_dt$ref <- factor(recovery_plot_dt$ref, 
+                                 levels = c('1kg','hrc','top'),
+                                 labels = c('1KG','HRC','TopMed'))
 
 # ==============================================================================
 # 3. Plotting
@@ -6672,44 +6807,58 @@ recovery_plot_dt$ref <- gsub('.* ','',recovery_plot_dt$panel)
 
 # Custom colors
 state_colors <- c("Masked" = "#f8766d", "Recovered" = "#00bfc4")
-metric_colors <- c("Relative R2" = "#1f78b4", "Relative Variance" = "#ff7f00")
+metric_colors <- c("Relative Variance" = "#1f78b4", "Squared Correlation" = "#ff7f00")
 
 # Panel A: Relative Variance Boxplots
 p_var <- ggplot(plot_dt, aes(x = array, y = rel_var, fill = state)) +
   geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_boxplot(outlier.size = 1, outlier.alpha = 0.5, alpha = 0.8, width = 0.7) +
   theme_cowplot() +
+  panel_border() +
   facet_grid(. ~ ref) +
   scale_y_continuous(labels = scales::percent_format(), limits = c(NA, 1.05)) +
   scale_fill_manual(values = state_colors) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.margin = margin(t = 5, r = 25, b = 5, l = 5) # Adds 25 units of space to the Right (r)
+  ) +
   labs(x = NULL, 
-       y = expression(Var[s*minute] / Var[s]),
-       title = "A. Decay and Recovery of Relative Variance")
+       y = expression(Estimated~Var[s*minute] / Var[s]),
+       title = "A. Relative Variance",
+       fill = "PGS State")
+
 
 # Panel B: Relative R2 Boxplots
 p_r2 <- ggplot(plot_dt, aes(x = array, y = rel_r2, fill = state)) +
   geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_boxplot(outlier.size = 1, outlier.alpha = 0.5, alpha = 0.8, width = 0.7) +
   theme_cowplot() +
+  panel_border() +
   facet_grid(. ~ ref) +
   scale_y_continuous(labels = scales::percent_format(), limits = c(NA, 1.02)) +
   scale_fill_manual(values = state_colors) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.margin = margin(t = 5, r = 25, b = 5, l = 5) # Adds 25 units of space to the Right (r)
+  ) +
   labs(x = NULL, 
-       y = expression(R[s*minute]^2 / R[s]^2),
-       title = "B. Decay and Recovery of Relative Predictive Accuracy",
-       fill = "Score State")
+       y = expression(Estimated~Cor(s, s*minute)^2),
+       title = "B. PGS Squared Correlation",
+       fill = "PGS State")
 
 # Panel C: Percentage of Lost Signal Recovered (Bar Chart)
 p_rec <- ggplot(recovery_plot_dt, aes(x = array, y = pct_recovered, fill = metric)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
   theme_cowplot() +
   facet_grid(. ~ ref) +
+  panel_border() +
   scale_y_continuous(labels = scales::percent_format()) +
   coord_cartesian(ylim = c(0.90, 1)) +
   scale_fill_manual(values = metric_colors) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.margin = margin(t = 5, r = 25, b = 5, l = 5) # Adds 25 units of space to the Right (r)
+  ) +
   labs(x = "Array", 
        y = "% of Lost Signal Recovered",
        title = "C. Efficacy of PGS-impute Weight Redistribution",
@@ -6720,13 +6869,81 @@ p_rec <- ggplot(recovery_plot_dt, aes(x = array, y = pct_recovered, fill = metri
 # ==============================================================================
 
 # Align the three plots vertically
-final_plot <- plot_grid(p_var, p_r2, p_rec, ncol = 1, align = 'v', rel_heights = c(1, 1, 1))
+final_plot <- plot_grid(p_var, p_r2, p_rec, ncol = 1)
+
+# Save the plot
+png('~/oliverpainfel/Analyses/mind_the_gap/results/plots/cad_pgs_portability_and_recovery.png', res = 300, width = 2750, height = 2750, units = 'px')
+print(final_plot)
+dev.off()
+
+# Make simplified version
+plot_dt_melt <- melt(plot_dt, 
+                  id.vars = c("array", "ref",'state'),
+                  measure.vars = list(
+                    value   = c("rel_var", "rel_r2")
+                  ),
+                  variable.name = "metric")
+
+plot_dt_melt[, metric := factor(
+  metric,
+  levels = c('rel_var','rel_r2'),
+  labels = c("Relative Variance", "Squared Correlation"))]
+
+plot_dt_melt <- plot_dt_melt[plot_dt_melt$ref %in% c('1KG','TopMed') & plot_dt_melt$array %in% c('Core','Omni 2.5M'),]
+
+ggplot(plot_dt_melt, 
+       aes(x = array, y = value, fill = state)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
+  geom_boxplot(outlier.size = 1, outlier.alpha = 0.5, alpha = 0.8, width = 0.7) +
+  theme_cowplot() +
+  panel_border() +
+  scale_fill_manual(values = state_colors) +
+  facet_grid(metric ~ ref, scales = 'free') +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(NA, 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = 'Array', 
+       y = 'Metric Value',
+       fill = "PGS State")
+
+p1<-ggplot(plot_dt_melt[plot_dt_melt$state == 'Masked',], 
+       aes(x = array, y = value, fill = state)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
+  geom_boxplot(outlier.size = 1, outlier.alpha = 0.5, alpha = 0.8, width = 0.7) +
+  theme_cowplot() +
+  panel_border() +
+  scale_fill_manual(values = state_colors) +
+  facet_grid(metric ~ ref, scales = 'free') +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(NA, 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = 'none') +
+  labs(title = 'PGS state: Masked',
+       x = 'Array', 
+       y = 'Metric Value',
+       fill = "PGS State")
+
+p2<-ggplot(plot_dt_melt[plot_dt_melt$state == 'Recovered',], 
+       aes(x = array, y = value, fill = state)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
+  geom_boxplot(outlier.size = 1, outlier.alpha = 0.5, alpha = 0.8, width = 0.7) +
+  theme_cowplot() +
+  panel_border() +
+  scale_fill_manual(values = state_colors) +
+  facet_grid(metric ~ ref, scales = 'free') +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(NA, 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = 'none') +
+  labs(title = 'PGS state: Recovered',
+       x = 'Array', 
+       y = 'Metric Value',
+       fill = "PGS State")
+
+# Align the three plots vertically
+final_plot <- plot_grid(p1, p2, ncol = 1, align = 'v', labels = c('A', 'B'))
 
 # Save the plot
 png('~/oliverpainfel/Analyses/mind_the_gap/results/plots/cad_pgs_portability_and_recovery.png', res = 300, width = 3200, height = 3600, units = 'px')
 print(final_plot)
 dev.off()
-
 ```
 
 ***
