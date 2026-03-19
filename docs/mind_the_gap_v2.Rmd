@@ -530,6 +530,233 @@ snakemake \
   prep_pgs -n
 ```
 
+### WGS data (ldak-kvik)
+
+There is inflation in the UKB GWAS. Run using LDA-KVIK to see if inflation goes away.
+
+***
+
+#### QC genotype data
+
+```{bash}
+### Perform QC and merge .bed files for Step 1 ###
+data_field="22418"          # Data number corresponding to the .bed files
+project="Oliver_Pain_Fellowship"        # Example name of the project
+data_file_dir="ldak_kvik"        # Name of the output directory (create this before running)
+
+# Specify the command line to run
+run_merge='
+for chr in $(seq 1 22); do
+  for file in bed bim fam; do
+    ln -f -s /mnt/project/Bulk/Genotype\ Results/Genotype\ calls/ukb'"${data_field}"'_c${chr}_b0_v2.${file} ukb'"${data_field}"'_c${chr}_b0_v2.${file}
+  done
+done
+
+for chr in $(seq 1 22); do
+  echo ukb'"${data_field}"'_c${chr}_b0_v2
+done > files_to_merge.txt
+
+plink --merge-list files_to_merge.txt \
+  --make-bed \
+  --maf 0.01 \
+  --mind 0.1 \
+  --geno 0.1 \
+  --hwe 1e-15 \
+  --out ukb_merged
+  
+rm ukb'"${data_field}"'_c*_b0_v2.*
+'
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife  \
+  --brief --yes \
+  --priority high \
+  -icmd="${run_merge}" \
+  --instance-type "mem1_ssd1_v2_x16" \
+  --destination="${project}:${data_file_dir}"
+```
+
+***
+
+#### LDAK-KVIK step 1
+
+```{bash}
+project="Oliver_Pain_Fellowship"                                        # Name of the project 
+data_file_dir="ldak_kvik"                                        # Name of the working directory
+
+# Specify the command line to install LDAK and run LDAK-KVIK Step 1
+run_ldak="
+wget https://github.com/dougspeed/LDAK/raw/refs/heads/main/ldak6.2.linux
+chmod a+x ldak6.2.linux
+./ldak6.2.linux \
+  --kvik-step1 kvik \
+  --bfile ukb_merged \
+  --keep ukb.train.EUR.keep \
+  --pheno pheno_subset.txt \
+  --covar covs.txt \
+  --mpheno ALL \
+  --max-threads 4"
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife  \
+  --brief --yes \
+  --priority high \
+  -iin="${data_file_dir}/ukb_merged.bed" \
+  -iin="${data_file_dir}/ukb_merged.bim" \
+  -iin="${data_file_dir}/ukb_merged.fam" \
+  -iin="mind_the_gap/phenotype/pheno_subset.txt" \
+  -iin="mind_the_gap/phenotype/covs.txt" \
+  -iin="mind_the_gap/phenotype/ukb.train.EUR.keep" \
+  -icmd="${run_ldak}" --tag="kvik_step1" \
+  -imount_inputs="true" \
+  --instance-type "mem3_ssd1_v2_x4" \
+  --destination="${project}:${data_file_dir}"
+  
+```
+
+***
+
+#### LDAK-KVIK step 2
+
+```{bash}
+project="Oliver_Pain_Fellowship" # Name of the project 
+data_file_dir="ldak_kvik" # Name of the working directory
+
+for i in {1..21}; do
+
+# Specify the command line to run LDAK-KVIK Step 2 for each chromosome
+run_ldak='
+wget https://github.com/dougspeed/LDAK/raw/refs/heads/main/ldak6.2.linux
+chmod a+x ldak6.2.linux
+
+ln -f -s /mnt/project/ldak_kvik/kvik.step1.* ./
+
+plink2 \
+  --pfile /mnt/project/mind_the_gap/wgs/ukb_wgs_sbayesrc.train.EUR \
+  --maf 0.001 --mac 20 --geno 0.1 --hwe 1e-15 --mind 0.1 --rm-dup 'force-first' \
+  --chr '"${i}"' \
+  --make-bed --out imp_chr'"${i}"'
+    
+./ldak6.2.linux \
+  --kvik-step2 kvik \
+  --bfile imp_chr'"${i}"' \
+  --keep /mnt/project/ldak_kvik/ukb_merged.fam \
+  --pheno /mnt/project/mind_the_gap/phenotype/pheno_subset.txt \
+  --covar /mnt/project/mind_the_gap/phenotype/covs.txt \
+  --mpheno ALL \
+  --max-threads 12 \
+  --check-root NO
+  
+rm imp_chr'"${i}"'.*
+rm ldak6.2.linux
+'
+
+# Run using Swiss-Army-Knife 
+dx run swiss-army-knife \
+  --brief --yes \
+  --priority high \
+  -icmd="${run_ldak}" --tag="kvik_step2" \
+  --instance-type "mem1_ssd1_v2_x16" \
+  --destination="${project}:${data_file_dir}"
+done
+
+```
+
+***
+
+#### Collate results
+
+```{bash}
+# dx download the sumstats and format for GenoPred
+mkdir -p /users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ukb_wgs_ldak_kvik
+cd /users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ukb_wgs_ldak_kvik
+
+for i in {1..22}; do
+  for j in {1..10}; do
+    f="kvik.step2.chr${i}.pheno${j}.summaries"
+    if [ ! -f "$f" ]; then
+      echo "  downloading $f"
+      dx download -f "ldak_kvik/${f}"
+    else
+      echo "  using cached $f"
+    fi
+  done
+done
+
+phenos=(HT HB PLT BMI BWT MCHC SBP NEU HDL TC)
+
+for j in {1..10}; do
+  pheno="${phenos[$((j - 1))]}"
+  out="kvik.step2.gw.${pheno}.summaries"
+
+  files=()
+  for chr in {1..22}; do
+    f="kvik.step2.chr${chr}.pheno${j}.summaries"
+    if [ ! -f "$f" ]; then
+      echo "Error: missing file $f for phenotype $pheno" >&2
+      exit 1
+    fi
+    files+=("$f")
+  done
+
+  echo "Combining phenotype $pheno into $out"
+  awk 'FNR==1 && NR!=1 {next} {print}' "${files[@]}" > "$out"
+done
+
+```
+
+***
+
+#### Run GenoPred 
+
+```{r}
+library(data.table)
+
+#####
+# gwas_list
+#####
+
+traits <- fread('~/oliverpainfel/Data/GWAS_sumstats/MVP/EUR/info.txt')$labels
+
+gwas_list <- data.table(
+  name = paste0('UKB_wgs_ldak_kvik_',traits),
+  path = paste0('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/mind_the_gap/ukb_wgs_ldak_kvik/kvik.step2.gw.',traits,'.summaries'),
+  population = 'EUR',
+  n = NA,
+  sampling = NA,
+  prevalence = NA,
+  mean = NA, 
+  sd = NA,
+  label = paste0('UKB_wgs_ldak_kvik_',traits)
+)
+
+write.table(gwas_list, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_wgs_ldak_kvik.txt', col.names = T, row.names = F, quote = F)
+
+######
+# config
+######
+
+config_sparse<-c(
+  "outdir: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse",
+  "config_file: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_wgs_ldak_kvik.yaml",
+  "gwas_list: /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_wgs_ldak_kvik.txt",
+  "pgs_methods: ['sbayesrc','ptclump']",
+  "cores_prep_pgs: 10",
+  "dense_reference: F"
+)
+
+write.table(config_sparse, '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_wgs_ldak_kvik.yaml', col.names = F, row.names = F, quote = F)
+
+```
+
+```{bash}
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_wgs_ldak_kvik.yaml \
+  prep_pgs -n
+```
+
 ***
 
 ### Imputed data
@@ -983,6 +1210,128 @@ for pop in EUR AFR; do
 done
 
 tar -cvf pgs_wgs_sparse_baseline_ukb_wgs_gwas.tar pgs_wgs/
+rm -r pgs_wgs
+'
+
+# Run using Swiss-Army-Knife
+dx run swiss-army-knife \
+  --brief --yes \
+  -iin="software/plink2" \
+  --priority high \
+  -icmd="${cmd}" \
+  --instance-type "mem1_ssd1_v2_x8" \
+  --destination="Oliver_Pain_Fellowship:mind_the_gap/"
+```
+
+***
+
+###### LDAK-KVIK
+
+Combine score files
+
+```{bash}
+# --- CONFIG ---
+traits=(HT HB PLT BMI BWT MCHC SBP NEU HDL TC)
+pgs_methods=(sbayesrc ptclump)
+
+base="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/"
+out="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse_ldak_kvik.txt"
+
+tmpdir="$(mktemp -d)"
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+
+# --- 1) Grab columns 1–3 (SNP, A1, A2) from the first available file ---
+ref_file=""
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    test_file="${base}/${method}/UKB_wgs_ldak_kvik_${trait}/ref-UKB_wgs_ldak_kvik_${trait}.score.gz"
+    if [[ -f "$test_file" ]]; then
+      ref_file="$test_file"
+      break 2
+    fi
+  done
+done
+
+if [[ -z "$ref_file" ]]; then
+  echo "Error: No reference score file found — cannot build header."
+  exit 1
+fi
+
+echo "Using reference: $ref_file"
+
+gzip -dc "$ref_file" \
+  | awk 'BEGIN{OFS=" "} {print $1,$2,$3}' \
+  > "${tmpdir}/ref_cols.txt"
+
+# --- 2) Extract columns 4..end from each available file ---
+col_files=()
+for trait in "${traits[@]}"; do
+  for method in "${pgs_methods[@]}"; do
+    f="${base}/${method}/UKB_wgs_ldak_kvik_${trait}/ref-UKB_wgs_ldak_kvik_${trait}.score.gz"
+    outcols="${tmpdir}/${method}_${trait}.cols.txt"
+
+    # Skip if file missing or empty
+    if [[ ! -s "$f" ]]; then
+      echo "Skipping missing file: $f"
+      continue
+    fi
+
+    echo "Processing $f"
+    gzip -dc "$f" | awk -v m="$method" -v t="$trait" '
+      BEGIN { FS="[ \t]+"; OFS=" " }
+      NR==1 {
+        for (i=4;i<=NF;i++) {
+          gsub(/^SCORE/, m"_"t"_SCORE", $i)
+        }
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+        next
+      }
+      {
+        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
+        print out; out=""
+      }' > "$outcols"
+
+    col_files+=("$outcols")
+  done
+done
+
+if [[ ${#col_files[@]} -eq 0 ]]; then
+  echo "No score columns found to combine."
+fi
+
+# --- 3) Paste reference cols + all available score columns ---
+paste -d' ' "${tmpdir}/ref_cols.txt" "${col_files[@]}" > "$out"
+
+# Compress and upload to project
+gzip -f $out
+dx upload $out.gz --path mind_the_gap/score_files/sparse/
+
+```
+
+```{bash}
+
+cmd='
+set -euxo pipefail
+
+chmod a+x ./plink2
+
+n_scores=$(zcat /mnt/project/mind_the_gap/score_files/sparse/score_file_wgs_sparse_ldak_kvik.txt.gz | sed -n "1p" | awk "{print NF}")
+
+mkdir -p pgs_wgs/wgs_sparse_ldak_kvik/baseline/
+
+for pop in EUR AFR; do
+./plink2 \
+  --pfile /mnt/project/mind_the_gap/wgs/ukb_wgs_sbayesrc.test.${pop} \
+  --score /mnt/project/mind_the_gap/score_files/sparse/score_file_wgs_sparse_ldak_kvik.txt.gz header-read cols=+scoresums center \
+  --score-col-nums 4-${n_scores} \
+  --memory 7000 \
+  --threads 8 \
+  --out pgs_wgs/wgs_sparse_ldak_kvik/baseline/ukb.${pop}.sparse
+done
+
+tar -cvf pgs_wgs_sparse_ldak_kvik_baseline_ukb_wgs_gwas.tar pgs_wgs/
 rm -r pgs_wgs
 '
 
@@ -3295,14 +3644,29 @@ dev.off()
 # Download the results from UKB-RAP
 mkdir -p ~/oliverpainfel/Analyses/mind_the_gap/results
 cd ~/oliverpainfel/Analyses/mind_the_gap/results
-dx download -f mind_the_gap/results/wgs_sparse_results_10it_random.csv
-dx download -f mind_the_gap/results/wgs_sparse_results.csv
-dx download -f mind_the_gap/results/wgs_sparse_1kghgdp_ref_results.csv
-dx download -f mind_the_gap/results/wgs_sparse_imp_results.csv
-dx download -f mind_the_gap/results/wgs_mvp_sparse_results_10it_random.csv
-dx download -f mind_the_gap/results/wgs_mvp_sparse_results.csv
-dx download -f mind_the_gap/results/wgs_mvp_sparse_sqrt_info_pre_results.csv
-dx download -f mind_the_gap/results/wgs_mvp_sparse_rsq_90_results.csv
+dx download -f mind_the_gap/results/wgs_sparse_trait_summary_random_mask.csv
+dx download -f mind_the_gap/results/wgs_sparse_across_trait_summary_random_mask.csv
+
+dx download -f mind_the_gap/results/wgs_sparse_trait_summary_info_mask.csv
+dx download -f mind_the_gap/results/wgs_sparse_across_trait_summary_info_mask.csv
+
+dx download -f mind_the_gap/results/wgs_sparse_1kghgdp_ref_trait_summary_info_mask.csv
+dx download -f mind_the_gap/results/wgs_sparse_1kghgdp_ref_across_trait_summary_info_mask.csv
+
+dx download -f mind_the_gap/results/wgs_sparse_imp_trait_summary_info_mask.csv
+dx download -f mind_the_gap/results/wgs_sparse_imp_across_trait_summary_info_mask.csv
+
+dx download -f mind_the_gap/results/wgs_mvp_sparse_trait_summary_random_mask.csv
+dx download -f mind_the_gap/results/wgs_mvp_sparse_across_trait_summary_random_mask.csv
+
+dx download -f mind_the_gap/results/wgs_mvp_sparse_trait_summary_info_mask.csv
+dx download -f mind_the_gap/results/wgs_mvp_sparse_across_trait_summary_info_mask.csv
+
+dx download -f mind_the_gap/results/wgs_mvp_sparse_sqrt_info_pre_trait_summary_info_mask.csv
+dx download -f mind_the_gap/results/wgs_mvp_sparse_sqrt_info_pre_across_trait_summary_info_mask.csv
+
+dx download -f mind_the_gap/results/wgs_mvp_sparse_rsq_90_trait_summary_info_mask.csv
+dx download -f mind_the_gap/results/wgs_mvp_sparse_rsq_90_across_trait_summary_info_mask.csv
 
 dx download -f mind_the_gap/results/percentile_sparse_wgs_with_estimated.png
 ```
@@ -3318,36 +3682,36 @@ library(ggplot2)
 library(cowplot)
 library(stringr)
 
-results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_results_10it_random.csv')
+results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_trait_summary_random_mask.csv')
 
 # Clean parameter names to identify pT thresholds
 results_dt$param_clean <- results_dt$param
 results_dt$param_clean <- gsub('_SUM','',results_dt$param_clean)
 results_dt$param_clean <- gsub('.*SCORE_','',results_dt$param_clean)
 results_dt$param_clean <- gsub('0_','',results_dt$param_clean)
-
-# For SBayesRC, set param to empty (so we don't filter it out)
-results_dt$param_clean[results_dt$pgs_method == 'SBayesRC'] <- ''
+results_dt$param_clean <- gsub('e-0','e-',results_dt$param_clean)
+results_dt$param_clean[results_dt$param_clean != 'SBayesRC'] <- paste0('pT = ', results_dt$param_clean[results_dt$param_clean != 'SBayesRC'])
 
 # Create nice call_rate column
-results_dt$call_rate <- paste0('Call rate = ', 1 - results_dt$prop_missing)
+results_dt$mask_rate <- paste0(results_dt$prop_missing*100, '% Masked')
+results_dt$mask_rate <- factor(results_dt$mask_rate, levels = rev(unique(results_dt$mask_rate)))
 
 # Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
 # This ensures we plot comparable "full" models.
-results_dt_plot <- results_dt[results_dt$param_clean %in% c("1", ""),]
+results_dt_plot <- results_dt[results_dt$param_clean %in% c("pT = 1", "pT = 5e-8", "SBayesRC"),]
 results_dt_plot <- results_dt_plot[sample_type == "Full"]
 
 # Plot A: Observed Relative Variance vs Relative R2
 # Shows the discrepancy (Variance < R2)
 p1 <- ggplot(results_dt_plot[population == 'EUR', ], 
-       aes(x = mean_rel_var_obs, y = obs_rel_r2, colour = trait)) +
+       aes(x = rel_var_obs_mean, y = obs_rel_r2_mean, colour = trait)) +
   geom_hline(yintercept = 1, linetype = 'dashed') +
   geom_vline(xintercept = 1, linetype = 'dashed') +
   geom_abline(colour = 'red') +
   geom_point(size=2) +
   geom_errorbar(aes(xmin = rel_var_obs_low, xmax = rel_var_obs_high), width = 0) +
   geom_errorbar(aes(ymin = obs_rel_r2_low, ymax = obs_rel_r2_high), width = 0) +
-  facet_grid(pgs_method ~ call_rate ) +
+  facet_grid(param_clean ~ mask_rate ) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -3362,8 +3726,8 @@ dir.create('~/oliverpainfel/Analyses/mind_the_gap/results/plots')
 png(
   '~/oliverpainfel/Analyses/mind_the_gap/results/plots/obs_rel_var_r2_comp.png',
   res = 300,
-  width = 3000,
-  height = 1500,
+  width = 2500,
+  height = 1750,
   units = 'px'
 )
 print(p1)
@@ -3386,36 +3750,36 @@ library(ggplot2)
 library(cowplot)
 library(stringr)
 
-results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_results_10it_random.csv')
+results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_trait_summary_random_mask.csv')
 
 # Clean parameter names to identify pT thresholds
 results_dt$param_clean <- results_dt$param
 results_dt$param_clean <- gsub('_SUM','',results_dt$param_clean)
 results_dt$param_clean <- gsub('.*SCORE_','',results_dt$param_clean)
 results_dt$param_clean <- gsub('0_','',results_dt$param_clean)
-
-# For SBayesRC, set param to empty (so we don't filter it out)
-results_dt$param_clean[results_dt$pgs_method == 'SBayesRC'] <- ''
+results_dt$param_clean <- gsub('e-0','e-',results_dt$param_clean)
+results_dt$param_clean[results_dt$param_clean != 'SBayesRC'] <- paste0('pT = ', results_dt$param_clean[results_dt$param_clean != 'SBayesRC'])
 
 # Create nice call_rate column
-results_dt$call_rate <- paste0('Call rate = ', 1 - results_dt$prop_missing)
+results_dt$mask_rate <- paste0(results_dt$prop_missing*100, '% Masked')
+results_dt$mask_rate <- factor(results_dt$mask_rate, levels = rev(unique(results_dt$mask_rate)))
 
 # Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
 # This ensures we plot comparable "full" models.
-results_dt_plot <- results_dt[results_dt$param_clean %in% c("1", ""),]
+results_dt_plot <- results_dt[results_dt$param_clean %in% c("pT = 1", "pT = 5e-8", "SBayesRC"),]
 results_dt_plot <- results_dt_plot[sample_type == "Full"]
 
 # Plot: Squared Correlation vs Observed Relative R2
 # Shows the calibration assumption (Cor^2 ~ Rel R2)
-p1 <- ggplot(results_dt_plot[pgs_method == 'SBayesRC' & mean_r2_base > 0.01, ], # Filter weak traits if variable available, else remove filter
-       aes(x = est_rel_r2, y = obs_rel_r2, colour = trait)) +
+p1 <- ggplot(results_dt_plot[pgs_method == 'SBayesRC' & r2_base_mean > 0.01, ], # Filter weak traits if variable available, else remove filter
+       aes(x = est_rel_r2_mean, y = obs_rel_r2_mean, colour = trait)) +
   geom_hline(yintercept = 1, linetype = 'dashed') +
   geom_vline(xintercept = 1, linetype = 'dashed') +
   geom_abline(colour = 'red') +
   geom_point(size=2) +
   geom_errorbar(aes(xmin = est_rel_r2_low, xmax = est_rel_r2_high), width = 0) +
   geom_errorbar(aes(ymin = obs_rel_r2_low, ymax = obs_rel_r2_high), width = 0) +
-  facet_grid(population ~ call_rate) +
+  facet_grid(population ~ mask_rate) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -3446,13 +3810,13 @@ results_dt[, label := factor(label, levels=c("EUR (Full)", "EUR (Downsampled)   
 
 # 1. Plot MAD per Trait
 p_mad_trait <- ggplot(results_dt[pgs_method == "SBayesRC"], 
-                      aes(x = factor(prop_missing), y = mad, fill = label)) +
+                      aes(x = factor(prop_missing), y = mad_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
     geom_errorbar(aes(ymin = mad_low, ymax = mad_high), 
                   position = position_dodge(0.8), width = 0.25) +
     facet_wrap(~trait, ncol = 5) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", "EUR (Downsampled)    " = "#a6cee3", "AFR (Full)" = "#e31a1c")) +
-    labs(x = "Proportion Missing", y = "Mean Absolute Error", fill = "Cohort") +
+    labs(x = "Proportion Masked", y = "Mean Absolute Error", fill = "Cohort") +
     theme_cowplot() + theme(legend.position = "bottom", strip.background = element_rect(fill = "white"))
 
 png(
@@ -3467,13 +3831,13 @@ dev.off()
 
 # 2. Plot Bias per Trait
 p_error_trait <- ggplot(results_dt[pgs_method == "SBayesRC"], 
-                      aes(x = factor(prop_missing), y = error, fill = label)) +
+                      aes(x = factor(prop_missing), y = error_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
     geom_errorbar(aes(ymin = error_low, ymax = error_high), 
                   position = position_dodge(0.8), width = 0.25) +
     facet_wrap(~trait, ncol = 5) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", "EUR (Downsampled)    " = "#a6cee3", "AFR (Full)" = "#e31a1c")) +
-    labs(x = "Proportion Missing", y = "Mean Error", fill = "Cohort") +
+    labs(x = "Proportion Masked", y = "Mean Error", fill = "Cohort") +
     theme_cowplot() + theme(legend.position = "bottom", strip.background = element_rect(fill = "white"))
 
 png(
@@ -3488,10 +3852,10 @@ dev.off()
 
 # 3. New Plot: MAD vs Baseline R2
 p_mad_vs_r2 <- ggplot(results_dt[pgs_method == "SBayesRC"], 
-                      aes(x = mean_r2_base, y = mad, color = label)) +
+                      aes(x = r2_base_mean, y = mad_mean, color = label)) +
     geom_point(size = 3, alpha = 0.7) +
     geom_smooth(method = "lm", se = FALSE, size=0.5, linetype="dashed") +
-    facet_wrap(~prop_missing, labeller = label_both) +
+    facet_wrap(~mask_rate) +
     scale_x_continuous(labels = scales::percent, name = "Baseline R²") +
     scale_y_continuous(name = "Mean Absolute Error") +
     scale_color_manual(values = c("EUR (Full)" = "#1f78b4", "EUR (Downsampled)    " = "#a6cee3", "AFR (Full)" = "#e31a1c")) +
@@ -3513,59 +3877,23 @@ dev.off()
 # Plot global mean across traits
 ####
 
-# --- 4. GLOBAL SUMMARY (Across Traits) ---
-# To get the Global MAD across all 10 traits, we average the trait-level MADs.
-# We can bootstrap the trait-level means to get the CI for the global average.
+global_summary <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_across_trait_summary_random_mask.csv')
 
-get_global_stats <- function(dt, n_boot_agg=1000) {
-    traits <- unique(dt$trait)
-    n_traits <- length(traits)
-    
-    # List of all metrics calculated in the previous trait-level step
-    metrics <- c("obs_rel_r2", "est_rel_r2", "error", "mad",
-                 "mean_var_base", "mean_var_mask", "mean_rel_var_obs",
-                 "mean_slope_base", "mean_slope_mask", "mean_slope_rescaled",
-                 "mean_slope_ratio_uncalib", "mean_slope_ratio_calib")
-                 
-    # Ensure we only process metrics that actually exist in the dt
-    metrics <- intersect(metrics, names(dt))
-    
-    # Pre-generate bootstrap trait samples so all metrics use the same resampling iterations
-    boot_trait_samples <- replicate(n_boot_agg, sample(traits, n_traits, replace=TRUE), simplify=FALSE)
-    
-    results <- list()
-    
-    for (m in metrics) {
-        # 1. True mean across traits
-        true_mean <- mean(dt[[m]], na.rm=TRUE)
-        
-        # 2. Bootstrap means (properly handling duplicate trait sampling & multiple rows per trait)
-        boot_means <- sapply(boot_trait_samples, function(sel_traits) {
-            # Extract values matching the sampled traits. 
-            # Using lapply + which ensures all rows for a trait are grabbed,
-            # and duplicated appropriately if the trait is sampled multiple times.
-            idx <- unlist(lapply(sel_traits, function(t) which(dt$trait == t)))
-            mean(dt[[m]][idx], na.rm=TRUE)
-        })
-        
-        # 3. Store results with systematic naming
-        results[[paste0(m, "_global_mean")]] <- true_mean
-        results[[paste0(m, "_global_low")]] <- quantile(boot_means, 0.025, na.rm=TRUE)
-        results[[paste0(m, "_global_high")]] <- quantile(boot_means, 0.975, na.rm=TRUE)
-    }
-    
-    # Map old names for backwards compatibility with the existing plotting code below
-    if ("mad" %in% metrics) {
-        results[["mean_mad"]] <- results[["mad_global_mean"]]
-        results[["mad_low"]] <- results[["mad_global_low"]]
-        results[["mad_high"]] <- results[["mad_global_high"]]
-    }
-    
-    return(results)
-}
+# Clean parameter names to identify pT thresholds
+global_summary$param_clean <- global_summary$model_id 
+global_summary$param_clean <- gsub('_SUM','',global_summary$param_clean)
+global_summary$param_clean <- gsub('.*SCORE_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('0_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('e-0','e-',global_summary$param_clean)
+global_summary$param_clean[global_summary$param_clean != 'SBayesRC'] <- paste0('pT = ', global_summary$param_clean[global_summary$param_clean != 'SBayesRC'])
 
-global_summary <- results_dt[, as.list(get_global_stats(.SD)), 
-                             by=.(population, sample_type, pgs_method, prop_missing)]
+# Create nice call_rate column
+global_summary$mask_rate <- paste0(global_summary$prop_missing*100, '% Masked')
+global_summary$mask_rate <- factor(global_summary$mask_rate, levels = rev(unique(global_summary$mask_rate)))
+
+# Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
+# This ensures we plot comparable "full" models.
+global_summary <- global_summary[global_summary$param_clean %in% c("pT = 1", "pT = 5e-8", "SBayesRC"),]
 
 global_summary[, label := paste0(population, " (", sample_type, ")")]
 global_summary$label[global_summary$label == "EUR (Downsampled)"] <- "EUR (Downsampled)    "
@@ -3574,16 +3902,16 @@ global_summary[, label := factor(label, levels=c("EUR (Full)", "EUR (Downsampled
 # --- 5. PLOTTING ---
 
 # Plot Mean Absolute Error (Global summary across traits)
-p_mad_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_global_mean, fill = label)) +
+p_mad_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = mad_global_low, ymax = mad_global_high), 
+    geom_errorbar(aes(ymin = mad_low, ymax = mad_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
     labs(
-        x = "Proportion Missing",
+        x = "Proportion Masked",
         y = "Mean Absolute Error",
         fill = "Cohort"
     ) +
@@ -3591,16 +3919,16 @@ p_mad_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_glo
     theme(legend.position = "bottom")
 
 # Plot Mean Error (Global summary across traits)
-p_error_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = error_global_mean, fill = label)) +
+p_error_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = error_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = error_global_low, ymax = error_global_high), 
+    geom_errorbar(aes(ymin = error_low, ymax = error_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
     labs(
-        x = "Proportion Missing",
+        x = "Proportion Masked",
         y = "Mean Error",
         fill = "Cohort"
     ) +
@@ -3631,64 +3959,16 @@ library(ggplot2)
 library(cowplot)
 library(stringr)
 
-# --- 4. GLOBAL SUMMARY (Across Traits) ---
-# To get the Global MAD across all 10 traits, we average the trait-level MADs.
-# We can bootstrap the trait-level means to get the CI for the global average.
-
-get_global_stats <- function(dt, n_boot_agg=1000) {
-    traits <- unique(dt$trait)
-    n_traits <- length(traits)
-    
-    # List of all metrics calculated in the previous trait-level step
-    metrics <- c("error", "mad")
-                 
-    # Ensure we only process metrics that actually exist in the dt
-    metrics <- intersect(metrics, names(dt))
-    
-    # Pre-generate bootstrap trait samples so all metrics use the same resampling iterations
-    boot_trait_samples <- replicate(n_boot_agg, sample(traits, n_traits, replace=TRUE), simplify=FALSE)
-    
-    results <- list()
-    
-    for (m in metrics) {
-        # 1. True mean across traits
-        true_mean <- mean(dt[[m]], na.rm=TRUE)
-        
-        # 2. Bootstrap means (properly handling duplicate trait sampling & multiple rows per trait)
-        boot_means <- sapply(boot_trait_samples, function(sel_traits) {
-            # Extract values matching the sampled traits. 
-            # Using lapply + which ensures all rows for a trait are grabbed,
-            # and duplicated appropriately if the trait is sampled multiple times.
-            idx <- unlist(lapply(sel_traits, function(t) which(dt$trait == t)))
-            mean(dt[[m]][idx], na.rm=TRUE)
-        })
-        
-        # 3. Store results with systematic naming
-        results[[paste0(m, "_global_mean")]] <- true_mean
-        results[[paste0(m, "_global_low")]] <- quantile(boot_means, 0.025, na.rm=TRUE)
-        results[[paste0(m, "_global_high")]] <- quantile(boot_means, 0.975, na.rm=TRUE)
-    }
-    
-    # Map old names for backwards compatibility with the existing plotting code below
-    if ("mad" %in% metrics) {
-        results[["mean_mad"]] <- results[["mad_global_mean"]]
-        results[["mad_low"]] <- results[["mad_global_low"]]
-        results[["mad_high"]] <- results[["mad_global_high"]]
-    }
-    
-    return(results)
-}
-
 # Read in results and process
 tests <- c(
-  'wgs_sparse_results_10it_random',
-  'wgs_sparse_results',
-  'wgs_sparse_imp_results',
-  'wgs_mvp_sparse_results_10it_random',
-  'wgs_sparse_1kghgdp_ref_results',
-  'wgs_mvp_sparse_results',
-  'wgs_mvp_sparse_sqrt_info_pre_results',
-  'wgs_mvp_sparse_rsq_90_results')
+  'wgs_sparse_across_trait_summary_random_mask',
+  'wgs_sparse_across_trait_summary_info_mask',
+  'wgs_sparse_1kghgdp_ref_across_trait_summary_info_mask',
+  'wgs_sparse_imp_across_trait_summary_info_mask',
+  'wgs_mvp_sparse_across_trait_summary_random_mask',
+  'wgs_mvp_sparse_across_trait_summary_info_mask',
+  'wgs_mvp_sparse_sqrt_info_pre_across_trait_summary_info_mask',
+  'wgs_mvp_sparse_rsq_90_across_trait_summary_info_mask')
 
 global_summary_list <- list()
 for(i in tests){
@@ -3697,70 +3977,77 @@ for(i in tests){
   if('sample_type' %in% names(tmp)){
     tmp <- tmp[tmp$sample_type == 'Full',]
   }
-  global_summary_list[[i]] <- tmp[, as.list(get_global_stats(.SD, n_boot_agg = 10)), 
-                               by=.(population, pgs_method, prop_missing)]
-  global_summary_list[[i]]$test <- i
+  tmp <- tmp[, c('prop_missing','pgs_method','model_id','mad_mean','mad_low','mad_high','error_mean','error_low','error_high'), with = F]
+  tmp$test <- i
+  global_summary_list[[i]] <- tmp
 }
 
 global_summary <- do.call(rbind, global_summary_list)
 
 global_summary$label <- factor(
   global_summary$test, 
-  levels = c("wgs_sparse_results_10it_random", 
-             "wgs_mvp_sparse_results_10it_random",
-             "wgs_sparse_results",
-             "wgs_sparse_imp_results",
-             "wgs_sparse_1kghgdp_ref_results",
-             "wgs_mvp_sparse_results",
-             "wgs_mvp_sparse_sqrt_info_pre_results",
-             "wgs_mvp_sparse_rsq_90_results"),
+  levels = c("wgs_sparse_across_trait_summary_random_mask",
+             "wgs_mvp_sparse_across_trait_summary_random_mask",
+             "wgs_sparse_across_trait_summary_info_mask", 
+             "wgs_sparse_imp_across_trait_summary_info_mask",
+             "wgs_sparse_1kghgdp_ref_across_trait_summary_info_mask",
+             "wgs_mvp_sparse_across_trait_summary_info_mask",
+             "wgs_mvp_sparse_sqrt_info_pre_across_trait_summary_info_mask",
+             "wgs_mvp_sparse_rsq_90_across_trait_summary_info_mask"),
   labels = c(
-    "UKB WGS (Random)  ",
-    "MVP Dosage (Random)  ",
-    "UKB WGS (INFO)  ",
-    "UKB Dosage (INFO)  ",
-    "UKB WGS 1KG+HGDP ref (INFO)  ",
-    "MVP Dosage (INFO)  ",
-    "MVP Dosage sqrt(INFO) (INFO)  ",
-    "MVP Dosage INFO > 0.9 (INFO)  "
+    "UKB WGS (Random masking)  ",
+    "MVP Dosage (Random masking)  ",
+    "UKB WGS (INFO-based masking)  ",
+    "UKB Dosage (INFO-based masking)  ",
+    "UKB WGS 1KG+HGDP ref (INFO-based masking)  ",
+    "MVP Dosage (INFO-based masking)  ",
+    "MVP Dosage sqrt(INFO) (INFO-based masking)  ",
+    "MVP Dosage INFO > 0.9 (INFO-based masking)  "
   )
 )
+
+# Clean parameter names to identify pT thresholds
+global_summary$param_clean <- global_summary$model_id 
+global_summary$param_clean <- gsub('_SUM','',global_summary$param_clean)
+global_summary$param_clean <- gsub('.*SCORE_|.*<TRAIT>_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('0_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('e-0','e-',global_summary$param_clean)
+global_summary$param_clean[global_summary$param_clean != 'SBayesRC'] <- paste0('pT = ', global_summary$param_clean[global_summary$param_clean != 'SBayesRC'])
+
+# Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
+# This ensures we plot comparable "full" models.
+global_summary <- global_summary[global_summary$param_clean %in% c("pT = 1", "SBayesRC"),]
 
 # --- 5. PLOTTING ---
 
 # Plot Mean Absolute Error (Global summary across traits)
-p_mad_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_global_mean, fill = label)) +
+p_mad_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = mad_global_low, ymax = mad_global_high), 
+    geom_errorbar(aes(ymin = mad_low, ymax = mad_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
-#    scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
-#                                 "EUR (Downsampled)" = "#a6cee3", 
-#                                 "AFR (Full)" = "#e31a1c")) +
+    facet_grid(.~param_clean) +
     labs(
-        x = "Proportion Missing",
+        x = "Proportion Masked",
         y = "Mean Absolute Error",
-        fill = "Test"
+        fill = NULL
     ) +
     theme_cowplot() +
-    theme(legend.position = "bottom")
+    theme(legend.position = "none")
 
 # Plot Mean Error (Global summary across traits)
-p_error_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = error_global_mean, fill = label)) +
+p_error_global <- ggplot(global_summary, aes(x = factor(prop_missing), y = error_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = error_global_low, ymax = error_global_high), 
+    geom_errorbar(aes(ymin = error_low, ymax = error_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
-#    scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
-#                                 "EUR (Downsampled)" = "#a6cee3", 
-#                                 "AFR (Full)" = "#e31a1c")) +
+    facet_wrap(~param_clean) +
     labs(
-        x = "Proportion Missing",
+        x = "Proportion Masked",
         y = "Mean Error",
-        fill = "Cohort"
+        fill = NULL
     ) +
     theme_cowplot() +
-    theme(legend.position = "bottom")
+    theme(legend.position = "bottom") +
+    guides(fill = guide_legend(nrow = 4))
 
 png(
   '~/oliverpainfel/Analyses/mind_the_gap/results/plots/global_error_and_mad_dosage.png',
@@ -3769,7 +4056,7 @@ png(
   height = 2500,
   units = 'px'
 )
-plot_grid(plotlist = list(p_mad_global, p_error_global), nrow = 2, labels = c('A','B'))
+plot_grid(plotlist = list(p_mad_global, p_error_global), nrow = 2, labels = c('A','B'), rel_heights = c(0.9,1.2))
 dev.off()
 
 ```
@@ -3786,22 +4073,28 @@ library(ggplot2)
 library(cowplot)
 library(stringr)
 
-results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_results_10it_random.csv')
-
-# Restrict to SBayesRC scores
-results_dt<-results_dt[results_dt$pgs_method == 'SBayesRC',]
+results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_trait_summary_random_mask.csv')
 
 # Restrict to analysis in full dataset
 results_dt <- results_dt[results_dt$sample_type == 'Full',]
 
+# Clean parameter names to identify pT thresholds
+results_dt$param_clean <- results_dt$param
+results_dt$param_clean <- gsub('_SUM','',results_dt$param_clean)
+results_dt$param_clean <- gsub('.*SCORE_','',results_dt$param_clean)
+results_dt$param_clean <- gsub('0_','',results_dt$param_clean)
+results_dt$param_clean <- gsub('e-0','e-',results_dt$param_clean)
+results_dt$param_clean[results_dt$param_clean != 'SBayesRC'] <- paste0('pT = ', results_dt$param_clean[results_dt$param_clean != 'SBayesRC'])
+
 # Create nice call_rate column
-results_dt$call_rate <- paste0('Call rate = ', 1 - results_dt$prop_missing)
+results_dt$mask_rate <- paste0(results_dt$prop_missing*100, '% Masked')
+results_dt$mask_rate <- factor(results_dt$mask_rate, levels = rev(unique(results_dt$mask_rate)))
 
 # Reshape the data from wide to long format
 plot_data <- melt(results_dt,
-     id.vars = c("trait", "population", "pgs_method", "call_rate"),
+     id.vars = c("trait", "population", "param_clean", "mask_rate"),
      measure.vars = list(
-         slope_ratio = c("mean_slope_ratio_uncalib", "mean_slope_ratio_calib"),
+         slope_ratio = c("slope_ratio_uncalib_mean", "slope_ratio_calib_mean"),
          low_ci = c("slope_ratio_uncalib_low", "slope_ratio_calib_low"),
          high_ci = c("slope_ratio_uncalib_high", "slope_ratio_calib_high")
      ),
@@ -3813,7 +4106,7 @@ plot_data[, model_type := factor(plot_data$model_type_index,  labels = c("Naive"
 
 # --- 3. Create the Plot ---
 plot_slope_comparison <- ggplot(
-  plot_data[plot_data$pgs_method == 'SBayesRC' & plot_data$population == 'EUR',], 
+  plot_data[plot_data$param_clean == 'SBayesRC' & plot_data$population == 'EUR',], 
   aes(x = slope_ratio, 
       y = trait, 
       color = model_type)) +
@@ -3823,7 +4116,7 @@ plot_slope_comparison <- ggplot(
                  position = position_dodge(width = 0.6),
                  alpha = 0.6) +
   geom_point(size = 2.5, position = position_dodge(width = 0.6)) +
-  facet_grid(trait~ call_rate, scales = 'free_y') +
+  facet_grid(trait~ mask_rate, scales = 'free_y') +
   labs(
       x = "Slope Ratio (Estimated Slope / True Slope)",
       y = "Trait",
@@ -3841,7 +4134,7 @@ dev.off()
 
 # --- 3. Create the Plot ---
 plot_slope_comparison <- ggplot(
-  plot_data[plot_data$pgs_method == 'SBayesRC' & plot_data$population == 'AFR',], 
+  plot_data[plot_data$param_clean == 'SBayesRC' & plot_data$population == 'AFR',], 
   aes(x = slope_ratio, 
       y = trait, 
       color = model_type)) +
@@ -3851,7 +4144,7 @@ plot_slope_comparison <- ggplot(
                  position = position_dodge(width = 0.6),
                  alpha = 0.6) +
   geom_point(size = 2.5, position = position_dodge(width = 0.6)) +
-  facet_grid(trait~ call_rate, scales = 'free_y') +
+  facet_grid(trait~ mask_rate, scales = 'free_y') +
   labs(
       x = "Slope Ratio (Estimated Slope / True Slope)",
       y = "Trait",
@@ -3874,7 +4167,8 @@ dev.off()
 
 ```{bash}
 cd ~/oliverpainfel/Analyses/mind_the_gap/results
-dx download -f mind_the_gap/results/wgs_sparse_results_10it_random.pgs_check.csv
+dx download -f mind_the_gap/results/wgs_sparse_trait_summary_random.pgs_check.csv
+dx download -f mind_the_gap/results/wgs_sparse_across_trait_summary_random.pgs_check.csv
 ```
 
 ```{r}
@@ -3884,35 +4178,35 @@ library(ggplot2)
 library(cowplot)
 library(stringr)
 
-results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_results_10it_random.pgs_check.csv')
+results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_trait_summary_random.pgs_check.csv')
 
 # Clean parameter names to identify pT thresholds
 results_dt$param_clean <- results_dt$param
 results_dt$param_clean <- gsub('_SUM','',results_dt$param_clean)
 results_dt$param_clean <- gsub('.*SCORE_','',results_dt$param_clean)
 results_dt$param_clean <- gsub('0_','',results_dt$param_clean)
-
-# For SBayesRC, set param to empty (so we don't filter it out)
-results_dt$param_clean[results_dt$pgs_method == 'SBayesRC'] <- ''
+results_dt$param_clean <- gsub('e-0','e-',results_dt$param_clean)
+results_dt$param_clean[results_dt$param_clean != 'SBayesRC'] <- paste0('pT = ', results_dt$param_clean[results_dt$param_clean != 'SBayesRC'])
 
 # Create nice call_rate column
-results_dt$call_rate <- paste0('Call rate = ', 1 - results_dt$prop_missing)
+results_dt$mask_rate <- paste0(results_dt$prop_missing*100, '% Masked')
+results_dt$mask_rate <- factor(results_dt$mask_rate, levels = rev(unique(results_dt$mask_rate)))
 
 # Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
 # This ensures we plot comparable "full" models.
-results_dt_plot <- results_dt[results_dt$param_clean %in% c("1", ""),]
+results_dt_plot <- results_dt[results_dt$param_clean %in% c("pT = 1", "pT = 5e-8", "SBayesRC"),]
 results_dt_plot <- results_dt_plot[sample_type == "Full"]
 
 # Plot: Observed and estimated relative variance
-p1 <- ggplot(results_dt_plot[pgs_method == 'SBayesRC', ], # Filter weak traits if variable available, else remove filter
-       aes(x = est_var_ref, y = obs_rel_var, colour = trait)) +
+p1 <- ggplot(results_dt_plot[param_clean == 'SBayesRC', ], # Filter weak traits if variable available, else remove filter
+       aes(x = est_var_ref_mean, y = obs_rel_var_mean, colour = trait)) +
   geom_hline(yintercept = 1, linetype = 'dashed') +
   geom_vline(xintercept = 1, linetype = 'dashed') +
   geom_abline(colour = 'red') +
   geom_point(size=2) +
   geom_errorbar(aes(xmin = est_var_ref_low, xmax = est_var_ref_high), width = 0) +
   geom_errorbar(aes(ymin = obs_rel_var_low, ymax = obs_rel_var_high), width = 0) +
-  facet_grid(population ~ call_rate) +
+  facet_grid(population ~ mask_rate) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -3934,14 +4228,14 @@ print(p1)
 dev.off()
 
 p2 <- ggplot(results_dt_plot[pgs_method == 'SBayesRC', ], # Filter weak traits if variable available, else remove filter
-       aes(x = est_r2_ref, y = obs_sq_cor, colour = trait)) +
+       aes(x = est_r2_ref_mean, y = obs_sq_cor_mean, colour = trait)) +
   geom_hline(yintercept = 1, linetype = 'dashed') +
   geom_vline(xintercept = 1, linetype = 'dashed') +
   geom_abline(colour = 'red') +
   geom_point(size=2) +
   geom_errorbar(aes(xmin = est_r2_ref_low, xmax = est_r2_ref_high), width = 0) +
   geom_errorbar(aes(ymin = obs_sq_cor_low, ymax = obs_sq_cor_high), width = 0) +
-  facet_grid(population ~ call_rate) +
+  facet_grid(population ~ mask_rate) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -3972,7 +4266,7 @@ results_dt$label[results_dt$label == "EUR (Downsampled)"] <- "EUR (Downsampled) 
 results_dt[, label := factor(label, levels=c("EUR (Full)", "EUR (Downsampled)    ", "AFR (Full)"))]
 
 p_mad_trait <- ggplot(results_dt[pgs_method == "SBayesRC"], 
-                      aes(x = factor(prop_missing), y = mad_var_ref, fill = label)) +
+                      aes(x = factor(prop_missing), y = mad_var_ref_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
     geom_errorbar(aes(ymin = mad_var_ref_low, ymax = mad_var_ref_high), 
                   position = position_dodge(0.8), width = 0.25) +
@@ -3993,7 +4287,7 @@ dev.off()
 
 # Observed and estimated relative variance
 p_mad_trait <- ggplot(results_dt[pgs_method == "SBayesRC"], 
-                      aes(x = factor(prop_missing), y = mad_r2_ref, fill = label)) +
+                      aes(x = factor(prop_missing), y = mad_r2_ref_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
     geom_errorbar(aes(ymin = mad_r2_ref_low, ymax = mad_r2_ref_high), 
                   position = position_dodge(0.8), width = 0.25) +
@@ -4018,7 +4312,7 @@ dev.off()
 
 # Observed and estimated relative R2
 p_error_trait <- ggplot(results_dt[pgs_method == "SBayesRC"], 
-                      aes(x = factor(prop_missing), y = err_r2_ref, fill = label)) +
+                      aes(x = factor(prop_missing), y = err_r2_ref_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
     geom_errorbar(aes(ymin = err_r2_ref_low, ymax = err_r2_ref_high), 
                   position = position_dodge(0.8), width = 0.25) +
@@ -4039,7 +4333,7 @@ dev.off()
 
 # Observed and estimated relative variance
 p_error_trait <- ggplot(results_dt[pgs_method == "SBayesRC"], 
-                      aes(x = factor(prop_missing), y = err_var_ref, fill = label)) +
+                      aes(x = factor(prop_missing), y = err_var_ref_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
     geom_errorbar(aes(ymin = err_var_ref_low, ymax = err_var_ref_high), 
                   position = position_dodge(0.8), width = 0.25) +
@@ -4062,58 +4356,20 @@ dev.off()
 # Plot global mean across traits
 ####
 
-# --- 4. GLOBAL SUMMARY (Across Traits) ---
-# To get the Global MAD across all 10 traits, we average the trait-level MADs.
-# We can bootstrap the trait-level means to get the CI for the global average.
 
-get_global_stats <- function(dt, n_boot_agg=1000) {
-    traits <- unique(dt$trait)
-    n_traits <- length(traits)
-    
-    # List of all metrics calculated in the previous trait-level step
-    metrics <- c("err_r2_ref", "err_var_ref", "err_r2_ext", "err_var_ext",
-                 "err_var_nav", "mad_r2_ref", "mad_var_ref", "mad_r2_ext",
-                 "mad_var_ext", "mad_var_nav")
-                 
-    # Ensure we only process metrics that actually exist in the dt
-    metrics <- intersect(metrics, names(dt))
-    
-    # Pre-generate bootstrap trait samples so all metrics use the same resampling iterations
-    boot_trait_samples <- replicate(n_boot_agg, sample(traits, n_traits, replace=TRUE), simplify=FALSE)
-    
-    results <- list()
-    
-    for (m in metrics) {
-        # 1. True mean across traits
-        true_mean <- mean(dt[[m]], na.rm=TRUE)
-        
-        # 2. Bootstrap means (properly handling duplicate trait sampling & multiple rows per trait)
-        boot_means <- sapply(boot_trait_samples, function(sel_traits) {
-            # Extract values matching the sampled traits. 
-            # Using lapply + which ensures all rows for a trait are grabbed,
-            # and duplicated appropriately if the trait is sampled multiple times.
-            idx <- unlist(lapply(sel_traits, function(t) which(dt$trait == t)))
-            mean(dt[[m]][idx], na.rm=TRUE)
-        })
-        
-        # 3. Store results with systematic naming
-        results[[paste0(m, "_global_mean")]] <- true_mean
-        results[[paste0(m, "_global_low")]] <- quantile(boot_means, 0.025, na.rm=TRUE)
-        results[[paste0(m, "_global_high")]] <- quantile(boot_means, 0.975, na.rm=TRUE)
-    }
-    
-    # Map old names for backwards compatibility with the existing plotting code below
-    if ("mad" %in% metrics) {
-        results[["mean_mad"]] <- results[["mad_global_mean"]]
-        results[["mad_low"]] <- results[["mad_global_low"]]
-        results[["mad_high"]] <- results[["mad_global_high"]]
-    }
-    
-    return(results)
-}
+global_summary <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_across_trait_summary_random.pgs_check.csv')
 
-global_summary <- results_dt[, as.list(get_global_stats(.SD)), 
-                             by=.(population, sample_type, pgs_method, prop_missing)]
+# Clean parameter names to identify pT thresholds
+global_summary$param_clean <- global_summary$model_id
+global_summary$param_clean <- gsub('_SUM','',global_summary$param_clean)
+global_summary$param_clean <- gsub('.*SCORE_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('0_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('e-0','e-',global_summary$param_clean)
+global_summary$param_clean[global_summary$param_clean != 'SBayesRC'] <- paste0('pT = ', global_summary$param_clean[global_summary$param_clean != 'SBayesRC'])
+
+# Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
+# This ensures we plot comparable "full" models.
+global_summary <- global_summary[global_summary$param_clean %in% c("pT = 1", "pT = 5e-8", "SBayesRC"),]
 
 global_summary[, label := paste0(population, " (", sample_type, ")")]
 global_summary$label[global_summary$label == "EUR (Downsampled)"] <- "EUR (Downsampled)    "
@@ -4126,16 +4382,16 @@ global_summary[, label := factor(label, levels=c("EUR (Full)", "EUR (Downsampled
 ###
 
 # Relative R2
-p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_r2_ref_global_mean, fill = label)) +
+p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_r2_ref_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = mad_r2_ref_global_low, ymax = mad_r2_ref_global_high), 
+    geom_errorbar(aes(ymin = mad_r2_ref_low, ymax = mad_r2_ref_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
     labs(
-        x = "Proportion Missing",
+        x = "Proportion Masked",
         y = "Mean Absolute Error",
         title = 'Squared Correlation Between PGS',
         fill = "Cohort"
@@ -4144,16 +4400,16 @@ p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_r2_ref_global
     theme(legend.position = "bottom")
 
 # Relative variance
-p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_var_ref_global_mean, fill = label)) +
+p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_var_ref_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = mad_var_ref_global_low, ymax = mad_var_ref_global_high), 
+    geom_errorbar(aes(ymin = mad_var_ref_low, ymax = mad_var_ref_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
     labs(
-        x = "Proportion Missing",
+        x = "Proportion Masked",
         y = "Mean Absolute Error",
         title = 'Relative Variance',
         fill = "Cohort"
@@ -4176,16 +4432,16 @@ dev.off()
 ###
 
 # Relative R2
-p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_r2_ref_global_mean, fill = label)) +
+p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_r2_ref_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = err_r2_ref_global_low, ymax = err_r2_ref_global_high), 
+    geom_errorbar(aes(ymin = err_r2_ref_low, ymax = err_r2_ref_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
     labs(
-        x = "Proportion Missing",
+        x = "Proportion Masked",
         y = "Mean Error",
         title = 'Squared Correlation Between PGS',
         fill = "Cohort"
@@ -4194,16 +4450,16 @@ p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_r2_ref_global
     theme(legend.position = "bottom")
 
 # Plot Mean Error (Global summary across traits)
-p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_var_ref_global_mean, fill = label)) +
+p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_var_ref_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = err_var_ref_global_low, ymax = err_var_ref_global_high), 
+    geom_errorbar(aes(ymin = err_var_ref_low, ymax = err_var_ref_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
     labs(
-        x = "Proportion Missing",
+        x = "Proportion Masked",
         y = "Mean Error",
         title = 'Relative Variance',
         fill = "Cohort"
@@ -4234,140 +4490,23 @@ library(ggplot2)
 library(cowplot)
 library(stringr)
 
-results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_results_10it_random.pgs_check.csv')
-
-# Clean parameter names to identify pT thresholds
-results_dt$param_clean <- results_dt$param
-results_dt$param_clean <- gsub('_SUM','',results_dt$param_clean)
-results_dt$param_clean <- gsub('.*SCORE_','',results_dt$param_clean)
-results_dt$param_clean <- gsub('0_','',results_dt$param_clean)
-
-# For SBayesRC, set param to empty (so we don't filter it out)
-results_dt$param_clean[results_dt$pgs_method == 'SBayesRC'] <- ''
-
-# Create nice call_rate column
-results_dt$call_rate <- paste0('Call rate = ', 1 - results_dt$prop_missing)
-
-# Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
-# This ensures we plot comparable "full" models.
-results_dt_plot <- results_dt[results_dt$param_clean %in% c("1", ""),]
-results_dt_plot <- results_dt_plot[sample_type == "Full"]
-
-# Plot: Observed and estimated relative variance
-p1 <- ggplot(results_dt_plot[pgs_method == 'SBayesRC', ], # Filter weak traits if variable available, else remove filter
-       aes(x = est_var_ext, y = obs_rel_var, colour = trait)) +
-  geom_hline(yintercept = 1, linetype = 'dashed') +
-  geom_vline(xintercept = 1, linetype = 'dashed') +
-  geom_abline(colour = 'red') +
-  geom_point(size=2) +
-  geom_errorbar(aes(xmin = est_var_ext_low, xmax = est_var_ext_high), width = 0) +
-  geom_errorbar(aes(ymin = obs_rel_var_low, ymax = obs_rel_var_high), width = 0) +
-  facet_grid(population ~ call_rate) +
-  theme_half_open() +
-  panel_border() +
-  background_grid() +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_x_continuous(labels = scales::percent_format()) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(x = expression(Estimated~Relative~Variance),
-       y = expression(Observed~Relative~Variance),
-       colour = NULL)
-
-png(
-  '~/oliverpainfel/Analyses/mind_the_gap/results/plots/obs_est_rel_var_comp_ext.png',
-  res = 300,
-  width = 3000,
-  height = 1500,
-  units = 'px'
-)
-print(p1)
-dev.off()
-
-p2 <- ggplot(results_dt_plot[pgs_method == 'SBayesRC', ], # Filter weak traits if variable available, else remove filter
-       aes(x = est_r2_ext, y = obs_sq_cor, colour = trait)) +
-  geom_hline(yintercept = 1, linetype = 'dashed') +
-  geom_vline(xintercept = 1, linetype = 'dashed') +
-  geom_abline(colour = 'red') +
-  geom_point(size=2) +
-  geom_errorbar(aes(xmin = est_r2_ext_low, xmax = est_r2_ext_high), width = 0) +
-  geom_errorbar(aes(ymin = obs_sq_cor_low, ymax = obs_sq_cor_high), width = 0) +
-  facet_grid(population ~ call_rate) +
-  theme_half_open() +
-  panel_border() +
-  background_grid() +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_x_continuous(labels = scales::percent_format()) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(x = expression(Estimated~Squared~Correlation~(Cor(s, s*minute)^2)),
-       y = expression(Observed~Squared~Correlation~(Cor(s, s*minute)^2)),
-       colour = NULL)
-
-png(
-  '~/oliverpainfel/Analyses/mind_the_gap/results/plots/obs_est_rel_r2_comp_ext.png',
-  res = 300,
-  width = 3000,
-  height = 1500,
-  units = 'px'
-)
-print(p2)
-dev.off()
-
 ####
 # Plot global mean across traits
 ####
 
-# --- 4. GLOBAL SUMMARY (Across Traits) ---
-# To get the Global MAD across all 10 traits, we average the trait-level MADs.
-# We can bootstrap the trait-level means to get the CI for the global average.
+global_summary <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_across_trait_summary_random.pgs_check.csv')
 
-get_global_stats <- function(dt, n_boot_agg=1000) {
-    traits <- unique(dt$trait)
-    n_traits <- length(traits)
-    
-    # List of all metrics calculated in the previous trait-level step
-    metrics <- c("err_r2_ext", "err_var_ext", "err_r2_ext", "err_var_ext",
-                 "err_var_nav", "mad_r2_ext", "mad_var_ext", "mad_r2_ext",
-                 "mad_var_ext", "mad_var_nav")
-                 
-    # Ensure we only process metrics that actually exist in the dt
-    metrics <- intersect(metrics, names(dt))
-    
-    # Pre-generate bootstrap trait samples so all metrics use the same resampling iterations
-    boot_trait_samples <- replicate(n_boot_agg, sample(traits, n_traits, replace=TRUE), simplify=FALSE)
-    
-    results <- list()
-    
-    for (m in metrics) {
-        # 1. True mean across traits
-        true_mean <- mean(dt[[m]], na.rm=TRUE)
-        
-        # 2. Bootstrap means (properly handling duplicate trait sampling & multiple rows per trait)
-        boot_means <- sapply(boot_trait_samples, function(sel_traits) {
-            # Extract values matching the sampled traits. 
-            # Using lapply + which ensures all rows for a trait are grabbed,
-            # and duplicated appropriately if the trait is sampled multiple times.
-            idx <- unlist(lapply(sel_traits, function(t) which(dt$trait == t)))
-            mean(dt[[m]][idx], na.rm=TRUE)
-        })
-        
-        # 3. Store results with systematic naming
-        results[[paste0(m, "_global_mean")]] <- true_mean
-        results[[paste0(m, "_global_low")]] <- quantile(boot_means, 0.025, na.rm=TRUE)
-        results[[paste0(m, "_global_high")]] <- quantile(boot_means, 0.975, na.rm=TRUE)
-    }
-    
-    # Map old names for backwards compatibility with the existing plotting code below
-    if ("mad" %in% metrics) {
-        results[["mean_mad"]] <- results[["mad_global_mean"]]
-        results[["mad_low"]] <- results[["mad_global_low"]]
-        results[["mad_high"]] <- results[["mad_global_high"]]
-    }
-    
-    return(results)
-}
+# Clean parameter names to identify pT thresholds
+global_summary$param_clean <- global_summary$model_id
+global_summary$param_clean <- gsub('_SUM','',global_summary$param_clean)
+global_summary$param_clean <- gsub('.*SCORE_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('0_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('e-0','e-',global_summary$param_clean)
+global_summary$param_clean[global_summary$param_clean != 'SBayesRC'] <- paste0('pT = ', global_summary$param_clean[global_summary$param_clean != 'SBayesRC'])
 
-global_summary <- results_dt[, as.list(get_global_stats(.SD)), 
-                             by=.(population, sample_type, pgs_method, prop_missing)]
+# Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
+# This ensures we plot comparable "full" models.
+global_summary <- global_summary[global_summary$param_clean %in% c("pT = 1", "pT = 5e-8", "SBayesRC"),]
 
 global_summary[, label := paste0(population, " (", sample_type, ")")]
 global_summary$label[global_summary$label == "EUR (Downsampled)"] <- "EUR (Downsampled)    "
@@ -4380,11 +4519,11 @@ global_summary[, label := factor(label, levels=c("EUR (Full)", "EUR (Downsampled
 ###
 
 # Relative R2
-p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_r2_ext_global_mean, fill = label)) +
+p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_r2_ext_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = mad_r2_ext_global_low, ymax = mad_r2_ext_global_high), 
+    geom_errorbar(aes(ymin = mad_r2_ext_low, ymax = mad_r2_ext_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
@@ -4398,11 +4537,11 @@ p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_r2_ext_global
     theme(legend.position = "bottom")
 
 # Relative variance
-p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_var_ext_global_mean, fill = label)) +
+p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_var_ext_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = mad_var_ext_global_low, ymax = mad_var_ext_global_high), 
+    geom_errorbar(aes(ymin = mad_var_ext_low, ymax = mad_var_ext_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
@@ -4430,11 +4569,11 @@ dev.off()
 ###
 
 # Relative R2
-p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_r2_ext_global_mean, fill = label)) +
+p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_r2_ext_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = err_r2_ext_global_low, ymax = err_r2_ext_global_high), 
+    geom_errorbar(aes(ymin = err_r2_ext_low, ymax = err_r2_ext_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
@@ -4448,11 +4587,11 @@ p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_r2_ext_global
     theme(legend.position = "bottom")
 
 # Plot Mean Error (Global summary across traits)
-p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_var_ext_global_mean, fill = label)) +
+p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_var_ext_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = err_var_ext_global_low, ymax = err_var_ext_global_high), 
+    geom_errorbar(aes(ymin = err_var_ext_low, ymax = err_var_ext_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
@@ -4488,109 +4627,24 @@ library(ggplot2)
 library(cowplot)
 library(stringr)
 
-results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_results_10it_random.pgs_check.csv')
-
-# Clean parameter names to identify pT thresholds
-results_dt$param_clean <- results_dt$param
-results_dt$param_clean <- gsub('_SUM','',results_dt$param_clean)
-results_dt$param_clean <- gsub('.*SCORE_','',results_dt$param_clean)
-results_dt$param_clean <- gsub('0_','',results_dt$param_clean)
-
-# For SBayesRC, set param to empty (so we don't filter it out)
-results_dt$param_clean[results_dt$pgs_method == 'SBayesRC'] <- ''
-
-# Create nice call_rate column
-results_dt$call_rate <- paste0('Call rate = ', 1 - results_dt$prop_missing)
-
-# Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
-# This ensures we plot comparable "full" models.
-results_dt_plot <- results_dt[results_dt$param_clean %in% c("1", ""),]
-results_dt_plot <- results_dt_plot[sample_type == "Full"]
-
-# Plot: Observed and estimated relative variance
-p1 <- ggplot(results_dt_plot[pgs_method == 'SBayesRC', ], # Filter weak traits if variable available, else remove filter
-       aes(x = est_var_nav, y = obs_rel_var, colour = trait)) +
-  geom_hline(yintercept = 1, linetype = 'dashed') +
-  geom_vline(xintercept = 1, linetype = 'dashed') +
-  geom_abline(colour = 'red') +
-  geom_point(size=2) +
-  geom_errorbar(aes(xmin = est_var_nav_low, xmax = est_var_nav_high), width = 0) +
-  geom_errorbar(aes(ymin = obs_rel_var_low, ymax = obs_rel_var_high), width = 0) +
-  facet_grid(population ~ call_rate) +
-  theme_half_open() +
-  panel_border() +
-  background_grid() +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_x_continuous(labels = scales::percent_format()) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(x = expression(Estimated~Relative~Variance),
-       y = expression(Observed~Relative~Variance),
-       colour = NULL)
-
-png(
-  '~/oliverpainfel/Analyses/mind_the_gap/results/plots/obs_est_rel_var_comp_nav.png',
-  res = 300,
-  width = 3000,
-  height = 1500,
-  units = 'px'
-)
-print(p1)
-dev.off()
 
 ####
 # Plot global mean across traits
 ####
 
-# --- 4. GLOBAL SUMMARY (Across Traits) ---
-# To get the Global MAD across all 10 traits, we average the trait-level MADs.
-# We can bootstrap the trait-level means to get the CI for the global average.
+global_summary <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_across_trait_summary_random.pgs_check.csv')
 
-get_global_stats <- function(dt, n_boot_agg=1000) {
-    traits <- unique(dt$trait)
-    n_traits <- length(traits)
-    
-    # List of all metrics calculated in the previous trait-level step
-    metrics <- c("err_var_nav", "mad_var_nav")
-                 
-    # Ensure we only process metrics that actually exist in the dt
-    metrics <- intersect(metrics, names(dt))
-    
-    # Pre-generate bootstrap trait samples so all metrics use the same resampling iterations
-    boot_trait_samples <- replicate(n_boot_agg, sample(traits, n_traits, replace=TRUE), simplify=FALSE)
-    
-    results <- list()
-    
-    for (m in metrics) {
-        # 1. True mean across traits
-        true_mean <- mean(dt[[m]], na.rm=TRUE)
-        
-        # 2. Bootstrap means (properly handling duplicate trait sampling & multiple rows per trait)
-        boot_means <- sapply(boot_trait_samples, function(sel_traits) {
-            # Extract values matching the sampled traits. 
-            # Using lapply + which ensures all rows for a trait are grabbed,
-            # and duplicated appropriately if the trait is sampled multiple times.
-            idx <- unlist(lapply(sel_traits, function(t) which(dt$trait == t)))
-            mean(dt[[m]][idx], na.rm=TRUE)
-        })
-        
-        # 3. Store results with systematic naming
-        results[[paste0(m, "_global_mean")]] <- true_mean
-        results[[paste0(m, "_global_low")]] <- quantile(boot_means, 0.025, na.rm=TRUE)
-        results[[paste0(m, "_global_high")]] <- quantile(boot_means, 0.975, na.rm=TRUE)
-    }
-    
-    # Map old names for backwards compatibility with the existing plotting code below
-    if ("mad" %in% metrics) {
-        results[["mean_mad"]] <- results[["mad_global_mean"]]
-        results[["mad_low"]] <- results[["mad_global_low"]]
-        results[["mad_high"]] <- results[["mad_global_high"]]
-    }
-    
-    return(results)
-}
+# Clean parameter names to identify pT thresholds
+global_summary$param_clean <- global_summary$model_id
+global_summary$param_clean <- gsub('_SUM','',global_summary$param_clean)
+global_summary$param_clean <- gsub('.*SCORE_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('0_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('e-0','e-',global_summary$param_clean)
+global_summary$param_clean[global_summary$param_clean != 'SBayesRC'] <- paste0('pT = ', global_summary$param_clean[global_summary$param_clean != 'SBayesRC'])
 
-global_summary <- results_dt[, as.list(get_global_stats(.SD)), 
-                             by=.(population, sample_type, pgs_method, prop_missing)]
+# Filter: Keep SBayesRC and only the pT+clump score with threshold "1" (all SNPs)
+# This ensures we plot comparable "full" models.
+global_summary <- global_summary[global_summary$param_clean %in% c("pT = 1", "pT = 5e-8", "SBayesRC"),]
 
 global_summary[, label := paste0(population, " (", sample_type, ")")]
 global_summary$label[global_summary$label == "EUR (Downsampled)"] <- "EUR (Downsampled)    "
@@ -4603,11 +4657,11 @@ global_summary[, label := factor(label, levels=c("EUR (Full)", "EUR (Downsampled
 ###
 
 # Relative variance
-p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_var_nav_global_mean, fill = label)) +
+p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_var_nav_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = mad_var_nav_global_low, ymax = mad_var_nav_global_high), 
+    geom_errorbar(aes(ymin = mad_var_nav_low, ymax = mad_var_nav_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
@@ -4624,11 +4678,11 @@ p1 <- ggplot(global_summary, aes(x = factor(prop_missing), y = mad_var_nav_globa
 # Plot Mean Error (Global summary across traits)
 ###
 
-p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_var_nav_global_mean, fill = label)) +
+p2 <- ggplot(global_summary, aes(x = factor(prop_missing), y = err_var_nav_mean, fill = label)) +
     geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
-    geom_errorbar(aes(ymin = err_var_nav_global_low, ymax = err_var_nav_global_high), 
+    geom_errorbar(aes(ymin = err_var_nav_low, ymax = err_var_nav_high), 
                   position = position_dodge(0.8), width = 0.25) +
-    facet_wrap(~pgs_method) +
+    facet_wrap(~param_clean) +
     scale_fill_manual(values = c("EUR (Full)" = "#1f78b4", 
                                  "EUR (Downsampled)    " = "#a6cee3", 
                                  "AFR (Full)" = "#e31a1c")) +
@@ -4872,6 +4926,9 @@ pgs_r2$array <- factor(
 )
 
 saveRDS(pgs_r2, '~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_ldaware.rds')
+pgs_r2 <- readRDS('~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_ldaware.rds')
+
+write.csv(pgs_r2[, c('beta_set','relative_variance','relative_R2','array','panel','n_in_ref'), with =F], '~/oliverpainfel/Analyses/mind_the_gap/pgsc/rsq_metrics_pgs_ldaware.csv', row.names = F)
 
 # Calculate median realtive variance and cor(s,s')^2 for each panel and impuation combo
 summary_table <- pgs_r2[, .(
@@ -5429,7 +5486,10 @@ dx run swiss-army-knife \
 # Download the results from UKB-RAP
 mkdir -p ~/oliverpainfel/Analyses/mind_the_gap/results
 cd ~/oliverpainfel/Analyses/mind_the_gap/results
-dx download -f mind_the_gap/results/wgs_sparse_recovered_results_rimp_tuning.csv
+dx download -f mind_the_gap/results/wgs_sparse_recovered_rimp_tuning_trait_summary.csv
+dx download -f mind_the_gap/results/wgs_sparse_recovered_rimp_tuning_across_trait_summary.csv
+
+
 ```
 
 ```{r}
@@ -5439,7 +5499,7 @@ library(scales)
 library(cowplot)
 library(stringr)
 
-results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_results_rimp_tuning.csv')
+results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_rimp_tuning_trait_summary.csv')
 
 # ==============================================================================
 # --- 5. PLOTTING TUNING RESULTS (TRAIT-LEVEL) ---
@@ -5447,8 +5507,8 @@ results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_re
 
 # 5.1 SBayesRC Plots
 p1 <- ggplot(results_dt[pgs_method == 'SBayesRC' & population == 'EUR'], 
-             aes(x = factor(ridge), y = obs_rel_recovered_r2, color = ref, group = ref)) +
-  geom_hline(aes(yintercept = obs_rel_masked_r2), linetype = 'dashed', color = 'black', alpha = 0.6) +
+             aes(x = factor(ridge), y = rel_r2_recovered_mean, color = ref, group = ref)) +
+  geom_hline(aes(yintercept = rel_r2_masked_mean), linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_hline(yintercept = 1, linetype = 'dotted', color = 'black') +
   geom_point(size = 2.5) + geom_line(size = 1) +
   facet_wrap(~ trait, ncol = 5) +
@@ -5462,8 +5522,8 @@ p1 <- ggplot(results_dt[pgs_method == 'SBayesRC' & population == 'EUR'],
        color = "LD Reference")
 
 p2 <- ggplot(results_dt[pgs_method == 'SBayesRC' & population == 'EUR'], 
-             aes(x = factor(ridge), y = obs_rel_recovered_var, color = ref, group = ref)) +
-  geom_hline(aes(yintercept = obs_rel_masked_var), linetype = 'dashed', color = 'black', alpha = 0.6) +
+             aes(x = factor(ridge), y = rel_var_recovered_mean, color = ref, group = ref)) +
+  geom_hline(aes(yintercept = rel_var_masked_mean), linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_hline(yintercept = 1, linetype = 'dotted', color = 'black') +
   geom_point(size = 2.5) + geom_line(size = 1) +
   facet_wrap(~ trait, ncol = 5) +
@@ -5483,7 +5543,7 @@ dev.off()
 # Validating if PGS-check correctly estimates the tuned recoveries.
 
 p_est1 <- ggplot(results_dt[pgs_method == 'SBayesRC' & population == 'EUR'], 
-             aes(x = est_cor_sq_rec, y = obs_rel_recovered_r2, color = factor(ridge), shape = ref)) +
+             aes(x = est_cor2_rec_mean, y = rel_r2_recovered_mean, color = factor(ridge), shape = ref)) +
   geom_hline(yintercept = 1, linetype = 'dashed') +
   geom_vline(xintercept = 1, linetype = 'dashed') +
   geom_abline(colour = 'red') +
@@ -5498,7 +5558,7 @@ p_est1 <- ggplot(results_dt[pgs_method == 'SBayesRC' & population == 'EUR'],
        color = "Ridge", shape = "LD Reference")
 
 p_est2 <- ggplot(results_dt[pgs_method == 'SBayesRC' & population == 'EUR'], 
-             aes(x = est_cor_sq_rec, y = cor_baseline_recovered_sq, color = factor(ridge), shape = ref)) +
+             aes(x = est_cor2_rec_mean, y = cor2_baseline_recovered_mean, color = factor(ridge), shape = ref)) +
   geom_hline(yintercept = 1, linetype = 'dashed') +
   geom_vline(xintercept = 1, linetype = 'dashed') +
   geom_abline(colour = 'red') +
@@ -5513,7 +5573,7 @@ p_est2 <- ggplot(results_dt[pgs_method == 'SBayesRC' & population == 'EUR'],
        color = "Ridge", shape = "LD Reference")
 
 p_est3 <- ggplot(results_dt[pgs_method == 'SBayesRC' & population == 'EUR'], 
-             aes(x = est_rel_var_rec, y = obs_rel_recovered_var, color = factor(ridge), shape = ref)) +
+             aes(x = est_rel_var_rec_mean, y = rel_var_recovered_mean, color = factor(ridge), shape = ref)) +
   geom_hline(yintercept = 1, linetype = 'dashed') +
   geom_vline(xintercept = 1, linetype = 'dashed') +
   geom_abline(colour = 'red') +
@@ -5535,54 +5595,14 @@ dev.off()
 # --- 6. GLOBAL AGGREGATE SUMMARY (Across Traits) ---
 # ==============================================================================
 
-get_global_stats <- function(dt, n_boot_agg=1000) {
-    traits <- unique(dt$trait)
-    n_traits <- length(traits)
-    
-    # The specific error and performance metrics calculated in the parallel loop
-    metrics <- c("obs_rel_recovered_r2", "obs_rel_recovered_var", 
-                 "err_rel_var_rec", "abs_err_rel_var_rec", 
-                 "err_cor_sq_rec", "abs_err_cor_sq_rec",
-                 "err_assump_rec", "abs_err_assump_rec")
-                 
-    # Ensure we only process metrics that actually exist in the dt
-    metrics <- intersect(metrics, names(dt))
-    
-    # Pre-generate bootstrap trait samples so all metrics use the same resampling iterations
-    boot_trait_samples <- replicate(n_boot_agg, sample(traits, n_traits, replace=TRUE), simplify=FALSE)
-    
-    results <- list()
-    
-    for (m in metrics) {
-        # 1. True mean across traits
-        true_mean <- mean(dt[[m]], na.rm=TRUE)
-        
-        # 2. Bootstrap means (properly handling duplicate trait sampling & multiple rows per trait)
-        boot_means <- sapply(boot_trait_samples, function(sel_traits) {
-            # Using lapply + which ensures all rows for a trait are grabbed,
-            # and duplicated appropriately if the trait is sampled multiple times.
-            idx <- unlist(lapply(sel_traits, function(t) which(dt$trait == t)))
-            mean(dt[[m]][idx], na.rm=TRUE)
-        })
-        
-        # 3. Store results with systematic naming
-        results[[paste0(m, "_global_mean")]] <- true_mean
-        results[[paste0(m, "_global_low")]] <- quantile(boot_means, 0.025, na.rm=TRUE)
-        results[[paste0(m, "_global_high")]] <- quantile(boot_means, 0.975, na.rm=TRUE)
-    }
-    
-    return(results)
-}
-
 # Apply to generate global summary by Method, Ridge, and Ref combinations
-global_summary <- results_dt[, as.list(get_global_stats(.SD, n_boot_agg = 1000)), 
-                             by=.(population, pgs_method, prop, ridge, ref)]
+global_summary <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_rimp_tuning_across_trait_summary.csv')
 
 # 6.1 Plotting Global Performance (Mean Relative R2 and Variance)
-p_global_rel_r2 <- ggplot(global_summary, aes(x = factor(ridge), y = obs_rel_recovered_r2_global_mean, color = ref, group = ref)) +
+p_global_rel_r2 <- ggplot(global_summary, aes(x = factor(ridge), y = rel_r2_recovered_mean, color = ref, group = ref)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
   geom_line(size = 1, position = position_dodge(0.2)) +
-  geom_errorbar(aes(ymin = obs_rel_recovered_r2_global_low, ymax = obs_rel_recovered_r2_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = rel_r2_recovered_low, ymax = rel_r2_recovered_high), width = 0.2, position = position_dodge(0.2)) +
   facet_wrap(~ pgs_method) +
   theme_cowplot() +
   labs(x = "Ridge Penalty", 
@@ -5590,10 +5610,10 @@ p_global_rel_r2 <- ggplot(global_summary, aes(x = factor(ridge), y = obs_rel_rec
        title = "Global Performance: Recovered Relative R2",
        color = "LD Reference")
 
-p_global_rel_var <- ggplot(global_summary, aes(x = factor(ridge), y = obs_rel_recovered_var_global_mean, color = ref, group = ref)) +
+p_global_rel_var <- ggplot(global_summary, aes(x = factor(ridge), y = rel_var_recovered_mean, color = ref, group = ref)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
   geom_line(size = 1, position = position_dodge(0.2)) +
-  geom_errorbar(aes(ymin = obs_rel_recovered_var_global_low, ymax = obs_rel_recovered_var_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = rel_var_recovered_low, ymax = rel_var_recovered_high), width = 0.2, position = position_dodge(0.2)) +
   facet_wrap(~ pgs_method) +
   theme_cowplot() +
   labs(x = "Ridge Penalty", 
@@ -5606,10 +5626,10 @@ plot_grid(p_global_rel_r2, p_global_rel_var, labels = c('A', 'B'), ncol = 1)
 dev.off()
 
 # 6.2 Plotting Global Absolute Error (MAD / Precision)
-p_mad_var <- ggplot(global_summary, aes(x = factor(ridge), y = abs_err_rel_var_rec_global_mean, color = ref, group = ref)) +
+p_mad_var <- ggplot(global_summary, aes(x = factor(ridge), y = mad_rel_var_rec_mean, color = ref, group = ref)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
   geom_line(size = 1, position = position_dodge(0.2)) +
-  geom_errorbar(aes(ymin = abs_err_rel_var_rec_global_low, ymax = abs_err_rel_var_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_rel_var_rec_low, ymax = mad_rel_var_rec_high), width = 0.2, position = position_dodge(0.2)) +
   facet_wrap(~ pgs_method) +
   theme_cowplot() +
   labs(x = "Ridge Penalty", 
@@ -5617,10 +5637,10 @@ p_mad_var <- ggplot(global_summary, aes(x = factor(ridge), y = abs_err_rel_var_r
        title = "Global Precision: Relative Variance Estimate",
        color = "LD Reference")
 
-p_mad_cor <- ggplot(global_summary, aes(x = factor(ridge), y = abs_err_cor_sq_rec_global_mean, color = ref, group = ref)) +
+p_mad_cor <- ggplot(global_summary, aes(x = factor(ridge), y = mad_cor2_rec_mean, color = ref, group = ref)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
   geom_line(size = 1, position = position_dodge(0.2)) +
-  geom_errorbar(aes(ymin = abs_err_cor_sq_rec_global_low, ymax = abs_err_cor_sq_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_cor2_rec_low, ymax = mad_cor2_rec_high), width = 0.2, position = position_dodge(0.2)) +
   facet_wrap(~ pgs_method) +
   theme_cowplot() +
   labs(x = "Ridge Penalty", 
@@ -5628,10 +5648,10 @@ p_mad_cor <- ggplot(global_summary, aes(x = factor(ridge), y = abs_err_cor_sq_re
        title = "Global Precision: Cor(s, s')^2 Estimate",
        color = "LD Reference")
 
-p_mad_assump <- ggplot(global_summary, aes(x = factor(ridge), y = abs_err_assump_rec_global_mean, color = ref, group = ref)) +
+p_mad_assump <- ggplot(global_summary, aes(x = factor(ridge), y = mad_assump_rec_mean, color = ref, group = ref)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
   geom_line(size = 1, position = position_dodge(0.2)) +
-  geom_errorbar(aes(ymin = abs_err_assump_rec_global_low, ymax = abs_err_assump_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_assump_rec_low, ymax = mad_assump_rec_high), width = 0.2, position = position_dodge(0.2)) +
   facet_wrap(~ pgs_method) +
   theme_cowplot() +
   labs(x = "Ridge Penalty", 
@@ -5644,11 +5664,11 @@ plot_grid(p_mad_var, p_mad_cor, p_mad_assump, labels = c('A', 'B', 'C'), ncol = 
 dev.off()
 
 # 6.3 Plotting Global Error (Bias)
-p_err_var <- ggplot(global_summary, aes(x = factor(ridge), y = err_rel_var_rec_global_mean, color = ref, group = ref)) +
+p_err_var <- ggplot(global_summary, aes(x = factor(ridge), y = err_rel_var_rec_mean, color = ref, group = ref)) +
   geom_hline(yintercept = 0, linetype = 'dashed', color = 'black') +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
   geom_line(size = 1, position = position_dodge(0.2)) +
-  geom_errorbar(aes(ymin = err_rel_var_rec_global_low, ymax = err_rel_var_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_rel_var_rec_low, ymax = err_rel_var_rec_high), width = 0.2, position = position_dodge(0.2)) +
   facet_wrap(~ pgs_method) +
   theme_cowplot() +
   labs(x = "Ridge Penalty", 
@@ -5656,11 +5676,11 @@ p_err_var <- ggplot(global_summary, aes(x = factor(ridge), y = err_rel_var_rec_g
        title = "Global Bias: Relative Variance Estimate",
        color = "LD Reference")
 
-p_err_cor <- ggplot(global_summary, aes(x = factor(ridge), y = err_cor_sq_rec_global_mean, color = ref, group = ref)) +
+p_err_cor <- ggplot(global_summary, aes(x = factor(ridge), y = err_cor2_rec_mean, color = ref, group = ref)) +
   geom_hline(yintercept = 0, linetype = 'dashed', color = 'black') +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
   geom_line(size = 1, position = position_dodge(0.2)) +
-  geom_errorbar(aes(ymin = err_cor_sq_rec_global_low, ymax = err_cor_sq_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_cor2_rec_low, ymax = err_cor2_rec_high), width = 0.2, position = position_dodge(0.2)) +
   facet_wrap(~ pgs_method) +
   theme_cowplot() +
   labs(x = "Ridge Penalty", 
@@ -5668,10 +5688,10 @@ p_err_cor <- ggplot(global_summary, aes(x = factor(ridge), y = err_cor_sq_rec_gl
        title = "Global Bias: Cor(s, s')^2 Estimate",
        color = "LD Reference")
 
-p_err_assump <- ggplot(global_summary, aes(x = factor(ridge), y = err_assump_rec_global_mean, color = ref, group = ref)) +
+p_err_assump <- ggplot(global_summary, aes(x = factor(ridge), y = err_assump_rec_mean, color = ref, group = ref)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
   geom_line(size = 1, position = position_dodge(0.2)) +
-  geom_errorbar(aes(ymin = err_assump_rec_global_low, ymax = err_assump_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_assump_rec_low, ymax = err_assump_rec_high), width = 0.2, position = position_dodge(0.2)) +
   facet_wrap(~ pgs_method) +
   theme_cowplot() +
   labs(x = "Ridge Penalty", 
@@ -5826,8 +5846,12 @@ dx run swiss-army-knife \
 # Download the results from UKB-RAP
 mkdir -p ~/oliverpainfel/Analyses/mind_the_gap/results
 cd ~/oliverpainfel/Analyses/mind_the_gap/results
-dx download -f mind_the_gap/results/wgs_sparse_recovered_results.csv
-dx download -f mind_the_gap/results/wgs_sparse_recovered_results_rimp.csv
+dx download -f mind_the_gap/results/wgs_sparse_recovered_trait_summary.csv
+dx download -f mind_the_gap/results/wgs_sparse_recovered_across_trait_summary.csv
+
+dx download -f mind_the_gap/results/wgs_sparse_recovered_rimp_trait_summary.csv
+dx download -f mind_the_gap/results/wgs_sparse_recovered_rimp_across_trait_summary.csv
+
 ```
 
 ```{r}
@@ -5839,30 +5863,31 @@ library(cowplot)
 library(stringr)
 
 # Read in the results
-results_dt_gctb <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_results.csv')
-results_dt_rimp <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_results_rimp.csv')
+results_dt_gctb <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_trait_summary.csv')
+results_dt_rimp <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_rimp_trait_summary.csv')
 
 # Extract PGS in common
 results_dt_gctb <- results_dt_gctb[results_dt_gctb$param %in% results_dt_rimp$param,]
 results_dt_rimp <- results_dt_rimp[results_dt_rimp$param %in% results_dt_gctb$param,]
 
 # Extract relative R2 masked, and relative R2 from GCTB and rimp PGS-impute
-results_dt_masked<-results_dt_gctb[, c('param','trait','prop','call_rate',
-                                     'obs_rel_masked_r2','rel_r2_masked_low_ci','rel_r2_masked_high_ci',
-                                     'obs_rel_masked_var','rel_var_masked_low_ci','rel_var_masked_high_ci'), with = F]
+results_dt_masked<-results_dt_gctb[, c('param','trait','prop',
+                                     'rel_r2_masked_mean','rel_r2_masked_low','rel_r2_masked_high',
+                                     'rel_var_masked_mean','rel_var_masked_low','rel_var_masked_high'), with = F]
 results_dt_masked$group <- 'masked'
 names(results_dt_masked)<-gsub('_masked','', names(results_dt_masked))
 
-results_dt_gctb<-results_dt_gctb[, c('param','trait','prop','call_rate',
-                                     'obs_rel_recovered_r2','rel_r2_recovered_low_ci','rel_r2_recovered_high_ci',
-                                     'obs_rel_recovered_var','rel_var_recovered_low_ci','rel_var_recovered_high_ci'), with = F]
+results_dt_gctb<-results_dt_gctb[, c('param','trait','prop',
+                                     'rel_r2_recovered_mean','rel_r2_recovered_low','rel_r2_recovered_high',
+                                     'rel_var_recovered_mean','rel_var_recovered_low','rel_var_recovered_high'), with = F]
 
 results_dt_gctb$group <- 'recovered (GCTB)'
 names(results_dt_gctb)<-gsub('_recovered','', names(results_dt_gctb))
 
-results_dt_rimp<-results_dt_rimp[, c('param','trait','prop','call_rate',
-                                     'obs_rel_recovered_r2','rel_r2_recovered_low_ci','rel_r2_recovered_high_ci',
-                                     'obs_rel_recovered_var','rel_var_recovered_low_ci','rel_var_recovered_high_ci'), with = F]
+results_dt_rimp<-results_dt_rimp[, c('param','trait','prop',
+                                     'rel_r2_recovered_mean','rel_r2_recovered_low','rel_r2_recovered_high',
+                                     'rel_var_recovered_mean','rel_var_recovered_low','rel_var_recovered_high'), with = F]
+
 names(results_dt_rimp)<-gsub('_recovered','', names(results_dt_rimp))
 
 results_dt_rimp$group <- 'recovered (R)'
@@ -5874,13 +5899,17 @@ results_dt_both <- results_dt_both[order(results_dt_both$trait, results_dt_both$
 # Adjust the levels if you have other groups like 'recovered (R)'
 results_dt_both[, group := factor(group, levels = c("masked", "recovered (GCTB)", "recovered (R)"))]
 
+# Create nice call_rate column
+results_dt_both$mask_rate <- paste0(results_dt_both$prop*100, '% Masked')
+results_dt_both$mask_rate <- factor(results_dt_both$mask_rate, levels = rev(unique(results_dt_both$mask_rate)))
+
 # 1. Plot Relative R2
-p_r2 <- ggplot(results_dt_both, aes(x = trait, y = obs_rel_r2, color = group)) +
+p_r2 <- ggplot(results_dt_both, aes(x = trait, y = rel_r2_mean, color = group)) +
   geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_point(position = position_dodge(width = 0.6), size = 2.5) +
-  geom_errorbar(aes(ymin = rel_r2_low_ci, ymax = rel_r2_high_ci), 
+  geom_errorbar(aes(ymin = rel_r2_low, ymax = rel_r2_high), 
                 position = position_dodge(width = 0.6), width = 0.3) +
-  facet_grid(. ~ call_rate) +
+  facet_grid(. ~ mask_rate) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -5900,12 +5929,12 @@ p_r2 <- ggplot(results_dt_both, aes(x = trait, y = obs_rel_r2, color = group)) +
        color = "Model")
 
 # 2. Plot Relative Variance
-p_var <- ggplot(results_dt_both, aes(x = trait, y = obs_rel_var, color = group)) +
+p_var <- ggplot(results_dt_both, aes(x = trait, y = rel_var_mean, color = group)) +
   geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_point(position = position_dodge(width = 0.6), size = 2.5) +
-  geom_errorbar(aes(ymin = rel_var_low_ci, ymax = rel_var_high_ci), 
+  geom_errorbar(aes(ymin = rel_var_low, ymax = rel_var_high), 
                 position = position_dodge(width = 0.6), width = 0.3) +
-  facet_grid(. ~ call_rate) +
+  facet_grid(. ~ mask_rate) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -5931,45 +5960,45 @@ dev.off()
 
 # Percentage of lost R2 that is recovered
 median(
-  (results_dt_both$obs_rel_r2[results_dt_both$group == "recovered (GCTB)"] - results_dt_both$obs_rel_r2[results_dt_both$group == "masked"]) / 
-  (1 - results_dt_both$obs_rel_r2[results_dt_both$group == "masked"]), 
+  (results_dt_both$rel_r2_mean[results_dt_both$group == "recovered (GCTB)"] - results_dt_both$rel_r2_mean[results_dt_both$group == "masked"]) / 
+  (1 - results_dt_both$rel_r2_mean[results_dt_both$group == "masked"]), 
   na.rm = TRUE
 ) 
-# 0.599197
+# 0.598041
 
 median(
-  (results_dt_both$obs_rel_r2[results_dt_both$group == "recovered (R)"] - results_dt_both$obs_rel_r2[results_dt_both$group == "masked"]) / 
-  (1 - results_dt_both$obs_rel_r2[results_dt_both$group == "masked"]), 
+  (results_dt_both$rel_r2_mean[results_dt_both$group == "recovered (R)"] - results_dt_both$rel_r2_mean[results_dt_both$group == "masked"]) / 
+  (1 - results_dt_both$rel_r2_mean[results_dt_both$group == "masked"]), 
   na.rm = TRUE
 ) 
-# 0.7136665
+# 0.7103648
 
 # Percentage of lost Variance that is recovered
 median(
-  (results_dt_both$obs_rel_var[results_dt_both$group == "recovered (GCTB)"] - results_dt_both$obs_rel_var[results_dt_both$group == "masked"]) / 
-  (1 - results_dt_both$obs_rel_var[results_dt_both$group == "masked"]), 
+  (results_dt_both$rel_var_mean[results_dt_both$group == "recovered (GCTB)"] - results_dt_both$rel_var_mean[results_dt_both$group == "masked"]) / 
+  (1 - results_dt_both$rel_var_mean[results_dt_both$group == "masked"]), 
   na.rm = TRUE
 ) 
-# 0.696767
+# 0.6968691
 
 median(
-  (results_dt_both$obs_rel_var[results_dt_both$group == "recovered (R)"] - results_dt_both$obs_rel_var[results_dt_both$group == "masked"]) / 
-  (1 - results_dt_both$obs_rel_var[results_dt_both$group == "masked"]), 
+  (results_dt_both$rel_var_mean[results_dt_both$group == "recovered (R)"] - results_dt_both$rel_var_mean[results_dt_both$group == "masked"]) / 
+  (1 - results_dt_both$rel_var_mean[results_dt_both$group == "masked"]), 
   na.rm = TRUE
 ) 
-# 0.6031512
+# 0.6032837
 
 #####
 # Compare estimated and observed relative R2 and variance
 #####
 
 # Read in the results
-results_dt_gctb <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_results.csv')
-results_dt_rimp <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_results_rimp.csv')
+results_dt_gctb <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_across_trait_summary.csv')
+results_dt_rimp <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_rimp_across_trait_summary.csv')
 
 # Extract PGS in common
-results_dt_gctb <- results_dt_gctb[results_dt_gctb$param %in% results_dt_rimp$param,]
-results_dt_rimp <- results_dt_rimp[results_dt_rimp$param %in% results_dt_gctb$param,]
+results_dt_gctb <- results_dt_gctb[results_dt_gctb$model_id %in% results_dt_rimp$model_id,]
+results_dt_rimp <- results_dt_rimp[results_dt_rimp$model_id %in% results_dt_gctb$model_id,]
 
 # Remove masked columns
 results_dt_gctb <- results_dt_gctb[, !grepl('masked', names(results_dt_gctb)), with = F]
@@ -5980,78 +6009,34 @@ results_dt_rimp$group <- 'recovered (R)'
 
 results_dt_both <- rbind(results_dt_gctb, results_dt_rimp)
 
-get_global_stats <- function(dt, n_boot_agg=1000) {
-    traits <- unique(dt$trait)
-    n_traits <- length(traits)
-    
-    # The specific error and performance metrics calculated in the parallel loop
-    metrics <- c( 
-                 "err_rel_var_rec",
-                 "err_cor_sq_rec",
-                 "err_assump_rec",
-                 "mad_rel_var_rec",
-                 "mad_cor_sq_rec",
-                 "mad_assump_rec")
-                 
-    # Ensure we only process metrics that actually exist in the dt
-    metrics <- intersect(metrics, names(dt))
-    
-    # Pre-generate bootstrap trait samples so all metrics use the same resampling iterations
-    boot_trait_samples <- replicate(n_boot_agg, sample(traits, n_traits, replace=TRUE), simplify=FALSE)
-    
-    results <- list()
-    
-    for (m in metrics) {
-        # 1. True mean across traits
-        true_mean <- mean(dt[[m]], na.rm=TRUE)
-        
-        # 2. Bootstrap means (properly handling duplicate trait sampling & multiple rows per trait)
-        boot_means <- sapply(boot_trait_samples, function(sel_traits) {
-            # Using lapply + which ensures all rows for a trait are grabbed,
-            # and duplicated appropriately if the trait is sampled multiple times.
-            idx <- unlist(lapply(sel_traits, function(t) which(dt$trait == t)))
-            mean(dt[[m]][idx], na.rm=TRUE)
-        })
-        
-        # 3. Store results with systematic naming
-        results[[paste0(m, "_global_mean")]] <- true_mean
-        results[[paste0(m, "_global_low")]] <- quantile(boot_means, 0.025, na.rm=TRUE)
-        results[[paste0(m, "_global_high")]] <- quantile(boot_means, 0.975, na.rm=TRUE)
-    }
-    
-    return(results)
-}
-
-# Apply to generate global summary by Method, Ridge, and Ref combinations
-global_summary <- results_dt_both[, as.list(get_global_stats(.SD, n_boot_agg = 1000)), 
-                             by=.(prop, group)]
-
-global_summary$call_rate <- paste0('Call rate = ', 1 - global_summary$prop)
+# Create nice call_rate column
+results_dt_both$mask_rate <- paste0(results_dt_both$prop*100, '%')
+results_dt_both$mask_rate <- factor(results_dt_both$mask_rate, levels = rev(unique(results_dt_both$mask_rate)))
 
 # 6.2 Plotting Global Absolute Error (MAD / Precision)
-p_mad_var <- ggplot(global_summary, aes(x = call_rate, y = mad_rel_var_rec_global_mean, colour = group)) +
+p_mad_var <- ggplot(results_dt_both, aes(x = mask_rate, y = mad_rel_var_rec_mean, colour = group)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = mad_rel_var_rec_global_low, ymax = mad_rel_var_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_rel_var_rec_low, ymax = mad_rel_var_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Absolute Error",
        title = "Global Precision: Relative Variance Estimate",
        color = "Method")
 
-p_mad_cor <- ggplot(global_summary, aes(x = call_rate, y = mad_cor_sq_rec_global_mean, colour = group)) +
+p_mad_cor <- ggplot(results_dt_both, aes(x = mask_rate, y = mad_cor2_rec_mean, colour = group)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = mad_cor_sq_rec_global_low, ymax = mad_cor_sq_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_cor2_rec_low, ymax = mad_cor2_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Absolute Error",
        title = "Global Precision: Cor(s, s')^2 Estimate",
        color = "Method")
 
-p_mad_assump <- ggplot(global_summary, aes(x = call_rate, y = mad_assump_rec_global_mean, colour = group)) +
+p_mad_assump <- ggplot(results_dt_both, aes(x = mask_rate, y = mad_assump_rec_mean, colour = group)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = mad_assump_rec_global_low, ymax = mad_assump_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_assump_rec_low, ymax = mad_assump_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Absolute Error",
        title = "Global Precision: Cor(s, s')^2 vs Relative R2",
        color = "Method")
@@ -6061,29 +6046,29 @@ plot_grid(p_mad_var, p_mad_cor, p_mad_assump, labels = c('A', 'B', 'C'), ncol = 
 dev.off()
 
 # 6.3 Plotting Global Error (Bias)
-p_err_var <- ggplot(global_summary, aes(x = call_rate, y = err_rel_var_rec_global_mean, colour = group)) +
+p_err_var <- ggplot(results_dt_both, aes(x = mask_rate, y = err_rel_var_rec_mean, colour = group)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = err_rel_var_rec_global_low, ymax = err_rel_var_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_rel_var_rec_low, ymax = err_rel_var_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Error",
        title = "Global Precision: Relative Variance Estimate",
        color = "Method")
 
-p_err_cor <- ggplot(global_summary, aes(x = call_rate, y = err_cor_sq_rec_global_mean, colour = group)) +
+p_err_cor <- ggplot(results_dt_both, aes(x = mask_rate, y = err_cor2_rec_mean, colour = group)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = err_cor_sq_rec_global_low, ymax = err_cor_sq_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_cor2_rec_low, ymax = err_cor2_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Error",
        title = "Global Precision: Cor(s, s')^2 Estimate",
        color = "Method")
 
-p_err_assump <- ggplot(global_summary, aes(x = call_rate, y = err_assump_rec_global_mean, colour = group)) +
+p_err_assump <- ggplot(results_dt_both, aes(x = mask_rate, y = err_assump_rec_mean, colour = group)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = err_assump_rec_global_low, ymax = err_assump_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_assump_rec_low, ymax = err_assump_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Error",
        title = "Global Precision: Cor(s, s')^2 vs Relative R2",
        color = "Method")
@@ -6106,7 +6091,9 @@ Now we can see the methods perform similarly, we will create the main plots eval
 # Download the results from UKB-RAP
 mkdir -p ~/oliverpainfel/Analyses/mind_the_gap/results
 cd ~/oliverpainfel/Analyses/mind_the_gap/results
-dx download -f mind_the_gap/results/wgs_sparse_recovered_results_rimp.csv
+dx download -f mind_the_gap/results/wgs_sparse_recovered_rimp_trait_summary.csv
+dx download -f mind_the_gap/results/wgs_sparse_recovered_rimp_across_trait_summary.csv
+
 ```
 
 ```{r}
@@ -6118,7 +6105,7 @@ library(cowplot)
 library(stringr)
 
 # Read in the results
-results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_results_rimp.csv')
+results_dt <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_rimp_trait_summary.csv')
 
 # Clean parameter names to identify pT thresholds
 results_dt$param_clean <- results_dt$param
@@ -6135,20 +6122,19 @@ results_dt<-results_dt[results_dt$param_clean %in% c('pT = 5e-08','pT = 1','SBay
 
 # Extract relative R2 masked, and relative R2 from GCTB and rimp PGS-impute
 results_dt_masked<-results_dt[, 
-  c('param','param_clean','trait','prop','call_rate','pgs_method',
-    'obs_rel_masked_r2','rel_r2_masked_low_ci','rel_r2_masked_high_ci',
-    'obs_rel_masked_var','rel_var_masked_low_ci','rel_var_masked_high_ci',
-    'cor_baseline_masked_sq','cor_baseline_masked_sq_low_ci','cor_baseline_masked_sq_high_ci'
+  c('param','param_clean','trait','prop','pgs_method',
+    'rel_r2_masked_mean','rel_r2_masked_low','rel_r2_masked_high',
+    'rel_var_masked_mean','rel_var_masked_low','rel_var_masked_high',
+    'cor2_baseline_masked_mean','cor2_baseline_masked_low','cor2_baseline_masked_high'
   ), with = F]
 names(results_dt_masked)<-gsub('_masked','', names(results_dt_masked))
 results_dt_masked$group <- 'masked'
 
 results_dt_rimp<-results_dt[, 
-  c(
-    'param','param_clean','trait','prop','call_rate','pgs_method',
-    'obs_rel_recovered_r2','rel_r2_recovered_low_ci','rel_r2_recovered_high_ci',
-    'obs_rel_recovered_var','rel_var_recovered_low_ci','rel_var_recovered_high_ci',
-    'cor_baseline_recovered_sq','cor_baseline_recovered_sq_low_ci','cor_baseline_recovered_sq_high_ci'
+  c('param','param_clean','trait','prop','pgs_method',
+    'rel_r2_recovered_mean','rel_r2_recovered_low','rel_r2_recovered_high',
+    'rel_var_recovered_mean','rel_var_recovered_low','rel_var_recovered_high',
+    'cor2_baseline_recovered_mean','cor2_baseline_recovered_low','cor2_baseline_recovered_high'
   ), with = F]
 names(results_dt_rimp)<-gsub('_recovered','', names(results_dt_rimp))
 results_dt_rimp$group <- 'recovered'
@@ -6160,13 +6146,17 @@ results_dt_both <- results_dt_both[order(results_dt_both$trait, results_dt_both$
 # Adjust the levels if you have other groups like 'recovered (R)'
 results_dt_both[, group := factor(group, levels = c("masked", "recovered"))]
 
+# Create nice call_rate column
+results_dt_both$mask_rate <- paste0(results_dt_both$prop*100, '% Masked')
+results_dt_both$mask_rate <- factor(results_dt_both$mask_rate, levels = rev(unique(results_dt_both$mask_rate)))
+
 # 1. Plot Relative R2
-p_r2 <- ggplot(results_dt_both, aes(x = trait, y = obs_rel_r2, color = group)) +
+p_r2 <- ggplot(results_dt_both, aes(x = trait, y = rel_r2_mean, color = group)) +
   geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_point(position = position_dodge(width = 0.6), size = 2.5) +
-  geom_errorbar(aes(ymin = rel_r2_low_ci, ymax = rel_r2_high_ci), 
+  geom_errorbar(aes(ymin = rel_r2_low, ymax = rel_r2_high), 
                 position = position_dodge(width = 0.6), width = 0.3) +
-  facet_grid(param_clean ~ call_rate) +
+  facet_grid(param_clean ~ mask_rate) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -6182,12 +6172,12 @@ p_r2 <- ggplot(results_dt_both, aes(x = trait, y = obs_rel_r2, color = group)) +
        color = "Model")
 
 # 2. Plot Relative Variance
-p_var <- ggplot(results_dt_both, aes(x = trait, y = obs_rel_var, color = group)) +
+p_var <- ggplot(results_dt_both, aes(x = trait, y = rel_var_mean, color = group)) +
   geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_point(position = position_dodge(width = 0.6), size = 2.5) +
-  geom_errorbar(aes(ymin = rel_var_low_ci, ymax = rel_var_high_ci), 
+  geom_errorbar(aes(ymin = rel_var_low, ymax = rel_var_high), 
                 position = position_dodge(width = 0.6), width = 0.3) +
-  facet_grid(param_clean ~ call_rate) +
+  facet_grid(param_clean ~ mask_rate) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -6200,12 +6190,12 @@ p_var <- ggplot(results_dt_both, aes(x = trait, y = obs_rel_var, color = group))
        color = "Model")
 
 # 3. cor(s,s')^2
-p_cor <- ggplot(results_dt_both, aes(x = trait, y = cor_baseline_sq, color = group)) +
+p_cor <- ggplot(results_dt_both, aes(x = trait, y = cor2_baseline_mean, color = group)) +
   geom_hline(yintercept = 1, linetype = 'dashed', color = 'black', alpha = 0.6) +
   geom_point(position = position_dodge(width = 0.6), size = 2.5) +
-  geom_errorbar(aes(ymin = cor_baseline_sq_low_ci, ymax = cor_baseline_sq_high_ci), 
+  geom_errorbar(aes(ymin = cor2_baseline_low, ymax = cor2_baseline_high), 
                 position = position_dodge(width = 0.6), width = 0.3) +
-  facet_grid(param_clean ~ call_rate) +
+  facet_grid(param_clean ~ mask_rate) +
   theme_half_open() +
   panel_border() +
   background_grid() +
@@ -6226,47 +6216,47 @@ dev.off()
 
 # Percentage of lost R2 that is recovered
 median(
-  (results_dt_both$obs_rel_r2[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'SBayesRC'] - results_dt_both$obs_rel_r2[results_dt_both$group == "masked" & results_dt_both$param_clean == 'SBayesRC']) / 
-  (1 - results_dt_both$obs_rel_r2[results_dt_both$group == "masked" & results_dt_both$param_clean == 'SBayesRC']), 
+  (results_dt_both$rel_r2_mean[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'SBayesRC'] - results_dt_both$rel_r2_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'SBayesRC']) / 
+  (1 - results_dt_both$rel_r2_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'SBayesRC']), 
   na.rm = TRUE
 ) 
-# 0.7136665
+# 0.7112731
 
 median(
-  (results_dt_both$obs_rel_r2[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'pT = 1'] - results_dt_both$obs_rel_r2[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 1']) / 
-  (1 - results_dt_both$obs_rel_r2[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 1']), 
+  (results_dt_both$rel_r2_mean[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'pT = 1'] - results_dt_both$rel_r2_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 1']) / 
+  (1 - results_dt_both$rel_r2_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 1']), 
   na.rm = TRUE
 ) 
-# 1.072185
+# 1.080859
 
 median(
-  (results_dt_both$obs_rel_r2[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'pT = 5e-08'] - results_dt_both$obs_rel_r2[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 5e-08']) / 
-  (1 - results_dt_both$obs_rel_r2[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 5e-08']), 
+  (results_dt_both$rel_r2_mean[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'pT = 5e-08'] - results_dt_both$rel_r2_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 5e-08']) / 
+  (1 - results_dt_both$rel_r2_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 5e-08']), 
   na.rm = TRUE
 ) 
-# 0.7339618
+# 0.7030965
 
 # Percentage of lost Variance that is recovered
 median(
-  (results_dt_both$obs_rel_var[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'SBayesRC'] - results_dt_both$obs_rel_var[results_dt_both$group == "masked" & results_dt_both$param_clean == 'SBayesRC']) / 
-  (1 - results_dt_both$obs_rel_var[results_dt_both$group == "masked" & results_dt_both$param_clean == 'SBayesRC']), 
+  (results_dt_both$rel_var_mean[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'SBayesRC'] - results_dt_both$rel_var_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'SBayesRC']) / 
+  (1 - results_dt_both$rel_var_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'SBayesRC']), 
   na.rm = TRUE
 ) 
-# 0.6031512
+# 0.6032424
 
 median(
-  (results_dt_both$obs_rel_var[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'pT = 1'] - results_dt_both$obs_rel_var[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 1']) / 
-  (1 - results_dt_both$obs_rel_var[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 1']), 
+  (results_dt_both$rel_var_mean[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'pT = 1'] - results_dt_both$rel_var_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 1']) / 
+  (1 - results_dt_both$rel_var_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 1']), 
   na.rm = TRUE
 ) 
-# 0.5984721
+# 0.5984572
 
 median(
-  (results_dt_both$obs_rel_var[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'pT = 5e-08'] - results_dt_both$obs_rel_var[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 5e-08']) / 
-  (1 - results_dt_both$obs_rel_var[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 5e-08']), 
+  (results_dt_both$rel_var_mean[results_dt_both$group == "recovered" & results_dt_both$param_clean == 'pT = 5e-08'] - results_dt_both$rel_var_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 5e-08']) / 
+  (1 - results_dt_both$rel_var_mean[results_dt_both$group == "masked" & results_dt_both$param_clean == 'pT = 5e-08']), 
   na.rm = TRUE
 ) 
-# 0.7137504
+# 0.713637
 
 ####
 # Make simplified plot
@@ -6275,11 +6265,11 @@ median(
 
 # Melt into long format so we can facet by metric
 plot_long <- melt(results_dt_both, 
-                  id.vars = c("call_rate", "group", "param_clean",'trait'),
+                  id.vars = c("mask_rate", "group", "param_clean",'trait'),
                   measure.vars = list(
-                    value   = c("obs_rel_var", "obs_rel_r2", "cor_baseline_sq"),
-                    ci_low  = c("rel_var_low_ci", "rel_r2_low_ci", "cor_baseline_sq_low_ci"),
-                    ci_high = c("rel_var_high_ci", "rel_r2_high_ci", "cor_baseline_sq_high_ci")
+                    value   = c("rel_var_mean", "rel_r2_mean", "cor2_baseline_mean"),
+                    ci_low  = c("rel_var_low", "rel_r2_low", "cor2_baseline_low"),
+                    ci_high = c("rel_var_high", "rel_r2_high", "cor2_baseline_high")
                   ),
                   variable.name = "metric", 
                   value.name = c("value", "ci_low", "ci_high"))
@@ -6292,7 +6282,7 @@ plot_long[, metric := factor(metric,
 plot_long[, group := factor(group, levels = c("masked", "recovered"))]
 
 # Restrict to call rate of 0.5
-plot_long <- plot_long[plot_long$call_rate == 'Call rate = 0.5', ]
+plot_long <- plot_long[plot_long$mask_rate == '50% Masked', ]
 
 p_violin <- ggplot(plot_long, aes(x = factor(group), y = value, fill = group)) +
   # Add the 'Perfect' 100% reference line
@@ -6356,78 +6346,49 @@ dev.off()
 # Compare estimated and observed relative R2 and variance
 #####
 
-get_global_stats <- function(dt, n_boot_agg=1000) {
-    traits <- unique(dt$trait)
-    n_traits <- length(traits)
-    
-    # The specific error and performance metrics calculated in the parallel loop
-    metrics <- c( 
-                 "err_rel_var_rec",
-                 "err_cor_sq_rec",
-                 "err_assump_rec",
-                 "mad_rel_var_rec",
-                 "mad_cor_sq_rec",
-                 "mad_assump_rec")
-                 
-    # Ensure we only process metrics that actually exist in the dt
-    metrics <- intersect(metrics, names(dt))
-    
-    # Pre-generate bootstrap trait samples so all metrics use the same resampling iterations
-    boot_trait_samples <- replicate(n_boot_agg, sample(traits, n_traits, replace=TRUE), simplify=FALSE)
-    
-    results <- list()
-    
-    for (m in metrics) {
-        # 1. True mean across traits
-        true_mean <- mean(dt[[m]], na.rm=TRUE)
-        
-        # 2. Bootstrap means (properly handling duplicate trait sampling & multiple rows per trait)
-        boot_means <- sapply(boot_trait_samples, function(sel_traits) {
-            # Using lapply + which ensures all rows for a trait are grabbed,
-            # and duplicated appropriately if the trait is sampled multiple times.
-            idx <- unlist(lapply(sel_traits, function(t) which(dt$trait == t)))
-            mean(dt[[m]][idx], na.rm=TRUE)
-        })
-        
-        # 3. Store results with systematic naming
-        results[[paste0(m, "_global_mean")]] <- true_mean
-        results[[paste0(m, "_global_low")]] <- quantile(boot_means, 0.025, na.rm=TRUE)
-        results[[paste0(m, "_global_high")]] <- quantile(boot_means, 0.975, na.rm=TRUE)
-    }
-    
-    return(results)
-}
+global_summary <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_recovered_rimp_across_trait_summary.csv')
 
-# Apply to generate global summary by Method, Ridge, and Ref combinations
-global_summary <- results_dt[, as.list(get_global_stats(.SD, n_boot_agg = 1000)), 
-                             by=.(prop, param_clean)]
+# Create nice call_rate column
+global_summary$mask_rate <- paste0(global_summary$prop*100, '%')
+global_summary$mask_rate <- factor(global_summary$mask_rate, levels = rev(unique(global_summary$mask_rate)))
 
-global_summary$call_rate <- paste0('Call rate = ', 1 - global_summary$prop)
+# Clean parameter names to identify pT thresholds
+global_summary$param_clean <- global_summary$model_id
+global_summary$param_clean <- gsub('_SUM','',global_summary$param_clean)
+global_summary$param_clean <- gsub('.*SCORE_','',global_summary$param_clean)
+global_summary$param_clean <- gsub('0_','',global_summary$param_clean)
+global_summary$param_clean <- paste0('pT = ', global_summary$param_clean)
+
+# For SBayesRC, set param to empty (so we don't filter it out)
+global_summary$param_clean[global_summary$pgs_method == 'SBayesRC'] <- 'SBayesRC'
+
+# Subset results to SBayesRC, pt 1 and pt 5e-08
+global_summary<-global_summary[global_summary$param_clean %in% c('pT = 5e-08','pT = 1','SBayesRC'),]
 
 # 6.2 Plotting Global Absolute Error (MAD / Precision)
-p_mad_var <- ggplot(global_summary, aes(x = call_rate, y = mad_rel_var_rec_global_mean, colour = param_clean)) +
+p_mad_var <- ggplot(global_summary, aes(x = mask_rate, y = mad_rel_var_rec_mean, colour = param_clean)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = mad_rel_var_rec_global_low, ymax = mad_rel_var_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_rel_var_rec_low, ymax = mad_rel_var_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Absolute Error",
        title = "Global Precision: Relative Variance Estimate",
        color = "Method")
 
-p_mad_cor <- ggplot(global_summary, aes(x = call_rate, y = mad_cor_sq_rec_global_mean, colour = param_clean)) +
+p_mad_cor <- ggplot(global_summary, aes(x = mask_rate, y = mad_cor2_rec_mean, colour = param_clean)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = mad_cor_sq_rec_global_low, ymax = mad_cor_sq_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_cor2_rec_low, ymax = mad_cor2_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Absolute Error",
        title = "Global Precision: Cor(s, s')^2 Estimate",
        color = "Method")
 
-p_mad_assump <- ggplot(global_summary, aes(x = call_rate, y = mad_assump_rec_global_mean, colour = param_clean)) +
+p_mad_assump <- ggplot(global_summary, aes(x = mask_rate, y = mad_assump_rec_mean, colour = param_clean)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = mad_assump_rec_global_low, ymax = mad_assump_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = mad_assump_rec_low, ymax = mad_assump_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Absolute Error",
        title = "Global Precision: Cor(s, s')^2 vs Relative R2",
        color = "Method")
@@ -6437,29 +6398,29 @@ plot_grid(p_mad_var, p_mad_cor, p_mad_assump, labels = c('A', 'B', 'C'), ncol = 
 dev.off()
 
 # 6.3 Plotting Global Error (Bias)
-p_err_var <- ggplot(global_summary, aes(x = call_rate, y = err_rel_var_rec_global_mean, colour = param_clean)) +
+p_err_var <- ggplot(global_summary, aes(x = mask_rate, y = err_rel_var_rec_mean, colour = param_clean)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = err_rel_var_rec_global_low, ymax = err_rel_var_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_rel_var_rec_low, ymax = err_rel_var_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Error",
        title = "Global Precision: Relative Variance Estimate",
        color = "Method")
 
-p_err_cor <- ggplot(global_summary, aes(x = call_rate, y = err_cor_sq_rec_global_mean, colour = param_clean)) +
+p_err_cor <- ggplot(global_summary, aes(x = mask_rate, y = err_cor2_rec_mean, colour = param_clean)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = err_cor_sq_rec_global_low, ymax = err_cor_sq_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_cor2_rec_low, ymax = err_cor2_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Error",
        title = "Global Precision: Cor(s, s')^2 Estimate",
        color = "Method")
 
-p_err_assump <- ggplot(global_summary, aes(x = call_rate, y = err_assump_rec_global_mean, colour = param_clean)) +
+p_err_assump <- ggplot(global_summary, aes(x = mask_rate, y = err_assump_rec_mean, colour = param_clean)) +
   geom_point(size = 2.5, position = position_dodge(0.2)) + 
-  geom_errorbar(aes(ymin = err_assump_rec_global_low, ymax = err_assump_rec_global_high), width = 0.2, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = err_assump_rec_low, ymax = err_assump_rec_high), width = 0.2, position = position_dodge(0.2)) +
   theme_cowplot() +
-  labs(x = "Call Rate", 
+  labs(x = "Proportion Masked", 
        y = "Mean Error",
        title = "Global Precision: Cor(s, s')^2 vs Relative R2",
        color = "Method")

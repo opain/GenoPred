@@ -1075,7 +1075,7 @@ rule install_genoutils_sbayesrc:
   shell:
     """
     {{
-      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@61988ba87fedff2bf950a610391c2bd7bea2fb5f\")'
     }} > {log} 2>&1
     """
 
@@ -1418,7 +1418,7 @@ rule install_genoutils:
   shell:
     """
     {{
-      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@61988ba87fedff2bf950a610391c2bd7bea2fb5f\")'
     }} > {log} 2>&1
     """
 
@@ -1473,7 +1473,7 @@ rule install_genoutils_xwing:
   shell:
     """
     {{
-      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@61988ba87fedff2bf950a610391c2bd7bea2fb5f\")'
     }} > {log} 2>&1
     """
 
@@ -1623,7 +1623,7 @@ rule install_genoutils_bridgeprs:
   shell:
     """
     {{
-      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@9ab6becb16904cf98a29774e6bd2b72b94aef267\")'
+      Rscript --vanilla -e 'devtools::install_github(\"opain/GenoUtils@61988ba87fedff2bf950a610391c2bd7bea2fb5f\")'
     }} > {log} 2>&1
     """
 
