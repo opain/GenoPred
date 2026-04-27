@@ -1015,3 +1015,575 @@ Those two were therefore merged into a single v3.
 variant counts — 561k vs 523k — and the within-pair overlap is "only"
 ~93%, not the 99.8% seen for the merged v3/v4 dense group.)
 
+
+***
+
+# Prepare for Michigan Imputation Server
+
+The next step before polygenic scoring is **imputation**. Each per-array
+fileset is uploaded to the Michigan Imputation Server's
+HRC r1.1 GRCh37 panel separately, since each chip has its own variant
+backbone. The server requires per-chromosome bgzipped VCFs whose REF
+alleles already match the panel; this section produces them.
+
+Reference panel: **HRC r1.1, GRCh37**. The OpenSNP per-array filesets are
+already on GRCh37 (chr22 max position ≈ 51.2 Mb), so no liftover is
+required. The Michigan Server's official prep instructions
+(<https://imputationserver.readthedocs.io/en/latest/prepare-your-data/>)
+recommend Will Rayner's `HRC-1000G-check-bim.pl` for strand / REF-allele
+alignment against the panel sites file, and that's exactly what we use
+here. The recipe mirrors the user's older
+`Michigan-Imputation-Helper/MichPrep.r`
+(<https://github.com/opain/Michigan-Imputation-Helper>) but inlined as
+shell chunks so the document is self-contained.
+
+## Dependencies
+
+One-off downloads / installs in the working environment. All paths below
+assume the binaries land in `/tmp/` and the HRC sites file lands in
+`~/oliverpainfel/Data/HRC/`. If you've already installed any of these,
+skip the corresponding chunk.
+
+<details><summary>Show code — install PLINK 1.9, bcftools, htslib (bgzip/tabix)</summary>
+
+```{bash}
+# PLINK 1.9 — required by HRC-check-bim's generated Run-plink.sh (uses
+# 1.9-specific flags like --a2-allele) and by the per-chromosome --recode
+# vcf step. Use a current build from cog-genomics's S3 bucket.
+cd /tmp
+curl -sL -o plink1.zip \
+  "https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20231211.zip"
+unzip -o plink1.zip plink prettify
+chmod +x /tmp/plink
+/tmp/plink --version
+
+# bcftools (and htslib's bgzip + tabix) — needed to sort and bgzip the
+# per-chromosome VCFs. Build from source if no system package is
+# available.
+cd /tmp
+curl -sL -o bcftools.tar.bz2 \
+  "https://github.com/samtools/bcftools/releases/download/1.20/bcftools-1.20.tar.bz2"
+tar -xjf bcftools.tar.bz2
+cd bcftools-1.20
+./configure --prefix=/tmp/bcftools_install
+make -j4
+# bgzip / tabix live in the htslib subdir; build them too
+cd htslib-1.20
+make bgzip tabix
+# Convenience symlinks
+ln -sf /tmp/bcftools-1.20/bcftools          /tmp/bcftools
+ln -sf /tmp/bcftools-1.20/htslib-1.20/bgzip /tmp/bgzip
+ln -sf /tmp/bcftools-1.20/htslib-1.20/tabix /tmp/tabix
+/tmp/bcftools --version | head -1
+/tmp/bgzip   --version | head -1
+/tmp/tabix   --version | head -1
+```
+
+</details>
+
+<details><summary>Show code — download HRC-1000G-check-bim.pl + HRC r1.1 sites file</summary>
+
+```{bash}
+# Will Rayner's check script (current is v4.3.0 as of 2026)
+mkdir -p /tmp/hrc_check
+cd /tmp/hrc_check
+curl -sL -o hrc_check.zip \
+  "https://www.chg.ox.ac.uk/~wrayner/tools/HRC-1000G-check-bim-v4.3.0.zip"
+unzip -o hrc_check.zip
+ls /tmp/hrc_check/HRC-1000G-check-bim.pl
+
+# HRC r1.1 GRCh37 sites file — ~700 MB (BGZF gzipped). The Rayner script
+# reads .gz natively (uses IO::Uncompress::Gunzip) so no need to
+# decompress.
+mkdir -p ~/oliverpainfel/Data/HRC
+cd ~/oliverpainfel/Data/HRC
+curl -sL --max-time 1800 -o HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz \
+  "ftp://ngs.sanger.ac.uk/production/hrc/HRC.r1-1/HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz"
+ls -la ~/oliverpainfel/Data/HRC/HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz
+```
+
+</details>
+
+## Per-array prep loop
+
+For each of the 10 per-array filesets, the recipe is:
+
+1. **Pre-clean**: drop indels (`--snps-only just-acgt`), restrict to
+   autosomes (`--chr 1-22`), drop multi-position duplicates
+   (`--rm-dup exclude-all`), and force bi-allelic
+   (`--max-alleles 2`). The OpenSNP raw filesets contain ~14k indel /
+   non-ACGT alleles and an X+Y chromosome that the HRC track doesn't
+   cover.
+2. **Allele frequencies**: `plink --freq`, needed by the Rayner script
+   to detect AF-mismatch variants.
+3. **HRC alignment check**: `perl HRC-1000G-check-bim.pl -h` against the
+   HRC sites file. This generates `Run-plink.sh` plus per-action variant
+   lists (`Exclude-…`, `Strand-Flip-…`, `Force-Allele1-…`,
+   `Position-…`, `Chromosome-…`, `ID-…`).
+4. **Apply alignment**: `bash Run-plink.sh` — applies the exclusions,
+   strand flips, REF-allele forcing, and splits per chromosome. Writes
+   `…_clean-updated-chr<1..22>.{bed,bim,fam,vcf}`.
+5. **Sort + bgzip**: `bcftools sort -Oz` per chromosome → final
+   `<prefix>-chr<N>.vcf.gz` ready for upload.
+
+The Rayner script's `Run-plink.sh` writes `plink ` (bare); we `sed` it
+to `/tmp/plink ` so the loop uses the binary installed above. Skip this
+substitution if `plink` is already on `$PATH`.
+
+<details><summary>Show code — full prep loop over all 10 per-array filesets</summary>
+
+```{bash}
+DATADIR=~/oliverpainfel/Data/OpenSNP/zenodo_18493898
+HRCREF=~/oliverpainfel/Data/HRC/HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz
+WORKDIR=$DATADIR/imputation_prep
+mkdir -p $WORKDIR/temp
+
+run_prep () {
+  local prefix=$1
+  echo "===== $prefix ====="
+
+  # Step 0 — pre-clean
+  /tmp/plink2 \
+    --bfile $DATADIR/${prefix}_filtered \
+    --snps-only just-acgt --chr 1-22 \
+    --rm-dup exclude-all --max-alleles 2 \
+    --make-bed --out $WORKDIR/${prefix}_clean
+
+  # Step 1 — allele frequencies
+  /tmp/plink \
+    --bfile $WORKDIR/${prefix}_clean \
+    --freq --out $WORKDIR/${prefix}_clean
+
+  # Step 2 — HRC alignment check (writes Run-plink.sh + LOG-*.txt + ...)
+  cd $WORKDIR
+  perl /tmp/hrc_check/HRC-1000G-check-bim.pl \
+    -b $WORKDIR/${prefix}_clean.bim \
+    -f $WORKDIR/${prefix}_clean.frq \
+    -r $HRCREF \
+    -h
+
+  # Substitute the plink binary path in the generated script
+  sed -i 's|^plink |/tmp/plink |g; s| plink | /tmp/plink |g' Run-plink.sh
+
+  # Step 3 — apply alignment (also splits per chromosome and emits VCFs)
+  bash Run-plink.sh
+
+  # Step 4 — sort + bgzip per chromosome
+  for chr in $(seq 1 22); do
+    /tmp/bcftools sort \
+      $WORKDIR/${prefix}_clean-updated-chr${chr}.vcf \
+      -Oz -o $WORKDIR/${prefix}-chr${chr}.vcf.gz
+  done
+}
+
+for prefix in 23andme_v3 23andme_v4 23andme_v5 \
+              AncestryDNA_v1 AncestryDNA_v2 AncestryDNA_v3 AncestryDNA_v4 \
+              FamilyTreeDNA_v1 FamilyTreeDNA_v2 FamilyTreeDNA_v3; do
+  run_prep "$prefix"
+done
+
+# Optional cleanup: keep the LOG-*.txt files for provenance, drop the
+# rest. The .vcf.gz files in $WORKDIR are the upload payload.
+rm -f $WORKDIR/*_clean-updated-chr*.{bed,bim,fam,vcf,log,nosex} \
+      $WORKDIR/*_clean-updated.{bed,bim,fam,log,nosex} \
+      $WORKDIR/TEMP*.{bed,bim,fam,log,nosex}
+```
+
+</details>
+
+## What the Rayner check did
+
+The HRC alignment check (`HRC-1000G-check-bim.pl -h`) reports, per
+fileset, how many variants it had to flip, exclude, swap REF/ALT for, or
+re-position. The numbers come from the tail of the script's stdout (also
+written to `LOG-<prefix>_clean-HRC.txt` in the prep dir). A clean run
+typically excludes <5% of variants; a higher figure indicates a strand
+or build issue worth investigating.
+
+(Static snapshot from the prep loop above — re-run the loop to refresh.)
+
+| prefix | total in bim | REF/ALT swap | strand flip | no match | AF diff > 0.2 | palindromic high-freq | non-matching alleles |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 23andme_v3 | 890,777 | 622,924 | 0 | 17,617 | 387 | 889 | 4,244 |
+| 23andme_v4 | 431,811 | 302,782 | 0 | 1,217 | 98 | 172 | 1,005 |
+| 23andme_v5 | 557,346 | 446,321 | 0 | 27,117 | 767 | 241 | 14,032 |
+| AncestryDNA_v1 | 652,874 | 462,569 | 0 | 5,306 | 207 | 21 | 5,916 |
+| AncestryDNA_v2 | 617,204 | 406,712 | 0 | 43,487 | 1,315 | 819 | 7,855 |
+| AncestryDNA_v3 | 648,579 | 424,998 | 0 | 45,819 | 429 | 2,419 | 7,323 |
+| AncestryDNA_v4 | 632,406 | 416,057 | 0 | 41,597 | 454 | 2,392 | 6,900 |
+| FamilyTreeDNA_v1 | 555,386 | 408,055 | 0 | 0 | 2,520 | 290 | 64,648 |
+| FamilyTreeDNA_v2 | 506,161 | 366,384 | 0 | 24,910 | 467 | 250 | 51,538 |
+| FamilyTreeDNA_v3 | 656,690 | 460,997 | 0 | 6,747 | 216 | 275 | 9,227 |
+
+A few notes on the numbers:
+
+- **Strand flips = 0 across the board.** The OpenSNP raw filesets are
+  already on the forward strand, so no flipping was needed.
+- **REF/ALT swaps are large** (~65–80% of variants per fileset). This is
+  expected: PLINK's default A1/A2 ordering is minor/major allele, while
+  HRC uses REF/ALT. The Rayner script's `Force-Allele1-…txt` corrects
+  this via `plink --a2-allele`.
+- **"No match to HRC"** varies from 0 (FamilyTreeDNA_v1) to ~46k
+  (AncestryDNA_v3). These are array-specific custom variants —
+  predominantly chip-specific GWAS markers — that aren't in HRC and so
+  can't be imputed against HRC. They're dropped from the upload.
+- **FamilyTreeDNA_v1 and v2 have unusually high "non-matching alleles"
+  counts** (~65k and ~52k, ~10–12% of their variants). These are
+  variants where the bim alleles don't match HRC's REF/ALT even after
+  strand-flip consideration — typical of older or more esoteric chips.
+  Imputation will still work but with a smaller usable variant set.
+
+***
+
+## Verify outputs
+
+A short check that every per-array fileset produced 22 non-empty
+per-chromosome VCFs with sane variant counts (chr1 should be the largest
+file, chr22 the smallest, etc).
+
+<details><summary>Show code — list per-chromosome variant counts</summary>
+
+```{r}
+library(data.table)
+DATADIR <- '~/oliverpainfel/Data/OpenSNP/zenodo_18493898/imputation_prep'
+prefixes <- c('23andme_v3','23andme_v4','23andme_v5',
+              'AncestryDNA_v1','AncestryDNA_v2','AncestryDNA_v3','AncestryDNA_v4',
+              'FamilyTreeDNA_v1','FamilyTreeDNA_v2','FamilyTreeDNA_v3')
+
+counts <- NULL
+for (p in prefixes) {
+  for (chr in 1:22) {
+    f <- file.path(DATADIR, sprintf('%s-chr%d.vcf.gz', p, chr))
+    if (!file.exists(f)) {
+      counts <- rbind(counts, data.frame(prefix = p, chr = chr,
+                                          n_var = NA, file_kb = NA))
+      next
+    }
+    n <- as.integer(system(sprintf('/tmp/bcftools view -H %s | wc -l', f),
+                           intern = TRUE))
+    counts <- rbind(counts, data.frame(
+      prefix  = p,
+      chr     = chr,
+      n_var   = n,
+      file_kb = round(file.info(f)$size / 1024)
+    ))
+  }
+}
+
+# Wide table: rows = prefix, columns = chr
+mat <- dcast(as.data.table(counts), prefix ~ chr, value.var = 'n_var')
+print(mat)
+
+# Totals
+totals <- counts[, .(n_var = sum(n_var, na.rm = TRUE),
+                     n_chr = sum(!is.na(n_var))),
+                 by = prefix, env = list(prefix = 'prefix')]
+print(totals)
+```
+
+</details>
+
+(Static snapshot of the per-prefix totals from the run above; chr1
+shown as the largest, chr11 mid-size, chr22 the smallest:)
+
+| prefix | total variants | chr1 | chr11 | chr22 |
+|---|---:|---:|---:|---:|
+| 23andme_v3 | 867,640 | 71,239 | 44,249 | 12,808 |
+| 23andme_v4 | 429,319 | 34,015 | 21,186 | 6,459 |
+| 23andme_v5 | 515,189 | 40,946 | 25,681 | 7,259 |
+| AncestryDNA_v1 | 641,424 | 53,489 | 33,232 | 9,279 |
+| AncestryDNA_v2 | 563,728 | 44,778 | 27,414 | 9,192 |
+| AncestryDNA_v3 | 592,589 | 46,219 | 28,587 | 10,059 |
+| AncestryDNA_v4 | 581,063 | 45,231 | 28,127 | 9,914 |
+| FamilyTreeDNA_v1 | 487,928 | 38,099 | 25,811 | 7,060 |
+| FamilyTreeDNA_v2 | 428,996 | 33,348 | 23,770 | 5,596 |
+| FamilyTreeDNA_v3 | 640,225 | 53,495 | 33,241 | 9,348 |
+
+All ten prefixes produced the expected 22 per-chromosome `.vcf.gz`
+files. Per-chromosome counts scale roughly with chromosome length, as
+expected.
+
+Once these files exist, upload each `<prefix>` set (22 files) to the
+Michigan Imputation Server with the **HRC r1.1 2016** reference panel
+selected. The server runs its own input-QC report on upload — the
+per-fileset Rayner `LOG-<prefix>_clean-HRC.txt` file in
+`imputation_prep/` is your local copy of essentially the same checks.
+
+
+***
+
+# Submit to the TOPMed Imputation Server via API
+
+The Michigan Imputation Server has been intermittent; the
+[TOPMed Imputation Server](https://imputation.biodatacatalyst.nhlbi.nih.gov/)
+uses the same input format and a slightly more modern reference panel
+(TOPMed r3, GRCh38). Two things to know up-front:
+
+- The **same per-array `.vcf.gz` files** produced above are usable
+  directly. The server accepts GRCh37 input with integer chromosome
+  names (no `chr` prefix) — set `build=hg19` and the server lifts to
+  GRCh38 internally. We do **not** need to redo any prep.
+- There is no documented REST endpoint for *downloading* results
+  (per the TOPMed docs); only per-chromosome wget links provided in the
+  web UI's **Results** tab. The submit / monitor steps are full API,
+  but the download step is semi-manual — you paste the wget commands
+  into a script and run them on the HPC.
+
+API basics (per <https://topmedimpute.readthedocs.io/en/latest/api/>):
+
+- Base URL: `https://imputation.biodatacatalyst.nhlbi.nih.gov/api/v2`
+- Auth header: `X-Auth-Token: <TOKEN>` — generate the token from the
+  user profile page (`/#!pages/profile`); it expires after 30 days.
+- Limits: **3 concurrent jobs per user**, max 25,000 samples per
+  chromosome per job, results auto-deleted after **7 days**.
+- We will submit **one job per per-array fileset** (10 jobs total);
+  each job carries 22 chromosome VCFs.
+
+## Step 1 — get an API token and store it locally
+
+Generate the token via the web UI (Profile → API → Generate token),
+then drop it into a permission-protected file in your home directory.
+Don't commit it.
+
+<details><summary>Show code</summary>
+
+```{bash}
+# Save your TOPMed API token outside the repo, readable only by you
+mkdir -p ~/.config/topmed
+umask 077
+printf "%s" "PASTE-YOUR-TOKEN-HERE" > ~/.config/topmed/api_token
+chmod 600 ~/.config/topmed/api_token
+ls -la ~/.config/topmed/api_token
+```
+
+</details>
+
+## Step 2 — submit one job per per-array fileset
+
+The submit endpoint is `POST /jobs/submit/imputationserver`,
+multipart, with one `-F "files=@..."` per chromosome VCF. The reference
+panel ID for TOPMed r3 is `apps@topmed-r3`; we set `build=hg19` (input
+is GRCh37) and `phasing=eagle`, `population=all` (the full TOPMed
+panel — appropriate for OpenSNP's mixed ancestry).
+
+Quota: max 3 jobs running at once, so the loop submits in batches of 3
+and waits for the current batch to leave the queue before submitting
+the next. The job ID returned by each successful submit is appended to
+`~/oliverpainfel/Data/OpenSNP/zenodo_18493898/imputation_prep/topmed_jobs.tsv`
+for the monitor / download steps.
+
+<details><summary>Show code</summary>
+
+```{bash}
+TOKEN=$(cat ~/.config/topmed/api_token)
+API=https://imputation.biodatacatalyst.nhlbi.nih.gov/api/v2
+WORKDIR=~/oliverpainfel/Data/OpenSNP/zenodo_18493898/imputation_prep
+JOBS_TSV=$WORKDIR/topmed_jobs.tsv
+
+PREFIXES=(23andme_v3 23andme_v4 23andme_v5 \
+          AncestryDNA_v1 AncestryDNA_v2 AncestryDNA_v3 AncestryDNA_v4 \
+          FamilyTreeDNA_v1 FamilyTreeDNA_v2 FamilyTreeDNA_v3)
+
+# Header (only if the file doesn't exist)
+[ -f "$JOBS_TSV" ] || printf "prefix\tjob_id\tsubmitted_utc\n" > $JOBS_TSV
+
+# How many of *my* jobs are in waiting/running/exporting state?
+n_active () {
+  curl -s -H "X-Auth-Token: $TOKEN" "$API/jobs" \
+    | jq '[.data[] | select(.state==1 or .state==2 or .state==3)] | length'
+}
+
+submit_one () {
+  local prefix=$1
+  echo "Submitting $prefix ..."
+  # Build the -F args: one per chromosome VCF
+  local args=()
+  for chr in $(seq 1 22); do
+    args+=( -F "files=@${WORKDIR}/${prefix}-chr${chr}.vcf.gz" )
+  done
+  local resp
+  resp=$(curl -s -X POST -H "X-Auth-Token: $TOKEN" \
+    -F "job-name=opensnp_${prefix}" \
+    -F "refpanel=apps@topmed-r3" \
+    -F "build=hg19" \
+    -F "phasing=eagle" \
+    -F "population=all" \
+    -F "meta=yes" \
+    "${args[@]}" \
+    "$API/jobs/submit/imputationserver")
+  local id=$(echo "$resp" | jq -r '.id')
+  if [ "$id" = "null" ] || [ -z "$id" ]; then
+    echo "  FAILED: $resp"
+    return 1
+  fi
+  printf "%s\t%s\t%s\n" "$prefix" "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $JOBS_TSV
+  echo "  job id: $id"
+}
+
+# Submit, respecting the 3-concurrent-jobs quota
+for prefix in "${PREFIXES[@]}"; do
+  # Skip if already submitted (resume-friendly)
+  if grep -q "^${prefix}\t" "$JOBS_TSV"; then
+    echo "Already submitted: $prefix — skipping"
+    continue
+  fi
+  # Wait until <3 active jobs
+  while [ "$(n_active)" -ge 3 ]; do
+    echo "$(date -u +%H:%M:%S) — 3 jobs active, sleeping 90s"
+    sleep 90
+  done
+  submit_one "$prefix"
+  sleep 5  # be polite between submits
+done
+
+cat $JOBS_TSV
+```
+
+</details>
+
+## Step 3 — monitor job status until all 10 complete
+
+`GET /jobs/{id}/status` returns the integer `state`:
+`1`=waiting, `2`=running, `3`=exporting, `4`=success, `5`=failed,
+`6`=canceled. Poll **no more than once per minute** (per the docs).
+The loop below prints a one-line per-job status update each minute and
+exits when every job is in state ≥4.
+
+<details><summary>Show code</summary>
+
+```{bash}
+TOKEN=$(cat ~/.config/topmed/api_token)
+API=https://imputation.biodatacatalyst.nhlbi.nih.gov/api/v2
+JOBS_TSV=~/oliverpainfel/Data/OpenSNP/zenodo_18493898/imputation_prep/topmed_jobs.tsv
+
+state_label () {
+  case "$1" in
+    1) echo "waiting";;
+    2) echo "running";;
+    3) echo "exporting";;
+    4) echo "SUCCESS";;
+    5) echo "FAILED";;
+    6) echo "canceled";;
+    *) echo "unknown($1)";;
+  esac
+}
+
+while true; do
+  all_done=1
+  echo "=== $(date -u +%H:%M:%SZ) ==="
+  while IFS=$'\t' read -r prefix id submitted; do
+    [ "$prefix" = "prefix" ] && continue  # header
+    s=$(curl -s -H "X-Auth-Token: $TOKEN" "$API/jobs/${id}/status" \
+        | jq -r '.state')
+    printf "  %-25s %s  %s\n" "$prefix" "$id" "$(state_label $s)"
+    [ "$s" -lt 4 ] && all_done=0
+  done < $JOBS_TSV
+  [ $all_done -eq 1 ] && { echo "All jobs finished."; break; }
+  sleep 60
+done
+```
+
+</details>
+
+## Step 4 — collect the wget commands from the web UI
+
+The TOPMed API does not expose a download endpoint; the docs direct
+users to the **Results** tab in the web UI for each job, click
+**Share** → **wget command**, and paste the per-chromosome wget
+commands into a script. Repeat per job (10 jobs).
+
+Save the lot to a single file. Each line will look roughly like:
+
+```
+wget -O chr_1.zip "https://imputation.biodatacatalyst.nhlbi.nih.gov/share/results/<HASH>/chr_1.zip"
+```
+
+We organise downloads into one subdirectory per prefix so files don't
+clobber each other (every job writes `chr_1.zip` … `chr_22.zip`).
+
+<details><summary>Show code</summary>
+
+```{bash}
+RESULTS_ROOT=~/oliverpainfel/Data/OpenSNP/zenodo_18493898/imputation_results
+mkdir -p $RESULTS_ROOT
+
+# For each prefix, paste the wget commands from the UI into the file
+# below (one wget per chromosome, plus the info file and any QC reports).
+# The harness then cd's into the right subdir before running them.
+
+for prefix in 23andme_v3 23andme_v4 23andme_v5 \
+              AncestryDNA_v1 AncestryDNA_v2 AncestryDNA_v3 AncestryDNA_v4 \
+              FamilyTreeDNA_v1 FamilyTreeDNA_v2 FamilyTreeDNA_v3; do
+  mkdir -p $RESULTS_ROOT/$prefix
+  # Place the per-prefix wget script at $RESULTS_ROOT/$prefix/wget_commands.sh
+  # (one line per file, pasted from the web UI)
+  if [ -f $RESULTS_ROOT/$prefix/wget_commands.sh ]; then
+    echo "=== Downloading $prefix ==="
+    ( cd $RESULTS_ROOT/$prefix && bash wget_commands.sh )
+  else
+    echo "No wget_commands.sh for $prefix — paste the UI's wget commands into $RESULTS_ROOT/$prefix/wget_commands.sh and re-run"
+  fi
+done
+```
+
+</details>
+
+## Step 5 — decrypt the per-chromosome result archives
+
+Every results `.zip` is encrypted with a one-time password emailed to
+you when the job completes (the password is **not** returned by the
+API). Default mode is standard PKZIP (use `unzip -P`); if you opted
+into AES-256 at submit time (`aesEncryption=yes`, off by default), use
+`7z x -p…` instead.
+
+The loop below decrypts every `.zip` it finds in the per-prefix result
+dirs into a sibling `vcf/` subdirectory. The password is read from
+`~/.config/topmed/zip_password_<prefix>` so it stays out of the shell
+history; create one such file per job and `chmod 600` it.
+
+<details><summary>Show code</summary>
+
+```{bash}
+RESULTS_ROOT=~/oliverpainfel/Data/OpenSNP/zenodo_18493898/imputation_results
+
+for prefix in 23andme_v3 23andme_v4 23andme_v5 \
+              AncestryDNA_v1 AncestryDNA_v2 AncestryDNA_v3 AncestryDNA_v4 \
+              FamilyTreeDNA_v1 FamilyTreeDNA_v2 FamilyTreeDNA_v3; do
+  PWFILE=~/.config/topmed/zip_password_${prefix}
+  if [ ! -f "$PWFILE" ]; then
+    echo "No password file for $prefix at $PWFILE — skipping"
+    continue
+  fi
+  PW=$(cat "$PWFILE")
+  mkdir -p $RESULTS_ROOT/$prefix/vcf
+  for z in $RESULTS_ROOT/$prefix/chr_*.zip; do
+    [ -f "$z" ] || continue
+    echo "Unzipping $(basename $z) for $prefix"
+    unzip -o -P "$PW" "$z" -d $RESULTS_ROOT/$prefix/vcf
+  done
+  ls $RESULTS_ROOT/$prefix/vcf/ | head
+done
+```
+
+</details>
+
+After this you have, per prefix, a `vcf/` directory containing
+`chr<N>.dose.vcf.gz`, `chr<N>.info.gz` and `chr<N>.dose.vcf.gz.tbi` —
+the imputed dosages, the per-variant info / R² file, and a tabix index
+— all on **GRCh38** (the panel build) regardless of what build you
+sent in.
+
+## Notes / caveats
+
+- **Token expiry.** Tokens expire 30 days after generation; if your
+  monitor loop suddenly returns `"You don't have permission"` errors,
+  regenerate via the profile page and update `~/.config/topmed/api_token`.
+- **Quotas.** 3 concurrent jobs is a hard cap, so the full 10-job batch
+  takes at least ~4 rounds of imputation queue time; expect the whole
+  set to take a day or two depending on server load.
+- **Result retention.** TOPMed deletes results after **7 days** (with
+  a reminder email at 48 h). Don't queue jobs over a long weekend
+  unless you can download the results before they expire.
+- **No bulk download.** If TOPMed eventually adds a REST download
+  endpoint, replace the wget-paste step with a clean per-file
+  `GET /jobs/{id}/results/<file>` call. As of writing, it's UI-only.

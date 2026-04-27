@@ -502,6 +502,10 @@ different chip, or just two density tiers of the same chip.</p>
 <hr />
 <div id="download-and-pre-process" class="section level1">
 <h1>Download and pre-process</h1>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code>mkdir -p ~/oliverpainfel/Data/OpenSNP/zenodo_18493898
 
 cd ~/oliverpainfel/Data/OpenSNP/zenodo_18493898
@@ -518,10 +522,15 @@ unzip 23andme.zip
 unzip AncestryDNA.zip
 unzip FamilyTreeDNA.zip
 </code></pre>
+</details>
 <p>Each archive ships both an unfiltered and a <code>_filtered</code>
 fileset (the <code>_filtered</code> one was produced by the OpenSNP
 curators and intersects variants across chips, hence the much smaller
 variant counts). Inspect both:</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>library(data.table)
 # Check sample size and number of variants in filtered and unfiltered versions of each dataset
 datasets &lt;- c(&#39;23andme&#39;,&#39;AncestryDNA&#39;,&#39;FamilyTreeDNA&#39;)
@@ -559,9 +568,14 @@ for(i in datasets){
     )
   }
 }</code></pre>
+</details>
 <p>Compute per-sample and per-variant missingness for every company’s
 unfiltered fileset — this is the input to the per-company splitting work
 below:</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code># Compute per-sample (.smiss) and per-variant (.vmiss) missingness on the
 # unfiltered, all-chip fileset for each company.
 
@@ -571,6 +585,7 @@ for dataset in $(echo 23andme AncestryDNA FamilyTreeDNA); do
     --missing \
     --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/${dataset}
 done</code></pre>
+</details>
 <hr />
 <div id="andme" class="section level2">
 <h2>23andMe</h2>
@@ -613,10 +628,20 @@ class="section level3">
 bimodal pattern: samples genotyped on the v3 (OmniExpress+) chip carry
 ~900k+ variants, while v4 and v5 samples carry far fewer. A single
 threshold at 900,000 cleanly separates v3 from the v4+v5 mix.</p>
-<div class="figure">
-<img src="Images/opensnp_expanded/23andme_smiss.png" alt="" />
-<p class="caption">23andMe per-sample NONMISSING_CT (all variants)</p>
+<details>
+<summary>
+Show plot — 23andMe per-sample NONMISSING_CT (all variants)
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/23andme_smiss.png"></p>
 </div>
+</div>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>smiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme.smiss&#39;)
 smiss$NONMISSING_CT &lt;- smiss$OBS_CT - smiss$MISSING_CT
 hist(smiss$NONMISSING_CT, 20)
@@ -631,8 +656,13 @@ write.table(
   col.names = F,
   quote = F
 )</code></pre>
+</details>
 <p>Re-run <code>--missing</code> on each side of the 900k split so we
 can investigate the v4-vs-v5 structure on its own:</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code># Compute missingness within each side of the v3 / not-v3 split.
 
 /users/k1806347/oliverpainfel/Software/plink2 \
@@ -647,6 +677,7 @@ can investigate the v4-vs-v5 structure on its own:</p>
   --missing \
   --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme_less_900k
 </code></pre>
+</details>
 </div>
 <div id="step-2-separate-v4-and-v5-within-the-900k-group"
 class="section level3">
@@ -658,10 +689,20 @@ samples: the high-F_MISS peak corresponds to variants present on only
 one of the two chips. The chunk below cross-checks those high-peak
 variant IDs against the GSA-24v1 and OmniExpress-24 manifests and
 confirms they are GSA-array variants.</p>
-<div class="figure">
-<img src="Images/opensnp_expanded/23andme_less_900k_vmiss.png" alt="" />
-<p class="caption">23andMe (&lt;900k samples) per-variant F_MISS</p>
+<details>
+<summary>
+Show plot — 23andMe (&lt;900k samples) per-variant F_MISS
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/23andme_less_900k_vmiss.png"></p>
 </div>
+</div>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>vmiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme_less_900k.vmiss&#39;)
 vmiss &lt;- vmiss[vmiss$F_MISS &lt; 0.8, ]
 hist(vmiss$F_MISS, 100)
@@ -689,8 +730,13 @@ sum(vmiss_high_peak %in% gsa$rsid)
 sum(vmiss_high_peak %in% omni$rsid)
 # The GSA hit count is much higher than OmniExpress -&gt; high-peak variants
 # are GSA-array variants -&gt; samples carrying them are v5.</code></pre>
+</details>
 <p>Recompute per-sample missingness within the &lt;900k samples but
 restricted to those high-peak (GSA) variants:</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code>
 /users/k1806347/oliverpainfel/Software/plink2 \
   --bfile ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme \
@@ -699,15 +745,24 @@ restricted to those high-peak (GSA) variants:</p>
   --missing \
   --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme_less_900k_high_peak
 </code></pre>
+</details>
 <p>The resulting <code>NONMISSING_CT</code> histogram is cleanly
 bimodal: samples that carry many of the GSA-specific variants (&gt;200k)
 are v5; the rest are v4.</p>
-<div class="figure">
-<img src="Images/opensnp_expanded/23andme_less_900k_high_peak_smiss.png"
-alt="" />
-<p class="caption">23andMe NONMISSING_CT within high-peak (GSA)
-variants</p>
+<details>
+<summary>
+Show plot — 23andMe NONMISSING_CT within high-peak (GSA) variants
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/23andme_less_900k_high_peak_smiss.png"></p>
 </div>
+</div>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>smiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme_less_900k_high_peak.smiss&#39;)
 smiss$NONMISSING_CT &lt;- smiss$OBS_CT - smiss$MISSING_CT
 hist(smiss$NONMISSING_CT, 20)
@@ -730,9 +785,14 @@ write.table(
   col.names = F,
   quote = F
 )</code></pre>
+</details>
 <p>Sanity-check the v4 split by re-running <code>--missing</code> on it
 alone — both the sample and variant histograms should be tight (single
 chip):</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code>
 /users/k1806347/oliverpainfel/Software/plink2 \
   --bfile ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme \
@@ -748,6 +808,7 @@ vmiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme_v4.v
 vmiss &lt;- vmiss[vmiss$F_MISS &lt; 0.8, ]
 hist(vmiss$F_MISS, 100)
 # Single tight peak at high NONMISSING_CT and at low F_MISS = clean v4 chip.</code></pre>
+</details>
 </div>
 <div id="step-3-make-per-array-filesets-and-apply-geno-mind"
 class="section level3">
@@ -756,6 +817,10 @@ class="section level3">
 <code>--geno 0.05</code> (drop variants missing in &gt;5% of samples
 <em>within that chip</em>) and <code>--mind 0.05</code> (drop the few
 samples that are still patchy after splitting).</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code>/users/k1806347/oliverpainfel/Software/plink2 \
   --bfile ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme \
   --keep ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme_more_900k.keep \
@@ -788,6 +853,7 @@ for version in $(echo v3 v4 v5); do
   --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/23andme_${version}_filtered
 done
 </code></pre>
+</details>
 <hr />
 </div>
 </div>
@@ -806,14 +872,30 @@ to separate one chip at a time.</p>
 dominant mode around 660–680k variants. The per-variant
 <code>F_MISS</code> histogram, by contrast, has multiple bands —
 characteristic of a mixture of chips sharing a common backbone.</p>
-<div class="figure">
-<img src="Images/opensnp_expanded/AncestryDNA_smiss.png" alt="" />
-<p class="caption">AncestryDNA per-sample NONMISSING_CT</p>
+<details>
+<summary>
+Show plot — AncestryDNA per-sample NONMISSING_CT
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/AncestryDNA_smiss.png"></p>
 </div>
-<div class="figure">
-<img src="Images/opensnp_expanded/AncestryDNA_vmiss.png" alt="" />
-<p class="caption">AncestryDNA per-variant F_MISS</p>
 </div>
+</details>
+<details>
+<summary>
+Show plot — AncestryDNA per-variant F_MISS
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/AncestryDNA_vmiss.png"></p>
+</div>
+</div>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>smiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA.smiss&#39;)
 smiss$NONMISSING_CT &lt;- smiss$OBS_CT - smiss$MISSING_CT
 hist(smiss$NONMISSING_CT, 50,
@@ -837,12 +919,17 @@ write.table(
   row.names = F,
   col.names = F,
   quote = F)</code></pre>
+</details>
 </div>
 <div id="step-2-split-v1-using-high-peak-variants"
 class="section level3">
 <h3>Step 2 — split v1 using high-peak variants</h3>
 <p>Recompute sample missingness restricted to those high-peak
 variants:</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code>
 /users/k1806347/oliverpainfel/Software/plink2 \
   --bfile ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA \
@@ -850,16 +937,25 @@ variants:</p>
   --missing \
   --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_high_peak
 </code></pre>
+</details>
 <p>The resulting histogram is cleanly bimodal — ~331 samples carry most
 of the high-peak variants (NONMISSING_CT &gt; 200,000) and form
 <strong>v1</strong>, while the rest don’t carry them and need further
 splitting.</p>
-<div class="figure">
-<img src="Images/opensnp_expanded/AncestryDNA_high_peak_smiss.png"
-alt="" />
-<p class="caption">AncestryDNA NONMISSING_CT within high-peak
-variants</p>
+<details>
+<summary>
+Show plot — AncestryDNA NONMISSING_CT within high-peak variants
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/AncestryDNA_high_peak_smiss.png"></p>
 </div>
+</div>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>smiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_high_peak.smiss&#39;)
 smiss$NONMISSING_CT &lt;- smiss$OBS_CT - smiss$MISSING_CT
 hist(smiss$NONMISSING_CT, 50,
@@ -877,11 +973,16 @@ write.table(
   col.names = F,
   quote = F
 )</code></pre>
+</details>
 </div>
 <div id="step-3-recurse-on-the-not-v1-group" class="section level3">
 <h3>Step 3 — recurse on the not-v1 group</h3>
 <p>Compute missingness on the not-v1 samples to see whether the
 remaining ~806 samples are a single chip or a further mixture:</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code>
 /users/k1806347/oliverpainfel/Software/plink2 \
   --bfile ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA \
@@ -889,15 +990,25 @@ remaining ~806 samples are a single chip or a further mixture:</p>
   --missing \
   --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_not_v1
 </code></pre>
+</details>
 <p>The not-v1 variant <code>F_MISS</code> distribution still has two
 clear bands at ~0.45 and ~0.55 — i.e. another mixture. Pull those band
 variants out as a new high-peak set and use them to discriminate the
 remaining chips.</p>
-<div class="figure">
-<img src="Images/opensnp_expanded/AncestryDNA_not_v1_vmiss.png"
-alt="" />
-<p class="caption">AncestryDNA not_v1 per-variant F_MISS</p>
+<details>
+<summary>
+Show plot — AncestryDNA not_v1 per-variant F_MISS
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/AncestryDNA_not_v1_vmiss.png"></p>
 </div>
+</div>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>vmiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_not_v1.vmiss&#39;)
 vmiss &lt;- vmiss[vmiss$F_MISS &lt; 0.9, ]
 hist(vmiss$F_MISS, 100,
@@ -915,6 +1026,11 @@ write.table(
   &#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_notv1_high_peak.extract&#39;,
   row.names = F, col.names = F, quote = F
 )</code></pre>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code># Sample missingness within the not_v1 group restricted to notv1_high_peak variants.
 
 /users/k1806347/oliverpainfel/Software/plink2 \
@@ -924,18 +1040,27 @@ write.table(
   --missing \
   --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_notv1_high_peak
 </code></pre>
+</details>
 <p>The recomputed <code>NONMISSING_CT</code> histogram (excluding the
 lower tail of stragglers) shows three tight, well-separated peaks
 corresponding to <strong>v2</strong>, <strong>v3</strong> and
 <strong>v4</strong>. The lower tail (NONMISSING_CT &lt; 125k, ~20
 samples) is left unassigned — those samples will be removed by
 <code>--mind 0.05</code> in the final filter step.</p>
-<div class="figure">
-<img src="Images/opensnp_expanded/AncestryDNA_notv1_high_peak_smiss.png"
-alt="" />
-<p class="caption">AncestryDNA NONMISSING_CT within notv1 high-peak
-variants</p>
+<details>
+<summary>
+Show plot — AncestryDNA NONMISSING_CT within notv1 high-peak variants
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/AncestryDNA_notv1_high_peak_smiss.png"></p>
 </div>
+</div>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>smiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_notv1_high_peak.smiss&#39;)
 smiss$NONMISSING_CT &lt;- smiss$OBS_CT - smiss$MISSING_CT
 hist(smiss$NONMISSING_CT[smiss$NONMISSING_CT &gt; 100000], 80,
@@ -964,12 +1089,17 @@ write.table(cbind(dat_v3, dat_v3),
 write.table(cbind(dat_v4, dat_v4),
             &#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_v4.keep&#39;,
             row.names = F, col.names = F, quote = F)</code></pre>
+</details>
 </div>
 <div id="step-4-make-per-array-filesets-and-apply-geno-mind"
 class="section level3">
 <h3>Step 4 — make per-array filesets and apply –geno / –mind</h3>
 <p>Same recipe as 23andMe: per-array <code>--make-bed</code>, then
 <code>--geno 0.05</code>, then <code>--mind 0.05</code>.</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code>for version in v1 v2 v3 v4; do
 /users/k1806347/oliverpainfel/Software/plink2 \
   --bfile ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA \
@@ -990,17 +1120,22 @@ class="section level3">
   --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/AncestryDNA_${version}_filtered
 done
 </code></pre>
+</details>
 <p>Per-sub-array variant <code>F_MISS</code> after splitting (computed
 on each <code>AncestryDNA_v?.keep</code> subset <em>before</em>
 <code>--geno</code>/<code>--mind</code>). Each panel has a single tight
 peak near zero plus a small tail — i.e. each sub-array is behaving like
 a single clean chip.</p>
-<div class="figure">
-<img
-src="Images/opensnp_expanded/AncestryDNA_per_array_verify_vmiss.png"
-alt="" />
-<p class="caption">AncestryDNA per-sub-array variant F_MISS</p>
+<details>
+<summary>
+Show plot — AncestryDNA per-sub-array variant F_MISS
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/AncestryDNA_per_array_verify_vmiss.png"></p>
 </div>
+</div>
+</details>
 <hr />
 </div>
 </div>
@@ -1014,16 +1149,30 @@ this document confirms that <em>only</em> three groups are warranted,
 even though an earlier exploratory split into four sub-arrays looked
 plausible from the histogram alone — see the FamilyTreeDNA notes in the
 Summary section.)</p>
-<div class="figure">
-<img src="Images/opensnp_expanded/FamilyTreeDNA_smiss_thresholds.png"
-alt="" />
-<p class="caption">FamilyTreeDNA per-sample NONMISSING_CT with
-thresholds</p>
+<details>
+<summary>
+Show plot — FamilyTreeDNA per-sample NONMISSING_CT with thresholds
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/FamilyTreeDNA_smiss_thresholds.png"></p>
 </div>
-<div class="figure">
-<img src="Images/opensnp_expanded/FamilyTreeDNA_vmiss.png" alt="" />
-<p class="caption">FamilyTreeDNA per-variant F_MISS</p>
 </div>
+</details>
+<details>
+<summary>
+Show plot — FamilyTreeDNA per-variant F_MISS
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/FamilyTreeDNA_vmiss.png"></p>
+</div>
+</div>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>smiss &lt;- fread(&#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/FamilyTreeDNA.smiss&#39;)
 smiss$NONMISSING_CT &lt;- smiss$OBS_CT - smiss$MISSING_CT
 hist(smiss$NONMISSING_CT, 120, xlim = c(550000, 730000),
@@ -1059,6 +1208,11 @@ write.table(cbind(dat_v2, dat_v2),
 write.table(cbind(dat_v3, dat_v3),
             &#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/FamilyTreeDNA_v3.keep&#39;,
             row.names = F, col.names = F, quote = F)</code></pre>
+</details>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="bash"><code># Make per-array beds and apply --geno 0.05 then --mind 0.05 (same recipe as 23andMe)
 
 for version in v1 v2 v3; do
@@ -1081,20 +1235,25 @@ for version in v1 v2 v3; do
   --out ~/oliverpainfel/Data/OpenSNP/zenodo_18493898/FamilyTreeDNA_${version}_filtered
 done
 </code></pre>
+</details>
 <p>Per-sub-array variant <code>F_MISS</code> after splitting. v3 is
 clean (single tight peak near zero); v1 and v2 still show some
-bimodality, indicating the <code>sparse</code> group probably contains
+bimodality, indicating the <em>sparse</em> group probably contains
 low-grade chip-version heterogeneity that the sample histogram doesn’t
 resolve. The residual is absorbed by <code>--geno 0.05</code>, which
 only keeps variants present in ≥95% of each sub-array’s samples — and
 <code>--mind 0.05</code> drops just one sample across all three
 sub-arrays, so the splits are usable as-is.</p>
-<div class="figure">
-<img
-src="Images/opensnp_expanded/FamilyTreeDNA_per_array_verify_vmiss.png"
-alt="" />
-<p class="caption">FamilyTreeDNA per-sub-array variant F_MISS</p>
+<details>
+<summary>
+Show plot — FamilyTreeDNA per-sub-array variant F_MISS
+</summary>
+<div class="centered-container">
+<div class="rounded-image-container" style="width: 100%;">
+<p><img src="Images/opensnp_expanded/FamilyTreeDNA_per_array_verify_vmiss.png"></p>
 </div>
+</div>
+</details>
 <hr />
 </div>
 <div id="summary" class="section level2">
@@ -1106,6 +1265,10 @@ alt="" />
 summarised by the chunk below. The relevant output is included as a
 static table immediately afterwards so the document is readable without
 re-running the chunks.</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code>library(data.table)
 # Check sample size and number of variants in filtered and unfiltered versions of each dataset
 datasets &lt;- c(&#39;23andme&#39;,&#39;23andme_v3&#39;,&#39;23andme_v4&#39;,&#39;23andme_v5&#39;,
@@ -1149,6 +1312,7 @@ for(i in datasets){
 # A lot more variants are retained per array than in the company-wide
 # `_filtered` files shipped in the Zenodo archive, because we no longer
 # have to take the intersection across chips.</code></pre>
+</details>
 <p>Snapshot of the <code>_filtered</code> per-array counts produced
 above:</p>
 <table>
@@ -1161,69 +1325,59 @@ above:</p>
 </thead>
 <tbody>
 <tr class="odd">
-<td>23andme_v3_filtered</td>
-<td align="right">(see below)</td>
-<td align="right">933,618</td>
-</tr>
-<tr class="even">
-<td>23andme_v4_filtered</td>
-<td align="right">(see below)</td>
-<td align="right">459,381</td>
-</tr>
-<tr class="odd">
-<td>23andme_v5_filtered</td>
-<td align="right">(see below)</td>
-<td align="right">585,145</td>
-</tr>
-<tr class="even">
 <td>AncestryDNA_v1_filtered</td>
 <td align="right">331</td>
 <td align="right">675,445</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>AncestryDNA_v2_filtered</td>
 <td align="right">364</td>
 <td align="right">650,609</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>AncestryDNA_v3_filtered</td>
 <td align="right">310</td>
 <td align="right">680,327</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>AncestryDNA_v4_filtered</td>
 <td align="right">111</td>
 <td align="right">663,343</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>FamilyTreeDNA_v1_filtered</td>
 <td align="right">72</td>
 <td align="right">561,522</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>FamilyTreeDNA_v2_filtered</td>
 <td align="right">57</td>
 <td align="right">523,207</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>FamilyTreeDNA_v3_filtered</td>
 <td align="right">358</td>
 <td align="right">662,827</td>
 </tr>
 </tbody>
 </table>
-<p>(23andMe sample counts are filled in by the chunk above — these
-depend on the exact <code>--mind 0.05</code> cut and aren’t pinned in
-this static snapshot.)</p>
+<p>(23andMe sample counts are produced by the chunk above — these depend
+on the exact <code>--mind 0.05</code> cut and aren’t pinned in this
+static snapshot. The 23andMe <code>_filtered</code> variant counts are
+933,618 (v3), 459,381 (v4) and 585,145 (v5).)</p>
 </div>
 <div id="variant-overlap-across-sub-arrays" class="section level3">
 <h3>Variant overlap across sub-arrays</h3>
 <p>The single best sanity check that a per-company split actually
-captured different chips — rather than just two density tiers of the
-same chip — is the <strong>variant overlap matrix</strong> across
-sub-arrays. After <code>--geno 0.05</code> each sub-array has been
-reduced to its own clean variant set; if two sub-arrays share ~all of
-their variants, they are the same chip and should be merged.</p>
+captured different chips — rather than two density tiers of the same
+chip — is the <strong>variant overlap matrix</strong> across sub-arrays.
+After <code>--geno 0.05</code> each sub-array has been reduced to its
+own clean variant set; if two sub-arrays share ~all of their variants,
+they are the same chip and should be merged.</p>
+<details>
+<summary>
+Show code
+</summary>
 <pre class="r"><code># Sanity-check the sub-array splits: how many variants survive the per-array
 # --geno 0.05 filter in *every* sub-array of a given company? A clean split
 # leaves a large shared backbone but each sub-array also has chip-specific
@@ -1271,6 +1425,7 @@ for (company in names(groups)) {
   cat(&#39;\n&#39;, company, &#39;— pairwise variant overlap:\n&#39;, sep = &#39;&#39;)
   print(m)
 }</code></pre>
+</details>
 <div id="per-company-summary" class="section level4">
 <h4>Per-company summary</h4>
 <table style="width:100%;">
@@ -1399,7 +1554,7 @@ variants, so they are genuine separate chips, not duplicates:</p>
 (~93%), and v1 ∩ v2 is much higher than either’s overlap with v3 (only
 ~155–199k). The <em>dense</em> group used to be split further into a
 v3/v4 pair by sample missingness, but the pairwise overlap was 656k of
-657–683k (99.8%) — meaning that “v4” is essentially a slightly
+657–683k (99.8%) — meaning that “v4” was essentially a slightly
 higher-density version of the same chip. Those two were therefore merged
 into a single v3.</p>
 <table>
@@ -1435,8 +1590,486 @@ into a single v3.</p>
 <p>(v1 and v2 are kept distinct because they carry meaningfully
 different variant counts — 561k vs 523k — and the within-pair overlap is
 “only” ~93%, not the 99.8% seen for the merged v3/v4 dense group.)</p>
+<hr />
 </div>
 </div>
+</div>
+</div>
+<div id="prepare-for-michigan-imputation-server" class="section level1">
+<h1>Prepare for Michigan Imputation Server</h1>
+<p>The next step before polygenic scoring is
+<strong>imputation</strong>. Each per-array fileset is uploaded to the
+Michigan Imputation Server’s HRC r1.1 GRCh37 panel separately, since
+each chip has its own variant backbone. The server requires
+per-chromosome bgzipped VCFs whose REF alleles already match the panel;
+this section produces them.</p>
+<p>Reference panel: <strong>HRC r1.1, GRCh37</strong>. The OpenSNP
+per-array filesets are already on GRCh37 (chr22 max position ≈ 51.2 Mb),
+so no liftover is required. The Michigan Server’s official prep
+instructions (<a
+href="https://imputationserver.readthedocs.io/en/latest/prepare-your-data/"
+class="uri">https://imputationserver.readthedocs.io/en/latest/prepare-your-data/</a>)
+recommend Will Rayner’s <code>HRC-1000G-check-bim.pl</code> for strand /
+REF-allele alignment against the panel sites file, and that’s exactly
+what we use here. The recipe mirrors the user’s older
+<code>Michigan-Imputation-Helper/MichPrep.r</code> (<a
+href="https://github.com/opain/Michigan-Imputation-Helper"
+class="uri">https://github.com/opain/Michigan-Imputation-Helper</a>) but
+inlined as shell chunks so the document is self-contained.</p>
+<div id="dependencies" class="section level2">
+<h2>Dependencies</h2>
+<p>One-off downloads / installs in the working environment. All paths
+below assume the binaries land in <code>/tmp/</code> and the HRC sites
+file lands in <code>~/oliverpainfel/Data/HRC/</code>. If you’ve already
+installed any of these, skip the corresponding chunk.</p>
+<details>
+<summary>
+Show code — install PLINK 1.9, bcftools, htslib (bgzip/tabix)
+</summary>
+<pre class="bash"><code># PLINK 1.9 — required by HRC-check-bim&#39;s generated Run-plink.sh (uses
+# 1.9-specific flags like --a2-allele) and by the per-chromosome --recode
+# vcf step. Use a current build from cog-genomics&#39;s S3 bucket.
+cd /tmp
+curl -sL -o plink1.zip \
+  &quot;https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20231211.zip&quot;
+unzip -o plink1.zip plink prettify
+chmod +x /tmp/plink
+/tmp/plink --version
+
+# bcftools (and htslib&#39;s bgzip + tabix) — needed to sort and bgzip the
+# per-chromosome VCFs. Build from source if no system package is
+# available.
+cd /tmp
+curl -sL -o bcftools.tar.bz2 \
+  &quot;https://github.com/samtools/bcftools/releases/download/1.20/bcftools-1.20.tar.bz2&quot;
+tar -xjf bcftools.tar.bz2
+cd bcftools-1.20
+./configure --prefix=/tmp/bcftools_install
+make -j4
+# bgzip / tabix live in the htslib subdir; build them too
+cd htslib-1.20
+make bgzip tabix
+# Convenience symlinks
+ln -sf /tmp/bcftools-1.20/bcftools          /tmp/bcftools
+ln -sf /tmp/bcftools-1.20/htslib-1.20/bgzip /tmp/bgzip
+ln -sf /tmp/bcftools-1.20/htslib-1.20/tabix /tmp/tabix
+/tmp/bcftools --version | head -1
+/tmp/bgzip   --version | head -1
+/tmp/tabix   --version | head -1</code></pre>
+</details>
+<details>
+<summary>
+Show code — download HRC-1000G-check-bim.pl + HRC r1.1 sites file
+</summary>
+<pre class="bash"><code># Will Rayner&#39;s check script (current is v4.3.0 as of 2026)
+mkdir -p /tmp/hrc_check
+cd /tmp/hrc_check
+curl -sL -o hrc_check.zip \
+  &quot;https://www.chg.ox.ac.uk/~wrayner/tools/HRC-1000G-check-bim-v4.3.0.zip&quot;
+unzip -o hrc_check.zip
+ls /tmp/hrc_check/HRC-1000G-check-bim.pl
+
+# HRC r1.1 GRCh37 sites file — ~700 MB (BGZF gzipped). The Rayner script
+# reads .gz natively (uses IO::Uncompress::Gunzip) so no need to
+# decompress.
+mkdir -p ~/oliverpainfel/Data/HRC
+cd ~/oliverpainfel/Data/HRC
+curl -sL --max-time 1800 -o HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz \
+  &quot;ftp://ngs.sanger.ac.uk/production/hrc/HRC.r1-1/HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz&quot;
+ls -la ~/oliverpainfel/Data/HRC/HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz</code></pre>
+</details>
+</div>
+<div id="per-array-prep-loop" class="section level2">
+<h2>Per-array prep loop</h2>
+<p>For each of the 10 per-array filesets, the recipe is:</p>
+<ol style="list-style-type: decimal">
+<li><strong>Pre-clean</strong>: drop indels
+(<code>--snps-only just-acgt</code>), restrict to autosomes
+(<code>--chr 1-22</code>), drop multi-position duplicates
+(<code>--rm-dup exclude-all</code>), and force bi-allelic
+(<code>--max-alleles 2</code>). The OpenSNP raw filesets contain ~14k
+indel / non-ACGT alleles and an X+Y chromosome that the HRC track
+doesn’t cover.</li>
+<li><strong>Allele frequencies</strong>: <code>plink --freq</code>,
+needed by the Rayner script to detect AF-mismatch variants.</li>
+<li><strong>HRC alignment check</strong>:
+<code>perl HRC-1000G-check-bim.pl -h</code> against the HRC sites file.
+This generates <code>Run-plink.sh</code> plus per-action variant lists
+(<code>Exclude-…</code>, <code>Strand-Flip-…</code>,
+<code>Force-Allele1-…</code>, <code>Position-…</code>,
+<code>Chromosome-…</code>, <code>ID-…</code>).</li>
+<li><strong>Apply alignment</strong>: <code>bash Run-plink.sh</code> —
+applies the exclusions, strand flips, REF-allele forcing, and splits per
+chromosome. Writes
+<code>…_clean-updated-chr&lt;1..22&gt;.{bed,bim,fam,vcf}</code>.</li>
+<li><strong>Sort + bgzip</strong>: <code>bcftools sort -Oz</code> per
+chromosome → final <code>&lt;prefix&gt;-chr&lt;N&gt;.vcf.gz</code> ready
+for upload.</li>
+</ol>
+<p>The Rayner script’s <code>Run-plink.sh</code> writes
+<code>plink</code> (bare); we <code>sed</code> it to
+<code>/tmp/plink</code> so the loop uses the binary installed above.
+Skip this substitution if <code>plink</code> is already on
+<code>$PATH</code>.</p>
+<details>
+<summary>
+Show code — full prep loop over all 10 per-array filesets
+</summary>
+<pre class="bash"><code>DATADIR=~/oliverpainfel/Data/OpenSNP/zenodo_18493898
+HRCREF=~/oliverpainfel/Data/HRC/HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz
+WORKDIR=$DATADIR/imputation_prep
+mkdir -p $WORKDIR/temp
+
+run_prep () {
+  local prefix=$1
+  echo &quot;===== $prefix =====&quot;
+
+  # Step 0 — pre-clean
+  /tmp/plink2 \
+    --bfile $DATADIR/${prefix}_filtered \
+    --snps-only just-acgt --chr 1-22 \
+    --rm-dup exclude-all --max-alleles 2 \
+    --make-bed --out $WORKDIR/${prefix}_clean
+
+  # Step 1 — allele frequencies
+  /tmp/plink \
+    --bfile $WORKDIR/${prefix}_clean \
+    --freq --out $WORKDIR/${prefix}_clean
+
+  # Step 2 — HRC alignment check (writes Run-plink.sh + LOG-*.txt + ...)
+  cd $WORKDIR
+  perl /tmp/hrc_check/HRC-1000G-check-bim.pl \
+    -b $WORKDIR/${prefix}_clean.bim \
+    -f $WORKDIR/${prefix}_clean.frq \
+    -r $HRCREF \
+    -h
+
+  # Substitute the plink binary path in the generated script
+  sed -i &#39;s|^plink |/tmp/plink |g; s| plink | /tmp/plink |g&#39; Run-plink.sh
+
+  # Step 3 — apply alignment (also splits per chromosome and emits VCFs)
+  bash Run-plink.sh
+
+  # Step 4 — sort + bgzip per chromosome
+  for chr in $(seq 1 22); do
+    /tmp/bcftools sort \
+      $WORKDIR/${prefix}_clean-updated-chr${chr}.vcf \
+      -Oz -o $WORKDIR/${prefix}-chr${chr}.vcf.gz
+  done
+}
+
+for prefix in 23andme_v3 23andme_v4 23andme_v5 \
+              AncestryDNA_v1 AncestryDNA_v2 AncestryDNA_v3 AncestryDNA_v4 \
+              FamilyTreeDNA_v1 FamilyTreeDNA_v2 FamilyTreeDNA_v3; do
+  run_prep &quot;$prefix&quot;
+done
+
+# Optional cleanup: keep the LOG-*.txt files for provenance, drop the
+# rest. The .vcf.gz files in $WORKDIR are the upload payload.
+rm -f $WORKDIR/*_clean-updated-chr*.{bed,bim,fam,vcf,log,nosex} \
+      $WORKDIR/*_clean-updated.{bed,bim,fam,log,nosex} \
+      $WORKDIR/TEMP*.{bed,bim,fam,log,nosex}</code></pre>
+</details>
+</div>
+<div id="what-the-rayner-check-did" class="section level2">
+<h2>What the Rayner check did</h2>
+<p>The HRC alignment check (<code>HRC-1000G-check-bim.pl -h</code>)
+reports, per fileset, how many variants it had to flip, exclude, swap
+REF/ALT for, or re-position. The numbers come from the tail of the
+script’s stdout (also written to
+<code>LOG-&lt;prefix&gt;_clean-HRC.txt</code> in the prep dir). A clean
+run typically excludes &lt;5% of variants; a higher figure indicates a
+strand or build issue worth investigating.</p>
+<p>(Static snapshot from the prep loop above — re-run the loop to
+refresh.)</p>
+<table>
+<colgroup>
+<col width="9%" />
+<col width="12%" />
+<col width="12%" />
+<col width="12%" />
+<col width="12%" />
+<col width="12%" />
+<col width="12%" />
+<col width="12%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>prefix</th>
+<th align="right">total in bim</th>
+<th align="right">REF/ALT swap</th>
+<th align="right">strand flip</th>
+<th align="right">no match</th>
+<th align="right">AF diff &gt; 0.2</th>
+<th align="right">palindromic high-freq</th>
+<th align="right">non-matching alleles</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>23andme_v3</td>
+<td align="right">890,777</td>
+<td align="right">622,924</td>
+<td align="right">0</td>
+<td align="right">17,617</td>
+<td align="right">387</td>
+<td align="right">889</td>
+<td align="right">4,244</td>
+</tr>
+<tr class="even">
+<td>23andme_v4</td>
+<td align="right">431,811</td>
+<td align="right">302,782</td>
+<td align="right">0</td>
+<td align="right">1,217</td>
+<td align="right">98</td>
+<td align="right">172</td>
+<td align="right">1,005</td>
+</tr>
+<tr class="odd">
+<td>23andme_v5</td>
+<td align="right">557,346</td>
+<td align="right">446,321</td>
+<td align="right">0</td>
+<td align="right">27,117</td>
+<td align="right">767</td>
+<td align="right">241</td>
+<td align="right">14,032</td>
+</tr>
+<tr class="even">
+<td>AncestryDNA_v1</td>
+<td align="right">652,874</td>
+<td align="right">462,569</td>
+<td align="right">0</td>
+<td align="right">5,306</td>
+<td align="right">207</td>
+<td align="right">21</td>
+<td align="right">5,916</td>
+</tr>
+<tr class="odd">
+<td>AncestryDNA_v2</td>
+<td align="right">617,204</td>
+<td align="right">406,712</td>
+<td align="right">0</td>
+<td align="right">43,487</td>
+<td align="right">1,315</td>
+<td align="right">819</td>
+<td align="right">7,855</td>
+</tr>
+<tr class="even">
+<td>AncestryDNA_v3</td>
+<td align="right">648,579</td>
+<td align="right">424,998</td>
+<td align="right">0</td>
+<td align="right">45,819</td>
+<td align="right">429</td>
+<td align="right">2,419</td>
+<td align="right">7,323</td>
+</tr>
+<tr class="odd">
+<td>AncestryDNA_v4</td>
+<td align="right">632,406</td>
+<td align="right">416,057</td>
+<td align="right">0</td>
+<td align="right">41,597</td>
+<td align="right">454</td>
+<td align="right">2,392</td>
+<td align="right">6,900</td>
+</tr>
+<tr class="even">
+<td>FamilyTreeDNA_v1</td>
+<td align="right">555,386</td>
+<td align="right">408,055</td>
+<td align="right">0</td>
+<td align="right">0</td>
+<td align="right">2,520</td>
+<td align="right">290</td>
+<td align="right">64,648</td>
+</tr>
+<tr class="odd">
+<td>FamilyTreeDNA_v2</td>
+<td align="right">506,161</td>
+<td align="right">366,384</td>
+<td align="right">0</td>
+<td align="right">24,910</td>
+<td align="right">467</td>
+<td align="right">250</td>
+<td align="right">51,538</td>
+</tr>
+<tr class="even">
+<td>FamilyTreeDNA_v3</td>
+<td align="right">656,690</td>
+<td align="right">460,997</td>
+<td align="right">0</td>
+<td align="right">6,747</td>
+<td align="right">216</td>
+<td align="right">275</td>
+<td align="right">9,227</td>
+</tr>
+</tbody>
+</table>
+<p>A few notes on the numbers:</p>
+<ul>
+<li><strong>Strand flips = 0 across the board.</strong> The OpenSNP raw
+filesets are already on the forward strand, so no flipping was
+needed.</li>
+<li><strong>REF/ALT swaps are large</strong> (~65–80% of variants per
+fileset). This is expected: PLINK’s default A1/A2 ordering is
+minor/major allele, while HRC uses REF/ALT. The Rayner script’s
+<code>Force-Allele1-…txt</code> corrects this via
+<code>plink --a2-allele</code>.</li>
+<li><strong>“No match to HRC”</strong> varies from 0 (FamilyTreeDNA_v1)
+to ~46k (AncestryDNA_v3). These are array-specific custom variants —
+predominantly chip-specific GWAS markers — that aren’t in HRC and so
+can’t be imputed against HRC. They’re dropped from the upload.</li>
+<li><strong>FamilyTreeDNA_v1 and v2 have unusually high “non-matching
+alleles” counts</strong> (~65k and ~52k, ~10–12% of their variants).
+These are variants where the bim alleles don’t match HRC’s REF/ALT even
+after strand-flip consideration — typical of older or more esoteric
+chips. Imputation will still work but with a smaller usable variant
+set.</li>
+</ul>
+</div>
+<div id="verify-outputs" class="section level2">
+<h2>Verify outputs</h2>
+<p>A short check that every per-array fileset produced 22 non-empty
+per-chromosome VCFs with sane variant counts (chr1 should be the largest
+file, chr22 the smallest, etc).</p>
+<details>
+<summary>
+Show code — list per-chromosome variant counts
+</summary>
+<pre class="r"><code>library(data.table)
+DATADIR &lt;- &#39;~/oliverpainfel/Data/OpenSNP/zenodo_18493898/imputation_prep&#39;
+prefixes &lt;- c(&#39;23andme_v3&#39;,&#39;23andme_v4&#39;,&#39;23andme_v5&#39;,
+              &#39;AncestryDNA_v1&#39;,&#39;AncestryDNA_v2&#39;,&#39;AncestryDNA_v3&#39;,&#39;AncestryDNA_v4&#39;,
+              &#39;FamilyTreeDNA_v1&#39;,&#39;FamilyTreeDNA_v2&#39;,&#39;FamilyTreeDNA_v3&#39;)
+
+counts &lt;- NULL
+for (p in prefixes) {
+  for (chr in 1:22) {
+    f &lt;- file.path(DATADIR, sprintf(&#39;%s-chr%d.vcf.gz&#39;, p, chr))
+    if (!file.exists(f)) {
+      counts &lt;- rbind(counts, data.frame(prefix = p, chr = chr,
+                                          n_var = NA, file_kb = NA))
+      next
+    }
+    n &lt;- as.integer(system(sprintf(&#39;/tmp/bcftools view -H %s | wc -l&#39;, f),
+                           intern = TRUE))
+    counts &lt;- rbind(counts, data.frame(
+      prefix  = p,
+      chr     = chr,
+      n_var   = n,
+      file_kb = round(file.info(f)$size / 1024)
+    ))
+  }
+}
+
+# Wide table: rows = prefix, columns = chr
+mat &lt;- dcast(as.data.table(counts), prefix ~ chr, value.var = &#39;n_var&#39;)
+print(mat)
+
+# Totals
+totals &lt;- counts[, .(n_var = sum(n_var, na.rm = TRUE),
+                     n_chr = sum(!is.na(n_var))),
+                 by = prefix, env = list(prefix = &#39;prefix&#39;)]
+print(totals)</code></pre>
+</details>
+<p>(Static snapshot of the per-prefix totals from the run above; chr1
+shown as the largest, chr11 mid-size, chr22 the smallest:)</p>
+<table>
+<thead>
+<tr class="header">
+<th>prefix</th>
+<th align="right">total variants</th>
+<th align="right">chr1</th>
+<th align="right">chr11</th>
+<th align="right">chr22</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>23andme_v3</td>
+<td align="right">867,640</td>
+<td align="right">71,239</td>
+<td align="right">44,249</td>
+<td align="right">12,808</td>
+</tr>
+<tr class="even">
+<td>23andme_v4</td>
+<td align="right">429,319</td>
+<td align="right">34,015</td>
+<td align="right">21,186</td>
+<td align="right">6,459</td>
+</tr>
+<tr class="odd">
+<td>23andme_v5</td>
+<td align="right">515,189</td>
+<td align="right">40,946</td>
+<td align="right">25,681</td>
+<td align="right">7,259</td>
+</tr>
+<tr class="even">
+<td>AncestryDNA_v1</td>
+<td align="right">641,424</td>
+<td align="right">53,489</td>
+<td align="right">33,232</td>
+<td align="right">9,279</td>
+</tr>
+<tr class="odd">
+<td>AncestryDNA_v2</td>
+<td align="right">563,728</td>
+<td align="right">44,778</td>
+<td align="right">27,414</td>
+<td align="right">9,192</td>
+</tr>
+<tr class="even">
+<td>AncestryDNA_v3</td>
+<td align="right">592,589</td>
+<td align="right">46,219</td>
+<td align="right">28,587</td>
+<td align="right">10,059</td>
+</tr>
+<tr class="odd">
+<td>AncestryDNA_v4</td>
+<td align="right">581,063</td>
+<td align="right">45,231</td>
+<td align="right">28,127</td>
+<td align="right">9,914</td>
+</tr>
+<tr class="even">
+<td>FamilyTreeDNA_v1</td>
+<td align="right">487,928</td>
+<td align="right">38,099</td>
+<td align="right">25,811</td>
+<td align="right">7,060</td>
+</tr>
+<tr class="odd">
+<td>FamilyTreeDNA_v2</td>
+<td align="right">428,996</td>
+<td align="right">33,348</td>
+<td align="right">23,770</td>
+<td align="right">5,596</td>
+</tr>
+<tr class="even">
+<td>FamilyTreeDNA_v3</td>
+<td align="right">640,225</td>
+<td align="right">53,495</td>
+<td align="right">33,241</td>
+<td align="right">9,348</td>
+</tr>
+</tbody>
+</table>
+<p>All ten prefixes produced the expected 22 per-chromosome
+<code>.vcf.gz</code> files. Per-chromosome counts scale roughly with
+chromosome length, as expected.</p>
+<p>Once these files exist, upload each <code>&lt;prefix&gt;</code> set
+(22 files) to the Michigan Imputation Server with the <strong>HRC r1.1
+2016</strong> reference panel selected. The server runs its own input-QC
+report on upload — the per-fileset Rayner
+<code>LOG-&lt;prefix&gt;_clean-HRC.txt</code> file in
+<code>imputation_prep/</code> is your local copy of essentially the same
+checks.</p>
 </div>
 </div>
 
