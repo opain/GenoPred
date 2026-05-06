@@ -18,6 +18,7 @@ rule ref_pca_i:
     "../envs/analysis.yaml",
   params:
     testing=config["testing"],
+    n_ref_pcs=config["n_ref_pcs"],
     ref_keep=lambda wildcards: "NA" if wildcards.population == "TRANS" else f"{refdir}/keep_files/{wildcards.population}.keep"
   benchmark:
     f"{outdir}/reference/benchmarks/ref_pca_i-{{population}}.txt"
@@ -30,6 +31,7 @@ rule ref_pca_i:
       --extract {resdir}/data/hm3_snplist/w_hm3.snplist \
       --pop_data {refdir}/ref.pop.txt \
       --output {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
+      --n_pcs {params.n_ref_pcs} \
       --test {params.testing} > {log} 2>&1"
 
 populations=["AFR","AMR","CSA","EAS","EUR","MID","TRANS"]
@@ -699,6 +701,49 @@ rule prep_pgs_sbayesrc:
   input: expand(f"{outdir}/reference/pgs_score_files/sbayesrc/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
+# SBayesRC (GCTB v2.5.5)
+##
+
+rule prep_pgs_sbayesrc_v255_i:
+  resources:
+    mem_mb=20000,
+    time_min=2800
+  threads: config['cores_prep_pgs']
+  input:
+    f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
+    lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}/block148.eigen.bin",
+    rules.download_gctb255_software.output,
+    rules.download_sbayesrc_annot.output,
+    rules.install_genoutils_sbayesrc.output,
+    rules.install_sbayesrc.output
+  output:
+    f"{outdir}/reference/pgs_score_files/sbayesrc_v255/{{gwas}}/ref-{{gwas}}.score.gz"
+  benchmark:
+    f"{outdir}/reference/benchmarks/prep_pgs_sbayesrc_v255_i-{{gwas}}.txt"
+  log:
+    f"{outdir}/reference/logs/prep_pgs_sbayesrc_v255_i-{{gwas}}.log"
+  conda:
+    "../envs/analysis.yaml"
+  params:
+    population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
+    sbayesrc_ldref= lambda w: f"{sbayesrc_ldref}/{gwas_list_df.loc[gwas_list_df['name'] == w.gwas, 'population'].iloc[0]}",
+    testing=config["testing"]
+  shell:
+    "Rscript --vanilla ../Scripts/pgs_methods/sbayesrc_v255.R \
+      --ref_plink_chr {refdir_intersect}/ref.chr \
+      --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
+      --gctb {resdir}/software/gctb_2.5.5/gctb_2.5.5_Linux/gctb \
+      --sbayesrc_ldref {params.sbayesrc_ldref} \
+      --sbayesrc_annot {resdir}/data/sbayesrc_annot/annot_baseline2.2.txt \
+      --n_cores {threads} \
+      --output {outdir}/reference/pgs_score_files/sbayesrc_v255/{wildcards.gwas}/ref-{wildcards.gwas} \
+      --pop_data {refdir}/ref.pop.txt \
+      --test {params.testing} > {log} 2>&1"
+
+rule prep_pgs_sbayesrc_v255:
+  input: expand(f"{outdir}/reference/pgs_score_files/sbayesrc_v255/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+
+##
 # Process externally created score files
 ##
 
@@ -1191,7 +1236,7 @@ rule ref_pgs:
     time_min=2800
   threads: config['cores_target_pgs']
   input:
-    lambda w: f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale" if 'continuous' in config["pgs_scaling"] else [],
+    lambda w: rules.ref_pca.input if 'continuous' in config["pgs_scaling"] else [],
     rules.prep_pgs.input
   output:
     touch(f"{outdir}/reference/pgs_score_files/ref_pgs.done")

@@ -956,6 +956,25 @@ rule download_gctb252_software:
     }} > {log} 2>&1
     """
 
+# Download GCTB v2.5.5 for SBayesRC
+rule download_gctb255_software:
+  output:
+    f"{resdir}/software/gctb_2.5.5/gctb_2.5.5_Linux/gctb"
+  benchmark:
+    f"{resdir}/data/benchmarks/download_gctb255_software.txt"
+  log:
+    f"{resdir}/data/logs/download_gctb255_software.log"
+  shell:
+    """
+    {{
+      rm -r -f {resdir}/software/gctb_2.5.5; \
+      mkdir -p {resdir}/software/gctb_2.5.5; \
+      wget --no-check-certificate -O {resdir}/software/gctb_2.5.5/gctb_2.5.5_Linux.zip https://gctbhub.cloud.edu.au/software/gctb/download/gctb_2.5.5_Linux.zip; \
+      unzip {resdir}/software/gctb_2.5.5/gctb_2.5.5_Linux.zip -d {resdir}/software/gctb_2.5.5; \
+      rm {resdir}/software/gctb_2.5.5/gctb_2.5.5_Linux.zip
+    }} > {log} 2>&1
+    """
+
 # Download annotations for SBayesRC
 rule download_sbayesrc_annot:
   output:

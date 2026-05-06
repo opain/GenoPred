@@ -35,8 +35,12 @@ opt = parse_args(OptionParser(option_list=option_list))
 # Load dependencies
 library(GenoUtils)
 library(data.table)
+library(bigstatsr)
 source('../functions/misc.R')
 source_all('../functions')
+library(foreach)
+library(doMC)
+registerDoMC(opt$n_cores)
 
 # Check required inputs
 if(is.null(opt$target_plink_chr)){

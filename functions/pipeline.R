@@ -5,7 +5,7 @@ if (!require("data.table", quietly = TRUE)) {
 }
 
 # Read in PGS
-read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL, pseudo_only = F){
+read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL, pseudo_only = F, correction = c('raw','discrete','continuous')){
   # Read in target_list
   target_list <- read_param(config = config, param = 'target_list')
   if(!is.null(name)){
@@ -43,24 +43,20 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   
   pgs <- list()
   for (name_i in target_list$name) {
+    # Identify pops
+    keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))$POP
+    target_populations <- read_param(config = config, param = 'target_populations', return_obj = F)
+    
     pops<-NULL
-    if('continuous' %in% pgs_scaling){
-      pops <- c('TRANS', pops)
-    }
-    if('discrete' %in% pgs_scaling){
-      # Read in keep_list to determine populations available
-      keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))
-      
-      # Check whether output for a specific populations was requested in the config
-      target_populations <- read_param(config = config, param = 'target_populations', return_obj = F)
-      keep_list_i <- keep_list_i[keep_list_i$POP %in% target_populations,]
-      
-      pops <- c(pops, keep_list_i$POP)
+    if(is.na(target_populations[1])){
+      pops <- c(pops, keep_list_i$POP, 'TRANS')
+    } else {
+      pops <- keep_list_i[keep_list_i %in% target_populations]
+      if('TRANS' %in% target_populations){
+        pops <- c(pops, 'TRANS')
+      }
     }
     if(!is.null(pop)){
-      if(!any('discrete' %in% pgs_scaling) & any(pop != 'TRANS')){
-        stop(paste0('Requested pop are not present in ',name_i,' sample. Only PGS adjusted using continuous ancestry correction are available due to pgs_scaling parameter in configfile.'))
-      }
       if(any(!(pop %in% pops))){
         stop(paste0('Requested pop are not present in ',name_i,' sample.'))
       }
@@ -76,19 +72,24 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
         if (is.null(pgs[[name_i]][[pop_i]][[gwas_i]])) {
           pgs[[name_i]][[pop_i]][[gwas_i]] <- list()
         }
-        file_i<-paste0(outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, '.profiles')
-        if(pseudo_only){
-          pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i, quiet = T)
-
-          score_header <-
-            fread(file_i, nrows = 1)
-          score_cols <-
-            which(names(score_header) %in% c('FID', 'IID', paste0(gwas_i, '_',pseudo_param)))
-          
-          pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <-
-            fread(cmd = paste0("cut -d' ' -f ", paste0(score_cols, collapse=','), " ", file_i))
-        } else {
-          pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <- fread(file_i)
+        for(correction_i in correction){
+          if (is.null(pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]])) {
+            pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <- list()
+          }
+          file_i<-paste0(outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, '.', correction_i,'.profiles')
+          if(pseudo_only){
+            pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i, quiet = T)
+  
+            score_header <-
+              fread(file_i, nrows = 1)
+            score_cols <-
+              which(names(score_header) %in% c('FID', 'IID', paste0(gwas_i, '_',pseudo_param)))
+            
+            pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]][[correction_i]] <-
+              fread(cmd = paste0("cut -d' ' -f ", paste0(score_cols, collapse=','), " ", file_i))
+          } else {
+            pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]][[correction_i]] <- fread(file_i)
+          }
         }
       }
     }

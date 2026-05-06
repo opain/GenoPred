@@ -677,16 +677,11 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
   
   scores_pcs_resid<-scores_pcs_resid[,grepl('FID|IID|^SCORE', names(scores_pcs_resid)), with=F]
   
-  # Save mean and SD of PGS residuals in 'trans' population
-  # This should be approximately mean = 0 and SD = 1, but save as a sanity check
-  scores_pcs_resid_scale<-score_mean_sd(scores=scores_pcs_resid)
-  fwrite(scores_pcs_resid_scale, paste0(output,'-TRANS.scale'), sep=' ', col.names=T, quote=F)
-  
   # Save PGS ~ PC models
-  saveRDS(mod_list, file = paste0(output,'-TRANS.model.rds'))
+  saveRDS(mod_list, file = paste0(output,'.model.rds'))
   
   # Save TRANS PGS in reference
-  fwrite(scores_pcs_resid, paste0(output,'-TRANS.profiles'), sep=' ', na='NA', quote=F)
+  fwrite(scores_pcs_resid, paste0(output,'.continuous.profiles'), sep=' ', na='NA', quote=F)
 }
 
 # Remove unused parts of model object for prediction

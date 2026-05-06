@@ -500,6 +500,14 @@ snakemake \
   --use-conda \
   --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_dense_ukb_wgs.yaml \
   prep_pgs -n
+  
+# Generate SBayesRC score using GCTB v2.5.5
+# This is required as PGS:QS requires Variance Explained estimates which are only provided in this version.
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/config_sbayesrc_sparse_ukb_wgs.yaml \
+  prep_pgs_sbayesrc_v255 -n
 ```
 
 ***
@@ -3291,6 +3299,114 @@ dx upload \
 
 ***
 
+### PGS:QS
+
+Here we will calculate PGS:QS using the variance explained estimates from SBayesRC in GCTB v2.5.5.
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+
+library(data.table)
+library(foreach)
+library(doMC)
+registerDoMC(10)
+
+# Read in list of score/trait names
+score_list <- fread(
+  '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/config/gwas_list_ukb_wgs.txt'
+)
+
+# Keep only SNPs present in UKB WGS EUR target
+ukb_snps <- fread('~/oliverpainfel/Analyses/mind_the_gap/ukb_wgs_sbayesrc.test.EUR.pvar')$ID
+
+# Function to calculate Tian's PGS:QS from one sbrc.snpRes file
+calc_pgs_qs_tian <- function(score_path, unmasked, ukb_snps) {
+  
+  dt <- fread(score_path)
+  
+  # Tian/GCTB format
+  # Name = SNP ID
+  # VarExplained = posterior mean of beta^2 on standardized genotype scale
+  dt <- dt[, .(SNP = Name, VarExplained)]
+  
+  # Restrict to SNPs present in target
+  dt <- dt[SNP %in% ukb_snps]
+  
+  # Drop missing / zero variance rows if needed
+  dt <- dt[!is.na(VarExplained)]
+  
+  denom <- sum(dt$VarExplained)
+  numer <- sum(dt$VarExplained[dt$SNP %in% unmasked])
+  
+  data.table(
+    relative_R2 = if (denom > 0) numer / denom else NA_real_,
+    denom = denom,
+    numer = numer,
+    n_in_ref = nrow(dt)
+  )
+}
+
+for (iteration in 1:10) {
+  print(iteration)
+  
+  for (i in c(0.05, 0.25, 0.5)) {
+    print(i)
+    
+    # Read in list of randomly retained variants
+    unmasked <- fread(
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/snplist_random_subset.prop.10_it/',
+        'snplist_random_subset.prop_', i, '.iteration_', iteration, '.txt'
+      ),
+      header = FALSE
+    )$V1
+    
+    # Calculate PGS:QS for each score
+    rel_r2_all <- foreach(j = 1:nrow(score_list), .combine = rbind) %dopar% {
+      
+      score_name <- score_list$name[j]
+      
+      score_path <- file.path(
+        '/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/sbayesrc_v255',
+        score_name,
+        'sbrc.snpRes'
+      )
+      
+      if (!file.exists(score_path)) {
+        return(data.table(
+          beta_set = score_name,
+          relative_R2 = NA_real_,
+          denom = NA_real_,
+          numer = NA_real_,
+          n_in_ref = NA_integer_
+        ))
+      }
+      
+      res <- calc_pgs_qs_tian(
+        score_path = score_path,
+        unmasked = unmasked,
+        ukb_snps = ukb_snps
+      )
+      
+      res[, beta_set := score_name]
+      res
+    }
+    
+    fwrite(
+      rel_r2_all,
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/',
+        'est_rsq.wgs.sparse.random.', i, '.iteration_', iteration, '.pgs_qs_tian.txt'
+      ),
+      sep = '\t'
+    )
+  }
+}
+
+```
+
+***
+
 ### INFO-based masking
 
 Use sparse PGS.
@@ -4704,6 +4820,143 @@ png(
 )
 plot_grid(plotlist = list(p1, p2), nrow = 2, labels = c('A','B'))
 dev.off()
+
+```
+
+### Compare PGS:QS
+
+```{r}
+# Read in the PGS:QS results
+pgs_qs <- NULL
+for (iteration in 1:10) {
+  for (i in c(0.05, 0.25, 0.5)) {
+    tmp <- fread(
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/',
+        'est_rsq.wgs.sparse.random.',
+        i,
+        '.iteration_',
+        iteration,
+        '.pgs_qs_tian.txt'
+      )
+    )
+    tmp$iteration <- iteration
+    tmp$prop <- i
+    pgs_qs<-rbind(pgs_qs, tmp)
+  }
+}
+pgs_qs$trait <- gsub('UKB_WGS_', '', pgs_qs$beta_set )
+pgs_qs <- pgs_qs[, c('trait','iteration','prop','relative_R2'), with = F]
+setnames(pgs_qs, 'relative_R2', 'PGS:QS')
+
+# Read in LD-naive PGS-check estimates of relative variance
+ld_naive <- NULL
+for (iteration in 1:10) {
+  for (i in c(0.05, 0.25, 0.5)) {
+    tmp <- fread(
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.random.',
+        i,
+        '.iteration_',
+        iteration,
+        '.ld_naive.txt'
+      )
+    )
+    tmp$iteration <- iteration
+    tmp$prop <- i
+    ld_naive <- rbind(ld_naive, tmp)
+  }
+}
+ld_naive <- ld_naive[ld_naive$population == 'EUR' & grepl('SBayesRC', ld_naive$beta_set)]
+ld_naive$trait <- gsub('_SCORE_SBayesRC', '', ld_naive$beta_set)
+ld_naive$trait <- gsub('sbayesrc_', '', ld_naive$trait)
+ld_naive <- ld_naive[, c('trait','iteration','prop','relative_R2'), with = F]
+setnames(ld_naive, 'relative_R2', "PGS-check (LD-naive) - Relative Variance")
+
+# Read in LD-aware PGS-check estimates of relative variance and r2
+ld_aware <- NULL
+for (iteration in 1:10) {
+  for (i in c(0.05, 0.25, 0.5)) {
+    tmp <- fread(
+      paste0(
+        '~/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/est_rsq.wgs.sparse.random.',
+        i,
+        '.iteration_',
+        iteration,
+        '.txt'
+      )
+    )
+    tmp$iteration <- iteration
+    tmp$prop <- i
+    ld_aware <- rbind(ld_aware, tmp)
+  }
+}
+ld_aware <- ld_aware[ld_aware$population == 'EUR' & grepl('SBayesRC', ld_aware$beta_set)]
+ld_aware$trait <- gsub('_SCORE_SBayesRC', '', ld_aware$beta_set)
+ld_aware$trait <- gsub('sbayesrc_', '', ld_aware$trait)
+ld_aware <- ld_aware[, c('trait','iteration','prop','relative_variance','relative_R2'), with = F]
+setnames(ld_aware, 'relative_variance', "PGS-check (LD-aware) - Relative Variance")
+setnames(ld_aware, 'relative_R2', "PGS-check (LD-aware) - Relative R2")
+
+all <-
+  Reduce(function(dtf1, dtf2)
+    merge(dtf1, dtf2, by = c('trait', 'iteration', 'prop')),
+    list(pgs_qs, ld_naive, ld_aware))
+
+# Define the columns you want to average
+cols_to_mean <- c("PGS:QS", "PGS-check (LD-naive) - Relative Variance", 
+                  "PGS-check (LD-aware) - Relative Variance", "PGS-check (LD-aware) - Relative R2")
+
+# Calculate the mean across iterations, grouped by trait and prop
+result <- all[, lapply(.SD, mean, na.rm = TRUE), 
+             by = .( prop), 
+             .SDcols = cols_to_mean]
+
+library(data.table)
+library(ggplot2)
+
+# 1. Reshape the data from wide to long format
+# This makes it easier for ggplot to map colors to the metric names
+plot_data <- melt(result, 
+                  id.vars = "prop", 
+                  variable.name = "Metric", 
+                  value.name = "Value")
+
+# 2. Create the plot
+png(
+  '~/oliverpainfel/Analyses/mind_the_gap/results/plots/pgs_qs_comparison.png',
+  res = 300,
+  width = 2500,
+  height = 1500,
+  units = 'px'
+)
+ggplot(plot_data, aes(x = factor(prop), y = Value, fill = Metric)) +
+  geom_bar(stat = "identity", position = "dodge", colour = 'black') +
+  labs(
+    x = "Proportion Masked",
+    y = "Mean Value",
+    fill = "Metric Type"
+  ) +
+  theme_cowplot()
+dev.off()
+
+```
+
+***
+
+### Compare PGS variance estimates
+
+```{r}
+res <- fread('~/oliverpainfel/Analyses/mind_the_gap/results/wgs_sparse_trait_summary_random.pgs_check.csv')
+res <- res[res$population == 'EUR' & res$sample_type == 'Full',]
+res_aware <- res[, c(
+  'trait',
+  'prop_missing',
+  'pgs_method',
+  'model_id',
+  'est_var_nav_mean'
+), with = F]
+
 
 ```
 

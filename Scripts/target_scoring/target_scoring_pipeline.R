@@ -16,6 +16,10 @@ make_option("--plink2", action="store", default='plink2', type='character',
 		help="Path PLINK v2 software binary [optional]"),
 make_option("--n_cores", action="store", default=1, type='numeric',
     help="Number of cores to use [optional]"),
+make_option("--discrete_adjustment", action="store", default=F, type='character',
+    help="Whether to apply discrete ancestry adjustment to PGS [optional]"),
+make_option("--continuous_adjustment", action="store", default=F, type='character',
+    help="Whether to apply continuous ancestry adjustment to PGS [optional]"),
 make_option("--test", action="store", default=NA, type='character',
     help="Specify number of SNPs to include [optional]"),
 make_option("--memory", action="store", default=5000, type='numeric',
@@ -80,22 +84,35 @@ ld_dir <- ifelse(
 # Identify score files to be combined
 score_files<-list_score_files(opt$config)
 
+get_mtime <- function(x) {
+  if (!file.exists(x)) return(as.POSIXct(NA))
+  file.info(x)$mtime
+}
+
 # Check whether score files or target genetic data are newer than target pgs
 if(!is.null(score_files)){
   ancestry_reporter_file<-paste0(outdir, '/reference/target_checks/', opt$name, '/ancestry_reporter.done')
   ancestry_reporter_file_time <- file.info(ancestry_reporter_file)$mtime
   score_files_to_do <- data.table()
   for(i in 1:nrow(score_files)){
-    pgs_i <- paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.profiles')
+    required_pgs <- paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.raw.profiles')
+    if(opt$discrete_adjustment){
+      required_pgs <- c(required_pgs, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.discrete.profiles'))
+    }
+    if(opt$continuous_adjustment){
+      required_pgs <- c(required_pgs, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.continuous.profiles'))
+    }
     score_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '-', opt$population, '.scale')
-    if(!file.exists(pgs_i)){
+    
+    required_pgs_times <- sapply(required_pgs, function(x) file.info(x)$mtime)
+
+    if(any(is.na(required_pgs_times))){
       score_files_to_do <- rbind(score_files_to_do, score_files[i,])
     } else {
       score_i_time <- file.info(score_i)$mtime
-      pgs_i_time <- file.info(pgs_i)$mtime
+      pgs_i_time <- min(required_pgs_times)
       if (score_i_time > pgs_i_time | ancestry_reporter_file_time > pgs_i_time) {
         score_files_to_do <- rbind(score_files_to_do, score_files[i,])
-        system(paste0('rm ', pgs_i))
       }
     }
   }
@@ -242,9 +259,6 @@ for(chr_i in CHROMS){
     system(paste0("paste -d ' ' ", tmp_dir,'/map.txt ', paste(tmp_batch_files, collapse = " "), ' > ', tmp_dir, '/all_score.txt'))
     system(paste0('rm ', paste(tmp_batch_files, collapse = " ")))
 
-    # Remove rows where all variants have zero effect
-    
-    
     # Perform polygenic risk scoring
     scores_i <-
       plink_score(
@@ -343,54 +357,16 @@ scores <- cbind(scores_ids, scores)
 overlap_combined <- combine_rel_r2(overlap)
 
 ###
-# Scale the polygenic scores based on the reference
-###
-
-if(opt$population == 'TRANS'){
-  log_add(log_file = log_file, message = paste0('Reading in ancestry adjustment models.'))
-
-  models<-list()
-  for(i in 1:nrow(score_files)){
-    print(i)
-    models[[paste0('score_file_', i)]]<-readRDS(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-TRANS.model.rds'))
-    names(models[[paste0('score_file_', i)]])<-gsub('SCORE_', paste0('score_file_', i, '.'), names(models[[paste0('score_file_', i)]]))
-  }
-  
-  models <- do.call(c, unname(models))
-  
-  # Read in target projected PCs
-  target_pcs<-fread(paste0(outdir,'/',opt$name,'/pcs/projected/TRANS/',opt$name,'-TRANS.profiles'))
-  log_add(log_file = log_file, message = paste0('Reading in target reference-projected PCs.'))
-  
-  # Adjust scores
-  log_add(log_file = log_file, message = 'Adjusting target PGS for ancestry.')
-  scores <- score_adjust(score = scores, pcs = target_pcs, ref_model = models)
-} else {
-  # Read in scale file and update Param
-  log_add(log_file = log_file, message = paste0('Reading in scale files.'))
-  scale_files<-list()
-  for(i in 1:nrow(score_files)){
-    scale_files[[paste0('score_file_', i)]]<-fread(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-', opt$population,'.scale'))
-    scale_files[[paste0('score_file_', i)]]$Param<-gsub('SCORE_', paste0('score_file_', i, '.'), scale_files[[paste0('score_file_', i)]]$Param)
-  }
-  
-  # Concatenate scale files
-  all_scale<-do.call(rbind, scale_files)
-  
-  # Scale scores
-  log_add(log_file = log_file, message = 'Scaling target polygenic scores to the reference.')
-  scores<-score_scale(score=scores, ref_scale=all_scale)
-}
-
-###
-# Write out the target sample scores and PGS coverage results
+# Write out the raw target sample scores and PGS coverage results
 ###
 
 for(i in 1:nrow(score_files)){
   scores_i <- scores[, c('FID','IID', names(scores)[grepl(paste0('^score_file_', i, '\\.'), names(scores))]), with=F]
   names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), paste0(score_files$name[i], '_'), names(scores_i))
   dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T, showWarnings = F)
-  fwrite(scores_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.profiles'), sep=' ', na='NA', quote=F)
+  
+  # Write out raw PGS
+  fwrite(scores_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.raw.profiles'), sep=' ', na='NA', quote=F)
   
   overlap_combined_i <- overlap_combined[grepl(paste0('^score_file_', i, '\\.'), overlap_combined$beta_set),]
   overlap_combined_i$beta_set <- gsub(paste0('^score_file_', i, '\\.'), paste0(score_files$name[i], '_'), overlap_combined_i$beta_set)
@@ -406,10 +382,74 @@ for(i in 1:nrow(score_files)){
   )
   
   fwrite(overlap_combined_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.missingness'), sep=' ', na='NA', quote=F, nThread = 1)
-  
 }
 
-log_add(log_file = log_file, message = paste0('Saved polygenic scores.'))
+log_add(log_file = log_file, message = paste0('Saved raw polygenic scores.'))
+
+###
+# Write out scaled PGS (discrete)
+###
+
+if(opt$discrete){
+  # Read in scale file and update Param
+  log_add(log_file = log_file, message = paste0('Reading in scale files.'))
+  scale_files<-list()
+  for(i in 1:nrow(score_files)){
+    scale_files[[paste0('score_file_', i)]]<-fread(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-', opt$population,'.scale'))
+    scale_files[[paste0('score_file_', i)]]$Param<-gsub('SCORE_', paste0('score_file_', i, '.'), scale_files[[paste0('score_file_', i)]]$Param)
+  }
+  
+  # Concatenate scale files
+  all_scale<-do.call(rbind, scale_files)
+  
+  # Scale scores
+  log_add(log_file = log_file, message = 'Scaling target polygenic scores to the reference.')
+  scores_scaled <- score_scale(score=scores, ref_scale=all_scale)
+  
+  for(i in 1:nrow(score_files)){
+    scores_i <- scores_scaled[, c('FID','IID', names(scores_scaled)[grepl(paste0('^score_file_', i, '\\.'), names(scores_scaled))]), with=F]
+    names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), paste0(score_files$name[i], '_'), names(scores_i))
+    dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T, showWarnings = F)
+    fwrite(scores_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.discrete.profiles'), sep=' ', na='NA', quote=F)
+  }
+  log_add(log_file = log_file, message = paste0('Applied discrete correction.'))
+}
+
+
+###
+# Write out scaled PGS (continuous)
+###
+
+if(opt$continuous){
+  
+  log_add(log_file = log_file, message = paste0('Reading in ancestry adjustment models.'))
+  
+  models<-list()
+  for(i in 1:nrow(score_files)){
+    print(i)
+    models[[paste0('score_file_', i)]]<-readRDS(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],'-TRANS.model.rds'))
+    names(models[[paste0('score_file_', i)]])<-gsub('SCORE_', paste0('score_file_', i, '.'), names(models[[paste0('score_file_', i)]]))
+  }
+  
+  models <- do.call(c, unname(models))
+  
+  # Read in target projected PCs
+  target_pcs<-fread(paste0(outdir,'/',opt$name,'/pcs/projected/',opt$population,'/',opt$name,'-',opt$population,'.profiles'))
+  log_add(log_file = log_file, message = paste0('Reading in target reference-projected PCs.'))
+  
+  # Adjust scores
+  log_add(log_file = log_file, message = 'Adjusting target PGS for ancestry.')
+  scores_scaled <- score_adjust(score = scores, pcs = target_pcs, ref_model = models)
+  
+  for(i in 1:nrow(score_files)){
+    scores_i <- scores_scaled[, c('FID','IID', names(scores_scaled)[grepl(paste0('^score_file_', i, '\\.'), names(scores_scaled))]), with=F]
+    names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), paste0(score_files$name[i], '_'), names(scores_i))
+    dir.create(paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i]), recursive = T, showWarnings = F)
+    fwrite(scores_i, paste0(outdir, '/', opt$name,'/pgs/', opt$population,'/', score_files$method[i],'/', score_files$name[i],'/', opt$name,'-', score_files$name[i],'-',opt$population,'.continuous.profiles'), sep=' ', na='NA', quote=F)
+  }
+  log_add(log_file = log_file, message = paste0('Applied continuous correction.'))
+
+}
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

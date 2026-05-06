@@ -297,23 +297,26 @@ log_add(log_file = log_file, message = paste0('Adjusting PGS for ancestry.'))
 for(i in 1:nrow(score_files)){
   output_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i], '/', score_files$name[i], '/ref-', score_files$name[i])
 
-  if(opt$continuous){
-    scores_i <- scores[['TRANS']][, c('FID','IID', names(scores[['TRANS']])[grepl(paste0('^score_file_', i, '\\.'), names(scores[['TRANS']]))]), with=F]
-    names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), 'SCORE_', names(scores_i))
-    
-    # Derive trans-ancestry PGS models and estimate PGS residual scale
-    model_trans_pgs(scores=scores_i, pcs=paste0(outdir, '/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles'), output=output_i)
-  }
-  
   # Calculate scale within each reference population
-  for(pop_i in unique(pop_data$POP)){
+  for(pop_i in names(scores)){
     scores_i <- scores[[pop_i]][, c('FID','IID', names(scores[[pop_i]])[grepl(paste0('^score_file_', i, '\\.'), names(scores[[pop_i]]))]), with=F]
     names(scores_i) <- gsub(paste0('^score_file_', i, '\\.'), 'SCORE_', names(scores_i))
     
+    # Write out raw PGS
+    fwrite(scores_i, paste0(output_i, '-', pop_i, '.raw.profiles'), sep=' ', na='NA', quote=F)
+    
+    # Write out scale of PGS
     ref_pgs_scale_i <- score_mean_sd(scores = scores_i)
     fwrite(ref_pgs_scale_i, paste0(output_i, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
-    scores_i<-score_scale(score=scores_i, ref_scale=ref_pgs_scale_i)
-    fwrite(scores_i, paste0(output_i, '-', pop_i, '.profiles'), sep=' ', na='NA', quote=F)
+    
+    # Write out scaled PGS (using discrete correction)
+    scores_i_scaled<-score_scale(score=scores_i, ref_scale=ref_pgs_scale_i)
+    fwrite(scores_i_scaled, paste0(output_i, '-', pop_i, '.discrete.profiles'), sep=' ', na='NA', quote=F)
+    
+    if(opt$continuous){
+      # Derive trans-ancestry PGS models and estimate PGS residual scale
+      model_trans_pgs(scores=scores_i, pcs=paste0(outdir, '/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles'), output=paste0(output_i, '-', pop_i))
+    }
   }
 }
 
