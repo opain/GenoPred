@@ -18,8 +18,6 @@ option_list = list(
       help="Number of cores for parallel computing [optional]"),
   make_option("--sumstats", action="store", default=NULL, type='character',
       help="GWAS summary statistics in LDSC format [required]"),
-  make_option("--gctb", action="store", default=NULL, type='character',
-      help="Path to GCTB binary [required]"),
   make_option("--test", action="store", default=NA, type='character',
       help="Specify number of SNPs to include [optional]"),
   make_option("--seed", action="store", default=1, type='numeric',
@@ -51,9 +49,6 @@ if(is.null(opt$pop_data)){
 }
 if(is.null(opt$output)){
   stop('--output must be specified.\n')
-}
-if(is.null(opt$gctb)){
-  stop('--gctb must be specified.\n')
 }
 if(is.null(opt$sbayesrc_ldref)){
   stop('--sbayesrc_ref must be specified.\n')
