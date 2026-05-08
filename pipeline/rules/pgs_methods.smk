@@ -13,31 +13,28 @@ rule ref_pca_i:
     "../Scripts/ref_pca/ref_pca.R",
     f"{resdir}/data/benchmarks/download_hm3_snplist.txt"
   output:
-    f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.{{population}}.scale"
   conda:
     "../envs/analysis.yaml",
   params:
     testing=config["testing"],
     n_ref_pcs=config["n_ref_pcs"],
-    ref_keep=lambda wildcards: "NA" if wildcards.population == "TRANS" else f"{refdir}/keep_files/{wildcards.population}.keep"
+    config_file = config["config_file"]
   benchmark:
     f"{outdir}/reference/benchmarks/ref_pca_i-{{population}}.txt"
   log:
     f"{outdir}/reference/logs/ref_pca_i-{{population}}.log"
   shell:
     "Rscript --vanilla ../Scripts/ref_pca/ref_pca.R \
-      --ref_plink_chr {refdir_intersect}/ref.chr \
-      --ref_keep {params.ref_keep} \
-      --extract {resdir}/data/hm3_snplist/w_hm3.snplist \
-      --pop_data {refdir}/ref.pop.txt \
-      --output {outdir}/reference/pc_score_files/{wildcards.population}/ref-{wildcards.population}-pcs \
+      --config {params.config_file} \
+      --population {wildcards.population} \
       --n_pcs {params.n_ref_pcs} \
       --test {params.testing} > {log} 2>&1"
 
 populations=["AFR","AMR","CSA","EAS","EUR","MID","TRANS"]
 
 rule ref_pca:
-  input: expand(f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale", population=populations)
+  input: expand(f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.{{population}}.scale", population=populations)
 
 ##
 # QC and format GWAS summary statistics

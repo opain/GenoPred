@@ -69,7 +69,7 @@ if(!is.null(score_files)){
   
   score_files_to_do <- data.table()
   for(i in 1:nrow(score_files)){
-    pgs_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '-EUR.profiles')
+    pgs_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '-EUR.raw.profiles')
     score_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '.score.gz')
     if(!file.exists(pgs_i)){
       score_files_to_do <- rbind(score_files_to_do, score_files[i,])
@@ -315,7 +315,7 @@ for(i in 1:nrow(score_files)){
     
     if(opt$continuous){
       # Derive trans-ancestry PGS models and estimate PGS residual scale
-      model_trans_pgs(scores=scores_i, pcs=paste0(outdir, '/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles'), output=paste0(output_i, '-', pop_i))
+      model_trans_pgs(scores=scores_i, pcs=paste0(outdir, '/reference/pc_score_files/',pop_i,'/ref-',pop_i,'-pcs.profiles'), output=paste0(output_i, '-', pop_i))
     }
   }
 }

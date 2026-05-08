@@ -5,9 +5,22 @@ if (!require("data.table", quietly = TRUE)) {
 }
 
 # Read in PGS
-read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL, pseudo_only = F, correction = c('raw','discrete','continuous')){
+read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop = NULL, ref = F, pseudo_only = F, correction = c('raw','discrete','continuous')){
+  if(ref & !is.null(name)){
+    stop('name must be NULL when ref == T')
+  }
   # Read in target_list
   target_list <- read_param(config = config, param = 'target_list')
+  if(ref){
+    target_list <- rbind(
+      target_list,
+      data.table(
+        name = 'reference'
+      ),
+      fill = T
+    )
+    name <- c(name, 'reference')
+  }
   if(!is.null(name)){
     if(any(!(name %in% target_list$name))){
       stop('Requested target samples are not present in target_list')
@@ -38,22 +51,31 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
   # Identify outdir parameter
   outdir <- read_param(config = config, param = 'outdir', return_obj = F)
   
+  # Identify target_populations parameter
+  target_populations <- read_param(config = config, param = 'target_populations', return_obj = F)
+  
   # Identify pgs_scaling parameter
   pgs_scaling <- read_param(config = config, param = 'pgs_scaling', return_obj = F)
   
   pgs <- list()
   for (name_i in target_list$name) {
-    # Identify pops
-    keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))$POP
-    target_populations <- read_param(config = config, param = 'target_populations', return_obj = F)
-    
-    pops<-NULL
-    if(is.na(target_populations[1])){
-      pops <- c(pops, keep_list_i$POP, 'TRANS')
+    if(name_i == 'reference'){
+      pops <- list.files(paste0(outdir, '/reference/pc_score_files/'))
+      if(!is.na(target_populations[1])){
+        pops <- pops[pops %in% target_populations]
+      }
     } else {
-      pops <- keep_list_i[keep_list_i %in% target_populations]
-      if('TRANS' %in% target_populations){
-        pops <- c(pops, 'TRANS')
+      # Identify pops
+      keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))$POP
+
+      pops<-NULL
+      if(is.na(target_populations[1])){
+        pops <- c(pops, keep_list_i, 'TRANS')
+      } else {
+        pops <- keep_list_i[keep_list_i %in% target_populations]
+        if('TRANS' %in% target_populations){
+          pops <- c(pops, 'TRANS')
+        }
       }
     }
     if(!is.null(pop)){
@@ -76,12 +98,21 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
           if (is.null(pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]])) {
             pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]] <- list()
           }
-          file_i<-paste0(outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, '.', correction_i,'.profiles')
+          if(name_i == 'reference'){
+            file_i<-paste0(outdir, '/reference/pgs_score_files/', pgs_method_i, '/',  gwas_i, '/ref-', gwas_i, '-', pop_i, '.', correction_i,'.profiles')
+          } else {
+            file_i<-paste0(outdir, '/', name_i, '/pgs/', pop_i, '/', pgs_method_i, '/',  gwas_i, '/', name_i, '-', gwas_i, '-', pop_i, '.', correction_i,'.profiles')
+          }
           if(pseudo_only){
             pseudo_param <- find_pseudo(config = config, gwas = gwas_i, target_pop = pop_i, pgs_method = pgs_method_i, quiet = T)
   
             score_header <-
               fread(file_i, nrows = 1)
+            
+            if(name_i == 'reference'){
+              names(score_header) <- gsub('SCORE', gwas_i, names(score_header))
+            }
+            
             score_cols <-
               which(names(score_header) %in% c('FID', 'IID', paste0(gwas_i, '_',pseudo_param)))
             
@@ -89,6 +120,9 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
               fread(cmd = paste0("cut -d' ' -f ", paste0(score_cols, collapse=','), " ", file_i))
           } else {
             pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]][[correction_i]] <- fread(file_i)
+          }
+          if(name_i == 'reference'){
+            names(pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]][[correction_i]]) <- gsub('SCORE', gwas_i, names(pgs[[name_i]][[pop_i]][[gwas_i]][[pgs_method_i]][[correction_i]]))
           }
         }
       }
@@ -195,6 +229,96 @@ read_pgs_2 <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop
   }
   
   return(pgs)
+}
+
+# Read in PCs
+# Target PCs
+read_pcs <- function(config, name = NULL, type = NULL, pop = NULL, ref = F){
+  if(ref & !is.null(name)){
+    stop('name must be NULL when ref == T')
+  }
+  if(ref & !is.null(type)){
+    stop('type must be NULL when ref == T')
+  }
+  if(is.null(type) & !ref){
+    stop('type must specified when ref == F')
+  }
+  if(!is.null(type) && (length(type) > 1 | any(!(type %in% c('within','projected'))))){
+    stop("type must be either 'within' or 'projected'")
+  }
+  
+  # Read in target_list
+  target_list <- read_param(config = config, param = 'target_list')
+  if(ref){
+    target_list <- rbind(
+      target_list,
+      data.table(
+        name = 'reference'
+      ),
+      fill = T
+    )
+    name <- c(name, 'reference')
+  }
+  if(!is.null(name)){
+    if(any(!(name %in% target_list$name))){
+      stop('Requested target samples are not present in target_list')
+    }
+    name_i <- name
+    target_list <- target_list[target_list$name %in% name_i,]
+  }
+  
+  # Identify outdir parameter
+  outdir <- read_param(config = config, param = 'outdir', return_obj = F)
+  
+  # Identify target_populations parameter
+  target_populations <- read_param(config = config, param = 'target_populations', return_obj = F)
+  
+  pcs <- list()
+  for (name_i in target_list$name) {
+    if(name_i == 'reference'){
+      pops <- list.files(paste0(outdir, '/reference/pc_score_files/'))
+      if(!is.na(target_populations[1])){
+        pops <- pops[pops %in% target_populations]
+      }
+    } else {
+      # Identify pops
+      keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))$POP
+      
+      pops<-NULL
+      if(is.na(target_populations[1])){
+        if(type == 'projected'){
+          pops <- c(pops, keep_list_i, 'TRANS')
+        } else {
+          pops <- c(pops, keep_list_i)
+        }
+      } else {
+        pops <- keep_list_i[keep_list_i %in% target_populations]
+        if('TRANS' %in% target_populations & (!is.null(type) && type == 'projected')){
+          pops <- c(pops, 'TRANS')
+        }
+      }
+    }
+    if(!is.null(pop)){
+      if(any(!(pop %in% pops))){
+        stop(paste0('Requested pop are not present in ',name_i,' sample.'))
+      }
+      pops <- pops[pops %in% pop]
+    }
+    
+    pcs[[name_i]] <- list()
+    for (pop_i in pops) {
+      if((!is.null(type) && type == 'within')){
+        pcs[[name_i]][[pop_i]] <- fread(paste0(outdir,'/', name_i,'/pcs/within_sample/', name_i,'.outlier_detection.', pop_i,'.PCs.txt'))
+      }
+      if((!is.null(type) && type == 'projected')){
+        pcs[[name_i]][[pop_i]] <- fread(paste0(outdir,'/', name_i,'/pcs/projected/', pop_i, '/', name_i, '-', pop_i,'.profiles'))
+      }
+      if(name_i == 'reference'){
+        pcs[[name_i]][[pop_i]] <- fread(paste0(outdir,'/', name_i,'/pc_score_files/', pop_i, '/ref-', pop_i,'-pcs.profiles'))
+      }
+    }
+  }
+  return(pcs)
 }
 
 # Create function to read in parameters in the config file

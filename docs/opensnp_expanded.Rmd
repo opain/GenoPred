@@ -2020,9 +2020,7 @@ snakemake --profile slurm --use-conda --configfile=misc/opensnp/config_zenodo_10
 
 ## Check height PGS
 
-***
-
-### 6PCs
+As a sanity check, test correlation between height PGS and self-reported height in EUR individuals, with and without accounting for sex.
 
 ```{r}
 setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
@@ -2043,17 +2041,13 @@ pgs <-
     name = 'opensnp',
     gwas = c(
       'yengo_eur',
-      'ukb_height',
       'within_sib_height',
       'neale_lab_height'
     )
   )$opensnp
 
-# Read in PGS
-ancestry <- read_ancestry(config = 'misc/opensnp/config_zenodo_10715132.yaml', name = 'opensnp')
-
 # Restrict to EUR
-pheno <- pheno[pheno$FID %in% ancestry$model_pred$FID[ancestry$model_pred$EUR > 0.95],]
+pheno <- pheno[pheno$FID %in% pgs$EUR$yengo_eur$ptclump$raw$FID,]
 
 # Check mean height of men and women
 mean(pheno$height_cm[pheno$sex == 1], na.rm = T)
@@ -2063,63 +2057,172 @@ mean(pheno$height_cm[pheno$sex == 2], na.rm = T)
 
 # Estimate correlation between pheno and pgs
 cor <- NULL
-for(pop_i in names(pgs)){
-  for(gwas_i in names(pgs[[pop_i]])){
-    for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
-      pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
-      pgs_i <- pgs_i[pgs_i$FID %in% ancestry$model_pred$FID[ancestry$model_pred$EUR > 0.95],]
-      pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
+pop_i <- 'EUR'
+for(gwas_i in names(pgs[[pop_i]])){
+  for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
+    pgs_i <- pgs$EUR[[gwas_i]][[pgs_method_i]][['raw']]
+    pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
+    
+    for(model_i in names(pgs_i)[-1:-2]){
+      y <- scale(pheno_pgs$height_cm)
+      x <- scale(pheno_pgs[[model_i]])
       
-      for(model_i in names(pgs_i)[-1:-2]){
-        y <- scale(pheno_pgs$height_cm)
-        x <- scale(pheno_pgs[[model_i]])
-        
-        if(all(is.na(x))){
-          next
-        }
-        
-        coef_i <- coef(summary(mod <- lm(y ~ x)))
-        
-        tmp <- data.table(
-          pop = pop_i,
-          gwas = gwas_i,
-          pgs_method = pgs_method_i,
-          name = model_i,
-          mean_pgs = mean(pgs_i[[model_i]]),
-          sd_pgs = sd(pgs_i[[model_i]]),
-          mean_pgs_with_pheno = mean(pheno_pgs[[model_i]]),
-          sd_pgs_with_pheno = sd(pheno_pgs[[model_i]]),
-          r = coef_i[2,1],
-          se = coef_i[2,2],
-          p = coef_i[2,4],
-          n = nrow(pgs_i),
-          n_with_pheno = nobs(mod))
-      cor <- rbind(cor, tmp)
+      if(all(is.na(x))){
+        next
       }
+      
+      coef_i <- coef(summary(mod <- lm(y ~ x)))
+      
+      tmp <- data.table(
+        gwas = gwas_i,
+        pgs_method = pgs_method_i,
+        name = model_i,
+        r = coef_i[2,1],
+        se = coef_i[2,2],
+        p = coef_i[2,4],
+        n = nobs(mod))
+    cor <- rbind(cor, tmp)
     }
   }
 }
-# Correlations between PGS and height look reasonable
-# Mean PGS is high
-cor$n_pcs<-6
-cor$pgs_method[cor$pgs_method == 'quickprs'] <- 'megaprs'
-cor[grepl('_0_5e-08|quickprs', cor$name) & cor$pop == 'TRANS', c("gwas", "pgs_method", "mean_pgs", "sd_pgs", "r","se", "p", "n","n_pcs" ), with = F]
 
+cor$label <- gsub('.*_0_|.*_quickprs', '', cor$name)
+cor$label[cor$label != '']<-paste0('pT+clump: ', cor$label[cor$label != ''])
+cor$label[cor$label == '']<-'QuickPRS'
+cor$label<-factor(cor$label, levels = unique(cor$label))
+
+cor$gwas <- factor(cor$gwas, 
+                   levels = c("yengo_eur","neale_lab_height","within_sib_height"),
+                   labels = c('Yengo','Neale Lab','Howe Within-sib'))
+
+# Plot results
+ggplot(cor, aes(x = label, y = r)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_errorbar(aes(ymin = r - se, ymax = r + se), width = 0.2) +  
+  facet_grid(gwas ~ .) +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  labs(x = 'PGS Method', y = 'Pearson Correlation') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+###
 # Check correlation with height PGS from Frei et al.
+###
 frei_pgs <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/zenodo_10715132/pgs/height_cm.all_score')
-pheno_pgs<-merge(pheno, frei_pgs, by = c('FID','IID'))
+pheno_pgs <- merge(pheno, frei_pgs, by = c('FID','IID'))
+cor_frei <- NULL
 for(model_i in names(frei_pgs)[-1:-2]){
   y <- scale(pheno_pgs$height_cm)
   x <- scale(pheno_pgs[[model_i]])
-  print(coef(summary(mod <- lm(y ~ x))))
+  
+  if(all(is.na(x))){
+    next
+  }
+  
+  coef_i <- coef(summary(mod <- lm(y ~ x)))
+  
+  tmp <- data.table(
+    name = model_i,
+    r = coef_i[2,1],
+    se = coef_i[2,2],
+    p = coef_i[2,4],
+    n = nobs(mod))
+  cor_frei <- rbind(cor_frei, tmp)
 }
-# They are similar, despite using different (smaller GWAS)
+
+cor_frei$label <- paste0('pT+clump: ', gsub('Pt_', '', cor_frei$name))
+cor_frei$label <- gsub('0.0001', '1e-04', cor_frei$label)
+cor_frei$type = 'Frei'
+
+cor_neale<-cor[cor$gwas == 'Neale Lab' & cor$pgs_method == 'ptclump',]
+cor_neale$gwas <- NULL
+cor_neale$pgs_method <- NULL
+cor_neale$type = 'GenoPred'
+cor_neale<-cor_neale[cor_neale$label %in% cor_frei$label,]
+cor_frei<-cor_frei[cor_frei$label %in% cor_neale$label,]
+
+cor_both <- rbind(cor_frei, cor_neale)
+
+ggplot(cor_both, aes(x = label, y = r)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_errorbar(aes(ymin = r - se, ymax = r + se), width = 0.2) +  
+  facet_grid( ~ type) +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  labs(x = 'PGS Method', y = 'Pearson Correlation') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+
+####
+# Test correlation with height adjusted for sex
+####
+
+# Estimate correlation between pheno and pgs
+cor_resid <- NULL
+for(gwas_i in names(pgs[[pop_i]])){
+  for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
+    pgs_i <- pgs$EUR[[gwas_i]][[pgs_method_i]][['raw']]
+    pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
+    pheno_pgs<-pheno_pgs[!is.na(pheno_pgs$height_cm),]
+    
+    for(model_i in names(pgs_i)[-1:-2]){
+      y <- scale(resid(lm(pheno_pgs$height_cm ~ pheno_pgs$sex)))
+      x <- scale(pheno_pgs[[model_i]])
+      
+      if(all(is.na(x))){
+        next
+      }
+      
+      coef_i <- coef(summary(mod <- lm(y ~ x)))
+      
+      tmp <- data.table(
+        gwas = gwas_i,
+        pgs_method = pgs_method_i,
+        name = model_i,
+        r = coef_i[2,1],
+        se = coef_i[2,2],
+        p = coef_i[2,4],
+        n = nobs(mod))
+    cor_resid <- rbind(cor_resid, tmp)
+    }
+  }
+}
+
+cor_resid$label <- gsub('.*_0_|.*_quickprs', '', cor_resid$name)
+cor_resid$label[cor_resid$label != '']<-paste0('pT+clump: ', cor_resid$label[cor_resid$label != ''])
+cor_resid$label[cor_resid$label == '']<-'QuickPRS'
+cor_resid$label<-factor(cor_resid$label, levels = unique(cor_resid$label))
+
+cor_resid$gwas <- factor(cor_resid$gwas, 
+                   levels = c("yengo_eur","neale_lab_height","within_sib_height"),
+                   labels = c('Yengo','Neale Lab','Howe Within-sib'))
+
+# Plot Yengo results with and without sex correction
+cor_yengo <- cor[cor$gwas == 'Yengo',]
+cor_yengo$Type <- 'Raw Height'
+cor_resid_yengo <- cor_resid[cor_resid$gwas == 'Yengo',]
+cor_resid_yengo$Type <- 'Sex-Corrected Height'
+
+cor_yengo_both <- rbind(cor_yengo, cor_resid_yengo)
+
+ggplot(cor_yengo_both, aes(x = label, y = r)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_errorbar(aes(ymin = r - se, ymax = r + se), width = 0.2) +  
+  facet_grid(. ~ Type) +
+  theme_half_open() +
+  panel_border() +
+  background_grid() +
+  labs(x = 'PGS Method', y = 'Pearson Correlation') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
 
 ```
 
 ***
 
-### 40PCs
+## Check mean and sd of PGS
 
 ```{r}
 setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
@@ -2130,72 +2233,66 @@ library(cowplot)
 source('../functions/misc.R')
 source_all('../functions')
 
-# Read in pheno data
-pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/zenodo_10715132/qc/pheno.csv')
+# Set config
+config <- 'misc/opensnp/config_zenodo_10715132.yaml'
+gwas_list <- fread('misc/opensnp/gwas_list_zenodo_10715132.txt')
 
-# Read in PGS
-pgs <- read_pgs(config = 'misc/opensnp/config_zenodo_10715132.20_ref_pcs.yaml', name = 'opensnp')$opensnp
+# Target OpenSNP PGS
+target_pgs <- read_pgs(
+  config = config,
+  name = "opensnp"
+)
 
-# Read in PGS
-ancestry <- read_ancestry(config = 'misc/opensnp/config_zenodo_10715132.20_ref_pcs.yaml', name = 'opensnp')
+# Target PCs
+target_ref_projected_pc_dt <- read_pcs(config = config, name = 'opensnp', type = 'projected')
 
-# Restrict to EUR
-pheno <- pheno[pheno$FID %in% ancestry$model_pred$FID[ancestry$model_pred$EUR > 0.95],]
-
-# Check mean height of men and women
-mean(pheno$height_cm[pheno$sex == 1], na.rm = T)
-# 180.361
-mean(pheno$height_cm[pheno$sex == 2], na.rm = T)
-# 165.4815
-
-# Estimate correlation between pheno and pgs
-cor_2 <- NULL
-for(pop_i in names(pgs)){
-  for(gwas_i in names(pgs[[pop_i]])){
-    for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
-      pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
-      pgs_i <- pgs_i[pgs_i$FID %in% ancestry$model_pred$FID[ancestry$model_pred$EUR > 0.95],]
-      pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
-      
-      for(model_i in names(pgs_i)[-1:-2]){
-        y <- scale(pheno_pgs$height_cm)
-        x <- scale(pheno_pgs[[model_i]])
-        
-        if(all(is.na(x))){
-          next
-        }
-        
-        coef_i <- coef(summary(mod <- lm(y ~ x)))
-        
-        tmp <- data.table(
-          pop = pop_i,
-          gwas = gwas_i,
-          pgs_method = pgs_method_i,
-          name = model_i,
-          mean_pgs = mean(pgs_i[[model_i]]),
-          sd_pgs = sd(pgs_i[[model_i]]),
-          mean_pgs_with_pheno = mean(pheno_pgs[[model_i]]),
-          sd_pgs_with_pheno = sd(pheno_pgs[[model_i]]),
-          r = coef_i[2,1],
-          se = coef_i[2,2],
-          p = coef_i[2,4],
-          n = nrow(pgs_i),
-          n_with_pheno = nobs(mod))
-      cor_2 <- rbind(cor_2, tmp)
-      }
+# Print mean PGS using GenoPred corrections
+pgs_desc <- NULL
+for(i in names(target_pgs$opensnp)){
+  for(j in names(target_pgs$opensnp[[i]])){
+    for(k in names(target_pgs$opensnp[[i]][[j]]$quickprs)){
+      pgs_desc <- rbind(
+        pgs_desc,
+        data.table(
+          pop = i,
+          gwas = j,
+          type = k,
+          mean = mean(target_pgs$opensnp[[i]][[j]]$quickprs[[k]][[3]]),
+          sd = sd(target_pgs$opensnp[[i]][[j]]$quickprs[[k]][[3]])
+        ))
     }
   }
 }
 
-cor_2$n_pcs<-40
-cor_2$pgs_method[cor_2$pgs_method == 'quickprs'] <- 'megaprs'
-cor_2 [grepl('_0_5e-08|quickprs', cor_2$name) & cor_2$pop == 'TRANS', c("gwas", "pgs_method", "mean_pgs", "sd_pgs", "r","se", "p", "n","n_pcs" ), with = F]
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# 1. Reshape the data for faceting
+# We move 'mean' and 'sd' into a single 'metric' column
+pgs_long <- pgs_desc %>%
+  pivot_longer(cols = c(mean, sd), 
+               names_to = "metric", 
+               values_to = "value")
+
+# 2. Create the plot
+ggplot(pgs_long, aes(x = gwas, y = value, fill = type)) +
+  # Use stat = "identity" to plot the actual values in the table
+  geom_bar(stat = "identity", position = position_dodge()) +
+  # Facet rows by 'metric' (mean/sd) and columns by 'pop' (EUR/TRANS)
+  facet_grid(metric ~ pop, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Polygenic Score Summary Statistics",
+       x = "GWAS Source",
+       y = "Value",
+       fill = "Type") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ```
 
 ***
 
-### 40PCs (adjusted for sex)
+## Check mean and sd of PCs
 
 ```{r}
 setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
@@ -2206,98 +2303,86 @@ library(cowplot)
 source('../functions/misc.R')
 source_all('../functions')
 
-# Read in pheno data
-pheno <- fread('/users/k1806347/oliverpainfel/Data/OpenSNP/zenodo_10715132/qc/pheno.csv')
+# Set config
+config <- 'misc/opensnp/config_zenodo_10715132.yaml'
+gwas_list <- fread('misc/opensnp/gwas_list_zenodo_10715132.txt')
 
-# Read in PGS
-pgs <- read_pgs(config = 'misc/opensnp/config_zenodo_10715132.20_ref_pcs.yaml', name = 'opensnp')$opensnp
+# Target PCs
+target_ref_projected_pc_dt <- read_pcs(config = config, name = 'opensnp', type = 'projected')
 
-# Read in PGS
-ancestry <- read_ancestry(config = 'misc/opensnp/config_zenodo_10715132.20_ref_pcs.yaml', name = 'opensnp')
-
-# Restrict to EUR
-pheno <- pheno[pheno$FID %in% ancestry$model_pred$FID[ancestry$model_pred$EUR > 0.95],]
-
-# Check mean height of men and women
-mean(pheno$height_cm[pheno$sex == 1], na.rm = T)
-# 180.361
-mean(pheno$height_cm[pheno$sex == 2], na.rm = T)
-# 165.4815
-
-# Regress sex from height
-pheno$height_resid <- NA
-pheno$height_resid[!is.na(pheno$height_cm)] <- resid(lm(height_cm ~ sex, data = pheno))
-
-# Estimate correlation between pheno and pgs
-cor_3 <- NULL
-for(pop_i in names(pgs)){
-  for(gwas_i in names(pgs[[pop_i]])){
-    for(pgs_method_i in names(pgs[[pop_i]][[gwas_i]])){
-      pgs_i <- pgs[[pop_i]][[gwas_i]][[pgs_method_i]]
-      pgs_i <- pgs_i[pgs_i$FID %in% ancestry$model_pred$FID[ancestry$model_pred$EUR > 0.95],]
-      pheno_pgs<-merge(pheno, pgs_i, by = c('FID','IID'))
-      
-      for(model_i in names(pgs_i)[-1:-2]){
-        y <- scale(pheno_pgs$height_resid)
-        x <- scale(pheno_pgs[[model_i]])
-        
-        if(all(is.na(x))){
-          next
-        }
-        
-        coef_i <- coef(summary(mod <- lm(y ~ x)))
-        
-        tmp <- data.table(
-          pop = pop_i,
-          gwas = gwas_i,
-          pgs_method = pgs_method_i,
-          name = model_i,
-          mean_pgs = mean(pgs_i[[model_i]]),
-          sd_pgs = sd(pgs_i[[model_i]]),
-          mean_pgs_with_pheno = mean(pheno_pgs[[model_i]]),
-          sd_pgs_with_pheno = sd(pheno_pgs[[model_i]]),
-          r = coef_i[2,1],
-          se = coef_i[2,2],
-          p = coef_i[2,4],
-          n = nrow(pgs_i),
-          n_with_pheno = nobs(mod))
-      cor_3 <- rbind(cor_3, tmp)
-      }
-    }
+# Print mean PGS using GenoPred corrections
+pc_desc <- NULL
+for(i in names(target_ref_projected_pc_dt$opensnp)){
+  for(j in names(target_ref_projected_pc_dt$opensnp[[i]])[-1:-2]){
+    pc_desc <- rbind(
+      pc_desc,
+      data.table(
+        pop = i,
+        pc = j,
+        mean = mean(target_ref_projected_pc_dt$opensnp[[i]][[j]]),
+        sd = sd(target_ref_projected_pc_dt$opensnp[[i]][[j]])
+      ))
   }
 }
 
-cor_3$n_pcs<-40
-cor_3$pgs_method[cor_3$pgs_method == 'quickprs'] <- 'megaprs'
-cor_3[grepl('_0_5e-08|quickprs', cor_3$name) & cor_3$pop == 'TRANS', c("gwas", "pgs_method", "mean_pgs", "sd_pgs", "r","se", "p", "n","n_pcs" ), with = F]
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# 1. Reshape the data for faceting
+# We move 'mean' and 'sd' into a single 'metric' column
+pcs_long <- pc_desc %>%
+  pivot_longer(cols = c(mean, sd), 
+               names_to = "metric", 
+               values_to = "value")
+
+# 2. Create the plot
+ggplot(pcs_long, aes(x = pc, y = value, fill = pc)) +
+  # Use stat = "identity" to plot the actual values in the table
+  geom_bar(stat = "identity", position = position_dodge()) +
+  # Facet rows by 'metric' (mean/sd) and columns by 'pop' (EUR/TRANS)
+  facet_grid(metric ~ pop, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "PC Summary Statistics",
+       x = "PC",
+       y = "Value",
+       fill = NULL) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Reference PCs
+ref_global_pc_dt<- read_pcs(config = config, ref = T) # I don't think these are the correct PCs
 
 ```
-
-***
 
 ## Check PC association with PGS
+
+### Create functions
 
 ```{r}
 library(data.table)
 library(FNN)
-
-pgs_methods <- c("ptclump", "quickprs")
-config <- 'misc/opensnp/config_zenodo_10715132.20_ref_pcs.yaml'
+library(glm2)
 
 ###############################################################################
 # Helper functions
 ###############################################################################
 
-get_pgs_column <- function(dt, gwas = NULL, method = NULL, pgs_col = NULL) {
-  # If user specifies a PGS column, use it
+get_pgs_columns <- function(dt, gwas = NULL, method = NULL, pgs_col = NULL) {
+  dt <- as.data.table(dt)
+  
+  if (!all(c("FID", "IID") %in% names(dt))) {
+    stop("PGS data must contain FID and IID.")
+  }
+  
+  # If user specifies one or more PGS columns, use them
   if (!is.null(pgs_col)) {
-    if (!(pgs_col %in% names(dt))) {
-      stop("Specified pgs_col not found: ", pgs_col)
+    missing <- setdiff(pgs_col, names(dt))
+    if (length(missing) > 0) {
+      stop("Specified pgs_col not found: ", paste(missing, collapse = ", "))
     }
     return(pgs_col)
   }
   
-  # Otherwise infer the PGS column
   exclude_cols <- c("FID", "IID")
   candidate_cols <- setdiff(names(dt), exclude_cols)
   
@@ -2305,29 +2390,20 @@ get_pgs_column <- function(dt, gwas = NULL, method = NULL, pgs_col = NULL) {
   numeric_cols <- candidate_cols[sapply(dt[, ..candidate_cols], is.numeric)]
   
   if (length(numeric_cols) == 0) {
-    stop("No numeric PGS column found after excluding FID/IID.")
+    stop("No numeric PGS columns found after excluding FID/IID.")
   }
   
-  # If there is exactly one numeric column, use it
-  if (length(numeric_cols) == 1) {
-    return(numeric_cols)
-  }
-  
-  # Prefer columns matching GWAS name if possible
+  # Prefer columns matching GWAS name if possible, but allow multiple matches
   if (!is.null(gwas)) {
     gwas_matches <- numeric_cols[grepl(gwas, numeric_cols, fixed = TRUE)]
-    if (length(gwas_matches) == 1) {
+    if (length(gwas_matches) > 0) {
       return(gwas_matches)
     }
   }
   
-  stop(
-    "Could not infer unique PGS column. Candidate numeric columns are: ",
-    paste(numeric_cols, collapse = ", "),
-    "\nPlease specify pgs_col manually."
-  )
+  # Otherwise return all numeric score columns
+  return(numeric_cols)
 }
-
 
 prep_pgs_dt <- function(pgs_dt, gwas = NULL, method = NULL, pgs_col = NULL) {
   dt <- as.data.table(copy(pgs_dt))
@@ -2336,16 +2412,23 @@ prep_pgs_dt <- function(pgs_dt, gwas = NULL, method = NULL, pgs_col = NULL) {
     stop("PGS data must contain FID and IID.")
   }
   
-  score_col <- get_pgs_column(dt, gwas = gwas, method = method, pgs_col = pgs_col)
+  score_cols <- get_pgs_columns(
+    dt = dt,
+    gwas = gwas,
+    method = method,
+    pgs_col = pgs_col
+  )
   
-  dt <- dt[, .(
-    FID,
-    IID,
-    PGS = as.numeric(get(score_col))
-  )]
+  dt <- dt[, c("FID", "IID", score_cols), with = FALSE]
   
-  dt <- dt[!is.na(PGS)]
-  return(dt)
+  for (col in score_cols) {
+    dt[, (col) := as.numeric(get(col))]
+  }
+  
+  return(list(
+    dt = dt,
+    score_cols = score_cols
+  ))
 }
 
 
@@ -2366,67 +2449,141 @@ prep_pc_dt <- function(pc_dt, pc_cols) {
 }
 
 
-merge_pgs_pc <- function(pgs_dt, pc_dt, pc_cols) {
-  dt <- merge(
-    prep_pgs_dt(pgs_dt),
-    prep_pc_dt(pc_dt, pc_cols),
-    by = c("FID", "IID"),
-    all = FALSE
-  )
-  
-  if (nrow(dt) == 0) {
-    stop("No overlapping individuals between PGS and PC data.")
-  }
-  
-  dt <- dt[complete.cases(dt[, c("PGS", pc_cols), with = FALSE])]
-  return(dt)
-}
-
-
-scale_pc_matrices <- function(ref_dt, target_dt, pc_cols) {
+get_pc_matrices <- function(ref_dt, target_dt, pc_cols) {
+  # PCs are assumed to already be on the same reference-projected scale:
+  # reference mean approximately 0, reference SD approximately 1,
+  # target projected and scaled using the same reference parameters.
   ref_mat <- as.matrix(ref_dt[, ..pc_cols])
   target_mat <- as.matrix(target_dt[, ..pc_cols])
   
-  ref_mean <- colMeans(ref_mat, na.rm = TRUE)
-  ref_sd <- apply(ref_mat, 2, sd, na.rm = TRUE)
-  
-  if (any(ref_sd == 0 | is.na(ref_sd))) {
-    bad <- pc_cols[ref_sd == 0 | is.na(ref_sd)]
-    stop("Some reference PCs have zero or missing SD: ", paste(bad, collapse = ", "))
-  }
-  
-  ref_scaled <- scale(ref_mat, center = ref_mean, scale = ref_sd)
-  target_scaled <- scale(target_mat, center = ref_mean, scale = ref_sd)
-  
   return(list(
-    ref = ref_scaled,
-    target = target_scaled,
-    center = ref_mean,
-    scale = ref_sd
+    ref = ref_mat,
+    target = target_mat
   ))
 }
 
 
-knn_expected_pgs <- function(ref_pgs, ref_pc_scaled, target_pc_scaled,
+summarise_score <- function(x) {
+  n <- sum(!is.na(x))
+  x_mean <- mean(x, na.rm = TRUE)
+  x_sd <- sd(x, na.rm = TRUE)
+  x_se <- x_sd / sqrt(n)
+  
+  data.table(
+    mean = x_mean,
+    sd = x_sd,
+    se = x_se,
+    t = x_mean / x_se,
+    p = t.test(x, mu = 0)$p.value
+  )
+}
+
+
+check_projected_pc_scaling <- function(ref_pc_dt, target_pc_dt, pc_cols) {
+  ref_dt <- as.data.table(ref_pc_dt)
+  target_dt <- as.data.table(target_pc_dt)
+  
+  ref_summary <- data.table(
+    PC = pc_cols,
+    ref_mean = sapply(pc_cols, function(pc) mean(ref_dt[[pc]], na.rm = TRUE)),
+    ref_sd = sapply(pc_cols, function(pc) sd(ref_dt[[pc]], na.rm = TRUE))
+  )
+  
+  target_summary <- data.table(
+    PC = pc_cols,
+    target_mean = sapply(pc_cols, function(pc) mean(target_dt[[pc]], na.rm = TRUE)),
+    target_sd = sapply(pc_cols, function(pc) sd(target_dt[[pc]], na.rm = TRUE))
+  )
+  
+  merge(ref_summary, target_summary, by = "PC")
+}
+
+
+###############################################################################
+# Linear PC correction equivalent to existing TRANS correction
+###############################################################################
+
+linear_pc_correction_trans_equivalent <- function(ref_dt, target_dt, pc_cols) {
+  mean_form <- as.formula(
+    paste("PGS ~", paste(pc_cols, collapse = " + "))
+  )
+  
+  mean_model <- lm(mean_form, data = ref_dt)
+  
+  ref_mu <- predict(mean_model, newdata = ref_dt)
+  target_mu <- predict(mean_model, newdata = target_dt)
+  
+  ref_resid <- ref_dt$PGS - ref_mu
+  target_resid <- target_dt$PGS - target_mu
+  
+  ref_var_dt <- copy(ref_dt[, ..pc_cols])
+  ref_var_dt[, squared_residuals := pmax(ref_resid^2, 1e-4)]
+  
+  var_form <- as.formula(
+    paste("squared_residuals ~", paste(pc_cols, collapse = " + "))
+  )
+  
+  var_model <- glm2(
+    var_form,
+    data = ref_var_dt,
+    family = Gamma(link = "log")
+  )
+  
+  ref_var_hat <- exp(predict(var_model, newdata = ref_dt))
+  target_var_hat <- exp(predict(var_model, newdata = target_dt))
+  
+  ref_trans <- ref_resid / sqrt(ref_var_hat)
+  target_trans <- target_resid / sqrt(target_var_hat)
+  
+  return(list(
+    mean_model = mean_model,
+    var_model = var_model,
+    
+    ref_mu = ref_mu,
+    target_mu = target_mu,
+    
+    ref_var_hat = ref_var_hat,
+    target_var_hat = target_var_hat,
+    
+    ref_resid = ref_resid,
+    target_resid = target_resid,
+    
+    ref_trans = ref_trans,
+    target_trans = target_trans
+  ))
+}
+
+
+###############################################################################
+# KNN correction
+###############################################################################
+
+knn_expected_pgs <- function(ref_pgs,
+                             ref_pc,
+                             target_pc,
                              k = 50,
                              weighting = c("inverse_distance", "uniform"),
                              eps = 1e-8) {
   weighting <- match.arg(weighting)
   
-  if (k > nrow(ref_pc_scaled)) {
+  if (k > nrow(ref_pc)) {
     stop("k is larger than number of reference individuals.")
   }
   
   knn <- FNN::get.knnx(
-    data = ref_pc_scaled,
-    query = target_pc_scaled,
+    data = ref_pc,
+    query = target_pc,
     k = k
   )
   
   idx <- knn$nn.index
   dist <- knn$nn.dist
   
-  pgs_mat <- matrix(ref_pgs[idx], nrow = nrow(idx), ncol = ncol(idx))
+  pgs_mat <- matrix(
+    ref_pgs[idx],
+    nrow = nrow(idx),
+    ncol = ncol(idx)
+  )
   
   if (weighting == "uniform") {
     w <- matrix(1 / k, nrow = nrow(idx), ncol = k)
@@ -2437,14 +2594,11 @@ knn_expected_pgs <- function(ref_pgs, ref_pc_scaled, target_pc_scaled,
   
   mu_hat <- rowSums(pgs_mat * w)
   
-  # Weighted local variance. This is useful diagnostically, but I would not
-  # rely on it too heavily for the main inference.
   var_hat <- rowSums(w * sweep(pgs_mat, 1, mu_hat, "-")^2)
   sd_hat <- sqrt(var_hat)
+  sd_hat[sd_hat == 0 | is.na(sd_hat)] <- NA_real_
   
   n_eff <- 1 / rowSums(w^2)
-  mean_dist <- rowMeans(dist)
-  min_dist <- dist[, 1]
   
   return(list(
     mu_hat = mu_hat,
@@ -2453,103 +2607,37 @@ knn_expected_pgs <- function(ref_pgs, ref_pc_scaled, target_pc_scaled,
     dist = dist,
     weights = w,
     n_eff = n_eff,
-    mean_dist = mean_dist,
-    min_dist = min_dist
+    mean_dist = rowMeans(dist),
+    min_dist = dist[, 1]
   ))
 }
 
 
-linear_pc_correction <- function(ref_dt, target_dt, pc_cols) {
-  form <- as.formula(
-    paste("PGS ~", paste(pc_cols, collapse = " + "))
-  )
-  
-  fit <- lm(form, data = ref_dt)
-  
-  target_mu <- predict(fit, newdata = target_dt)
-  ref_mu <- predict(fit, newdata = ref_dt)
-  
-  target_resid <- target_dt$PGS - target_mu
-  ref_resid <- ref_dt$PGS - ref_mu
-  
-  return(list(
-    fit = fit,
-    target_mu = target_mu,
-    ref_mu = ref_mu,
-    target_resid = target_resid,
-    ref_resid = ref_resid
-  ))
-}
-
-
-test_residual_pc_association <- function(dt, resid_col, pc_cols,
-                                         covar_cols = NULL,
-                                         label = NULL) {
-  use_cols <- c(resid_col, pc_cols, covar_cols)
-  tmp <- as.data.table(copy(dt))
-  tmp <- tmp[complete.cases(tmp[, ..use_cols])]
-  
-  if (nrow(tmp) < 10) {
-    return(data.table(
-      label = label,
-      n = nrow(tmp),
-      r2 = NA_real_,
-      adj_r2 = NA_real_,
-      p_lrt = NA_real_
-    ))
-  }
-  
-  null_form <- as.formula(
-    paste(resid_col, "~ 1")
-  )
-  
-  full_terms <- c(pc_cols, covar_cols)
-  full_form <- as.formula(
-    paste(resid_col, "~", paste(full_terms, collapse = " + "))
-  )
-  
-  fit0 <- lm(null_form, data = tmp)
-  fit1 <- lm(full_form, data = tmp)
-  
-  a <- anova(fit0, fit1)
-  
-  data.table(
-    label = label,
-    n = nrow(tmp),
-    r2 = summary(fit1)$r.squared,
-    adj_r2 = summary(fit1)$adj.r.squared,
-    p_lrt = a$`Pr(>F)`[2]
-  )
-}
-
-
-reference_leave_one_out_knn_residuals <- function(ref_pgs, ref_pc_scaled,
-                                                  k = 50,
-                                                  weighting = c("inverse_distance", "uniform"),
-                                                  eps = 1e-8) {
+knn_reference_leave_one_out <- function(ref_pgs,
+                                        ref_pc,
+                                        k = 50,
+                                        weighting = c("inverse_distance", "uniform"),
+                                        eps = 1e-8) {
   weighting <- match.arg(weighting)
   
-  # Query reference against itself. The first neighbour should be self, so ask
-  # for k + 1 and remove the self match.
-  if ((k + 1) > nrow(ref_pc_scaled)) {
+  if ((k + 1) > nrow(ref_pc)) {
     stop("k + 1 is larger than number of reference individuals.")
   }
   
   knn <- FNN::get.knnx(
-    data = ref_pc_scaled,
-    query = ref_pc_scaled,
+    data = ref_pc,
+    query = ref_pc,
     k = k + 1
   )
   
-  idx <- knn$nn.index
-  dist <- knn$nn.dist
+  idx <- knn$nn.index[, -1, drop = FALSE]
+  dist <- knn$nn.dist[, -1, drop = FALSE]
   
-  # Remove self neighbour. Usually column 1 is self, but remove the first
-  # neighbour regardless after querying identical matrices.
-  idx <- idx[, -1, drop = FALSE]
-  dist <- dist[, -1, drop = FALSE]
-  
-  pgs_mat <- matrix(ref_pgs[idx], nrow = nrow(idx), ncol = ncol(idx))
+  pgs_mat <- matrix(
+    ref_pgs[idx],
+    nrow = nrow(idx),
+    ncol = ncol(idx)
+  )
   
   if (weighting == "uniform") {
     w <- matrix(1 / k, nrow = nrow(idx), ncol = k)
@@ -2559,447 +2647,864 @@ reference_leave_one_out_knn_residuals <- function(ref_pgs, ref_pc_scaled,
   }
   
   mu_hat <- rowSums(pgs_mat * w)
-  resid <- ref_pgs - mu_hat
-  
   var_hat <- rowSums(w * sweep(pgs_mat, 1, mu_hat, "-")^2)
   sd_hat <- sqrt(var_hat)
+  sd_hat[sd_hat == 0 | is.na(sd_hat)] <- NA_real_
+  
+  resid <- ref_pgs - mu_hat
+  z <- resid / sd_hat
   
   return(list(
     mu_hat = mu_hat,
-    resid = resid,
     sd_hat = sd_hat,
+    resid = resid,
+    z = z,
     idx = idx,
     dist = dist,
-    weights = w
+    weights = w,
+    n_eff = 1 / rowSums(w^2),
+    mean_dist = rowMeans(dist),
+    min_dist = dist[, 1]
   ))
 }
 
-
-reference_matched_empirical_null <- function(
-    target_knn,
-    ref_loo_resid,
-    target_resid,
-    B = 5000,
-    weighted_sampling = TRUE,
-    seed = 1
+tune_knn_k_reference <- function(
+    ref_dt,
+    pc_cols,
+    k_values = c(10, 20, 50, 100, 200),
+    weighting = "inverse_distance"
 ) {
-  set.seed(seed)
+  pc_mat <- as.matrix(ref_dt[, ..pc_cols])
   
-  match_idx <- target_knn$idx
-  match_w <- target_knn$weights
-  
-  n_target <- nrow(match_idx)
-  null_mean <- numeric(B)
-  
-  for (b in seq_len(B)) {
-    sampled_ref <- vapply(seq_len(n_target), function(i) {
-      if (weighted_sampling) {
-        sample(match_idx[i, ], size = 1, prob = match_w[i, ])
-      } else {
-        sample(match_idx[i, ], size = 1)
-      }
-    }, integer(1))
+  out <- rbindlist(lapply(k_values, function(k_i) {
     
-    null_mean[b] <- mean(ref_loo_resid[sampled_ref], na.rm = TRUE)
+    loo <- knn_reference_leave_one_out(
+      ref_pgs = ref_dt$PGS,
+      ref_pc = pc_mat,
+      k = k_i,
+      weighting = weighting
+    )
+    
+    resid <- loo$resid
+    z <- loo$z
+    
+    # Residual association with PCs
+    tmp <- data.table(
+      z = z,
+      resid = resid,
+      ref_dt[, ..pc_cols]
+    )
+    
+    tmp <- tmp[complete.cases(tmp)]
+    
+    fit_resid <- lm(
+      as.formula(paste("resid ~", paste(pc_cols, collapse = " + "))),
+      data = tmp
+    )
+    
+    fit_z <- lm(
+      as.formula(paste("z ~", paste(pc_cols, collapse = " + "))),
+      data = tmp
+    )
+    
+    data.table(
+      k = k_i,
+      n_ref = nrow(ref_dt),
+      
+      resid_mean = mean(resid, na.rm = TRUE),
+      resid_sd = sd(resid, na.rm = TRUE),
+      resid_rmse = sqrt(mean(resid^2, na.rm = TRUE)),
+      resid_pc_r2 = summary(fit_resid)$r.squared,
+      
+      z_mean = mean(z, na.rm = TRUE),
+      z_sd = sd(z, na.rm = TRUE),
+      z_pc_r2 = summary(fit_z)$r.squared,
+      
+      mean_n_eff = mean(loo$n_eff, na.rm = TRUE),
+      median_n_eff = median(loo$n_eff, na.rm = TRUE),
+      mean_dist = mean(loo$mean_dist, na.rm = TRUE),
+      median_dist = median(loo$mean_dist, na.rm = TRUE)
+    )
+  }), fill = TRUE)
+  
+  # Simple combined score.
+  # Lower is better.
+  out[, criterion := 
+        abs(z_mean) +
+        abs(log(z_sd)) +
+        z_pc_r2 +
+        resid_pc_r2
+  ]
+  
+  out[order(criterion)]
+}
+
+############
+# Discrete correction
+############
+
+discrete_reference_correction <- function(ref_pgs, target_pgs) {
+  ref_mean <- mean(ref_pgs, na.rm = TRUE)
+  ref_sd <- sd(ref_pgs, na.rm = TRUE)
+  
+  if (is.na(ref_sd) || ref_sd == 0) {
+    stop("Reference PGS SD is zero or missing; cannot perform discrete correction.")
   }
   
-  obs_mean <- mean(target_resid, na.rm = TRUE)
-  
-  p_one_sided_positive <- (1 + sum(null_mean >= obs_mean)) / (B + 1)
-  p_two_sided <- (1 + sum(abs(null_mean) >= abs(obs_mean))) / (B + 1)
+  ref_discrete <- (ref_pgs - ref_mean) / ref_sd
+  target_discrete <- (target_pgs - ref_mean) / ref_sd
   
   return(list(
-    obs_mean = obs_mean,
-    null_mean = null_mean,
-    null_mean_mean = mean(null_mean),
-    null_mean_sd = sd(null_mean),
-    null_p_one_sided_positive = p_one_sided_positive,
-    null_p_two_sided = p_two_sided,
-    null_percentile = mean(null_mean <= obs_mean)
+    ref_mean = ref_mean,
+    ref_sd = ref_sd,
+    ref_discrete = ref_discrete,
+    target_discrete = target_discrete
   ))
 }
-
 
 ###############################################################################
 # Main analysis function for one GWAS-method combination
 ###############################################################################
 
-analyse_one_pgs <- function(
-    ref_pgs_dt,
-    target_pgs_dt,
-    ref_global_pc_dt,
-    target_ref_projected_pc_dt,
-    target_within_pc_dt,
+analyse_one_score_col_simple <- function(
+    ref_score_dt,
+    target_score_dt,
+    ref_pc_dt,
+    target_pc_dt,
+    score_col,
     gwas,
     method,
-    global_pc_cols = paste0("PC", 1:20),
-    within_pc_cols = paste0("PC", 1:20),
+    pc_cols = paste0("PC", 1:20),
     k_knn = 50,
-    weighting = "inverse_distance",
-    B = 5000,
-    seed = 1,
-    pgs_col = NULL
+    weighting = "inverse_distance"
 ) {
-  message("Analysing: ", gwas, " / ", method)
+  message("Analysing: ", gwas, " / ", method, " / ", score_col)
   
-  # Prepare PGS
-  ref_pgs <- prep_pgs_dt(ref_pgs_dt, gwas = gwas, method = method, pgs_col = pgs_col)
-  target_pgs <- prep_pgs_dt(target_pgs_dt, gwas = gwas, method = method, pgs_col = pgs_col)
+  ref_pgs <- ref_score_dt[, .(
+    FID,
+    IID,
+    PGS = as.numeric(get(score_col))
+  )]
   
-  # Merge reference PGS with reference-projected/global PCs
+  target_pgs <- target_score_dt[, .(
+    FID,
+    IID,
+    PGS = as.numeric(get(score_col))
+  )]
+  
+  ref_pgs <- ref_pgs[!is.na(PGS)]
+  target_pgs <- target_pgs[!is.na(PGS)]
+  
+  # Merge PGS with reference-projected PCs
   ref_dt <- merge(
     ref_pgs,
-    prep_pc_dt(ref_global_pc_dt, global_pc_cols),
+    prep_pc_dt(ref_pc_dt, pc_cols),
     by = c("FID", "IID"),
     all = FALSE
   )
   
-  # Merge target PGS with reference-projected/global PCs
-  target_refpc_dt <- merge(
+  target_dt <- merge(
     target_pgs,
-    prep_pc_dt(target_ref_projected_pc_dt, global_pc_cols),
-    by = c("FID", "IID"),
-    all = FALSE
-  )
-  
-  # Merge target PGS with within-OpenSNP PCs
-  target_withinpc_dt <- merge(
-    target_pgs,
-    prep_pc_dt(target_within_pc_dt, within_pc_cols),
+    prep_pc_dt(target_pc_dt, pc_cols),
     by = c("FID", "IID"),
     all = FALSE
   )
   
   if (nrow(ref_dt) == 0) {
-    stop("No overlap between reference PGS and reference PCs.")
+    stop("No overlap between reference PGS and reference PCs for ", score_col)
   }
   
-  if (nrow(target_refpc_dt) == 0) {
-    stop("No overlap between target PGS and target reference-projected PCs.")
+  if (nrow(target_dt) == 0) {
+    stop("No overlap between target PGS and target PCs for ", score_col)
   }
   
-  if (nrow(target_withinpc_dt) == 0) {
-    stop("No overlap between target PGS and target within-sample PCs.")
-  }
-  
-  # Rename within-OpenSNP PCs BEFORE merging, to avoid collisions
-  within_renamed <- paste0("within_", within_pc_cols)
-  
-  target_withinpc_tmp <- copy(target_withinpc_dt)
-  setnames(
-    target_withinpc_tmp,
-    old = within_pc_cols,
-    new = within_renamed
-  )
-  
-  # Keep only target individuals present in both target PC spaces
-  target_dt <- merge(
-    target_refpc_dt,
-    target_withinpc_tmp[, c("FID", "IID", within_renamed), with = FALSE],
-    by = c("FID", "IID"),
-    all = FALSE
-  )
+  ref_dt <- ref_dt[
+    complete.cases(ref_dt[, c("PGS", pc_cols), with = FALSE])
+  ]
   
   target_dt <- target_dt[
-    complete.cases(target_dt[, c("PGS", global_pc_cols, within_renamed), with = FALSE])
-  ]  
+    complete.cases(target_dt[, c("PGS", pc_cols), with = FALSE])
+  ]
   
   # ---------------------------------------------------------------------------
-  # Linear correction using global/reference-projected PCs
+  # Raw PGS
   # ---------------------------------------------------------------------------
   
-  linear_fit <- linear_pc_correction(
-    ref_dt = ref_dt,
-    target_dt = target_dt,
-    pc_cols = global_pc_cols
+  target_dt[, pgs_raw := PGS]
+  ref_dt[, pgs_raw := PGS]
+  
+  # ---------------------------------------------------------------------------
+  # Discrete ancestry correction:
+  # standardise target PGS using mean and SD of ancestry-matched reference group
+  # ---------------------------------------------------------------------------
+  
+  discrete_fit <- discrete_reference_correction(
+    ref_pgs = ref_dt$PGS,
+    target_pgs = target_dt$PGS
   )
   
-  target_dt[, resid_linear := linear_fit$target_resid]
-  ref_dt[, resid_linear := linear_fit$ref_resid]
+  ref_dt[, pgs_discrete := discrete_fit$ref_discrete]
+  target_dt[, pgs_discrete := discrete_fit$target_discrete]
   
   # ---------------------------------------------------------------------------
-  # KNN correction using same global/reference-projected PC space
+  # Linear TRANS-equivalent correction
   # ---------------------------------------------------------------------------
   
-  scaled <- scale_pc_matrices(
+  linear_fit <- linear_pc_correction_trans_equivalent(
     ref_dt = ref_dt,
     target_dt = target_dt,
-    pc_cols = global_pc_cols
+    pc_cols = pc_cols
+  )
+  
+  ref_dt[, linear_mu := linear_fit$ref_mu]
+  ref_dt[, linear_var := linear_fit$ref_var_hat]
+  ref_dt[, pgs_linear_resid := linear_fit$ref_resid]
+  ref_dt[, pgs_linear := linear_fit$ref_trans]
+  
+  target_dt[, linear_mu := linear_fit$target_mu]
+  target_dt[, linear_var := linear_fit$target_var_hat]
+  target_dt[, pgs_linear_resid := linear_fit$target_resid]
+  target_dt[, pgs_linear := linear_fit$target_trans]
+  
+  # ---------------------------------------------------------------------------
+  # KNN correction using already-scaled reference-projected PCs
+  # ---------------------------------------------------------------------------
+  
+  pc_mats <- get_pc_matrices(
+    ref_dt = ref_dt,
+    target_dt = target_dt,
+    pc_cols = pc_cols
   )
   
   target_knn <- knn_expected_pgs(
     ref_pgs = ref_dt$PGS,
-    ref_pc_scaled = scaled$ref,
-    target_pc_scaled = scaled$target,
+    ref_pc = pc_mats$ref,
+    target_pc = pc_mats$target,
     k = k_knn,
     weighting = weighting
   )
   
   target_dt[, knn_mu := target_knn$mu_hat]
   target_dt[, knn_sd := target_knn$sd_hat]
-  target_dt[, resid_knn := PGS - knn_mu]
-  target_dt[, z_knn := resid_knn / knn_sd]
+  target_dt[, pgs_knn_resid := PGS - knn_mu]
+  target_dt[, pgs_knn := pgs_knn_resid / knn_sd]
   target_dt[, knn_n_eff := target_knn$n_eff]
   target_dt[, knn_mean_dist := target_knn$mean_dist]
   target_dt[, knn_min_dist := target_knn$min_dist]
   
-  # Reference leave-one-out KNN residuals
-  ref_loo <- reference_leave_one_out_knn_residuals(
+  # Reference leave-one-out KNN correction
+  ref_knn <- knn_reference_leave_one_out(
     ref_pgs = ref_dt$PGS,
-    ref_pc_scaled = scaled$ref,
+    ref_pc = pc_mats$ref,
     k = k_knn,
     weighting = weighting
   )
   
-  ref_dt[, knn_mu_loo := ref_loo$mu_hat]
-  ref_dt[, resid_knn_loo := ref_loo$resid]
-  ref_dt[, z_knn_loo := ref_loo$resid / ref_loo$sd_hat]
-  
-  # ---------------------------------------------------------------------------
-  # Empirical null based on matched reference pseudo-cohorts
-  # ---------------------------------------------------------------------------
-  
-  emp_null <- reference_matched_empirical_null(
-    target_knn = target_knn,
-    ref_loo_resid = ref_dt$resid_knn_loo,
-    target_resid = target_dt$resid_knn,
-    B = B,
-    weighted_sampling = TRUE,
-    seed = seed
-  )
-  
-  # ---------------------------------------------------------------------------
-  # Residual association with PCs
-  # ---------------------------------------------------------------------------
-  
-  pc_tests <- rbindlist(list(
-    test_residual_pc_association(
-      dt = target_dt,
-      resid_col = "resid_linear",
-      pc_cols = global_pc_cols,
-      label = "linear_resid_vs_reference_projected_PCs"
-    ),
-    test_residual_pc_association(
-      dt = target_dt,
-      resid_col = "resid_linear",
-      pc_cols = within_renamed,
-      label = "linear_resid_vs_within_OpenSNP_PCs"
-    ),
-    test_residual_pc_association(
-      dt = target_dt,
-      resid_col = "resid_knn",
-      pc_cols = global_pc_cols,
-      label = "knn_resid_vs_reference_projected_PCs"
-    ),
-    test_residual_pc_association(
-      dt = target_dt,
-      resid_col = "resid_knn",
-      pc_cols = within_renamed,
-      label = "knn_resid_vs_within_OpenSNP_PCs"
-    )
-  ), fill = TRUE)
-  
-  pc_tests[, `:=`(
-    gwas = gwas,
-    method = method
-  )]
+  ref_dt[, knn_mu_loo := ref_knn$mu_hat]
+  ref_dt[, knn_sd_loo := ref_knn$sd_hat]
+  ref_dt[, pgs_knn_resid_loo := ref_knn$resid]
+  ref_dt[, pgs_knn_loo := ref_knn$z]
+  ref_dt[, knn_n_eff_loo := ref_knn$n_eff]
+  ref_dt[, knn_mean_dist_loo := ref_knn$mean_dist]
+  ref_dt[, knn_min_dist_loo := ref_knn$min_dist]
   
   # ---------------------------------------------------------------------------
   # Summary
   # ---------------------------------------------------------------------------
   
+  raw_sum <- summarise_score(target_dt$pgs_raw)
+  discrete_sum <- summarise_score(target_dt$pgs_discrete)
+  linear_resid_sum <- summarise_score(target_dt$pgs_linear_resid)
+  linear_sum <- summarise_score(target_dt$pgs_linear)
+  knn_resid_sum <- summarise_score(target_dt$pgs_knn_resid)
+  knn_sum <- summarise_score(target_dt$pgs_knn)
+  
   summary <- data.table(
     gwas = gwas,
     method = method,
+    score_col = score_col,
     n_ref = nrow(ref_dt),
     n_target = nrow(target_dt),
-    
-    raw_mean = mean(target_dt$PGS, na.rm = TRUE),
-    raw_sd = sd(target_dt$PGS, na.rm = TRUE),
-    
-    linear_resid_mean = mean(target_dt$resid_linear, na.rm = TRUE),
-    linear_resid_sd = sd(target_dt$resid_linear, na.rm = TRUE),
-    linear_resid_se = sd(target_dt$resid_linear, na.rm = TRUE) / sqrt(nrow(target_dt)),
-    linear_resid_t = mean(target_dt$resid_linear, na.rm = TRUE) /
-      (sd(target_dt$resid_linear, na.rm = TRUE) / sqrt(nrow(target_dt))),
-    linear_resid_p = t.test(target_dt$resid_linear, mu = 0)$p.value,
-    
-    knn_resid_mean = mean(target_dt$resid_knn, na.rm = TRUE),
-    knn_resid_sd = sd(target_dt$resid_knn, na.rm = TRUE),
-    knn_resid_se = sd(target_dt$resid_knn, na.rm = TRUE) / sqrt(nrow(target_dt)),
-    knn_resid_t = mean(target_dt$resid_knn, na.rm = TRUE) /
-      (sd(target_dt$resid_knn, na.rm = TRUE) / sqrt(nrow(target_dt))),
-    knn_resid_p = t.test(target_dt$resid_knn, mu = 0)$p.value,
-    
-    knn_z_mean = mean(target_dt$z_knn, na.rm = TRUE),
-    knn_z_sd = sd(target_dt$z_knn, na.rm = TRUE),
-    
-    knn_k = k_knn,
+    pc_n = length(pc_cols),
+    k_knn = k_knn,
     knn_weighting = weighting,
+    
+    ref_mean_for_discrete = discrete_fit$ref_mean,
+    ref_sd_for_discrete = discrete_fit$ref_sd,
+    
+    raw_mean = raw_sum$mean,
+    raw_sd = raw_sum$sd,
+    raw_se = raw_sum$se,
+    raw_t = raw_sum$t,
+    raw_p = raw_sum$p,
+    
+    discrete_mean = discrete_sum$mean,
+    discrete_sd = discrete_sum$sd,
+    discrete_se = discrete_sum$se,
+    discrete_t = discrete_sum$t,
+    discrete_p = discrete_sum$p,
+    
+    linear_resid_mean = linear_resid_sum$mean,
+    linear_resid_sd = linear_resid_sum$sd,
+    linear_resid_se = linear_resid_sum$se,
+    linear_resid_t = linear_resid_sum$t,
+    linear_resid_p = linear_resid_sum$p,
+    
+    linear_mean = linear_sum$mean,
+    linear_sd = linear_sum$sd,
+    linear_se = linear_sum$se,
+    linear_t = linear_sum$t,
+    linear_p = linear_sum$p,
+    
+    knn_resid_mean = knn_resid_sum$mean,
+    knn_resid_sd = knn_resid_sum$sd,
+    knn_resid_se = knn_resid_sum$se,
+    knn_resid_t = knn_resid_sum$t,
+    knn_resid_p = knn_resid_sum$p,
+    
+    knn_mean = knn_sum$mean,
+    knn_sd = knn_sum$sd,
+    knn_se = knn_sum$se,
+    knn_t = knn_sum$t,
+    knn_p = knn_sum$p,
+    
     knn_mean_n_eff = mean(target_dt$knn_n_eff, na.rm = TRUE),
     knn_median_n_eff = median(target_dt$knn_n_eff, na.rm = TRUE),
     knn_mean_dist = mean(target_dt$knn_mean_dist, na.rm = TRUE),
     knn_median_dist = median(target_dt$knn_mean_dist, na.rm = TRUE),
     
-    empirical_null_mean = emp_null$null_mean_mean,
-    empirical_null_sd = emp_null$null_mean_sd,
-    empirical_null_p_one_sided_positive = emp_null$null_p_one_sided_positive,
-    empirical_null_p_two_sided = emp_null$null_p_two_sided,
-    empirical_null_percentile = emp_null$null_percentile
+    ref_raw_mean = mean(ref_dt$pgs_raw, na.rm = TRUE),
+    ref_raw_sd = sd(ref_dt$pgs_raw, na.rm = TRUE),
+    
+    ref_discrete_mean = mean(ref_dt$pgs_discrete, na.rm = TRUE),
+    ref_discrete_sd = sd(ref_dt$pgs_discrete, na.rm = TRUE),
+    
+    ref_linear_resid_mean = mean(ref_dt$pgs_linear_resid, na.rm = TRUE),
+    ref_linear_resid_sd = sd(ref_dt$pgs_linear_resid, na.rm = TRUE),
+    ref_linear_mean = mean(ref_dt$pgs_linear, na.rm = TRUE),
+    ref_linear_sd = sd(ref_dt$pgs_linear, na.rm = TRUE),
+    
+    ref_knn_resid_loo_mean = mean(ref_dt$pgs_knn_resid_loo, na.rm = TRUE),
+    ref_knn_resid_loo_sd = sd(ref_dt$pgs_knn_resid_loo, na.rm = TRUE),
+    ref_knn_loo_mean = mean(ref_dt$pgs_knn_loo, na.rm = TRUE),
+    ref_knn_loo_sd = sd(ref_dt$pgs_knn_loo, na.rm = TRUE),
+    
+    ref_knn_mean_n_eff = mean(ref_dt$knn_n_eff_loo, na.rm = TRUE),
+    ref_knn_median_n_eff = median(ref_dt$knn_n_eff_loo, na.rm = TRUE),
+    ref_knn_mean_dist = mean(ref_dt$knn_mean_dist_loo, na.rm = TRUE),
+    ref_knn_median_dist = median(ref_dt$knn_mean_dist_loo, na.rm = TRUE)
   )
+  
+  target_dt[, `:=`(
+    gwas = gwas,
+    method = method,
+    score_col = score_col
+  )]
+  
+  ref_dt[, `:=`(
+    gwas = gwas,
+    method = method,
+    score_col = score_col
+  )]
   
   return(list(
     summary = summary,
-    pc_tests = pc_tests,
     target_results = target_dt,
     ref_results = ref_dt,
-    empirical_null = data.table(
-      gwas = gwas,
-      method = method,
-      null_mean = emp_null$null_mean
-    ),
-    linear_model = linear_fit$fit
+    linear_mean_model = linear_fit$mean_model,
+    linear_var_model = linear_fit$var_model
   ))
 }
 
-
-###############################################################################
-# Wrapper to loop across height GWAS and PGS methods
-###############################################################################
-
-run_height_pgs_ancestry_diagnostics <- function(
-    ref_pgs_list,
-    target_pgs_list,
-    ref_sample_name,
-    target_sample_name,
-    ref_pop = "TRANS",
-    target_pop = "TRANS",
-    ref_global_pc_dt,
-    target_ref_projected_pc_dt,
-    target_within_pc_dt,
-    gwas_vec = c("Yengo_height", "UKB_height", "Howe_sibling_height"),
-    pgs_methods = c("ptclump", "quickprs"),
-    global_pc_cols = paste0("PC", 1:20),
-    within_pc_cols = paste0("PC", 1:20),
+analyse_one_pgs_simple <- function(
+    ref_pgs_dt,
+    target_pgs_dt,
+    ref_pc_dt,
+    target_pc_dt,
+    gwas,
+    method,
+    pc_cols = paste0("PC", 1:20),
     k_knn = 50,
     weighting = "inverse_distance",
-    B = 5000,
-    seed = 1,
+    pgs_col = NULL
+) {
+  # Prepare full PGS tables with all score columns
+  ref_prep <- prep_pgs_dt(
+    ref_pgs_dt,
+    gwas = gwas,
+    method = method,
+    pgs_col = pgs_col
+  )
+  
+  target_prep <- prep_pgs_dt(
+    target_pgs_dt,
+    gwas = gwas,
+    method = method,
+    pgs_col = pgs_col
+  )
+  
+  ref_score_cols <- ref_prep$score_cols
+  target_score_cols <- target_prep$score_cols
+  
+  # Use common score columns only
+  score_cols <- intersect(ref_score_cols, target_score_cols)
+  
+  if (length(score_cols) == 0) {
+    stop(
+      "No shared score columns between reference and target for ",
+      gwas, " / ", method,
+      "\nReference score columns: ", paste(ref_score_cols, collapse = ", "),
+      "\nTarget score columns: ", paste(target_score_cols, collapse = ", ")
+    )
+  }
+  
+  # Keep ordering from target
+  score_cols <- target_score_cols[target_score_cols %in% score_cols]
+  
+  results <- list()
+  summary_list <- list()
+  target_results_list <- list()
+  ref_results_list <- list()
+  
+  for (score_col_i in score_cols) {
+    res_i <- analyse_one_score_col_simple(
+      ref_score_dt = ref_prep$dt,
+      target_score_dt = target_prep$dt,
+      ref_pc_dt = ref_pc_dt,
+      target_pc_dt = target_pc_dt,
+      score_col = score_col_i,
+      gwas = gwas,
+      method = method,
+      pc_cols = pc_cols,
+      k_knn = k_knn,
+      weighting = weighting
+    )
+    
+    results[[score_col_i]] <- res_i
+    summary_list[[score_col_i]] <- res_i$summary
+    target_results_list[[score_col_i]] <- res_i$target_results
+    ref_results_list[[score_col_i]] <- res_i$ref_results
+  }
+  
+  summary_dt <- rbindlist(summary_list, fill = TRUE)
+  
+  return(list(
+    summary = summary_dt,
+    score_results = results,
+    target_results = target_results_list,
+    ref_results = ref_results_list
+  ))
+}
+
+###############################################################################
+# Wrapper across GWAS and PGS methods
+###############################################################################
+
+run_pgs_ancestry_correction_simple <- function(
+    ref_pgs_list,
+    target_pgs_list,
+    target_sample_name,
+    ref_pop = "EUR",
+    target_pop = "EUR",
+    ref_pc_dt,
+    target_pc_dt,
+    gwas_vec,
+    pgs_methods = c("quickprs"),
+    pc_cols = paste0("PC", 1:20),
+    k_knn = 50,
+    weighting = "inverse_distance",
     pgs_col = NULL
 ) {
   results <- list()
   summary_list <- list()
-  pc_test_list <- list()
-  null_list <- list()
   
   for (gwas_i in gwas_vec) {
     for (method_i in pgs_methods) {
+      
+      if (is.null(ref_pgs_list[[ref_pop]])) {
+        warning("Reference pop not found in ref_pgs_list: ", ref_pop)
+        next
+      }
+      
       if (is.null(target_pgs_list[[target_sample_name]])) {
         warning("Target sample not found in target_pgs_list: ", target_sample_name)
         next
       }
+      
       if (is.null(target_pgs_list[[target_sample_name]][[target_pop]])) {
         warning("Target pop not found: ", target_pop)
         next
       }
-      if (is.null(ref_pgs_list[[gwas_i]])) {
+      
+      if (is.null(ref_pgs_list[[ref_pop]][[gwas_i]])) {
         warning("Reference GWAS not found: ", gwas_i)
         next
       }
+      
       if (is.null(target_pgs_list[[target_sample_name]][[target_pop]][[gwas_i]])) {
         warning("Target GWAS not found: ", gwas_i)
         next
       }
-      if (is.null(ref_pgs_list[[gwas_i]][[method_i]])) {
+      
+      if (is.null(ref_pgs_list[[ref_pop]][[gwas_i]][[method_i]])) {
         warning("Reference method not found: ", gwas_i, " / ", method_i)
         next
       }
+      
       if (is.null(target_pgs_list[[target_sample_name]][[target_pop]][[gwas_i]][[method_i]])) {
         warning("Target method not found: ", gwas_i, " / ", method_i)
         next
       }
       
-      res_i <- analyse_one_pgs(
-        ref_pgs_dt = ref_pgs_list[[gwas_i]][[method_i]],
-        target_pgs_dt = target_pgs_list[[target_sample_name]][[target_pop]][[gwas_i]][[method_i]],
-        ref_global_pc_dt = ref_global_pc_dt,
-        target_ref_projected_pc_dt = target_ref_projected_pc_dt,
-        target_within_pc_dt = target_within_pc_dt,
+      if (is.null(ref_pgs_list[[ref_pop]][[gwas_i]][[method_i]][["raw"]])) {
+        warning("Reference raw PGS not found: ", gwas_i, " / ", method_i)
+        next
+      }
+      
+      if (is.null(target_pgs_list[[target_sample_name]][[target_pop]][[gwas_i]][[method_i]][["raw"]])) {
+        warning("Target raw PGS not found: ", gwas_i, " / ", method_i)
+        next
+      }
+      
+      res_i <- analyse_one_pgs_simple(
+        ref_pgs_dt = ref_pgs_list[[ref_pop]][[gwas_i]][[method_i]][["raw"]],
+        target_pgs_dt = target_pgs_list[[target_sample_name]][[target_pop]][[gwas_i]][[method_i]][["raw"]],
+        ref_pc_dt = ref_pc_dt[[ref_pop]],
+        target_pc_dt = target_pc_dt[[target_sample_name]][[target_pop]],
         gwas = gwas_i,
         method = method_i,
-        global_pc_cols = global_pc_cols,
-        within_pc_cols = within_pc_cols,
+        pc_cols = pc_cols,
         k_knn = k_knn,
         weighting = weighting,
-        B = B,
-        seed = seed,
         pgs_col = pgs_col
       )
       
       key_i <- paste(gwas_i, method_i, sep = "__")
+      
       results[[key_i]] <- res_i
       summary_list[[key_i]] <- res_i$summary
-      pc_test_list[[key_i]] <- res_i$pc_tests
-      null_list[[key_i]] <- res_i$empirical_null
     }
   }
   
   summary_dt <- rbindlist(summary_list, fill = TRUE)
-  pc_tests_dt <- rbindlist(pc_test_list, fill = TRUE)
-  empirical_null_dt <- rbindlist(null_list, fill = TRUE)
   
   return(list(
     summary = summary_dt,
-    pc_tests = pc_tests_dt,
-    empirical_null = empirical_null_dt,
     full_results = results
   ))
 }
-
 ```
 
-## Run code
+***
 
+### Run code
+
+#### 6 PCs
 ```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Set config
+config <- 'misc/opensnp/config_zenodo_10715132.yaml'
+gwas_list <- fread('misc/opensnp/gwas_list_zenodo_10715132.txt')
 
 # Target OpenSNP PGS
 target_pgs <- read_pgs(
   config = config,
-  name = "opensnp",
-  pgs_methods = c("quickprs"),
-  pop = "TRANS"
+  name = "opensnp"
+)
+
+# Reference PGS
+ref_pgs <- read_pgs(
+  config = config,
+  ref = T
 )
 
 # Target PCs
-target_ref_projected_pc_dt <- fread('~/oliverpainfel/Data/OpenSNP/GenoPred/zenodo_10715132.20_ref_pcs/opensnp/pcs/projected/TRANS/opensnp-TRANS.profiles')
+target_ref_projected_pc_dt <- read_pcs(config = config, name = 'opensnp', type = 'projected')
 
-target_within_pc_dt<- fread('~/oliverpainfel/Data/OpenSNP/GenoPred/zenodo_10715132.20_ref_pcs/opensnp/pcs/within_sample/opensnp.outlier_detection.EUR.PCs.txt')
+# Reference PCs
+ref_global_pc_dt<- read_pcs(config = config, ref = T)
 
-# Reference PGS
-ref_pgs <- read_reference_pgs(config = config, population = 'TRANS')
-
-ref_global_pc_dt <- fread('~/oliverpainfel/Data/OpenSNP/GenoPred/zenodo_10715132.20_ref_pcs/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles')
-
-res <- run_height_pgs_ancestry_diagnostics(
-  ref_pgs_list = ref_pgs,
+res_simple_trans <- run_pgs_ancestry_correction_simple(
+  ref_pgs_list = ref_pgs$reference,
   target_pgs_list = target_pgs,
   target_sample_name = "opensnp",
   ref_pop = "TRANS",
   target_pop = "TRANS",
-  ref_global_pc_dt = ref_global_pc_dt,
-  target_ref_projected_pc_dt = target_ref_projected_pc_dt,
-  target_within_pc_dt = target_within_pc_dt,
-  gwas_vec = gwas_list$name,
-  pgs_methods = c("quickprs"),
-  global_pc_cols = paste0("PC", 1:40),
-  within_pc_cols = paste0("PC", 1:10),
+  ref_pc_dt = ref_global_pc_dt$reference,
+  target_pc_dt = target_ref_projected_pc_dt,
+  gwas_vec = gwas_list$name[grepl('height|yengo', gwas_list$name)],
+  pgs_methods = c("quickprs",'ptclump'),
+  pc_cols = paste0("PC", 1:6),
   k_knn = 50,
-  weighting = "inverse_distance",
-  B = 100,
-  seed = 1
+  weighting = "inverse_distance"
 )
 
-res$summary
-res$pc_tests
+res_simple_eur <- run_pgs_ancestry_correction_simple(
+  ref_pgs_list = ref_pgs$reference,
+  target_pgs_list = target_pgs,
+  target_sample_name = "opensnp",
+  ref_pop = "EUR",
+  target_pop = "EUR",
+  ref_pc_dt = ref_global_pc_dt$reference,
+  target_pc_dt = target_ref_projected_pc_dt,
+  gwas_vec = gwas_list$name[grepl('height|yengo', gwas_list$name)],
+  pgs_methods = c("quickprs",'ptclump'),
+  pc_cols = paste0("PC", 1:6),
+  k_knn = 50,
+  weighting = "inverse_distance"
+)
+
+res_both <- rbind(
+  data.table(res_simple_eur$summary, population = 'EUR'),
+  data.table(res_simple_trans$summary, population = 'TRANS'))
+
+res_both$pgs_model <- paste0('pT = ', gsub('.*_0_','',res_both$score_col))
+res_both$pgs_model[res_both$method == 'quickprs'] <- 'QuickPRS'
+res_both<-res_both[res_both$pgs_model %in% c('pT = 5e-08','QuickPRS'),]
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# 1. Pivot the metrics (mean and sd) for the three correction types
+res_long <- res_both %>%
+  pivot_longer(
+    cols = c(discrete_mean, discrete_sd, linear_mean, linear_sd, knn_mean, knn_sd),
+    names_to = c("correction", ".value"),
+    names_pattern = "(.*)_(mean|sd)"
+  ) %>%
+  # 2. Reshape again so mean and sd are in one column for faceting
+  pivot_longer(
+    cols = c(mean, sd),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+res_long$correction<-factor(res_long$correction, levels = c('discrete','linear','knn'))
+
+# 3. Create the plot
+ggplot(res_long, aes(x = gwas, y = value, fill = correction)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  # Facet rows by Metric (mean/sd) and columns by Population
+  # correction is on the x-axis to compare the three methods directly
+  facet_grid(metric ~ population + method, scales = "free_y") +
+  theme_minimal() +
+  labs(
+    title = "Comparison of PGS Mean and SD across Correction Methods",
+    subtitle = "Comparing Raw, Linear, and KNN adjustments",
+    x = "GWAS Source",
+    y = "Value",
+    fill = "Standardisation"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "gray95"),
+    panel.spacing = unit(1, "lines")
+  )
+
+########
+# Explore KNN results across k
+########
+
+###
+# TRANS
+### 
+k_values <- c(10, 20, 50, 100, 200)
+
+res_k <- rbindlist(lapply(k_values, function(k_i) {
+  res_i <- run_pgs_ancestry_correction_simple(
+    ref_pgs_list = ref_pgs$reference,
+    target_pgs_list = target_pgs,
+    target_sample_name = "opensnp",
+    ref_pop = "TRANS",
+    target_pop = "TRANS",
+    ref_pc_dt = ref_global_pc_dt$reference,
+    target_pc_dt = target_ref_projected_pc_dt,
+    gwas_vec = c("neale_lab_height", "ukb_height", "within_sib_height", "yengo_eur"),
+    pgs_methods = c("ptclump", "quickprs"),
+    pc_cols = paste0("PC", 1:6),
+    k_knn = k_i,
+    weighting = "inverse_distance"
+  )
+  
+  tmp <- copy(res_i$summary)
+  tmp[, k_knn := k_i]
+  tmp
+}), fill = TRUE)
+
+library(ggplot2)
+
+ggplot(
+  res_k[method == "quickprs"],
+  aes(x = k_knn, y = knn_mean, group = gwas, colour = gwas)
+) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ gwas, scales = "free_y") +
+  theme_classic()
+
+library(FNN)
+library(data.table)
+
+pc_cols <- paste0("PC", 1:6)
+
+ref_dt <- ref_global_pc_dt$reference$TRANS
+target_dt <- target_ref_projected_pc_dt$opensnp$TRANS
+
+ref_pc <- as.matrix(ref_dt[, ..pc_cols])
+target_pc <- as.matrix(target_dt[, ..pc_cols])
+
+k <- 50
+
+target_knn <- FNN::get.knnx(ref_pc, target_pc, k = k)
+ref_knn <- FNN::get.knnx(ref_pc, ref_pc, k = k + 1)
+
+target_mean_dist <- rowMeans(target_knn$nn.dist)
+ref_mean_dist <- rowMeans(ref_knn$nn.dist[, -1, drop = FALSE])
+
+data.table(
+  comparison = c("OpenSNP_to_TRANS_reference", "TRANS_reference_to_TRANS_reference"),
+  mean_dist = c(mean(target_mean_dist), mean(ref_mean_dist)),
+  median_dist = c(median(target_mean_dist), median(ref_mean_dist)),
+  q90 = c(quantile(target_mean_dist, 0.9), quantile(ref_mean_dist, 0.9)),
+  q95 = c(quantile(target_mean_dist, 0.95), quantile(ref_mean_dist, 0.95))
+)
+
+###
+# EUR
+###
+k_values <- c(10, 20, 50, 100, 200)
+
+res_k <- rbindlist(lapply(k_values, function(k_i) {
+  res_i <- run_pgs_ancestry_correction_simple(
+    ref_pgs_list = ref_pgs$reference,
+    target_pgs_list = target_pgs,
+    target_sample_name = "opensnp",
+    ref_pop = "EUR",
+    target_pop = "EUR",
+    ref_pc_dt = ref_global_pc_dt$reference,
+    target_pc_dt = target_ref_projected_pc_dt,
+    gwas_vec = c("neale_lab_height", "ukb_height", "within_sib_height", "yengo_eur"),
+    pgs_methods = c("ptclump", "quickprs"),
+    pc_cols = paste0("PC", 1:6),
+    k_knn = k_i,
+    weighting = "inverse_distance"
+  )
+  
+  tmp <- copy(res_i$summary)
+  tmp[, k_knn := k_i]
+  tmp
+}), fill = TRUE)
+
+# Plot result
+library(ggplot2)
+
+ggplot(
+  res_k[method == "quickprs"],
+  aes(x = k_knn, y = knn_mean, group = gwas, colour = gwas)
+) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ gwas, scales = "free_y") +
+  theme_classic()
+
+library(FNN)
+library(data.table)
+
+pc_cols <- paste0("PC", 1:6)
+
+ref_dt <- ref_global_pc_dt$reference$EUR
+target_dt <- target_ref_projected_pc_dt$opensnp$EUR
+
+ref_pc <- as.matrix(ref_dt[, ..pc_cols])
+target_pc <- as.matrix(target_dt[, ..pc_cols])
+
+k <- 50
+
+target_knn <- FNN::get.knnx(ref_pc, target_pc, k = k)
+ref_knn <- FNN::get.knnx(ref_pc, ref_pc, k = k + 1)
+
+target_mean_dist <- rowMeans(target_knn$nn.dist)
+ref_mean_dist <- rowMeans(ref_knn$nn.dist[, -1, drop = FALSE])
+
+data.table(
+  comparison = c("OpenSNP_to_EUR_reference", "EUR_reference_to_EUR_reference"),
+  mean_dist = c(mean(target_mean_dist), mean(ref_mean_dist)),
+  median_dist = c(median(target_mean_dist), median(ref_mean_dist)),
+  q90 = c(quantile(target_mean_dist, 0.9), quantile(ref_mean_dist, 0.9)),
+  q95 = c(quantile(target_mean_dist, 0.95), quantile(ref_mean_dist, 0.95))
+)
+
+# Seems like ptclump scores with KNN correction in TRANS is the most stable approach
+
+##########
+# Run all traits
+##########
+
+res_simple_trans <- run_pgs_ancestry_correction_simple(
+  ref_pgs_list = ref_pgs$reference,
+  target_pgs_list = target_pgs,
+  target_sample_name = "opensnp",
+  ref_pop = "TRANS",
+  target_pop = "TRANS",
+  ref_pc_dt = ref_global_pc_dt$reference,
+  target_pc_dt = target_ref_projected_pc_dt,
+  gwas_vec = gwas_list$name[grepl('neale|within', gwas_list$name)],
+  pgs_methods = c("quickprs",'ptclump'),
+  pc_cols = paste0("PC", 1:6),
+  k_knn = 50,
+  weighting = "inverse_distance"
+)
+
+res_simple_trans$summary$pgs_model <- paste0('pT = ', gsub('.*_0_','',res_simple_trans$summary$score_col))
+res_simple_trans$summary$pgs_model[res_simple_trans$summary$method == 'quickprs'] <- 'QuickPRS'
+res_simple_trans$summary<-res_simple_trans$summary[res_simple_trans$summary$pgs_model %in% c('pT = 5e-08'),]
+
+# 1. Pivot the metrics (mean and sd) for the three correction types
+res_long <- res_simple_trans$summary %>%
+  pivot_longer(
+    cols = c(linear_mean, linear_sd, knn_mean, knn_sd),
+    names_to = c("correction", ".value"),
+    names_pattern = "(.*)_(mean|sd)"
+  ) %>%
+  # 2. Reshape again so mean and sd are in one column for faceting
+  pivot_longer(
+    cols = c(mean, sd),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+res_long$correction<-factor(res_long$correction, levels = c('linear','knn'))
+res_long$gwas_type <- ifelse(grepl('neale', res_long$gwas), 'Unrelated', 'Within-sib')
+res_long$trait <- gsub('.*_','',res_long$gwas)
+
+# 3. Create the plot
+ggplot(res_long, aes(x = trait, y = value, fill = correction)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  # Facet rows by Metric (mean/sd) and columns by Population
+  # correction is on the x-axis to compare the three methods directly
+  facet_grid(metric ~ gwas_type, scales = "free_y") +
+  theme_minimal() +
+  labs(
+    title = "Comparison of PGS Mean and SD across Correction Methods",
+    subtitle = "Comparing Raw, Linear, and KNN adjustments",
+    x = "Trait",
+    y = "Value",
+    fill = "Standardisation"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "gray95"),
+    panel.spacing = unit(1, "lines")
+  )
+
+
 ```
 

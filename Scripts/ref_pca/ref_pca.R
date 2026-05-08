@@ -4,30 +4,22 @@ start.time <- Sys.time()
 library("optparse")
 
 option_list = list(
-make_option("--ref_plink_chr", action="store", default=NULL, type='character',
-		help="Path to per chromosome reference PLINK2 files [required]"),
-make_option("--ref_keep", action="store", default=NULL, type='character',
-		help="Keep file to subset individuals in reference for PCA [required]"),
-make_option("--maf", action="store", default=0.05, type='numeric',
-    help="Minor allele frequency threshold [optional]"),
-make_option("--geno", action="store", default=0.02, type='numeric',
-    help="Variant missingness threshold [optional]"),
-make_option("--hwe", action="store", default=1e-6, type='numeric',
-    help="Hardy Weinberg p-value threshold. [optional]"),
-make_option("--n_pcs", action="store", default=6, type='numeric',
-    help="Number of PCs [optional]"),
-make_option("--extract", action="store", default=NULL, type='numeric',
-    help="List of variancs to restrict PCA to [optional]"),
-make_option("--plink2", action="store", default='plink2', type='character',
-		help="Path PLINKv2 software binary [optional]"),
-make_option("--output", action="store", default=NULL, type='character',
-		help="Path for output files [required]"),
-make_option("--pop_data", action="store", default=NULL, type='character',
-    help="Population data for the reference samples [required]"),
-make_option("--memory", action="store", default=5000, type='numeric',
-		help="Memory limit [optional]"),
-  make_option("--test", action="store", default=NA, type='character',
-    help="Specify number of SNPs to include [optional]")
+  make_option("--config", action="store", default=NULL, type='character',
+      help="Pipeline configuration file [required]"),
+  make_option("--population", action="store", default=0.05, type='numeric',
+      help="Population to generate PCs [optional]"),
+  make_option("--maf", action="store", default=0.05, type='numeric',
+      help="Minor allele frequency threshold [optional]"),
+  make_option("--geno", action="store", default=0.02, type='numeric',
+      help="Variant missingness threshold [optional]"),
+  make_option("--hwe", action="store", default=1e-6, type='numeric',
+      help="Hardy Weinberg p-value threshold. [optional]"),
+  make_option("--n_pcs", action="store", default=6, type='numeric',
+      help="Number of PCs [optional]"),
+  make_option("--memory", action="store", default=5000, type='numeric',
+  		help="Memory limit [optional]"),
+    make_option("--test", action="store", default=NA, type='character',
+      help="Specify number of SNPs to include [optional]")
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -39,15 +31,15 @@ source('../functions/misc.R')
 source_all('../functions')
 
 # Check required inputs
-if(is.null(opt$pop_data)){
-  stop('--pop_data must be specified.\n')
+if(is.null(opt$config)){
+  stop('--config must be specified.\n')
 }
-if(is.null(opt$ref_plink_chr)){
-  stop('--ref_plink_chr must be specified.\n')
-}
-if(is.null(opt$output)){
-  stop('--output must be specified.\n')
-}
+
+# Read in outdir
+outdir <- read_param(config = opt$config, param = 'outdir', return_obj = F)
+
+# Create output directory
+opt$output <- paste0(outdir, '/reference/pc_score_files/', opt$population, '/ref-', opt$population, '-pcs')
 
 # Create output directory
 opt$output_dir<-paste0(dirname(opt$output),'/')
@@ -60,11 +52,6 @@ tmp_dir<-tempdir()
 log_file <- paste(opt$output,'.log',sep='')
 log_header(log_file = log_file, opt = opt, script = 'ref_pca.R', start.time = start.time)
 
-# Set ref_keep to NULL if NA
-if(!is.null(opt$ref_keep) && opt$ref_keep == 'NA'){
-  opt$ref_keep<-NULL
-}
-
 # If testing, change CHROMS to chr value
 if(!is.na(opt$test) && opt$test == 'NA'){
   opt$test<-NA
@@ -73,7 +60,22 @@ if(!is.na(opt$test)){
   CHROMS <- as.numeric(gsub('chr','',opt$test))
 }
 
+refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
+if(as.logical(read_param(config = opt$config, param = 'restrict_to_target_variants', return_obj = F))){
+  opt$ref_plink_chr <- paste0(outdir, '/reference/ref/ref.chr')
+} else {
+  opt$ref_plink_chr <- paste0(refdir, '/ref.chr')
+}
+
 opt$ref_plink_chr_orig <- opt$ref_plink_chr
+
+if(opt$population != 'TRANS'){
+  opt$ref_keep <- paste0(refdir,'/keep_files/', opt$population, '.keep')
+} else {
+  opt$ref_keep <- NULL
+}
+
+opt$plink2 <- 'plink2'
 
 ###########
 # Extract ref_keep
@@ -143,18 +145,23 @@ log_add(log_file = log_file, message = 'Computing reference PCs.')
 # Calculate PCs in the full reference
 ref_pcs<-plink_score(pfile = opt$ref_plink_chr_orig, chr = CHROMS, plink2 = opt$plink2, score = paste0(opt$output,'.eigenvec.var.gz'), center = T)
 
-# Scale reference scores across all individuals and save a scale file
-ref_pcs_scale_TRANS <- score_mean_sd(scores = ref_pcs)
-fwrite(ref_pcs_scale_TRANS, paste0(opt$output, '.TRANS.scale'), row.names = F, quote=F, sep=' ', na='NA')
-scores_scaled<-score_scale(score=ref_pcs, ref_scale=ref_pcs_scale_TRANS)
-fwrite(scores_scaled, paste0(opt$output, '.profiles'), row.names = F, quote=F, sep=' ', na='NA')
+# Save raw PCs
+fwrite(ref_pcs, paste0(opt$output, '.profiles'), row.names = F, quote=F, sep=' ', na='NA')
 
-# Calculate scale within each reference population
-pop_data <- read_pop_data(opt$pop_data)
-
-for(pop_i in unique(pop_data$POP)){
-  ref_pcs_scale_i <- score_mean_sd(scores = ref_pcs, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
-  fwrite(ref_pcs_scale_i, paste0(opt$output, '.', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
+if(opt$population == 'TRANS'){
+  ref_pcs_scale <- score_mean_sd(scores = ref_pcs)
+  fwrite(ref_pcs_scale, paste0(opt$output, '.TRANS.scale'), row.names = F, quote=F, sep=' ', na='NA')
+  scores_scaled<-score_scale(score=ref_pcs, ref_scale=ref_pcs_scale)
+  fwrite(scores_scaled, paste0(opt$output, '.profiles'), row.names = F, quote=F, sep=' ', na='NA')
+} else {
+  # Read reference population data
+  pop_data <- read_pop_data(paste0(refdir, '/ref.pop.txt'))
+  keep <- pop_data[pop_data$POP == opt$population,]
+  ref_pcs_pop <- ref_pcs[paste0(ref_pcs$FID, '_', ref_pcs$IID) %in% paste0(keep$FID, '_', keep$IID),]
+  ref_pcs_scale <- score_mean_sd(scores = ref_pcs_pop)
+  fwrite(ref_pcs_scale, paste0(opt$output, '.', opt$population, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
+  scores_scaled<-score_scale(score=ref_pcs_pop, ref_scale=ref_pcs_scale)
+  fwrite(scores_scaled, paste0(opt$output, '.profiles'), row.names = F, quote=F, sep=' ', na='NA')
 }
 
 end.time <- Sys.time()
