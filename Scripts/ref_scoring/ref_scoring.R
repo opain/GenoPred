@@ -63,8 +63,17 @@ score_files<-list_score_files(opt$config)
 if(!is.null(score_files)){
   ref_pcs_file_time <- NULL
   if(opt$continuous){
-    ref_pcs_file<-paste0(outdir, '/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale')
-    ref_pcs_file_time <- file.info(ref_pcs_file)$mtime
+    pops <- list.files(paste0(outdir, '/reference/pc_score_files/'))
+    ref_pcs_file_time <- NULL
+    for(i in pops){
+      ref_pcs_file<-paste0(outdir, '/reference/pc_score_files/',i,'/ref-',i,'-pcs.',i,'.scale')
+      
+      ref_pcs_file_time <- c(
+        ref_pcs_file_time,
+        file.info(ref_pcs_file)$mtime
+      )
+    }
+    ref_pcs_file_time <- max(ref_pcs_file_time)
   }
   
   score_files_to_do <- data.table()

@@ -7233,6 +7233,992 @@ write.table(
 ```
 
 ***
+
+# 7. Empirical decay in 1KG
+
+UKB RAP has been closed. I will use 1KG with simulated imputation error to finish validating PGS-check. Remove variants, reimpute them, calculate PGS using dosages and best-guess genotypes, and compare estimated and observed PGS decay using q = INFO or 1-F_MISS.
+
+***
+
+## Mask and impute genotypes
+
+```{bash}
+# Perform LD-based pruning
+mkdir -p ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1
+
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile ~/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22 \
+  --keep ~/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/keep_files/EUR.keep \
+  --indep-pairwise 500 0.1 \
+  --maf 0.05 \
+  --out ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22
+  
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile ~/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22 \
+  --keep ~/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/keep_files/EUR.keep \
+  --extract ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.prune.in \
+  --make-bed \
+  --export vcf \
+  --out ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22
+
+# Index vcf
+module add bcftools
+bgzip /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.vcf
+bcftools index ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.vcf.gz
+
+# Phase
+module add shapeit4
+shapeit4.2 --input ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.vcf.gz \
+  --map ~/oliverpainfel/Data/shapeit4/chr22.b37.gmap.gz \
+  --region 22 \
+  --output ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.phased.vcf.gz
+
+
+# Add AN AC tags
+bcftools +fill-tags \
+  ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.phased.vcf.gz \
+  -Oz -o ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.phased.tags.vcf.gz \
+  -- -t AN,AC
+bcftools index ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.phased.tags.vcf.gz
+
+# Chunk
+~/oliverpainfel/Software/impute5/impute5_v1.2.0/imp5Chunker_v1.2.0_static \
+  --h ~/oliverpainfel/Data/1KG/sequence/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz \
+  --g ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.phased.vcf.gz \
+  --r 22 \
+  --o ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.phashed.coordinates
+
+# Convert reference
+~/oliverpainfel/Software/impute5/impute5_v1.2.0/xcftools_static view \
+  -i ~/oliverpainfel/Data/1KG/sequence/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz \
+  -o ~/oliverpainfel/Data/1KG/sequence/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.xcf.bcf \
+  -O sh \
+  -r 22 \
+  -T4 \
+  -m 0.03125
+
+# Impute
+mkdir -p ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1
+
+COORDINATES_FILE="/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.phashed.coordinates"
+
+while read -r chunk_idx chr buffer_reg output_reg rest; do
+    # Format the chunk index to be two digits (00, 01, 02...) to match your naming scheme
+    formatted_idx=$(printf "%02d" "$chunk_idx")
+    
+    echo "--------------------------------------------"
+    echo "Processing Chunk: ${formatted_idx}"
+    echo "Buffer Region:    ${buffer_reg}"
+    echo "Output Region:    ${output_reg}"
+    echo "--------------------------------------------"
+
+    # Run IMPUTE5 for this specific chunk
+      sbatch -p interruptible_cpu,neurohack_cpu --mem 20G -t 1:00:00 --wrap="~/oliverpainfel/Software/impute5/impute5_v1.2.0/impute5_v1.2.0_static \
+      --h ~/oliverpainfel/Data/1KG/sequence/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.xcf.bcf \
+      --m ~/oliverpainfel/Data/shapeit4/chr22.b37.gmap.gz \
+      --g ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/degraded/window_500.r2_1/ref.chr22.phased.tags.vcf.gz \
+      --buffer-region ${buffer_reg} \
+      --r ${output_reg} \
+      --o ~/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.${formatted_idx}.bcf"
+
+done < "$COORDINATES_FILE"
+
+# Ligate chunks
+ls -1 /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.*.bcf > /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.list.txt
+bcftools concat \
+  -l \
+  -f /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.list.txt \
+  -Ob \
+  -o /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.bcf
+  
+bcftools index /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.bcf
+
+# Calculate INFO using bcftools, values from IMPUTE5 are wierd (often highly negative)
+bcftools +impute-info \
+  /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.bcf \
+  -Ou \
+| bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t%INFO/AF\t%INFO/INFO\n' \
+> /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/chr22.impute_info.tsv
+
+# Convert to PLINK2 and extract hapmap3 variants
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --bcf /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.bcf dosage=DS \
+  --make-pgen \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated
+
+```
+
+```{r}
+library(data.table)
+# Insert RSIDs
+pvar <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.pvar')
+
+ref <- fread('~/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22.pvar')
+
+both_match <- merge(pvar, ref, by = c('POS','REF','ALT'), sort = F, all.x = T)
+pvar_new <- both_match[, c('#CHROM.x','POS','ID.y','REF','ALT','FILTER','INFO'), with = F]
+names(pvar_new) <- c('#CHROM','POS','ID','REF','ALT','FILTER','INFO')
+pvar_new$ID[duplicated(pvar_new$ID) & !is.na(pvar_new$ID)] <- paste0(pvar_new$ID[duplicated(pvar_new$ID) & !is.na(pvar_new$ID)], '_dup')
+pvar_new$ID[is.na(pvar_new$ID)]<-'.'
+
+fwrite(pvar_new, '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.pvar', sep = ' ', na='NA', quote=F)
+write.table(pvar_new$ID[pvar_new$ID != '.' & !grepl('_dup', pvar_new$ID)], '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.extract', col.names = F, row.names = F, quote = F)
+```
+
+***
+
+## Compare expected and observed SNP variance
+
+```{bash}
+
+# Convert to PLINK2 and extract hapmap3 variants
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated \
+  --make-pgen \
+  --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.extract \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3
+
+# Export raw values
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3 \
+  --export A \
+  --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.extract \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3
+```
+
+```{r}
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+# Read sampled SNP metadata
+meta <- fread("/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/chr22.impute_info.tsv")
+names(meta)<-c('CHR','BP','A1','A2','FREQ','INFO')
+
+ref <- fread('~/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22.pvar')
+
+meta <- merge(meta, ref, by.x = c('BP','A1','A2'), by.y = c('POS','REF','ALT'))
+meta <- meta[, c('CHR','BP','ID','A1','A2','FREQ','INFO'), with = F]
+names(meta)<-c('CHR','BP','SNP','A1','A2','FREQ','INFO')
+
+meta$INFO[meta$FREQ == 1 | meta$FREQ == 0] <- NA
+
+fwrite(meta, '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/chr22.impute_info.hm3.tsv', sep = ' ', quote = F, na= 'NA')
+
+# Example dosage export
+geno <- fread("/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.raw")
+
+# PLINK raw exports usually have these first columns:
+id_cols <- c("FID","IID","PAT","MAT","SEX","PHENOTYPE")
+snp_cols <- setdiff(names(geno), id_cols)
+
+# Strip suffix if needed
+clean_names <- gsub("_.*$", "", snp_cols)
+setnames(geno, snp_cols, clean_names)
+
+snp_cols <- setdiff(names(geno), id_cols)
+
+# Hard-call from dosage using a threshold around the integer genotypes
+hardcall_from_ds <- function(x, thresh = 0.1) {
+  out <- rep(NA_real_, length(x))
+  out[x <= thresh] <- 0
+  out[x >= (1 - thresh) & x <= (1 + thresh)] <- 1
+  out[x >= (2 - thresh)] <- 2
+  out
+}
+
+# Apply hard-calling SNP by SNP
+hard_dt <- data.table(
+  SNP = snp_cols,
+  mean_ds = sapply(snp_cols, function(s) mean(geno[[s]], na.rm = TRUE)),
+  var_ds  = sapply(snp_cols, function(s) var(geno[[s]], na.rm = TRUE)),
+  n_total = nrow(geno),
+  n_called = sapply(snp_cols, function(s) {
+    hc <- hardcall_from_ds(geno[[s]], thresh = 0.1)
+    sum(!is.na(hc))
+  }),
+  mean_hc = sapply(snp_cols, function(s) {
+    hc <- hardcall_from_ds(geno[[s]], thresh = 0.1)
+    mean(hc, na.rm = TRUE)
+  }),
+  var_hc = sapply(snp_cols, function(s) {
+    hc <- hardcall_from_ds(geno[[s]], thresh = 0.1)
+    var(hc, na.rm = TRUE)
+  })
+)
+
+# Dosage-based AF and HWE variance
+hard_dt[, p_ds := mean_ds / 2]
+hard_dt[, var_hwe_ds := 2 * p_ds * (1 - p_ds)]
+hard_dt[, var_ratio_ds := var_ds / var_hwe_ds]
+
+# Hard-call called-sample AF and HWE variance
+hard_dt[, call_rate := n_called / n_total]
+hard_dt[, f_miss := 1 - call_rate]
+hard_dt[, p_hc := mean_hc / 2]
+hard_dt[, var_hwe_hc := 2 * p_hc * (1 - p_hc)]
+hard_dt[, var_ratio_hc := var_hc / var_hwe_hc]
+
+# Expected variance under simple random masking approximation:
+# Var(hardcall) ≈ call_rate * 2 p (1-p), using original dosage-based p
+hard_dt[, var_expected_mask := call_rate * var_hwe_ds]
+hard_dt[, var_ratio_expected_mask := var_hc / var_expected_mask]
+
+# Join INFO / metadata
+hard_dt <- merge(hard_dt, meta, by = "SNP", all.x = TRUE)
+
+ggplot(hard_dt, aes(x = INFO, y = var_ratio_ds)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red", linewidth = 0.8) +
+  theme_half_open() +
+  background_grid() +
+  labs(
+    x = "Imputation INFO",
+    y = "Hard-call empirical variance / 2p_called(1-p_called)"
+  )
+
+ggplot(hard_dt, aes(x = INFO, y = var_ratio_hc)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red", linewidth = 0.8) +
+  theme_half_open() +
+  background_grid() +
+  labs(
+    x = "Imputation INFO",
+    y = "Hard-call empirical variance / 2p_called(1-p_called)"
+  )
+
+hard_dt[, maf_ds := pmin(FREQ, 1 - FREQ)]
+
+hard_dt[, maf_bin := cut(
+  maf_ds,
+  breaks = c(0, 0.05, 0.1, 0.2, 0.5),
+  include.lowest = TRUE,
+  right = FALSE,
+  labels = c("[0,0.05)", "[0.05,0.1)", "[0.1,0.2)", "[0.2,0.5]")
+)]
+
+ggplot(hard_dt[!is.na(maf_bin)], aes(x = maf_bin, y = INFO)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  theme_half_open() +
+  background_grid() +
+  labs(
+    x = "MAF bin",
+    y = "Imputation INFO"
+  )
+
+ggplot(hard_dt[!is.na(maf_bin)], aes(x = INFO, y = var_ratio_hc)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red", linewidth = 0.8) +
+  facet_grid(~ maf_bin) +
+  theme_half_open() +
+  background_grid() +
+  labs(
+    x = "Imputation INFO",
+    y = "Hard-call empirical variance / 2p_called(1-p_called)"
+  )
+```
+
+***
+
+## Calculate RSQ
+
+```{bash}
+# Export raw values
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22 \
+  --keep ~/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/keep_files/EUR.keep \
+  --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.extract \
+  --export A \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22
+
+```
+
+```{r}
+library(data.table)
+
+id_cols <- c("FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE")
+
+# Dosage
+geno_ds <- fread("/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.raw")
+snp_cols_ds_raw <- setdiff(names(geno_ds), id_cols)
+snp_cols_ds <- gsub("_.*$", "", snp_cols_ds_raw)
+setnames(geno_ds, snp_cols_ds_raw, snp_cols_ds)
+
+# Baseline
+geno_bl <- fread("/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22.raw")
+snp_cols_bl_raw <- setdiff(names(geno_bl), id_cols)
+snp_cols_bl <- gsub("_.*$", "", snp_cols_bl_raw)
+setnames(geno_bl, snp_cols_bl_raw, snp_cols_bl)
+
+snp_cols_common <- intersect(
+  setdiff(names(geno_bl), id_cols),
+  setdiff(names(geno_ds), id_cols)
+)
+
+message("Baseline SNPs: ", length(setdiff(names(geno_bl), id_cols)))
+message("Dosage SNPs: ", length(setdiff(names(geno_ds), id_cols)))
+message("Common SNPs: ", length(snp_cols_common))
+
+cor_res <- rbindlist(lapply(snp_cols_common, function(i) {
+  dat_i <- merge(
+    geno_bl[, c("IID", i), with = FALSE],
+    geno_ds[, c("IID", i), with = FALSE],
+    by = "IID",
+    suffixes = c("_bl", "_ds")
+  )
+  
+  x <- dat_i[[paste0(i, "_bl")]]
+  y <- dat_i[[paste0(i, "_ds")]]
+  
+  data.table(
+    SNP = i,
+    n = sum(complete.cases(x, y)),
+    mean_bl = mean(x, na.rm = TRUE),
+    mean_ds = mean(y, na.rm = TRUE),
+    var_bl = var(x, na.rm = TRUE),
+    var_ds = var(y, na.rm = TRUE),
+    cov_bl_ds = cov(x, y, use = "complete.obs"),
+    a_emp = cov(x, y, use = "complete.obs") / var(x, na.rm = TRUE),
+    b_emp = var(y, na.rm = TRUE) / var(x, na.rm = TRUE),
+    r = cor(x, y, use = "complete.obs")
+  )
+}))
+
+cor_res[, r2 := r^2]
+
+summary(cor_res$a_emp)
+summary(cor_res$b_emp)
+summary(cor_res$r2)
+mean(cor_res$a_emp < 0, na.rm = TRUE)
+
+fwrite(
+  cor_res,
+  "/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/imp_snp_stats.txt",
+  quote = FALSE,
+  sep = " ",
+  na = "NA"
+)
+
+```
+
+***
+
+## Estimate PGS decay
+
+### q = INFO
+
+```{r}
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+library(GenoUtils)
+library(foreach)
+library(doMC)
+registerDoMC(4)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in score file
+score_file<-fread('/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse.txt.gz')
+
+# Read in reference SNP data
+snp_dat <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/chr22.impute_info.hm3.tsv')
+
+# Extract variants in 1KG reference
+score_file <- score_file[score_file$SNP %in% snp_dat$SNP,]
+
+# Restrict to SBayesRC scores
+score_file <- score_file[, grepl('SNP|A1|A2|sbayesrc', names(score_file)), with = F]
+
+info_df <- data.table(SNP = snp_dat$SNP, F_MISS = 1-snp_dat$INFO, INFO = snp_dat$INFO)
+
+# Calculate relative R2 (on each chromosome like in GenoPred)
+rel_r2 <- rel_pgs_r2_missing_eigen(
+    ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR',
+    score_df = score_file,
+    f_miss = info_df,
+    chr = 22)
+
+write.table(
+  rel_r2,
+  '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/est_rsq.info.txt',
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+
+# Try new function
+res_dosage <- rel_pgs_r2_missing_eigen_new(
+  ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR',
+  score_df = score_file,
+  q_df = info_df,
+  mode = "dosage",
+  q_col = "INFO",
+  chr = 22
+)
+
+write.table(
+  res_dosage,
+  '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/est_rsq.info.new.txt',
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+
+# Try new function with empirical INFO and RSQ
+snp_stats <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/imp_snp_stats.txt')
+
+res_emp <- rel_pgs_r2_missing_eigen_new(
+  ld_dir = "~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR",
+  score_df = score_file,
+  q_df = cor_res[, .(SNP, a_emp, b_emp)],
+  mode = "empirical_ab",
+  a_col = "a_emp",
+  b_col = "b_emp",
+  chr = 22
+)
+
+res_emp <- rel_pgs_r2_missing_eigen_new(
+  ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR',
+  score_df = score_file,
+  q_df = snp_stats,
+  mode = "empirical_ab",
+  a_col = "a_emp",
+  b_col = "var_ratio",
+  chr = 22
+)
+
+write.table(
+  res_dosage,
+  '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/est_rsq.info.new.txt',
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+
+# Try empirical estimation after filtering variants with INFO < 0.6
+res_emp_info6 <- rel_pgs_r2_missing_eigen_new(
+  ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR',
+  score_df = score_file[score_file$SNP %in% info_df$SNP[which(info_df$INFO > 0.6)],],
+  q_df = snp_stats,
+  mode = "empirical_ab",
+  a_col = "a_emp",
+  b_col = "b_emp",
+  chr = 22
+)
+
+write.table(
+  res_emp_info6,
+  '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/est_rsq.info.info6.new.txt',
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+
+write.table(
+  info_df$SNP[which(info_df$INFO > 0.6)],
+  '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/info_6.txt',
+  col.names = F,
+  row.names = F,
+  quote = F
+)
+```
+
+***
+
+### q = 1-F_MISS
+
+```{bash}
+
+# Convert to PLINK2 and extract hapmap3 variants
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3 \
+  --make-bed \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.hardcall
+
+# Export raw values
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --bfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.hardcall \
+  --export A \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.hardcall
+  
+# Calculate F_MISS
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --bfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.hardcall \
+  --missing \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.hardcall
+
+```
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline')
+library(data.table)
+library(GenoUtils)
+library(foreach)
+library(doMC)
+registerDoMC(4)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Read in score file
+score_file<-fread('/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse.txt.gz')
+
+# Read in reference SNP data
+snp_dat <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.hardcall.vmiss')
+
+# Extract variants in 1KG reference
+score_file <- score_file[score_file$SNP %in% snp_dat$ID,]
+
+# Restrict to SBayesRC scores
+score_file <- score_file[, grepl('SNP|A1|A2|sbayesrc', names(score_file)), with = F]
+
+f_miss <- data.table(SNP = snp_dat$ID, F_MISS = snp_dat$F_MISS)
+
+# Calculate relative R2 (on each chromosome like in GenoPred)
+rel_r2 <- rel_pgs_r2_missing_eigen(
+    ld_dir = '~/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/sbayesrc_ref/EUR',
+    score_df = score_file,
+    f_miss = f_miss,
+    chr = 22)
+
+write.table(
+  rel_r2,
+  '/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/est_rsq.f_miss.txt',
+  col.names = T,
+  row.names = F,
+  quote = F
+)
+
+```
+
+***
+
+## Calculate PGS
+
+```{bash}
+
+n_scores=$(zcat /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse.txt.gz | sed -n "1p" | awk "{print NF}")
+
+# Baseline
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22 \
+  --keep ~/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/keep_files/EUR.keep \
+  --extract /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.extract \
+  --score /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse.txt.gz header-read cols=+scoresums center \
+  --score-col-nums 4-${n_scores} \
+  --threads 4 \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.sparse.bl
+
+# Dosage
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --pfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3 \
+  --score /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse.txt.gz header-read cols=+scoresums center \
+  --score-col-nums 4-${n_scores} \
+  --threads 4 \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.sparse.ds
+
+# Hardcall
+~/oliverpainfel/Software/plink2_linux_avx2_20241011/plink2 \
+  --bfile /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.hardcall \
+  --score /users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse.txt.gz header-read cols=+scoresums center \
+  --score-col-nums 4-${n_scores} \
+  --threads 4 \
+  --out /users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.sparse.hc
+  
+```
+
+***
+
+## Compare observed and estimated decay
+
+```{r}
+library(data.table)
+library(scales)
+library(ggplot2)
+library(cowplot)
+library(stringr)
+library(foreach)
+library(doMC)
+registerDoMC(4)
+
+traits <- c('HT', 'HB', 'PLT', 'BMI', 'BWT', 'MCHC', 'SBP', 'NEU', 'HDL', 'TC')
+
+# Read in baseline PGS
+bl_pgs <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.sparse.bl.sscore')
+bl_pgs <- bl_pgs[, grepl('#IID|SBayesRC_SUM', names(bl_pgs)), with = F]
+names(bl_pgs)[1] <- 'IID'
+
+# Read in dosage PGS
+ds_pgs <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.sparse.ds.sscore')
+ds_pgs <- ds_pgs[, grepl('#IID|SBayesRC_SUM', names(ds_pgs)), with = F]
+names(ds_pgs)[1] <- 'IID'
+
+# Read in hardcall PGS
+hc_pgs <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.sparse.hc.sscore')
+hc_pgs <- hc_pgs[, grepl('IID|SBayesRC_SUM', names(hc_pgs)), with = F]
+names(hc_pgs)[1] <- 'IID'
+
+# Initialize an empty list to store the results row-by-row
+results_list <- list()
+
+for (i in traits) {
+  
+  # Construct the exact column name based on your pattern
+  # e.g., "sbayesrc_HT_SCORE_SBayesRC_SUM"
+  col_name <- paste0("sbayesrc_", i, "_SCORE_SBayesRC_SUM")
+  
+  # Check if the column exists across all datasets to prevent crashes
+  if (!(col_name %in% names(bl_pgs) && col_name %in% names(ds_pgs) && col_name %in% names(hc_pgs))) {
+    warning(paste("Column not found for trait:", i, "- Skipping."))
+    next
+  }
+  
+  # Subset and rename columns cleanly for merging
+  bl_sub <- bl_pgs[, .(IID = `IID`, BL = get(col_name))]
+  ds_sub <- ds_pgs[, .(IID = `IID`, DS = get(col_name))]
+  hc_sub <- hc_pgs[, .(IID = `IID`, HC = get(col_name))]
+  
+  # Merge the datasets sequentially on #IID to align individuals perfectly
+  merged_dt <- merge(bl_sub, ds_sub, by = "IID")
+  merged_dt <- merge(merged_dt, hc_sub, by = "IID")
+  
+  # Drop any rows with missing data for this specific calculation
+  merged_dt <- na.omit(merged_dt)
+  
+  # 1. Calculate Variances
+  var_bl <- var(merged_dt$BL)
+  var_ds <- var(merged_dt$DS)
+  var_hc <- var(merged_dt$HC)
+  
+  # 2. Calculate Pearson Correlations
+  r_ds_bl <- cor(merged_dt$DS, merged_dt$BL, method = "pearson")
+  r_hc_bl <- cor(merged_dt$HC, merged_dt$BL, method = "pearson")
+
+  # 3. Store metrics into a data.table format
+  results_list[[i]] <- data.table(
+    Trait = i,
+    var_bl = var_bl,
+    var_ds = var_ds,
+    var_hc = var_hc,
+    obs_rel_var_ds_vs_bl = var_ds / var_bl,
+    obs_rel_var_hc_vs_bl = var_hc / var_bl,
+    obs_r2_ds_vs_bl = r_ds_bl^2,
+    obs_r2_hc_vs_bl = r_hc_bl^2
+  )
+}
+
+# Combine all trait data.tables into a final single summary table
+final_results <- rbindlist(results_list)
+
+# Estimated values
+est_ds_vs_bl <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/est_rsq.info.txt')
+est_hc_vs_bl <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/est_rsq.f_miss.txt')
+est_ds_vs_bl$Trait <- gsub('sbayesrc_','', gsub('_SCORE_SBayesRC','', est_ds_vs_bl$beta_set))
+est_hc_vs_bl$Trait <- gsub('sbayesrc_','', gsub('_SCORE_SBayesRC','', est_hc_vs_bl$beta_set))
+est_ds_vs_bl<-est_ds_vs_bl[,c('Trait','relative_variance','relative_R2'), with = F]
+est_hc_vs_bl<-est_hc_vs_bl[,c('Trait','relative_variance','relative_R2'), with = F]
+names(est_ds_vs_bl) <- c('Trait','est_rel_var_ds_vs_bl','est_r2_ds_vs_bl')
+names(est_hc_vs_bl) <- c('Trait','est_rel_var_hc_vs_bl','est_r2_hc_vs_bl')
+
+est_val <- merge(est_ds_vs_bl, est_hc_vs_bl, by = 'Trait')
+
+both_val <- merge(final_results, est_val, by = 'Trait')
+
+plot(both_val$obs_rel_var_ds_vs_bl, both_val$est_rel_var_ds_vs_bl)
+abline(a = 0, b = 1, col = "red", linetype = 2, lwd = 2)
+
+plot(both_val$obs_r2_ds_vs_bl, both_val$est_r2_ds_vs_bl)
+abline(a = 0, b = 1, col = "red", linetype = 2, lwd = 2)
+
+```
+
+## Check off diagonal threory
+
+```{r}
+library(data.table)
+
+# Read in score file
+score_file<-fread('/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse.txt.gz')
+
+# Read in reference SNP data
+snp_dat <- fread('/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/chr22.impute_info.hm3.tsv')
+
+# Extract variants in 1KG reference
+score_file <- score_file[score_file$SNP %in% snp_dat$SNP,]
+
+# Restrict to SBayesRC scores
+score_file <- score_file[, grepl('SNP|A1|A2|sbayesrc', names(score_file)), with = F]
+
+
+#-----------------------------
+# Helper: clean PLINK raw names
+#-----------------------------
+clean_raw <- function(dt) {
+  id_cols <- c("FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE")
+  snp_cols_raw <- setdiff(names(dt), id_cols)
+  snp_cols_clean <- gsub("_.*$", "", snp_cols_raw)
+  setnames(dt, snp_cols_raw, snp_cols_clean)
+  dt
+}
+
+#-----------------------------
+# Main diagnostic function
+#-----------------------------
+check_offdiag_covariance <- function(geno_bl,
+                                     geno_imp,
+                                     score_df,
+                                     snp_stats,
+                                     beta_cols = NULL,
+                                     id_col = "IID",
+                                     min_var = 1e-8) {
+  
+  id_cols <- c("FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE")
+  
+  # SNPs shared across genotype matrices and score/stat tables
+  snps_bl  <- setdiff(names(geno_bl), id_cols)
+  snps_imp <- setdiff(names(geno_imp), id_cols)
+  
+  common_snps <- Reduce(intersect, list(
+    snps_bl,
+    snps_imp,
+    score_df$SNP,
+    snp_stats$SNP
+  ))
+  
+  message("Common SNPs used: ", length(common_snps))
+  
+  if (length(common_snps) < 10) {
+    stop("Too few common SNPs. Check SNP naming/alignment.")
+  }
+  
+  # Restrict and align individuals
+  geno_bl_sub <- geno_bl[, c(id_col, common_snps), with = FALSE]
+  geno_imp_sub <- geno_imp[, c(id_col, common_snps), with = FALSE]
+  
+  dat_ids <- merge(
+    geno_bl_sub[, .(IID = get(id_col))],
+    geno_imp_sub[, .(IID = get(id_col))],
+    by = "IID"
+  )
+  
+  geno_bl_sub <- geno_bl_sub[get(id_col) %in% dat_ids$IID]
+  geno_imp_sub <- geno_imp_sub[get(id_col) %in% dat_ids$IID]
+  
+  setkeyv(geno_bl_sub, id_col)
+  setkeyv(geno_imp_sub, id_col)
+  
+  geno_bl_sub <- geno_bl_sub[dat_ids]
+  geno_imp_sub <- geno_imp_sub[dat_ids]
+  
+  # Matrices: individuals x SNPs
+  G_bl <- as.matrix(geno_bl_sub[, ..common_snps])
+  G_imp <- as.matrix(geno_imp_sub[, ..common_snps])
+  
+  storage.mode(G_bl) <- "numeric"
+  storage.mode(G_imp) <- "numeric"
+  
+  # Remove SNPs with missing or zero baseline variance
+  mean_bl <- colMeans(G_bl, na.rm = TRUE)
+  mean_imp <- colMeans(G_imp, na.rm = TRUE)
+  var_bl <- apply(G_bl, 2, var, na.rm = TRUE)
+  var_imp <- apply(G_imp, 2, var, na.rm = TRUE)
+  
+  keep <- is.finite(var_bl) & var_bl > min_var & is.finite(var_imp)
+  
+  G_bl <- G_bl[, keep, drop = FALSE]
+  G_imp <- G_imp[, keep, drop = FALSE]
+  common_snps <- common_snps[keep]
+  mean_bl <- mean_bl[keep]
+  mean_imp <- mean_imp[keep]
+  sd_bl <- sqrt(var_bl[keep])
+  
+  message("After zero-variance filtering: ", length(common_snps))
+  
+  # Standardise true genotypes to variance 1
+  X <- sweep(G_bl, 2, mean_bl, "-")
+  X <- sweep(X, 2, sd_bl, "/")
+  
+  # Standardise imputed dosages using TRUE genotype SD
+  Y <- sweep(G_imp, 2, mean_imp, "-")
+  Y <- sweep(Y, 2, sd_bl, "/")
+  
+  # Mean-impute missing values on the standardised scale
+  # This corresponds to replacing missing genotypes with their SNP mean.
+  X[is.na(X)] <- 0
+  Y[is.na(Y)] <- 0
+  
+  n <- nrow(X)
+  
+  # Empirical a and b from these exact matrices
+  a_emp <- colSums(X * Y) / (n - 1)
+  b_emp <- colSums(Y * Y) / (n - 1)
+  d_emp <- pmax(b_emp - a_emp^2, 0)
+  
+  # Align score file
+  score_sub <- score_df[SNP %in% common_snps]
+  score_sub <- score_sub[match(common_snps, SNP)]
+  
+  if (is.null(beta_cols)) {
+    beta_cols <- setdiff(names(score_sub), c("SNP", "A1", "A2"))
+  }
+  
+  B <- as.matrix(score_sub[, ..beta_cols])
+  storage.mode(B) <- "numeric"
+  B[is.na(B)] <- 0
+  
+  # Convert raw genotype betas to standardised-genotype weights:
+  # beta * SD(true genotype)
+  W <- sweep(B, 1, sd_bl, "*")
+  
+  # True and imputed scores from actual matrices
+  S_true <- X %*% W
+  S_imp  <- Y %*% W
+  
+  # Diagonal a,b model:
+  # s'_diag = X %*% (a * W) + independent residual with variance d
+  AW <- sweep(W, 1, a_emp, "*")
+  S_model_cov_component <- X %*% AW
+  
+  # Exact observed quantities
+  den_obs <- apply(S_true, 2, var)
+  sig_obs <- apply(S_imp, 2, var)
+  cov_obs <- sapply(seq_len(ncol(W)), function(k) cov(S_true[, k], S_imp[, k]))
+  
+  rel_var_obs <- sig_obs / den_obs
+  r2_obs <- cov_obs^2 / (den_obs * sig_obs)
+  
+  # Diagonal model quantities
+  den_model <- den_obs
+  
+  sig_ld_model <- apply(S_model_cov_component, 2, var)
+  sig_noise_model <- colSums(sweep(W^2, 1, d_emp, "*"))
+  sig_model <- sig_ld_model + sig_noise_model
+  
+  cov_model <- sapply(seq_len(ncol(W)), function(k) {
+    cov(S_true[, k], S_model_cov_component[, k])
+  })
+  
+  rel_var_model <- sig_model / den_model
+  r2_model <- cov_model^2 / (den_model * sig_model)
+  
+  #-----------------------------
+  # Off-diagonal decomposition
+  #-----------------------------
+  # For imputed variance:
+  # total exact = diagonal contribution + off-diagonal contribution
+  # diagonal contribution is sum_j w_j^2 b_j
+  diag_var_exact <- colSums(sweep(W^2, 1, b_emp, "*"))
+  offdiag_var_exact <- sig_obs - diag_var_exact
+  
+  # Model off-diagonal imputed variance:
+  # w' A L A w minus its diagonal part
+  diag_var_model_ld <- colSums(sweep(W^2, 1, a_emp^2, "*"))
+  offdiag_var_model <- sig_ld_model - diag_var_model_ld
+  
+  # For true-imputed covariance:
+  # diagonal contribution is sum_j w_j^2 a_j
+  diag_cov_exact <- colSums(sweep(W^2, 1, a_emp, "*"))
+  offdiag_cov_exact <- cov_obs - diag_cov_exact
+  offdiag_cov_model <- cov_model - diag_cov_exact
+  
+  out <- data.table(
+    beta_set = beta_cols,
+    
+    den_obs = den_obs,
+    
+    sig_obs = sig_obs,
+    sig_model = sig_model,
+    rel_var_obs = rel_var_obs,
+    rel_var_model = rel_var_model,
+    rel_var_error = rel_var_model - rel_var_obs,
+    
+    cov_obs = cov_obs,
+    cov_model = cov_model,
+    r2_obs = r2_obs,
+    r2_model = r2_model,
+    r2_error = r2_model - r2_obs,
+    
+    diag_var_exact = diag_var_exact,
+    offdiag_var_exact = offdiag_var_exact,
+    offdiag_var_model = offdiag_var_model,
+    offdiag_var_error = offdiag_var_model - offdiag_var_exact,
+    
+    diag_cov_exact = diag_cov_exact,
+    offdiag_cov_exact = offdiag_cov_exact,
+    offdiag_cov_model = offdiag_cov_model,
+    offdiag_cov_error = offdiag_cov_model - offdiag_cov_exact,
+    
+    n_snps = length(common_snps),
+    n_indiv = n
+  )
+  
+  list(
+    summary = out,
+    snp_level = data.table(
+      SNP = common_snps,
+      a_emp = a_emp,
+      b_emp = b_emp,
+      d_emp = d_emp,
+      var_bl = sd_bl^2
+    )
+  )
+}
+
+# Read and clean genotype data
+geno_ds <- fread("/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/imp_exp/imputed/window_500.r2_1/ref.chr22.ligated.hm3.raw")
+geno_ds <- clean_raw(geno_ds)
+
+geno_bl <- fread("/users/k1806347/oliverpainfel/Data/hgdp_1kg/only_1kg/genopred/ref/ref.chr22.raw")
+geno_bl <- clean_raw(geno_bl)
+
+# score_file should already be restricted to chr22 / HapMap3 / SBayesRC etc.
+# snp_stats can be your empirical a,b table, but the function recalculates a,b internally
+# from the genotype matrices to ensure consistency.
+
+res_offdiag <- check_offdiag_covariance(
+  geno_bl = geno_bl,
+  geno_imp = geno_ds,
+  score_df = score_file,
+  snp_stats = snp_stats,
+  beta_cols = grep("sbayesrc", names(score_file), value = TRUE)
+)
+
+res_offdiag$summary
+
+plot(
+  res_offdiag$summary$offdiag_var_exact,
+  res_offdiag$summary$offdiag_var_model,
+  xlab = "Exact off-diagonal imputed variance",
+  ylab = "Modelled off-diagonal imputed variance"
+)
+abline(0, 1, col = "red")
+
+plot(
+  res_offdiag$summary$offdiag_cov_exact,
+  res_offdiag$summary$offdiag_cov_model,
+  xlab = "Exact off-diagonal true-imputed covariance",
+  ylab = "Modelled off-diagonal true-imputed covariance"
+)
+abline(0, 1, col = "red")
+```
+
+
+Recent sensitivity analyses suggest that the original continuous-(q) extension of PGS-check is not reliable for poorly imputed dosage data.
+
+Using (q=) INFO gave poor agreement between estimated and observed score-level quantities: estimated relative variance was generally too low, while estimated (\mathrm{cor}(s,s')^2) was often too high. Replacing INFO with empirical SNP-level quantities — variance retention (b_j=\mathrm{Var}(x'_j)/\mathrm{Var}(x_j)) and covariance retention (a_j=\mathrm{Cov}(x_j,x'_j)/\mathrm{Var}(x_j)) — improved the model conceptually but still did not recover the observed results.
+
+The key insight came from decomposing the score variance and covariance into diagonal and off-diagonal components. The model consistently underestimated the off-diagonal covariance among imputed dosages. In several scores, most of the imputed-score variance came from off-diagonal terms, and the model captured only around 30–70% of this component. This explains why relative variance was underestimated. The model also underestimated true-imputed covariance, but usually less severely, which explains why (\mathrm{cor}(s,s')^2) could be overestimated.
+
+The interpretation is that imputation is not simply SNP-wise attenuation or SNP-wise noise. Imputed dosages borrow information from neighbouring haplotypes, so they alter the local covariance structure among variants. Therefore, per-SNP metrics such as INFO, RSQ, (1-F_{\text{MISS}}), or even empirical (a_j,b_j), are not sufficient to fully model PGS decay under low-quality dosage imputation.
+
+This does not undermine the validated use case: PGS-check works for complete variant absence/presence, where the degradation is genuinely SNP-wise. For imputed data, the most defensible practical strategy may be to filter low-INFO variants and then treat excluded variants as missing. The remaining question is whether, after standard INFO filtering, residual dosage uncertainty is small enough that the variant-missingness framework gives accurate estimates.
+
 ***
 
 # OLD

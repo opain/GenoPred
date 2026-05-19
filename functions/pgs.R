@@ -1016,6 +1016,236 @@ rel_pgs_r2_missing_eigen <- function(ld_dir,
   )
 }
 
+rel_pgs_r2_missing_eigen_new <- function(ld_dir,
+                                     score_df,   # columns: SNP,A1,A2,<BETA_set1>,<BETA_set2>,...
+                                     q_df,       # columns: SNP,q OR SNP,F_MISS depending on mode
+                                     chr = NULL,
+                                     mode = c("variant_mask",
+                                              "dosage",
+                                              "random_partial_missing",
+                                              "deterministic_attenuation",
+                                              "empirical_ab"),
+                                     q_col = NULL,
+                                     a_col = NULL,
+                                     b_col = NULL) {
+  
+  mode <- match.arg(mode)
+  
+  snp_info <- fread(file.path(ld_dir, "snp.info"))
+  if (!is.null(chr)) {
+    snp_info <- snp_info[snp_info$Chrom == chr, ]
+  }
+  setnames(snp_info, "ID", "SNP")
+  snp_info[, S := sqrt(2 * A1Freq * (1 - A1Freq))]
+  snp_info[, idx := .I]
+  
+  # ---- Identify BETA columns, map/flip, reorder to LD order ----
+  base_cols <- c("SNP", "A1", "A2")
+  stopifnot(all(base_cols %in% names(score_df)))
+  beta_cols <- setdiff(names(score_df), base_cols)
+  if (!length(beta_cols)) stop("No BETA columns found after SNP/A1/A2.")
+  
+  score_df <- score_df[, c(base_cols, beta_cols), with = FALSE]
+  
+  all_zero <- apply(score_df[, ..beta_cols], 1, function(x) all(x == 0 | is.na(x)))
+  score_df <- score_df[!all_zero]
+  
+  # Align score file with snp_info
+  score_df <- map_score(ref = snp_info, score = score_df)
+  score_df[, idx := .I]
+  K <- length(beta_cols)
+  
+  # ---- Merge quality / missingness information ----
+  score_df <- merge(score_df, q_df, by = "SNP", sort = FALSE, all.x = TRUE)
+  
+  # ---- Convert user input into a_j and b_j ----
+  # a_j = Cov(x_j, x'_j) / Var(x_j)
+  # b_j = Var(x'_j) / Var(x_j)
+  
+  if (mode %in% c("variant_mask", "dosage", "random_partial_missing")) {
+    
+    if (is.null(q_col)) {
+      if ("q" %in% names(score_df)) {
+        q_col <- "q"
+      } else if ("INFO" %in% names(score_df)) {
+        q_col <- "INFO"
+      } else if ("F_MISS" %in% names(score_df)) {
+        q_col <- "F_MISS"
+      } else {
+        stop("Please provide q_col, or include a column named q, INFO, or F_MISS.")
+      }
+    }
+    
+    q <- score_df[[q_col]]
+    
+    if (q_col == "F_MISS") {
+      q <- 1 - q
+    }
+    
+    # Missing q means SNP unavailable/degraded completely by default.
+    q[is.na(q)] <- 0
+    
+    q <- pmin(pmax(q, 0), 1)
+    
+    # For variant_mask, q should normally be binary.
+    # For dosage, q is interpreted as INFO/Rsq-like imputation quality.
+    # For random_partial_missing, q is interpreted as call rate.
+    score_df[, a := q]
+    score_df[, b := q]
+    
+  } else if (mode == "deterministic_attenuation") {
+    
+    if (is.null(q_col)) {
+      if ("q" %in% names(score_df)) {
+        q_col <- "q"
+      } else if ("INFO" %in% names(score_df)) {
+        q_col <- "INFO"
+      } else {
+        stop("Please provide q_col, or include a column named q or INFO.")
+      }
+    }
+    
+    q <- score_df[[q_col]]
+    q[is.na(q)] <- 0
+    q <- pmin(pmax(q, 0), 1)
+    
+    score_df[, a := sqrt(q)]
+    score_df[, b := q]
+    
+  } else if (mode == "empirical_ab") {
+    
+    if (is.null(a_col) || is.null(b_col)) {
+      stop("For mode='empirical_ab', please provide a_col and b_col.")
+    }
+    
+    a <- score_df[[a_col]]
+    b <- score_df[[b_col]]
+    
+    a[is.na(a)] <- 0
+    b[is.na(b)] <- 0
+    
+    # Bounds / numerical guard
+    b <- pmax(b, 0)
+    a <- pmax(pmin(a, sqrt(b)), -sqrt(b))
+    
+    score_df[, a := a]
+    score_df[, b := b]
+  }
+  
+  score_df[, d := pmax(b - a^2, 0)]
+  
+  # Count non-zero-in-ref per set
+  n_in_ref <- vapply(beta_cols, function(x) {
+    sum(score_df[[x]] != 0, na.rm = TRUE)
+  }, integer(1))
+  
+  # Identify blocks with non-zero BETAs
+  nz <- apply(score_df[, beta_cols, with = FALSE], 1, function(x) {
+    any(x != 0, na.rm = TRUE)
+  })
+  nz_blocks <- unique(snp_info$Block[nz])
+  
+  # ---- Parallel loop over blocks ----
+  acc <- foreach(
+    b = nz_blocks,
+    .combine = function(a, b) {
+      if (is.null(a)) return(b)
+      a[names(b)] <- a[names(b)] + b[names(b)]
+      a
+    },
+    .inorder = FALSE,
+    .export = c("readEig"),
+    .packages = "data.table"
+  ) %dopar% {
+    
+    idx_b <- which(snp_info$Block == b)
+    if (!length(idx_b)) return(setNames(numeric(4 * K), NULL))
+    
+    any_nonzero <- FALSE
+    for (k in seq_len(K)) {
+      if (any(score_df[[beta_cols[k]]][idx_b] != 0, na.rm = TRUE)) {
+        any_nonzero <- TRUE
+        break
+      }
+    }
+    
+    if (!any_nonzero) {
+      out <- numeric(3 * K)
+      names(out) <- c(
+        paste0("den_", beta_cols),
+        paste0("sig_", beta_cols),
+        paste0("cov_", beta_cols)
+      )
+      return(out)
+    }
+    
+    eig <- readEig(ld_dir, b)
+    
+    S_b <- snp_info$S[idx_b]
+    a_b <- score_df$a[idx_b]
+    d_b <- score_df$d[idx_b]
+    
+    # BETA matrix for this block: m_b x K
+    Bmat <- sapply(beta_cols, function(cl) score_df[[cl]][idx_b])
+    Bmat[is.na(Bmat)] <- 0
+    
+    # W = S * beta
+    W_b <- S_b * Bmat
+    
+    # A W = a * S * beta
+    Wa_b <- (a_b * S_b) * Bmat
+    
+    Ut_W  <- crossprod(eig$U, W_b)
+    Ut_Wa <- crossprod(eig$U, Wa_b)
+    
+    # True score variance: w' L w
+    den_b <- colSums((sqrt(eig$lambda) * Ut_W)^2)
+    
+    # Imputed/degraded score variance:
+    # w' A L A w + sum_j w_j^2 d_j
+    sig_ld_b <- colSums((sqrt(eig$lambda) * Ut_Wa)^2)
+    sig_noise_b <- colSums((Bmat^2) * ((S_b^2) * d_b))
+    sig_b <- sig_ld_b + sig_noise_b
+    
+    # Covariance between true and degraded score:
+    # w' L A w
+    cov_b <- colSums(eig$lambda * Ut_W * Ut_Wa)
+    
+    out <- c(
+      setNames(den_b, paste0("den_", beta_cols)),
+      setNames(sig_b, paste0("sig_", beta_cols)),
+      setNames(cov_b, paste0("cov_", beta_cols))
+    )
+    out
+  }
+  
+  # ---- Reduce totals per set ----
+  get_vec <- function(prefix) unname(acc[paste0(prefix, "_", beta_cols)])
+  
+  den_sum <- get_vec("den")
+  sig_sum <- get_vec("sig")
+  cov_sum <- get_vec("cov")
+  
+  # ---- Final metrics ----
+  rel_var <- ifelse(den_sum > 0, sig_sum / den_sum, NA_real_)
+  rel_cor <- ifelse(
+    den_sum > 0 & sig_sum > 0,
+    (cov_sum^2) / (den_sum * sig_sum),
+    NA_real_
+  )
+  
+  data.table(
+    beta_set = beta_cols,
+    mode = mode,
+    relative_variance = rel_var,
+    relative_R2 = rel_cor,
+    den = den_sum,
+    sig = sig_sum,
+    cov = cov_sum,
+    n_in_ref = n_in_ref
+  )
+}
+
 combine_rel_r2 <- function(res_list) {
   stopifnot(length(res_list) > 0)
   

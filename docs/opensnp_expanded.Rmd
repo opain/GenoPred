@@ -1831,6 +1831,35 @@ done
 
 ***
 
+### Create Yengo COJO score file
+
+```{r}
+# I manually download the supp table 10 from the Yengo paper
+library(data.table)
+cojo<-fread('/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_cojo_eur.csv')
+cojo<-cojo[, c('Chr',"BP (HG19)", 'SNP', "Effect Allele (A1)", "Conditional and joint (COJO) effect size"), with = F]
+names(cojo) <- c('chr_name','chr_position','rsID','effect_allele','effect_weight')
+cojo$chr_position <- as.numeric(gsub(',','',cojo$chr_position))
+
+# Infer other_allele
+setwd("~/MyGit/GenoPred/pipeline")
+library(GenoUtils)
+library(data.table)
+source('../functions/misc.R')
+source_all('../functions')
+
+ref<-read_pvar('~/MyGit/GenoPred/pipeline/resources/data/ref/ref.chr')
+cojo <- merge(cojo, ref, by.x = c('chr_name','chr_position'), by.y = c('CHR','BP'))
+cojo$other_allele <- NA
+cojo$other_allele[cojo$effect_allele == cojo$A1] <- cojo$A2[cojo$effect_allele == cojo$A1]
+cojo$other_allele[cojo$effect_allele == cojo$A2] <- cojo$A1[cojo$effect_allele == cojo$A2]
+cojo<-cojo[, c('chr_name','chr_position','rsID','effect_allele','other_allele','effect_weight'), with = F]
+fwrite(cojo, '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_cojo_eur.score', sep = ' ', na = 'NA', quote = F)
+
+```
+
+***
+
 ### Create symlinks
 
 ```{bash}
@@ -1855,6 +1884,7 @@ conf <- c(
   'outdir: /users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/zenodo_10715132',
   'config_file: misc/opensnp/config_zenodo_10715132.yaml',
   'gwas_list: misc/opensnp/gwas_list_zenodo_10715132.txt',
+  'score_list: misc/opensnp/score_list_zenodo_10715132.txt',
   'target_list: misc/opensnp/target_list_zenodo_10715132.txt',
   "pgs_methods: ['ptclump','quickprs']",
   "pgs_scaling: ['discrete','continuous']",
@@ -2002,6 +2032,18 @@ gwas_list <- gwas_list[name %in% new_gwas_dt$name]
 
 write.table(gwas_list, 'misc/opensnp/gwas_list_zenodo_10715132.txt', col.names = T, row.names = F, quote = F, sep = ' ')
 
+###
+# Create score_list
+### 
+
+score_list<-data.table(
+  name = 'yengo_cojo',
+  path = '/users/k1806347/oliverpainfel/Data/GWAS_sumstats/opensnp_test/yengo_cojo_eur.score',
+  label = 'yengo_cojo'
+)
+
+write.table(score_list, 'misc/opensnp/score_list_zenodo_10715132.txt', col.names = T, row.names = F, quote = F, sep = ' ')
+
 ```
 
 ***
@@ -2041,6 +2083,7 @@ pgs <-
     name = 'opensnp',
     gwas = c(
       'yengo_eur',
+      'yengo_cojo',
       'within_sib_height',
       'neale_lab_height'
     )
@@ -2086,11 +2129,13 @@ for(gwas_i in names(pgs[[pop_i]])){
   }
 }
 
-cor$label <- gsub('.*_0_|.*_quickprs', '', cor$name)
-cor$label[cor$label != '']<-paste0('pT+clump: ', cor$label[cor$label != ''])
-cor$label[cor$label == '']<-'QuickPRS'
+cor$label <- gsub('.*_0_|.*_quickprs|.*_external', '', cor$name)
+cor$label[cor$label != '']<-paste0('p+t: ', cor$label[cor$label != ''])
+cor$label[cor$pgs_method == 'quickprs']<-'QuickPRS'
+cor$label[grepl('cojo', cor$gwas)]<-'COJO'
 cor$label<-factor(cor$label, levels = unique(cor$label))
 
+cor$gwas[grepl('cojo', cor$gwas)]<-'yengo_eur'
 cor$gwas <- factor(cor$gwas, 
                    levels = c("yengo_eur","neale_lab_height","within_sib_height"),
                    labels = c('Yengo','Neale Lab','Howe Within-sib'))
@@ -2131,7 +2176,7 @@ for(model_i in names(frei_pgs)[-1:-2]){
   cor_frei <- rbind(cor_frei, tmp)
 }
 
-cor_frei$label <- paste0('pT+clump: ', gsub('Pt_', '', cor_frei$name))
+cor_frei$label <- paste0('p+t: ', gsub('Pt_', '', cor_frei$name))
 cor_frei$label <- gsub('0.0001', '1e-04', cor_frei$label)
 cor_frei$type = 'Frei'
 
@@ -2190,14 +2235,17 @@ for(gwas_i in names(pgs[[pop_i]])){
   }
 }
 
-cor_resid$label <- gsub('.*_0_|.*_quickprs', '', cor_resid$name)
-cor_resid$label[cor_resid$label != '']<-paste0('pT+clump: ', cor_resid$label[cor_resid$label != ''])
-cor_resid$label[cor_resid$label == '']<-'QuickPRS'
+cor_resid$label <- gsub('.*_0_|.*_quickprs|.*_external', '', cor_resid$name)
+cor_resid$label[cor_resid$label != '']<-paste0('p+t: ', cor_resid$label[cor_resid$label != ''])
+cor_resid$label[cor_resid$pgs_method == 'quickprs']<-'QuickPRS'
+cor_resid$label[grepl('cojo', cor_resid$gwas)]<-'COJO'
 cor_resid$label<-factor(cor_resid$label, levels = unique(cor_resid$label))
 
+cor_resid$gwas[grepl('cojo', cor_resid$gwas)]<-'yengo_eur'
 cor_resid$gwas <- factor(cor_resid$gwas, 
                    levels = c("yengo_eur","neale_lab_height","within_sib_height"),
                    labels = c('Yengo','Neale Lab','Howe Within-sib'))
+
 
 # Plot Yengo results with and without sex correction
 cor_yengo <- cor[cor$gwas == 'Yengo',]
@@ -2217,6 +2265,26 @@ ggplot(cor_yengo_both, aes(x = label, y = r)) +
   labs(x = 'PGS Method', y = 'Pearson Correlation') +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
+# Make a table listing the number of variants in each PGS
+score_file_list <- list_score_files('misc/opensnp/config_zenodo_10715132.yaml')
+score_file_list <- score_file_list[grepl('height|yengo', score_file_list$name),]
+
+n_snp <- NULL
+for(i in 1:nrow(score_file_list)){
+  tmp <- fread(paste0('~/oliverpainfel/Data/OpenSNP/GenoPred/zenodo_10715132/reference/pgs_score_files/',score_file_list$method[i],'/',score_file_list$name[i],'/ref-',score_file_list$name[i],'.score.gz'))
+  n_snp_i <- apply(tmp[,-1:-3, with = F], 2, function(x) sum(x != 0))
+  n_snp <- rbind(
+    n_snp,
+    data.table(
+      name = score_file_list$name[i],
+      method = score_file_list$method[i],
+      param = names(n_snp_i),
+      n_snp = n_snp_i
+    )
+  )
+}
+
+n_snp[grepl('5e-08|quickprs|external', param),]
 
 ```
 
@@ -2243,30 +2311,84 @@ target_pgs <- read_pgs(
   name = "opensnp"
 )
 
-# Target PCs
-target_ref_projected_pc_dt <- read_pcs(config = config, name = 'opensnp', type = 'projected')
-
 # Print mean PGS using GenoPred corrections
 pgs_desc <- NULL
 for(i in names(target_pgs$opensnp)){
   for(j in names(target_pgs$opensnp[[i]])){
-    for(k in names(target_pgs$opensnp[[i]][[j]]$quickprs)){
-      pgs_desc <- rbind(
-        pgs_desc,
-        data.table(
-          pop = i,
-          gwas = j,
-          type = k,
-          mean = mean(target_pgs$opensnp[[i]][[j]]$quickprs[[k]][[3]]),
-          sd = sd(target_pgs$opensnp[[i]][[j]]$quickprs[[k]][[3]])
-        ))
+    for(k in names(target_pgs$opensnp[[i]][[j]])){
+      for(m in names(target_pgs$opensnp[[i]][[j]][[k]])){
+        for(n in names(target_pgs$opensnp[[i]][[j]][[k]][[m]])[-1:-2]){
+          pgs_desc <- rbind(
+            pgs_desc,
+            data.table(
+              pop = i,
+              gwas = j,
+              method = k,
+              type = m,
+              param = n,
+              mean = mean(target_pgs$opensnp[[i]][[j]][[k]][[m]][[n]]),
+              sd = sd(target_pgs$opensnp[[i]][[j]][[k]][[m]][[n]])
+            ))
+        }
+      }
     }
   }
 }
 
+# Plot height results
+pgs_desc_height <- pgs_desc[pgs_desc$gwas %in% c('yengo_eur','neale_lab_height','within_sib_height','yengo_cojo'),]
+
 library(ggplot2)
 library(tidyr)
 library(dplyr)
+
+pgs_desc_height$label <- gsub('.*_0_|.*_quickprs|.*_external', '', pgs_desc_height$param)
+pgs_desc_height$label[pgs_desc_height$label != '']<-paste0('p+t: ', pgs_desc_height$label[pgs_desc_height$label != ''])
+pgs_desc_height$label[pgs_desc_height$method == 'quickprs']<-'QuickPRS'
+pgs_desc_height$label[grepl('cojo', pgs_desc_height$gwas)]<-'COJO'
+pgs_desc_height$label<-factor(pgs_desc_height$label, levels = unique(pgs_desc_height$label))
+
+pgs_desc_height$gwas[grepl('cojo', pgs_desc_height$gwas)]<-'yengo_eur'
+pgs_desc_height$gwas <- factor(pgs_desc_height$gwas, 
+                   levels = c("yengo_eur","neale_lab_height","within_sib_height"),
+                   labels = c('Yengo','Neale Lab','Howe Within-sib'))
+
+# Retain p+t with 5e-8 only
+pgs_desc_height <- pgs_desc_height[pgs_desc_height$label %in% c('QuickPRS','COJO','p+t: 5e-08'),]
+
+# 1. Reshape the data for faceting
+# We move 'mean' and 'sd' into a single 'metric' column
+pgs_long <- pgs_desc_height %>%
+  pivot_longer(cols = c(mean, sd), 
+               names_to = "metric", 
+               values_to = "value")
+
+# 2. Create the plot
+ggplot(pgs_long, aes(x = gwas, y = value, fill = type)) +
+  # Use stat = "identity" to plot the actual values in the table
+  geom_bar(stat = "identity", position = position_dodge()) +
+  # Facet rows by 'metric' (mean/sd) and columns by 'pop' (EUR/TRANS)
+  facet_grid(metric ~ pop + label, scales = "free") +
+  theme_minimal() +
+  labs(title = "Polygenic Score Summary Statistics",
+       x = "GWAS Source",
+       y = "Value",
+       fill = "Type") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Plot selected param across traits
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+pgs_desc$label <- gsub('.*_0_|.*_quickprs|.*_external', '', pgs_desc$param)
+pgs_desc$label[pgs_desc$label != '']<-paste0('p+t: ', pgs_desc$label[pgs_desc$label != ''])
+pgs_desc$label[pgs_desc$method == 'quickprs']<-'QuickPRS'
+pgs_desc$label[grepl('cojo', pgs_desc$gwas)]<-'COJO'
+pgs_desc$label<-factor(pgs_desc$label, levels = unique(pgs_desc$label))
+
+# Retain p+t with 5e-8 only
+pgs_desc <- pgs_desc[pgs_desc$label %in% c('QuickPRS','COJO','p+t: 5e-08'),]
 
 # 1. Reshape the data for faceting
 # We move 'mean' and 'sd' into a single 'metric' column
@@ -2348,9 +2470,6 @@ ggplot(pcs_long, aes(x = pc, y = value, fill = pc)) +
        y = "Value",
        fill = NULL) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Reference PCs
-ref_global_pc_dt<- read_pcs(config = config, ref = T) # I don't think these are the correct PCs
 
 ```
 
@@ -3239,8 +3358,8 @@ res_simple_trans <- run_pgs_ancestry_correction_simple(
   target_pop = "TRANS",
   ref_pc_dt = ref_global_pc_dt$reference,
   target_pc_dt = target_ref_projected_pc_dt,
-  gwas_vec = gwas_list$name[grepl('height|yengo', gwas_list$name)],
-  pgs_methods = c("quickprs",'ptclump'),
+  gwas_vec = c('yengo_eur', 'yengo_cojo', 'within_sib_height', 'neale_lab_height'),
+  pgs_methods = c("quickprs",'ptclump','external'),
   pc_cols = paste0("PC", 1:6),
   k_knn = 50,
   weighting = "inverse_distance"
@@ -3254,8 +3373,8 @@ res_simple_eur <- run_pgs_ancestry_correction_simple(
   target_pop = "EUR",
   ref_pc_dt = ref_global_pc_dt$reference,
   target_pc_dt = target_ref_projected_pc_dt,
-  gwas_vec = gwas_list$name[grepl('height|yengo', gwas_list$name)],
-  pgs_methods = c("quickprs",'ptclump'),
+  gwas_vec = c('yengo_eur', 'yengo_cojo', 'within_sib_height', 'neale_lab_height'),
+  pgs_methods = c("quickprs",'ptclump','external'),
   pc_cols = paste0("PC", 1:6),
   k_knn = 50,
   weighting = "inverse_distance"
@@ -3267,7 +3386,13 @@ res_both <- rbind(
 
 res_both$pgs_model <- paste0('pT = ', gsub('.*_0_','',res_both$score_col))
 res_both$pgs_model[res_both$method == 'quickprs'] <- 'QuickPRS'
-res_both<-res_both[res_both$pgs_model %in% c('pT = 5e-08','QuickPRS'),]
+res_both$pgs_model[res_both$method == 'external'] <- 'COJO'
+res_both<-res_both[res_both$pgs_model %in% c('pT = 5e-08','QuickPRS','COJO'),]
+
+res_both$gwas[grepl('cojo', res_both$gwas)]<-'yengo_eur'
+res_both$gwas <- factor(res_both$gwas, 
+                   levels = c("yengo_eur","neale_lab_height","within_sib_height"),
+                   labels = c('Yengo','Neale Lab','Howe Within-sib'))
 
 library(ggplot2)
 library(tidyr)
@@ -3291,10 +3416,10 @@ res_long$correction<-factor(res_long$correction, levels = c('discrete','linear',
 
 # 3. Create the plot
 ggplot(res_long, aes(x = gwas, y = value, fill = correction)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), colour = 'black') +
   # Facet rows by Metric (mean/sd) and columns by Population
   # correction is on the x-axis to compare the three methods directly
-  facet_grid(metric ~ population + method, scales = "free_y") +
+  facet_grid(metric ~ population + pgs_model, scales = "free", space = 'free_x') +
   theme_minimal() +
   labs(
     title = "Comparison of PGS Mean and SD across Correction Methods",
@@ -3309,6 +3434,24 @@ ggplot(res_long, aes(x = gwas, y = value, fill = correction)) +
     panel.spacing = unit(1, "lines")
   )
 
+ggplot(res_long, aes(x = pgs_model, y = value, fill = gwas)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9, preserve = "single"), colour = 'black') +
+  # Facet rows by Metric (mean/sd) and columns by Population
+  # correction is on the x-axis to compare the three methods directly
+  facet_grid(metric ~ population + correction, scales = "free", space = 'free_x') +
+  theme_minimal() +
+  labs(
+    title = "Comparison of PGS Mean and SD across Correction Methods",
+    subtitle = "Comparing Raw, Linear, and KNN adjustments",
+    x = 'Method',
+    y = "Value",
+    fill = "GWAS Source"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "gray95"),
+    panel.spacing = unit(1, "lines")
+  )
 ########
 # Explore KNN results across k
 ########
@@ -3327,8 +3470,8 @@ res_k <- rbindlist(lapply(k_values, function(k_i) {
     target_pop = "TRANS",
     ref_pc_dt = ref_global_pc_dt$reference,
     target_pc_dt = target_ref_projected_pc_dt,
-    gwas_vec = c("neale_lab_height", "ukb_height", "within_sib_height", "yengo_eur"),
-    pgs_methods = c("ptclump", "quickprs"),
+    gwas_vec = c("neale_lab_height", "within_sib_height", "yengo_eur"),
+    pgs_methods = c("ptclump"),
     pc_cols = paste0("PC", 1:6),
     k_knn = k_i,
     weighting = "inverse_distance"
@@ -3342,12 +3485,12 @@ res_k <- rbindlist(lapply(k_values, function(k_i) {
 library(ggplot2)
 
 ggplot(
-  res_k[method == "quickprs"],
+  res_k[grepl("0_5e-08", res_k$score_col),],
   aes(x = k_knn, y = knn_mean, group = gwas, colour = gwas)
 ) +
   geom_line() +
   geom_point() +
-  facet_wrap(~ gwas, scales = "free_y") +
+  facet_grid(~ gwas, scales = "free_y") +
   theme_classic()
 
 library(FNN)
@@ -3391,8 +3534,8 @@ res_k <- rbindlist(lapply(k_values, function(k_i) {
     target_pop = "EUR",
     ref_pc_dt = ref_global_pc_dt$reference,
     target_pc_dt = target_ref_projected_pc_dt,
-    gwas_vec = c("neale_lab_height", "ukb_height", "within_sib_height", "yengo_eur"),
-    pgs_methods = c("ptclump", "quickprs"),
+    gwas_vec = c("neale_lab_height", "within_sib_height", "yengo_eur"),
+    pgs_methods = c("ptclump"),
     pc_cols = paste0("PC", 1:6),
     k_knn = k_i,
     weighting = "inverse_distance"
@@ -3407,12 +3550,12 @@ res_k <- rbindlist(lapply(k_values, function(k_i) {
 library(ggplot2)
 
 ggplot(
-  res_k[method == "quickprs"],
+  res_k[grepl("0_5e-08", res_k$score_col),],
   aes(x = k_knn, y = knn_mean, group = gwas, colour = gwas)
 ) +
   geom_line() +
   geom_point() +
-  facet_wrap(~ gwas, scales = "free_y") +
+  facet_grid(~ gwas, scales = "free_y") +
   theme_classic()
 
 library(FNN)
@@ -3457,18 +3600,17 @@ res_simple_trans <- run_pgs_ancestry_correction_simple(
   ref_pc_dt = ref_global_pc_dt$reference,
   target_pc_dt = target_ref_projected_pc_dt,
   gwas_vec = gwas_list$name[grepl('neale|within', gwas_list$name)],
-  pgs_methods = c("quickprs",'ptclump'),
+  pgs_methods = c('ptclump'),
   pc_cols = paste0("PC", 1:6),
   k_knn = 50,
   weighting = "inverse_distance"
 )
 
-res_simple_trans$summary$pgs_model <- paste0('pT = ', gsub('.*_0_','',res_simple_trans$summary$score_col))
-res_simple_trans$summary$pgs_model[res_simple_trans$summary$method == 'quickprs'] <- 'QuickPRS'
-res_simple_trans$summary<-res_simple_trans$summary[res_simple_trans$summary$pgs_model %in% c('pT = 5e-08'),]
+res_simple_trans_subset<-res_simple_trans$summary[grepl("0_5e-08", res_simple_trans$summary$score_col),]
+res_simple_trans_subset<-res_simple_trans_subset[!grepl('alc', res_simple_trans_subset$gwas),]
 
 # 1. Pivot the metrics (mean and sd) for the three correction types
-res_long <- res_simple_trans$summary %>%
+res_long <- res_simple_trans_subset %>%
   pivot_longer(
     cols = c(linear_mean, linear_sd, knn_mean, knn_sd),
     names_to = c("correction", ".value"),
@@ -3486,16 +3628,155 @@ res_long$gwas_type <- ifelse(grepl('neale', res_long$gwas), 'Unrelated', 'Within
 res_long$trait <- gsub('.*_','',res_long$gwas)
 
 # 3. Create the plot
-ggplot(res_long, aes(x = trait, y = value, fill = correction)) +
+ggplot(res_long, aes(x = trait, y = value, fill = gwas_type)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
   # Facet rows by Metric (mean/sd) and columns by Population
   # correction is on the x-axis to compare the three methods directly
-  facet_grid(metric ~ gwas_type, scales = "free_y") +
+  facet_grid(metric ~ correction, scales = "free_y") +
   theme_minimal() +
   labs(
     title = "Comparison of PGS Mean and SD across Correction Methods",
     subtitle = "Comparing Raw, Linear, and KNN adjustments",
     x = "Trait",
+    y = "Value",
+    fill = "GWAS Type"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "gray95"),
+    panel.spacing = unit(1, "lines")
+  )
+
+# Make a table listing the number of variants in each PGS
+score_file_list <- list_score_files('misc/opensnp/config_zenodo_10715132.yaml')
+score_file_list <- score_file_list[grepl('within|neale', score_file_list$name),]
+
+n_snp <- NULL
+for(i in 1:nrow(score_file_list)){
+  tmp <- fread(paste0('~/oliverpainfel/Data/OpenSNP/GenoPred/zenodo_10715132/reference/pgs_score_files/',score_file_list$method[i],'/',score_file_list$name[i],'/ref-',score_file_list$name[i],'.score.gz'))
+  n_snp_i <- apply(tmp[,-1:-3, with = F], 2, function(x) sum(x != 0))
+  n_snp <- rbind(
+    n_snp,
+    data.table(
+      name = score_file_list$name[i],
+      method = score_file_list$method[i],
+      param = names(n_snp_i),
+      n_snp = n_snp_i
+    )
+  )
+}
+
+n_snp[grepl('5e-08', param),]
+
+```
+
+#### 40 PCs
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+source('../functions/misc.R')
+source_all('../functions')
+
+# Set config
+config <- 'misc/opensnp/config_zenodo_10715132.20_ref_pcs.yaml'
+gwas_list <- fread('misc/opensnp/gwas_list_zenodo_10715132.txt')
+
+# Target OpenSNP PGS
+target_pgs <- read_pgs(
+  config = config,
+  name = "opensnp"
+)
+
+# Reference PGS
+ref_pgs <- read_pgs(
+  config = config,
+  ref = T
+)
+
+# Target PCs
+target_ref_projected_pc_dt <- read_pcs(config = config, name = 'opensnp', type = 'projected')
+
+# Reference PCs
+ref_global_pc_dt<- read_pcs(config = config, ref = T)
+
+res_simple_trans <- run_pgs_ancestry_correction_simple(
+  ref_pgs_list = ref_pgs$reference,
+  target_pgs_list = target_pgs,
+  target_sample_name = "opensnp",
+  ref_pop = "TRANS",
+  target_pop = "TRANS",
+  ref_pc_dt = ref_global_pc_dt$reference,
+  target_pc_dt = target_ref_projected_pc_dt,
+  gwas_vec = c('yengo_eur', 'yengo_cojo', 'within_sib_height', 'neale_lab_height'),
+  pgs_methods = c("quickprs",'ptclump','external'),
+  pc_cols = paste0("PC", 1:40),
+  k_knn = 50,
+  weighting = "inverse_distance"
+)
+
+res_simple_eur <- run_pgs_ancestry_correction_simple(
+  ref_pgs_list = ref_pgs$reference,
+  target_pgs_list = target_pgs,
+  target_sample_name = "opensnp",
+  ref_pop = "EUR",
+  target_pop = "EUR",
+  ref_pc_dt = ref_global_pc_dt$reference,
+  target_pc_dt = target_ref_projected_pc_dt,
+  gwas_vec = c('yengo_eur', 'yengo_cojo', 'within_sib_height', 'neale_lab_height'),
+  pgs_methods = c("quickprs",'ptclump','external'),
+  pc_cols = paste0("PC", 1:40),
+  k_knn = 50,
+  weighting = "inverse_distance"
+)
+
+res_both <- rbind(
+  data.table(res_simple_eur$summary, population = 'EUR'),
+  data.table(res_simple_trans$summary, population = 'TRANS'))
+
+res_both$pgs_model <- paste0('pT = ', gsub('.*_0_','',res_both$score_col))
+res_both$pgs_model[res_both$method == 'quickprs'] <- 'QuickPRS'
+res_both$pgs_model[res_both$method == 'external'] <- 'COJO'
+res_both<-res_both[res_both$pgs_model %in% c('pT = 5e-08','QuickPRS','COJO'),]
+
+res_both$gwas[grepl('cojo', res_both$gwas)]<-'yengo_eur'
+res_both$gwas <- factor(res_both$gwas, 
+                   levels = c("yengo_eur","neale_lab_height","within_sib_height"),
+                   labels = c('Yengo','Neale Lab','Howe Within-sib'))
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# 1. Pivot the metrics (mean and sd) for the three correction types
+res_long <- res_both %>%
+  pivot_longer(
+    cols = c(discrete_mean, discrete_sd, linear_mean, linear_sd, knn_mean, knn_sd),
+    names_to = c("correction", ".value"),
+    names_pattern = "(.*)_(mean|sd)"
+  ) %>%
+  # 2. Reshape again so mean and sd are in one column for faceting
+  pivot_longer(
+    cols = c(mean, sd),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+res_long$correction<-factor(res_long$correction, levels = c('discrete','linear','knn'))
+
+# 3. Create the plot
+ggplot(res_long, aes(x = gwas, y = value, fill = correction)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), colour = 'black') +
+  # Facet rows by Metric (mean/sd) and columns by Population
+  # correction is on the x-axis to compare the three methods directly
+  facet_grid(metric ~ population + pgs_model, scales = "free", space = 'free_x') +
+  theme_minimal() +
+  labs(
+    title = "Comparison of PGS Mean and SD across Correction Methods",
+    subtitle = "Comparing Raw, Linear, and KNN adjustments",
+    x = "GWAS Source",
     y = "Value",
     fill = "Standardisation"
   ) +
@@ -3505,6 +3786,238 @@ ggplot(res_long, aes(x = trait, y = value, fill = correction)) +
     panel.spacing = unit(1, "lines")
   )
 
+ggplot(res_long, aes(x = pgs_model, y = value, fill = gwas)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9, preserve = "single"), colour = 'black') +
+  # Facet rows by Metric (mean/sd) and columns by Population
+  # correction is on the x-axis to compare the three methods directly
+  facet_grid(metric ~ population + correction, scales = "free", space = 'free_x') +
+  theme_minimal() +
+  labs(
+    title = "Comparison of PGS Mean and SD across Correction Methods",
+    subtitle = "Comparing Raw, Linear, and KNN adjustments",
+    x = 'Method',
+    y = "Value",
+    fill = "GWAS Source"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "gray95"),
+    panel.spacing = unit(1, "lines")
+  )
+########
+# Explore KNN results across k
+########
+
+###
+# TRANS
+### 
+k_values <- c(10, 20, 50, 100, 200)
+
+res_k <- rbindlist(lapply(k_values, function(k_i) {
+  res_i <- run_pgs_ancestry_correction_simple(
+    ref_pgs_list = ref_pgs$reference,
+    target_pgs_list = target_pgs,
+    target_sample_name = "opensnp",
+    ref_pop = "TRANS",
+    target_pop = "TRANS",
+    ref_pc_dt = ref_global_pc_dt$reference,
+    target_pc_dt = target_ref_projected_pc_dt,
+    gwas_vec = c("neale_lab_height", "within_sib_height", "yengo_eur"),
+    pgs_methods = c("ptclump"),
+    pc_cols = paste0("PC", 1:6),
+    k_knn = k_i,
+    weighting = "inverse_distance"
+  )
+  
+  tmp <- copy(res_i$summary)
+  tmp[, k_knn := k_i]
+  tmp
+}), fill = TRUE)
+
+library(ggplot2)
+
+ggplot(
+  res_k[grepl("0_5e-08", res_k$score_col),],
+  aes(x = k_knn, y = knn_mean, group = gwas, colour = gwas)
+) +
+  geom_line() +
+  geom_point() +
+  facet_grid(~ gwas, scales = "free_y") +
+  theme_classic()
+
+library(FNN)
+library(data.table)
+
+pc_cols <- paste0("PC", 1:6)
+
+ref_dt <- ref_global_pc_dt$reference$TRANS
+target_dt <- target_ref_projected_pc_dt$opensnp$TRANS
+
+ref_pc <- as.matrix(ref_dt[, ..pc_cols])
+target_pc <- as.matrix(target_dt[, ..pc_cols])
+
+k <- 50
+
+target_knn <- FNN::get.knnx(ref_pc, target_pc, k = k)
+ref_knn <- FNN::get.knnx(ref_pc, ref_pc, k = k + 1)
+
+target_mean_dist <- rowMeans(target_knn$nn.dist)
+ref_mean_dist <- rowMeans(ref_knn$nn.dist[, -1, drop = FALSE])
+
+data.table(
+  comparison = c("OpenSNP_to_TRANS_reference", "TRANS_reference_to_TRANS_reference"),
+  mean_dist = c(mean(target_mean_dist), mean(ref_mean_dist)),
+  median_dist = c(median(target_mean_dist), median(ref_mean_dist)),
+  q90 = c(quantile(target_mean_dist, 0.9), quantile(ref_mean_dist, 0.9)),
+  q95 = c(quantile(target_mean_dist, 0.95), quantile(ref_mean_dist, 0.95))
+)
+
+###
+# EUR
+###
+k_values <- c(10, 20, 50, 100, 200)
+
+res_k <- rbindlist(lapply(k_values, function(k_i) {
+  res_i <- run_pgs_ancestry_correction_simple(
+    ref_pgs_list = ref_pgs$reference,
+    target_pgs_list = target_pgs,
+    target_sample_name = "opensnp",
+    ref_pop = "EUR",
+    target_pop = "EUR",
+    ref_pc_dt = ref_global_pc_dt$reference,
+    target_pc_dt = target_ref_projected_pc_dt,
+    gwas_vec = c("neale_lab_height", "within_sib_height", "yengo_eur"),
+    pgs_methods = c("ptclump"),
+    pc_cols = paste0("PC", 1:6),
+    k_knn = k_i,
+    weighting = "inverse_distance"
+  )
+  
+  tmp <- copy(res_i$summary)
+  tmp[, k_knn := k_i]
+  tmp
+}), fill = TRUE)
+
+# Plot result
+library(ggplot2)
+
+ggplot(
+  res_k[grepl("0_5e-08", res_k$score_col),],
+  aes(x = k_knn, y = knn_mean, group = gwas, colour = gwas)
+) +
+  geom_line() +
+  geom_point() +
+  facet_grid(~ gwas, scales = "free_y") +
+  theme_classic()
+
+library(FNN)
+library(data.table)
+
+pc_cols <- paste0("PC", 1:6)
+
+ref_dt <- ref_global_pc_dt$reference$EUR
+target_dt <- target_ref_projected_pc_dt$opensnp$EUR
+
+ref_pc <- as.matrix(ref_dt[, ..pc_cols])
+target_pc <- as.matrix(target_dt[, ..pc_cols])
+
+k <- 50
+
+target_knn <- FNN::get.knnx(ref_pc, target_pc, k = k)
+ref_knn <- FNN::get.knnx(ref_pc, ref_pc, k = k + 1)
+
+target_mean_dist <- rowMeans(target_knn$nn.dist)
+ref_mean_dist <- rowMeans(ref_knn$nn.dist[, -1, drop = FALSE])
+
+data.table(
+  comparison = c("OpenSNP_to_EUR_reference", "EUR_reference_to_EUR_reference"),
+  mean_dist = c(mean(target_mean_dist), mean(ref_mean_dist)),
+  median_dist = c(median(target_mean_dist), median(ref_mean_dist)),
+  q90 = c(quantile(target_mean_dist, 0.9), quantile(ref_mean_dist, 0.9)),
+  q95 = c(quantile(target_mean_dist, 0.95), quantile(ref_mean_dist, 0.95))
+)
+
+# Seems like ptclump scores with KNN correction in TRANS is the most stable approach
+
+##########
+# Run all traits
+##########
+
+res_simple_trans <- run_pgs_ancestry_correction_simple(
+  ref_pgs_list = ref_pgs$reference,
+  target_pgs_list = target_pgs,
+  target_sample_name = "opensnp",
+  ref_pop = "TRANS",
+  target_pop = "TRANS",
+  ref_pc_dt = ref_global_pc_dt$reference,
+  target_pc_dt = target_ref_projected_pc_dt,
+  gwas_vec = gwas_list$name[grepl('neale|within', gwas_list$name)],
+  pgs_methods = c('ptclump'),
+  pc_cols = paste0("PC", 1:6),
+  k_knn = 50,
+  weighting = "inverse_distance"
+)
+
+res_simple_trans_subset<-res_simple_trans$summary[grepl("0_5e-08", res_simple_trans$summary$score_col),]
+res_simple_trans_subset<-res_simple_trans_subset[!grepl('alc', res_simple_trans_subset$gwas),]
+
+# 1. Pivot the metrics (mean and sd) for the three correction types
+res_long <- res_simple_trans_subset %>%
+  pivot_longer(
+    cols = c(linear_mean, linear_sd, knn_mean, knn_sd),
+    names_to = c("correction", ".value"),
+    names_pattern = "(.*)_(mean|sd)"
+  ) %>%
+  # 2. Reshape again so mean and sd are in one column for faceting
+  pivot_longer(
+    cols = c(mean, sd),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+res_long$correction<-factor(res_long$correction, levels = c('linear','knn'))
+res_long$gwas_type <- ifelse(grepl('neale', res_long$gwas), 'Unrelated', 'Within-sib')
+res_long$trait <- gsub('.*_','',res_long$gwas)
+
+# 3. Create the plot
+ggplot(res_long, aes(x = trait, y = value, fill = gwas_type)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  # Facet rows by Metric (mean/sd) and columns by Population
+  # correction is on the x-axis to compare the three methods directly
+  facet_grid(metric ~ correction, scales = "free_y") +
+  theme_minimal() +
+  labs(
+    title = "Comparison of PGS Mean and SD across Correction Methods",
+    subtitle = "Comparing Raw, Linear, and KNN adjustments",
+    x = "Trait",
+    y = "Value",
+    fill = "GWAS Type"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "gray95"),
+    panel.spacing = unit(1, "lines")
+  )
+
+# Make a table listing the number of variants in each PGS
+score_file_list <- list_score_files('misc/opensnp/config_zenodo_10715132.yaml')
+score_file_list <- score_file_list[grepl('within|neale', score_file_list$name),]
+
+n_snp <- NULL
+for(i in 1:nrow(score_file_list)){
+  tmp <- fread(paste0('~/oliverpainfel/Data/OpenSNP/GenoPred/zenodo_10715132/reference/pgs_score_files/',score_file_list$method[i],'/',score_file_list$name[i],'/ref-',score_file_list$name[i],'.score.gz'))
+  n_snp_i <- apply(tmp[,-1:-3, with = F], 2, function(x) sum(x != 0))
+  n_snp <- rbind(
+    n_snp,
+    data.table(
+      name = score_file_list$name[i],
+      method = score_file_list$method[i],
+      param = names(n_snp_i),
+      n_snp = n_snp_i
+    )
+  )
+}
+
+n_snp[grepl('5e-08', param),]
 
 ```
-
