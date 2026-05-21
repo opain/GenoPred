@@ -178,7 +178,7 @@ exit_status <- system(paste0(
       # Set to exit if any errors incurred
       set -e &&
       # Initiate conda
-      source /opt/mambaforge/etc/profile.d/conda.sh &&
+      source /opt/miniforge/etc/profile.d/conda.sh &&
       # Activate genopred environment
       conda activate genopred &&
       # Go to repo
