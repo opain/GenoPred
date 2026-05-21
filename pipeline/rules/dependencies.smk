@@ -107,7 +107,7 @@ def check_config_parameters(config):
     if missing_params:
         print("Error: Missing parameters in user-specified and default config files:", missing_params)
         sys.exit(1)
-        
+
     if config.get("config_file") == "NA":
         print("Warning: No user specified config file was provided.")
 
@@ -274,12 +274,12 @@ else:
 # Set ldpred2 reference path
 if config['ldpred2_ldref'] == 'NA':
   ldpred2_ldref=f"{resdir}/data/ldpred2_ref"
-    
+
   if 'ldpred2' in config['pgs_methods'] or 'lassosum2' in config['pgs_methods']:
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
-  
+
     if invalid_pops:
       raise ValueError(
         f"Default ldpred2/lassosum2 reference data is only available for EUR populations. For other populations, please provide your own ldpred2/lassosum2 reference data using the ldpred2_ldref parameter. Download links to ldpred2/lassosum2 reference data for EUR, EAS and AFR populations can be found in this section of the website: https://opain.github.io/GenoPred/pipeline_readme.html#Specifying_alternative_reference_data_for_PGS_methods"
@@ -297,7 +297,7 @@ else:
       if not os.path.exists(map_file):
         print(f"File not found: {map_file}")
         raise FileNotFoundError(f"Required file not found: {map_file}. ldpred2/lassosum2 reference data must include map.rds for all populations.")
-  
+
       # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
       for chr in range(1, 23):
         ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
@@ -308,12 +308,12 @@ else:
 # Set sbayesr reference path
 if config['sbayesr_ldref'] == 'NA':
   sbayesr_ldref=f"{resdir}/data/gctb_ref"
-  
+
   if 'sbayesr' in config['pgs_methods']:
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
-  
+
     if invalid_pops:
       raise ValueError(
         f"Default sbayesr reference data is only available for EUR populations. For other populations, please provide your own sbayesr reference data using the sbayesr_ldref parameter."
@@ -331,7 +331,7 @@ else:
       if not os.path.exists(map_file):
         print(f"File not found: {map_file}")
         raise FileNotFoundError(f"Required file not found: {map_file}. SBayesR reference data must include map.rds for all populations.")
-  
+
       # Check if LD_with_blocks_chr${chr}.rds files exist for chr 1 to 22
       for chr in range(1, 23):
         ld_file = os.path.join(path, f"LD_with_blocks_chr{chr}.rds")
@@ -342,18 +342,18 @@ else:
 if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickprs" in config["pgs_methods"]:
   if config['quickprs_ldref'] == 'NA':
     quickprs_ldref=f"{resdir}/data/quickprs"
-    
+
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR', 'EAS', 'AFR', 'CSA', 'AMR', 'MID'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
-  
+
     if invalid_pops:
       raise ValueError(
         f"Default quickprs reference data is only available for EUR, EAS, AFR, CSA, AMR, and MID populations. For other populations, please provide your own quickprs reference data using the quickprs_ldref parameter."
       )
   else:
     quickprs_ldref=config['quickprs_ldref']
-  
+
     # Check the quickprs ldref data is present for the required populations in the gwas_list
     for pop in gwas_list_df['population'].unique():
       path = f"{quickprs_ldref}/{pop}"
@@ -367,18 +367,18 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA") or "quickpr
 if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
   if config['quickprs_multi_ldref'] == 'NA':
     quickprs_multi_ldref=f"{resdir}/data/quickprs_leopard"
-    
+
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR', 'EAS', 'AFR', 'CSA', 'AMR', 'MID'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
-  
+
     if invalid_pops:
       raise ValueError(
         f"Default LEOPARD+QuickPRS reference data is only available for EUR, EAS, AFR, CSA, AMR, and MID populations. For other populations, please provide your own LEOPARD+QuickPRS reference data using the quickprs_multi_ldref parameter."
       )
   else:
     quickprs_multi_ldref=config['quickprs_multi_ldref']
-  
+
     # Check the quickprs ldref data is present for the required populations in the gwas_list
     missing_files = []
     for pop in gwas_list_df['population'].unique():
@@ -397,18 +397,18 @@ if (config["leopard_methods"] and config["leopard_methods"] != "NA"):
 if "sbayesrc" in config["pgs_methods"]:
   if config['sbayesrc_ldref'] == 'NA':
     sbayesrc_ldref=f"{resdir}/data/sbayesrc_ref"
-  
+
     # Check if gwas_list contains invalid populations
     valid_pops = {'EUR', 'EAS', 'AFR'}
     invalid_pops = set(gwas_list_df['population'].unique()) - valid_pops
-  
+
     if invalid_pops:
       raise ValueError(
         f"Default sbayesrc reference data is only available for EUR, EAS, and AFR populations. For other populations, please provide your own sbayesrc reference data using the sbayesrc_ldref parameter."
       )
   else:
     sbayesrc_ldref=config['sbayesrc_ldref']
-  
+
     # Check the sbayesrc ldref data is present for the required populations in the gwas_list
     if 'sbayesrc' in config['pgs_methods']:
       for pop in gwas_list_df['population'].unique():
@@ -430,7 +430,7 @@ else:
 
     ref_input = [os.path.join(refdir, f"ref.chr{i}.{ext}") for i in get_chr_range(testing=config['testing']) for ext in ['pgen', 'pvar', 'psam', 'rds']]
     ref_input.append(os.path.join(refdir, 'ref.pop.txt'))
-    
+
     # Read populations from ref.pop.txt
     populations = set()
     ref_pop_file = os.path.join(refdir, 'ref.pop.txt')
@@ -441,20 +441,20 @@ else:
                 parts = line.strip().split()
                 if len(parts) == 2:
                     populations.add(parts[1])
-    
+
     # Check keep files for populations in ref.pop.txt
     keep_dir = os.path.join(refdir, "keep_files")
     for pop in populations:
         keep_file = os.path.join(keep_dir, f"{pop}.keep")
         ref_input.append(keep_file)
-    
+
     # Check frequency files for populations in ref.pop.txt and TRANS
     freq_dir = os.path.join(refdir, "freq_files")
     for pop in list(populations) + ['TRANS']:
         for i in get_chr_range(testing=config['testing']):
             freq_file = os.path.join(freq_dir, pop, f"ref.{pop}.chr{i}.afreq")
             ref_input.append(freq_file)
-    
+
     # Verify that all required files exist
     for full_path in ref_input:
         if not os.path.exists(full_path):
@@ -696,8 +696,9 @@ rule download_ld_blocks:
   shell:
     """
     {{
-      git clone https://bitbucket.org/nygcresearch/ldetect-data.git {output}; \
-      mv {resdir}/data/ld_blocks/ASN {resdir}/data/ld_blocks/EAS
+      gdown 1i7NO75L07g4tuJ9LYn7e4ffvp3ouvLaA -O {resdir}/data/ld_blocks.tar.gz ; \
+      tar -zxvf {resdir}/data/ld_blocks.tar.gz -C {resdir}/data/ ; \
+      rm {resdir}/data/ld_blocks.tar.gz
     }} > {log} 2>&1
     """
 
@@ -985,9 +986,10 @@ rule install_genoutils_sbayesrc:
     "resources/data/logs/install_genoutils_sbayesrc.log"
   shell:
     """
-    {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
-    }} > {log} 2>&1
+      Rscript -e '
+      remotes::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\", upgrade = "never")
+      if (!requireNamespace("GenoUtils", quietly = TRUE)) stop("Installation failed!")
+      ' > {log} 2>&1
     """
 
 # Download LDpred2 reference
@@ -1071,7 +1073,7 @@ rule download_ldak_map:
       rm {resdir}/data/ldak_map.tar.gz
     }} > {log} 2>&1
     """
-    
+
 # Download LDAK bld snp annotations
 rule download_ldak_bld:
   output:
@@ -1090,7 +1092,7 @@ rule download_ldak_bld:
       rm {resdir}/data/ldak_bld/bld.zip
     }} > {log} 2>&1
     """
-    
+
 # Download LDAK high ld regions file
 rule download_ldak_highld:
   output:
@@ -1230,9 +1232,10 @@ rule install_ggchicklet:
     "resources/data/logs/install_ggchicklet.log"
   shell:
     """
-    {{
-      Rscript -e 'remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\")'
-    }} > {log} 2>&1
+      Rscript -e '
+      remotes::install_github(\"hrbrmstr/ggchicklet@64c468dd0900153be1690dbfc5cfb35710da8183\", upgrade = "never")
+      if (!requireNamespace("ggchicklet", quietly = TRUE)) stop("Installation failed!")
+      ' > {log} 2>&1
     """
 
 # install lassosum
@@ -1249,9 +1252,10 @@ rule install_lassosum:
     "resources/data/logs/install_lassosum.log"
   shell:
     """
-    {{
-      Rscript -e 'remotes::install_github(\"tshmak/lassosum@v0.4.5\")'
-    }} > {log} 2>&1
+    Rscript -e '
+    remotes::install_github("tshmak/lassosum@v0.4.5", upgrade = "never")
+    if (!requireNamespace("lassosum", quietly = TRUE)) stop("Installation failed!")
+    ' > {log} 2>&1
     """
 
 # install sdpr
@@ -1286,9 +1290,10 @@ rule install_genoutils:
     "resources/data/logs/install_genoutils.log"
   shell:
     """
-    {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@ff3e64d543ecd82af06c2c91ec44ec5f01d83487\")'
-    }} > {log} 2>&1
+      Rscript -e '
+      remotes::install_github(\"opain/GenoUtils@ff3e64d543ecd82af06c2c91ec44ec5f01d83487\", upgrade = "never")
+      if (!requireNamespace("GenoUtils", quietly = TRUE)) stop("Installation failed!")
+      ' > {log} 2>&1
     """
 
 # Download pgscatalog_utils
@@ -1322,9 +1327,10 @@ rule install_xpass:
     "resources/data/logs/install_xpass.log"
   shell:
     """
-    {{
-      Rscript -e 'devtools::install_github(\"YangLabHKUST/XPASS@65877ffba60dce69e0a6aa31c2e61045bf36dc40\")'
-    }} > {log} 2>&1
+      Rscript -e '
+      remotes::install_github(\"YangLabHKUST/XPASS@65877ffba60dce69e0a6aa31c2e61045bf36dc40\", upgrade = "never")
+      if (!requireNamespace("XPASS", quietly = TRUE)) stop("Installation failed!")
+      ' > {log} 2>&1
     """
 
 # Install GenoUtils in X-wing environment
@@ -1341,9 +1347,10 @@ rule install_genoutils_xwing:
     "resources/data/logs/install_genoutils_xwing.log"
   shell:
     """
-    {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
-    }} > {log} 2>&1
+      Rscript -e '
+      remotes::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\", upgrade = "never")
+      if (!requireNamespace("GenoUtils", quietly = TRUE)) stop("Installation failed!")
+      ' > {log} 2>&1
     """
 
 # Download X-wing repo
@@ -1462,6 +1469,8 @@ rule download_leopard_panther_snp_data:
 
 # Install TL-PRS
 rule install_tlprs:
+  input:
+    rules.install_lassosum.output
   output:
     touch("resources/software/install_tlprs.done")
   conda:
@@ -1472,9 +1481,10 @@ rule install_tlprs:
     f"{resdir}/data/logs/install_tlprs.log"
   shell:
     """
-    {{
-      Rscript -e 'devtools::install_github(\"opain/TLPRS@5a5528a3f709ca7d627381a3f09ccdcb923b50f4\")'
-    }} > {log} 2>&1
+      Rscript -e '
+      remotes::install_github(\"opain/TLPRS@5a5528a3f709ca7d627381a3f09ccdcb923b50f4\", upgrade = "never")
+      if (!requireNamespace("TLPRS", quietly = TRUE)) stop("Installation failed!")
+      ' > {log} 2>&1
     """
 
 ############
@@ -1491,9 +1501,10 @@ rule install_genoutils_bridgeprs:
     f"{resdir}/data/logs/install_genoutils_bridgeprs.log"
   shell:
     """
-    {{
-      Rscript -e 'devtools::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\")'
-    }} > {log} 2>&1
+      Rscript -e '
+      remotes::install_github(\"opain/GenoUtils@6334159ab5d95ce936896e6938a1031c38ed4f30\", upgrade = "never")
+      if (!requireNamespace("GenoUtils", quietly = TRUE)) stop("Installation failed!")
+      ' > {log} 2>&1
     """
 
 # Download BridgePRS
@@ -1515,7 +1526,7 @@ rule download_bridgeprs_software:
       git reset --hard aeea807c9640e28f45dac24a9b5d524a3f11f7f2
     }} > {log} 2>&1
     """
-    
+
 # Install R packages (handy function for when conda env updates erroneously)
 rule install_r_packages:
   input:
@@ -1566,7 +1577,7 @@ rule get_key_resources:
     rules.download_default_ref.output
   output:
     touch(f"{resdir}/software/get_key_resources.done")
-    
+
 rule get_prscs_resources:
   input:
     rules.get_key_resources.output,
@@ -1629,7 +1640,7 @@ rule get_quickprs_resources:
     rules.download_quickprs_leopard_ref_all.input
   output:
     touch(f"{resdir}/software/get_quickprs_resources.done")
-    
+
 rule get_all_resources:
   input:
     rules.get_key_resources.output,
