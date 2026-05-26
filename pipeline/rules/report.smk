@@ -129,4 +129,5 @@ rule indiv_report:
 rule output_all:
   input:
     rules.sample_report.input,
-    rules.indiv_report.input
+    rules.indiv_report.input,
+    output_all_input
