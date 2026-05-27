@@ -66,20 +66,29 @@ should be used via CV-tuning (see below).
 
 ## Step 1 — Compute PGS with PLINK2
 
-Edit `scripts/01_compute_pgs.sh` to point at your PLINK2 binary and target
-`.pgen/.pvar/.psam` files, then run:
+Edit `scripts/01_compute_pgs.sh` and set **one** of:
+
+* `TARGET_PFILE=/path/to/all_chr_data` if you have a single whole-genome
+  PLINK2 `.pgen/.pvar/.psam` set, **or**
+* `TARGET_PFILE_CHR=/path/to/chr{CHR}/genotypes` if your data is split per
+  chromosome (the `{CHR}` placeholder is substituted with 1, 2, …, 22). The
+  script will score each chromosome separately and sum the contributions to
+  produce a single `.sscore`.
+
+Then run:
 
 ```bash
 bash scripts/01_compute_pgs.sh
 ```
 
 Output is `pgs_out/pseudovalidated.sscore` with one column per PGS column
-(`<column_name>_AVG` is the per-individual average effect; `<column_name>_SUM`
-is the sum).
+(`<column_name>_AVG` is the per-individual average effect over scored
+variants; `<column_name>_SUM` is the dosage-weighted sum).
 
-> **Variant overlap.** PLINK2 prints how many variants matched. If far fewer
-> than expected, double-check chromosome/build (the bundle is GRCh38) and SNP
-> ID format.
+> **Variant overlap.** PLINK2 prints how many variants matched per
+> chromosome. Summed across chromosomes should be close to the total in the
+> score file (~1.2M for this bundle). If far fewer, double-check
+> chromosome/build (the bundle is GRCh38) and SNP ID format.
 
 ## Step 2 — Evaluate PGS
 

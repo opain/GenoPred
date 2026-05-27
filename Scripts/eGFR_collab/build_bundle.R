@@ -141,7 +141,7 @@ for (i in seq_len(nrow(score_index))) {
 }
 
 catalogue_dt <- rbindlist(catalogue)
-fwrite(catalogue_dt, file.path(opt$output_dir, "catalogue.tsv"), sep = "\t")
+fwrite(catalogue_dt, file.path(opt$output_dir, "catalogue.tsv"), sep = "\t", na = "NA")
 message(sprintf("catalogue.tsv: %d columns across %d methods",
                 nrow(catalogue_dt), length(unique(catalogue_dt$method))))
 
@@ -149,14 +149,14 @@ message(sprintf("catalogue.tsv: %d columns across %d methods",
 wide_full <- Reduce(function(a, b) cbind(a, b[, !c("SNP", "A1", "A2"), with = FALSE]),
                     all_scores, accumulate = FALSE)
 fwrite(wide_full, file.path(opt$output_dir, "scores", "full_grid.score.gz"),
-       sep = " ", compress = "gzip", na = "0")
+       sep = " ", compress = "gzip", na = "0", quote = FALSE)
 message(sprintf("full_grid.score.gz: %d SNPs x %d score columns",
                 nrow(wide_full), ncol(wide_full) - 3L))
 
 pv_cols <- catalogue_dt[is_pseudovalidated == TRUE, column_name]
 wide_pv <- wide_full[, c("SNP", "A1", "A2", pv_cols), with = FALSE]
 fwrite(wide_pv, file.path(opt$output_dir, "scores", "pseudovalidated.score.gz"),
-       sep = " ", compress = "gzip", na = "0")
+       sep = " ", compress = "gzip", na = "0", quote = FALSE)
 message(sprintf("pseudovalidated.score.gz: %d SNPs x %d score columns",
                 nrow(wide_pv), ncol(wide_pv) - 3L))
 

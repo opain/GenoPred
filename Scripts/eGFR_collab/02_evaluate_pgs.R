@@ -53,7 +53,7 @@ set.seed(opt$seed)
 pgs   <- fread(opt$pgs)
 pheno <- fread(opt$pheno)
 covar <- fread(opt$covar)
-cat   <- fread(opt$catalogue)
+cat   <- fread(opt$catalogue, na.strings = c("", "NA"))
 
 # PLINK2 stores per-score columns suffixed _AVG (or _SUM if cols=+scoresums)
 avg_cols <- grep("_AVG$", names(pgs), value = TRUE)
@@ -64,9 +64,15 @@ setnames(pgs, avg_cols, pgs_cols)
 pgs <- pgs[, c("#IID", pgs_cols), with = FALSE]
 setnames(pgs, "#IID", "IID")
 
-# Phenotype: name = user-specified or 3rd column
-pheno_name <- if (!is.null(opt$pheno_name)) opt$pheno_name else names(pheno)[3]
-stopifnot(pheno_name %in% names(pheno))
+# Phenotype: name = user-specified, else the first non-ID column
+id_cols <- c("FID", "IID", "#IID", "#FID")
+pheno_name <- if (!is.null(opt$pheno_name)) {
+  opt$pheno_name
+} else {
+  setdiff(names(pheno), id_cols)[1]
+}
+stopifnot(!is.na(pheno_name), pheno_name %in% names(pheno))
+message("Phenotype column: ", pheno_name)
 
 # Merge by IID (collaborator may not have FID; tolerate either)
 dat <- merge(pheno[, c("IID", pheno_name), with = FALSE], covar, by = "IID")
