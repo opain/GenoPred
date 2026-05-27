@@ -17,9 +17,8 @@ suppressPackageStartupMessages({
 
 opt_list <- list(
   make_option("--config",      type = "character", help = "GenoPred config.yaml"),
-  make_option("--genopred_dir",type = "character",
-              default = normalizePath(file.path(dirname(sys.frame(1)$ofile), "..", ".."), mustWork = FALSE),
-              help = "Path to GenoPred repo root [auto-detected]"),
+  make_option("--genopred_dir",type = "character", default = NULL,
+              help = "Path to GenoPred repo root [auto-detected from script location]"),
   make_option("--target_pops", type = "character", default = "EUR,AFR",
               help = "Comma-separated target populations for LEOPARD/xwing pseudo-val [%default]"),
   make_option("--output_dir",  type = "character", help = "Output bundle directory"),
@@ -29,6 +28,14 @@ opt_list <- list(
 opt <- parse_args(OptionParser(option_list = opt_list))
 
 stopifnot(!is.null(opt$config), !is.null(opt$output_dir))
+
+# Auto-detect GenoPred root from this script's location (Scripts/eGFR_collab/)
+if (is.null(opt$genopred_dir)) {
+  args <- commandArgs(trailingOnly = FALSE)
+  script_path <- sub("^--file=", "", grep("^--file=", args, value = TRUE)[1])
+  opt$genopred_dir <- normalizePath(file.path(dirname(script_path), "..", ".."), mustWork = TRUE)
+}
+message("Using GenoPred root: ", opt$genopred_dir)
 
 # Source GenoPred helpers (find_pseudo, list_score_files, read_param, constants)
 source(file.path(opt$genopred_dir, "functions", "constants.R"))
@@ -57,16 +64,25 @@ src_pop <- function(method, name) {
   NA_character_
 }
 
-# Helper: pseudo-val column(s) for a (method, name); LEOPARD/xwing give one per target pop
+# Helper: pseudo-val column(s) for a (method, name).
+# Methods needing target_pop are called once per target pop; results that are
+# constant across target pops are collapsed to a single target-agnostic row.
+needs_target_pop <- function(method) {
+  grepl("_multi$", method) || method %in% pgs_group_methods
+}
+
 pseudo_cols <- function(method, name) {
-  is_target_specific <- grepl("_multi$", method) || method == "xwing"
-  if (is_target_specific) {
+  if (needs_target_pop(method)) {
     out <- data.table()
     for (tp in target_pops) {
       pv <- tryCatch(find_pseudo(config = opt$config, gwas = name, pgs_method = method,
                                  target_pop = tp, quiet = TRUE),
                      error = function(e) NA_character_)
       if (!is.na(pv)) out <- rbind(out, data.table(param = pv, target_population = tp))
+    }
+    if (nrow(out) > 0 && length(unique(out$param)) == 1L) {
+      # Target-agnostic pseudo-val (e.g. prscsx META_phi_auto)
+      out <- data.table(param = out$param[1], target_population = NA_character_)
     }
     return(out)
   }
