@@ -17,6 +17,7 @@ egfr_pgs_share/
 ├── README.md                       (this file)
 ├── catalogue.tsv                   (one row per PGS column: method, source, tuning info)
 ├── scores/
+│   ├── ptclump_only.score.gz       SENSITIVITY: p+T at every P-threshold, PRSice-style
 │   ├── pseudovalidated.score.gz    PRIMARY: 1 PGS per method per source, no tuning needed
 │   └── full_grid.score.gz          OPTIONAL: every hyperparameter (large; only for CV)
 └── scripts/
@@ -104,6 +105,30 @@ phenotype in).
   numeric, PCs as you normally use them (10–20 typical).
 * **`--catalogue`** `catalogue.tsv` from this bundle.
 * **`--target_pop`** `EUR` or `AFR` — filters which PGS columns are relevant.
+
+### Step 2a — Sensitivity check vs PRSice (recommended first)
+
+If you've previously analysed these summary statistics with PRSice, run this
+sensitivity check first to confirm that the GenoPred weights produce
+comparable signal. Differences are expected because GenoPred restricts to
+HapMap3 variants whereas PRSice uses all GWAS×target overlap, but the rank
+ordering of P-thresholds and the maximum-R² P-threshold should be similar.
+
+```bash
+Rscript scripts/02_evaluate_pgs.R \
+  --pgs        pgs_out/ptclump_only.sscore \
+  --pheno      egfr.tsv \
+  --covar      covariates.tsv \
+  --catalogue  catalogue.tsv \
+  --target_pop EUR \
+  --output     results_EUR_ptclump \
+  --all_columns
+```
+
+`--all_columns` disables the pseudo-validated filter so every P-threshold is
+tested. Note that the maximum-R² across P-thresholds picked on a single
+sample is overfit; use it for comparison-to-PRSice purposes, not as your
+headline R².
 
 ### Default mode (recommended)
 

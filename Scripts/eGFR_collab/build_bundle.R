@@ -160,6 +160,16 @@ fwrite(wide_pv, file.path(opt$output_dir, "scores", "pseudovalidated.score.gz"),
 message(sprintf("pseudovalidated.score.gz: %d SNPs x %d score columns",
                 nrow(wide_pv), ncol(wide_pv) - 3L))
 
+# PRSice-style sensitivity bundle: single-source p+T at all P-thresholds.
+ptclump_cols <- catalogue_dt[method == "ptclump", column_name]
+if (length(ptclump_cols) > 0) {
+  wide_ptclump <- wide_full[, c("SNP", "A1", "A2", ptclump_cols), with = FALSE]
+  fwrite(wide_ptclump, file.path(opt$output_dir, "scores", "ptclump_only.score.gz"),
+         sep = " ", compress = "gzip", na = "0", quote = FALSE)
+  message(sprintf("ptclump_only.score.gz: %d SNPs x %d score columns",
+                  nrow(wide_ptclump), ncol(wide_ptclump) - 3L))
+}
+
 # Copy companion files
 here <- file.path(opt$genopred_dir, "Scripts", "eGFR_collab")
 file.copy(file.path(here, "01_compute_pgs.sh"), file.path(opt$output_dir, "scripts"), overwrite = TRUE)

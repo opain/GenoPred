@@ -42,6 +42,8 @@ opt_list <- list(
   make_option("--output",     type = "character"),
   make_option("--pheno_name", type = "character", default = NULL),
   make_option("--cv",         action = "store_true", default = FALSE),
+  make_option("--all_columns",action = "store_true", default = FALSE,
+              help = "Skip the is_pseudovalidated filter; test every PGS column present in --pgs (e.g. PRSice-style all-P-threshold sensitivity check)."),
   make_option("--folds",      type = "integer", default = 5L),
   make_option("--boot",       type = "integer", default = 1000L),
   make_option("--seed",       type = "integer", default = 42L)
@@ -104,11 +106,18 @@ boot_ci <- function(y, X_full, X_null, B = opt$boot) {
 }
 
 # ---- Filter catalogue to columns relevant for this target population ------
-cat_rel <- cat[is_pseudovalidated == TRUE &
-                 (is.na(target_population) | target_population == opt$target_pop)]
+if (opt$all_columns) {
+  # All columns present in --pgs that don't conflict with the target population
+  cat_rel <- cat[(is.na(target_population) | target_population == opt$target_pop)]
+  message_prefix <- "All-columns mode"
+} else {
+  cat_rel <- cat[is_pseudovalidated == TRUE &
+                   (is.na(target_population) | target_population == opt$target_pop)]
+  message_prefix <- "Pseudo-validated columns"
+}
 cat_rel <- cat_rel[column_name %in% pgs_cols]
-message(sprintf("Pseudo-validated columns relevant for target_pop=%s: %d",
-                opt$target_pop, nrow(cat_rel)))
+message(sprintf("%s relevant for target_pop=%s: %d",
+                message_prefix, opt$target_pop, nrow(cat_rel)))
 
 # ---- Default mode: per-PGS incremental R^2 --------------------------------
 y <- dat[[pheno_name]]

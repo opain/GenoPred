@@ -20,7 +20,11 @@ TARGET_PFILE_CHR=                                            # e.g. /path/to/chr
 CHROMOSOMES=$(seq 1 22)                                      # space-separated chromosome list
 SCORES_DIR=../scores                                         # relative to this script
 OUT_DIR=../pgs_out
-SCORE_FILES=("$SCORES_DIR/pseudovalidated.score.gz")         # add full_grid.score.gz here if needed
+SCORE_FILES=(
+  "$SCORES_DIR/ptclump_only.score.gz"                        # PRSice-style sensitivity (small)
+  "$SCORES_DIR/pseudovalidated.score.gz"                     # headline analysis (small)
+  # "$SCORES_DIR/full_grid.score.gz"                         # uncomment for --cv mode (large)
+)
 # ----------------------------
 
 mkdir -p "$OUT_DIR"
