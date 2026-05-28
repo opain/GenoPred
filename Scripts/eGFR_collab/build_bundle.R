@@ -54,7 +54,7 @@ if (is.null(score_index) || nrow(score_index) == 0) stop("No completed score fil
 dir.create(file.path(opt$output_dir, "scores"),  recursive = TRUE, showWarnings = FALSE)
 dir.create(file.path(opt$output_dir, "scripts"), recursive = TRUE, showWarnings = FALSE)
 
-# Helper: source population(s) for a (method, name) row
+# Helper: source population for a (method, name) row at method level.
 src_pop <- function(method, name) {
   if (name %in% gwas_list$name) return(gwas_list$population[gwas_list$name == name])
   if (!is.null(gwas_groups) && name %in% gwas_groups$name) {
@@ -62,6 +62,20 @@ src_pop <- function(method, name) {
     return(paste(sort(unique(gwas_list$population[gwas_list$name %in% g])), collapse = "+"))
   }
   NA_character_
+}
+
+# Per-column source population. For multi-source methods (prscsx, xwing) the
+# hyperparameter prefix encodes which source the weights came from
+# (EUR_phi_*, AFR_phi_*, META_phi_*); reflect that in the catalogue so
+# downstream code can identify EUR/AFR/META PGS by metadata, not by parsing
+# column names.
+src_pop_col <- function(method, name, hyperparam) {
+  if (method %in% pgs_group_methods) {
+    if (grepl("^EUR_",  hyperparam)) return("EUR")
+    if (grepl("^AFR_",  hyperparam)) return("AFR")
+    if (grepl("^META_", hyperparam)) return("META")
+  }
+  src_pop(method, name)
 }
 
 # Helper: pseudo-val column(s) for a (method, name).
@@ -129,7 +143,7 @@ for (i in seq_len(nrow(score_index))) {
       column_name        = new_names[j],
       method             = m,
       source_gwas        = n,
-      source_population  = src_pop(m, n),
+      source_population  = src_pop_col(m, n, params[j]),
       hyperparameter     = params[j],
       is_pseudovalidated = is_pv,
       target_population  = tp,
@@ -141,7 +155,8 @@ for (i in seq_len(nrow(score_index))) {
 }
 
 catalogue_dt <- rbindlist(catalogue)
-fwrite(catalogue_dt, file.path(opt$output_dir, "catalogue.tsv"), sep = "\t", na = "NA")
+fwrite(catalogue_dt, file.path(opt$output_dir, "catalogue.tsv"),
+       sep = "\t", na = "NA", quote = FALSE)
 message(sprintf("catalogue.tsv: %d columns across %d methods",
                 nrow(catalogue_dt), length(unique(catalogue_dt$method))))
 
@@ -174,6 +189,7 @@ if (length(ptclump_cols) > 0) {
 here <- file.path(opt$genopred_dir, "Scripts", "eGFR_collab")
 file.copy(file.path(here, "01_compute_pgs.sh"), file.path(opt$output_dir, "scripts"), overwrite = TRUE)
 file.copy(file.path(here, "02_evaluate_pgs.R"), file.path(opt$output_dir, "scripts"), overwrite = TRUE)
+file.copy(file.path(here, "03_plot.R"),         file.path(opt$output_dir, "scripts"), overwrite = TRUE)
 file.copy(file.path(here, "README.md"),         file.path(opt$output_dir),            overwrite = TRUE)
 
 message("Bundle written to: ", opt$output_dir)

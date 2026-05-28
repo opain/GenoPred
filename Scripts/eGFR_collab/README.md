@@ -18,12 +18,29 @@ egfr_pgs_share/
 ├── catalogue.tsv                   (one row per PGS column: method, source, tuning info)
 ├── scores/
 │   ├── ptclump_only.score.gz       SENSITIVITY: p+T at every P-threshold, PRSice-style
-│   ├── pseudovalidated.score.gz    PRIMARY: 1 PGS per method per source, no tuning needed
-│   └── full_grid.score.gz          OPTIONAL: every hyperparameter (large; only for CV)
+│   ├── pseudovalidated.score.gz    SumStatTune: 1 pseudo-val PGS per method per source
+│   └── full_grid.score.gz          IndivTune: every hyperparameter (large; for CV tuning)
 └── scripts/
     ├── 01_compute_pgs.sh           PLINK2 --score template
-    └── 02_evaluate_pgs.R           per-PGS incremental R²; optional CV across methods
+    ├── 02_evaluate_pgs.R           SumStatTune + IndivTune + ptclump sensitivity
+    └── 03_plot.R                   figure: R per (method × source × target)
 ```
+
+## Three analyses
+
+1. **ptclump sensitivity** — every P-threshold for pT+clump, for direct
+   comparison against your existing PRSice results.
+2. **SumStatTune** — for each (method × source GWAS × target ancestry), the R
+   of the **pseudo-validated** PGS (no target tuning, derived from summary
+   statistics alone). LEOPARD-combined columns provide the multi-source
+   (EUR+AFR) row.
+3. **IndivTune** — for each (method × source GWAS × target ancestry), the R
+   from **nested k-fold CV in the target sample**. Single-source: inner CV
+   picks the best hyperparameter. EUR+AFR: independent inner CV picks the
+   best per-source column, outer fold joint-fits both.
+
+Run each per target ancestry (with `--keep`), then plot SumStat and Indiv R
+side-by-side with `03_plot.R`.
 
 ## Score file format
 
@@ -110,13 +127,12 @@ phenotype in).
   target population. PGS evaluation should be ancestry-stratified — without
   this flag the script runs on the full merged sample and emits a warning.
 
-### Step 2a — Sensitivity check vs PRSice (recommended first)
+### Step 2a — ptclump sensitivity vs PRSice (recommended first)
 
 If you've previously analysed these summary statistics with PRSice, run this
-sensitivity check first to confirm that the GenoPred weights produce
-comparable signal. Differences are expected because GenoPred restricts to
-HapMap3 variants whereas PRSice uses all GWAS×target overlap, but the rank
-ordering of P-thresholds and the maximum-R² P-threshold should be similar.
+first to confirm GenoPred weights give comparable signal. Differences are
+expected because GenoPred restricts to HapMap3 variants whereas PRSice uses
+all GWAS×target overlap, but rank ordering of P-thresholds should be similar.
 
 ```bash
 Rscript scripts/02_evaluate_pgs.R \
@@ -130,12 +146,11 @@ Rscript scripts/02_evaluate_pgs.R \
   --all_columns
 ```
 
-`--all_columns` disables the pseudo-validated filter so every P-threshold is
-tested. Note that the maximum-R² across P-thresholds picked on a single
-sample is overfit; use it for comparison-to-PRSice purposes, not as your
-headline R².
+Output: `<output>.all_columns.tsv` with one row per P-threshold per source GWAS.
+The maximum R picked across thresholds on a single sample is overfit — use
+this only for comparison-to-PRSice purposes, not as a headline R.
 
-### Default mode (recommended)
+### Step 2b — SumStatTune (headline)
 
 ```bash
 Rscript scripts/02_evaluate_pgs.R \
@@ -148,33 +163,41 @@ Rscript scripts/02_evaluate_pgs.R \
   --output     results_EUR
 ```
 
-Repeat with `--target_pop AFR --keep samples_AFR.keep --output results_AFR`
-for the AFR-stratified analysis.
+Output: `<output>.sumstat_tune.tsv` with one row per (method, source, target),
+giving R and SE for the pseudo-validated PGS. No target tuning — coefficients
+are derived entirely from the summary statistics. Repeat for `--target_pop AFR
+--keep samples_AFR.keep --output results_AFR`.
 
-For each pseudo-validated PGS relevant to the target population, fits
-
-```
-phenotype ~ age + sex + PCs + scale(PGS)
-```
-
-and reports the **incremental R²** vs the covariates-only model with a
-bootstrap 95% CI. No tuning, no model selection — the incremental R² is an
-honest estimate of out-of-sample predictive utility.
-
-Output: `<output>.per_pgs.tsv`.
-
-### Optional CV mode
+### Step 2c — IndivTune (CV in target sample)
 
 ```bash
-Rscript scripts/02_evaluate_pgs.R ... --cv --folds 5
+Rscript scripts/02_evaluate_pgs.R \
+  --pgs        pgs_out/full_grid.sscore \
+  --pheno      egfr.tsv \
+  --covar      covariates.tsv \
+  --catalogue  catalogue.tsv \
+  --target_pop EUR \
+  --keep       samples_EUR.keep \
+  --output     results_EUR \
+  --indiv_tune --folds 5
 ```
 
-Runs nested k-fold CV across **all** PGS columns to estimate an unbiased
-"best PGS across methods" incremental R². Inner folds pick the best column on
-training data; outer folds score it on held-out data. Without nested CV,
-picking the highest R² across hundreds of columns dramatically inflates the
-estimate — a common pitfall when moving from PRSice-style sweeping to many
-methods at once.
+Output: `<output>.indiv_tune.tsv` with the same shape, but R is from nested
+k-fold CV (inner CV picks best hyperparameter / per-source column on training,
+outer fold scores on held-out data). Joint EUR+AFR rows fit both sources
+together in the outer fold.
+
+### Step 2d — Plot
+
+```bash
+Rscript scripts/03_plot.R \
+  --inputs "EUR=results_EUR,AFR=results_AFR" \
+  --output figure_eGFR.png \
+  --title  "eGFR PGS evaluation"
+```
+
+Renders a facet grid (rows = target, cols = source GWAS) with both
+SumStatTune and IndivTune points + SE bars per method.
 
 ## Multi-ancestry analysis advice
 

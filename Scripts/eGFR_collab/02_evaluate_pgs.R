@@ -1,36 +1,35 @@
 #!/usr/bin/Rscript
-# Evaluate PGS against a continuous phenotype.
+# Evaluate PGS against a continuous phenotype, ancestry-stratified.
 #
-# Default mode (recommended):
-#   For each *pseudo-validated* PGS column relevant to the target population,
-#   fit  pheno ~ covariates + scale(PGS)  and report incremental R^2 vs the
-#   covariates-only model, with a bootstrap 95% CI. No hyperparameter tuning,
-#   no selection bias.
+# Three analyses (each emits a TSV; combine for plotting with 03_plot.R):
 #
-# CV mode (--cv):
-#   Nested k-fold CV across all PGS columns in --pgs to estimate an unbiased
-#   "best PGS across methods" incremental R^2. Inner folds pick the best
-#   column; outer folds score it on held-out data.
+#   default              SumStatTune: per (method, source, target), R from a
+#                        regression of the pseudo-validated (sum-stats-derived)
+#                        PGS, no target tuning.
+#                        Output: <output>.sumstat_tune.tsv
 #
-# Required inputs:
-#   --pgs         PLINK2 .sscore file from 01_compute_pgs.sh
-#                 (must contain *_AVG columns, one per score column)
-#   --pheno       Phenotype TSV with columns: FID IID <pheno>
-#   --covar       Covariate TSV with columns: FID IID age sex PC1 PC2 ...
-#                 (sex coded numerically, e.g. 0/1)
+#   --indiv_tune         IndivTune: per (method, source, target), R from
+#                        nested k-fold CV in the target sample. Single-source
+#                        configurations: inner CV picks best hyperparameter,
+#                        outer fold scores it. EUR+AFR configurations:
+#                        independent inner CV picks best per-source column,
+#                        outer fold joint-fits both. Requires --pgs to be the
+#                        full grid (full_grid.sscore).
+#                        Output: <output>.indiv_tune.tsv
+#
+#   --all_columns        PRSice-style sensitivity: R for every PGS column in
+#                        --pgs (e.g. each P-threshold for ptclump_only).
+#                        Output: <output>.all_columns.tsv
+#
+# Required:
+#   --pgs         PLINK2 .sscore (must contain *_AVG columns)
+#   --pheno       TSV: IID <pheno> (or FID IID <pheno>)
+#   --covar       TSV: IID age sex PC1 ...
 #   --catalogue   catalogue.tsv from the bundle
-#   --target_pop  Target population label, e.g. EUR or AFR
-#                 (filters which PGS columns are relevant)
-#   --output      Output TSV prefix
+#   --target_pop  EUR or AFR
+#   --output      Output prefix
 # Recommended:
-#   --keep        PLINK keep file (FID IID) restricting to one population.
-#                 PGS evaluation should be ancestry-stratified.
-# Optional:
-#   --pheno_name  Name of phenotype column in --pheno (default: first non-ID column)
-#   --all_columns Test every column in --pgs (not just pseudo-validated picks)
-#   --cv          Run nested CV across all PGS columns
-#   --folds       k for outer/inner folds (default 5)
-#   --boot        Bootstrap replicates for CI (default 1000)
+#   --keep        PLINK keep file (FID IID) restricting to one target ancestry.
 
 suppressPackageStartupMessages({
   library(optparse)
@@ -44,185 +43,255 @@ opt_list <- list(
   make_option("--catalogue",  type = "character"),
   make_option("--target_pop", type = "character"),
   make_option("--output",     type = "character"),
-  make_option("--keep",       type = "character", default = NULL,
-              help = "PLINK-format keep file (FID IID, whitespace-separated, header optional) restricting the analysis to one population. STRONGLY recommended for ancestry-stratified evaluation."),
+  make_option("--keep",       type = "character", default = NULL),
   make_option("--pheno_name", type = "character", default = NULL),
-  make_option("--cv",         action = "store_true", default = FALSE),
-  make_option("--all_columns",action = "store_true", default = FALSE,
-              help = "Skip the is_pseudovalidated filter; test every PGS column present in --pgs (e.g. PRSice-style all-P-threshold sensitivity check)."),
-  make_option("--folds",      type = "integer", default = 5L),
-  make_option("--boot",       type = "integer", default = 1000L),
-  make_option("--seed",       type = "integer", default = 42L)
+  make_option("--indiv_tune", action = "store_true", default = FALSE),
+  make_option("--all_columns",action = "store_true", default = FALSE),
+  make_option("--folds",      type = "integer",   default = 5L),
+  make_option("--boot",       type = "integer",   default = 1000L),
+  make_option("--seed",       type = "integer",   default = 42L)
 )
 opt <- parse_args(OptionParser(option_list = opt_list))
 set.seed(opt$seed)
 
-# ---- Load data ------------------------------------------------------------
+# ---- Load --------------------------------------------------------------
 pgs   <- fread(opt$pgs)
 pheno <- fread(opt$pheno)
 covar <- fread(opt$covar)
 cat   <- fread(opt$catalogue, na.strings = c("", "NA"))
 
-# PLINK2 stores per-score columns suffixed _AVG (or _SUM if cols=+scoresums)
 avg_cols <- grep("_AVG$", names(pgs), value = TRUE)
 if (length(avg_cols) == 0) stop("No *_AVG columns in --pgs; rerun PLINK2 --score with header output.")
-# Strip _AVG suffix to recover catalogue column_name
 pgs_cols <- sub("_AVG$", "", avg_cols)
 setnames(pgs, avg_cols, pgs_cols)
 pgs <- pgs[, c("#IID", pgs_cols), with = FALSE]
 setnames(pgs, "#IID", "IID")
 
-# Phenotype: name = user-specified, else the first non-ID column
 id_cols <- c("FID", "IID", "#IID", "#FID")
-pheno_name <- if (!is.null(opt$pheno_name)) {
-  opt$pheno_name
-} else {
-  setdiff(names(pheno), id_cols)[1]
-}
+pheno_name <- if (!is.null(opt$pheno_name)) opt$pheno_name else setdiff(names(pheno), id_cols)[1]
 stopifnot(!is.na(pheno_name), pheno_name %in% names(pheno))
 message("Phenotype column: ", pheno_name)
 
-# Merge by IID (collaborator may not have FID; tolerate either)
 dat <- merge(pheno[, c("IID", pheno_name), with = FALSE], covar, by = "IID")
 dat <- merge(dat, pgs, by = "IID")
 dat <- dat[complete.cases(dat[, c(pheno_name, setdiff(names(covar), c("FID", "IID"))), with = FALSE])]
 message(sprintf("N after merge & complete cases: %d", nrow(dat)))
 
-# Restrict to a population-specific keep file (PLINK convention: FID IID)
 if (!is.null(opt$keep)) {
   keep <- fread(opt$keep, header = "auto")
-  # PLINK keep: first 2 columns are FID, IID — IID is the 2nd column unless
-  # the file is single-column IID-only (not PLINK convention but tolerate).
   iid <- if (ncol(keep) >= 2) keep[[2]] else keep[[1]]
   n_before <- nrow(dat)
   dat <- dat[IID %in% iid]
   message(sprintf("N after --keep filter: %d (from %d)", nrow(dat), n_before))
   if (nrow(dat) == 0) stop("No samples remain after --keep filter; check ID format.")
 } else {
-  message("NOTE: --keep not supplied. PGS evaluation should be ancestry-stratified; ",
-          "running on the full merged sample is only appropriate if it is already homogeneous.")
+  message("NOTE: --keep not supplied. PGS evaluation should be ancestry-stratified.")
 }
 
 covar_terms <- setdiff(names(covar), c("FID", "IID"))
-covar_rhs   <- paste(covar_terms, collapse = " + ")
+y       <- dat[[pheno_name]]
+X_null  <- as.matrix(dat[, covar_terms, with = FALSE])
+target  <- opt$target_pop
 
-# ---- Helpers --------------------------------------------------------------
-incr_r2 <- function(y, X_full, X_null) {
-  # Returns incremental R^2 = R^2(full) - R^2(null), via OLS.
-  r2 <- function(X) {
-    f <- lm.fit(cbind(1, as.matrix(X)), y)
-    1 - sum(f$residuals^2) / sum((y - mean(y))^2)
-  }
-  r2(X_full) - r2(X_null)
+# ---- Core R helpers -----------------------------------------------------
+
+# Compute partial R between PGS-component (linear combination of PGS terms
+# from the full model) and phenotype, controlling for covariates.
+# Returns signed correlation (cor(pgs_pred, y_resid)).
+fit_R <- function(yv, Xn, Xp) {
+  # Xp: matrix with >=1 PGS column
+  if (any(apply(Xp, 2, function(c) sd(c, na.rm = TRUE) == 0))) return(NA_real_)
+  fit_full <- lm.fit(cbind(1, Xn, Xp), yv)
+  fit_null <- lm.fit(cbind(1, Xn),     yv)
+  pgs_part <- fit_full$fitted.values - fit_null$fitted.values
+  y_resid  <- yv - fit_null$fitted.values
+  if (sd(pgs_part, na.rm = TRUE) == 0) return(NA_real_)
+  cor(pgs_part, y_resid)
 }
 
-boot_ci <- function(y, X_full, X_null, B = opt$boot) {
-  n <- length(y)
-  vals <- numeric(B)
-  for (b in seq_len(B)) {
-    idx <- sample.int(n, n, replace = TRUE)
-    vals[b] <- incr_r2(y[idx], X_full[idx, , drop = FALSE], X_null[idx, , drop = FALSE])
-  }
-  quantile(vals, c(0.025, 0.975), na.rm = TRUE)
+sumstat_R <- function(pgs_col_names) {
+  Xp <- scale(as.matrix(dat[, pgs_col_names, with = FALSE]))
+  R  <- fit_R(y, X_null, Xp)
+  bvals <- replicate(opt$boot, {
+    idx <- sample.int(nrow(dat), nrow(dat), replace = TRUE)
+    fit_R(y[idx], X_null[idx, , drop = FALSE], Xp[idx, , drop = FALSE])
+  })
+  list(R = R, se = sd(bvals, na.rm = TRUE))
 }
 
-# ---- Filter catalogue to columns relevant for this target population ------
-if (opt$all_columns) {
-  # All columns present in --pgs that don't conflict with the target population
-  cat_rel <- cat[(is.na(target_population) | target_population == opt$target_pop)]
-  message_prefix <- "All-columns mode"
-} else {
-  cat_rel <- cat[is_pseudovalidated == TRUE &
-                   (is.na(target_population) | target_population == opt$target_pop)]
-  message_prefix <- "Pseudo-validated columns"
-}
-cat_rel <- cat_rel[column_name %in% pgs_cols]
-message(sprintf("%s relevant for target_pop=%s: %d",
-                message_prefix, opt$target_pop, nrow(cat_rel)))
-
-# ---- Default mode: per-PGS incremental R^2 --------------------------------
-y <- dat[[pheno_name]]
-X_null <- as.matrix(dat[, covar_terms, with = FALSE])
-
-results <- data.table()
-for (col in cat_rel$column_name) {
-  x <- scale(dat[[col]])[, 1]
-  if (sd(x, na.rm = TRUE) == 0) next
-  X_full <- cbind(X_null, PGS = x)
-  r2 <- incr_r2(y, X_full, X_null)
-  ci <- boot_ci(y, X_full, X_null)
-  # also get per-PGS beta + p-value for reference
-  m <- summary(lm(y ~ X_full))
-  beta <- m$coefficients["X_fullPGS", "Estimate"]
-  pval <- m$coefficients["X_fullPGS", "Pr(>|t|)"]
-  results <- rbind(results, data.table(
-    column_name = col, incr_R2 = r2, R2_lower = ci[1], R2_upper = ci[2],
-    beta = beta, p_value = pval
-  ))
-}
-results <- merge(results, cat_rel[, .(column_name, method, source_gwas,
-                                       source_population, target_population)],
-                 by = "column_name", sort = FALSE)
-setorder(results, -incr_R2)
-fwrite(results, paste0(opt$output, ".per_pgs.tsv"), sep = "\t")
-message("Wrote: ", opt$output, ".per_pgs.tsv")
-
-# ---- CV mode: nested k-fold across all columns ----------------------------
-if (opt$cv) {
-  all_cols <- intersect(pgs_cols, cat$column_name)
-  message(sprintf("Nested CV across %d PGS columns, %dx%d folds",
-                  length(all_cols), opt$folds, opt$folds))
-
-  fold <- sample(rep_len(seq_len(opt$folds), nrow(dat)))
-  outer_r2 <- numeric(opt$folds)
-  outer_pick <- character(opt$folds)
-
-  for (k in seq_len(opt$folds)) {
-    train <- dat[fold != k]; test <- dat[fold == k]
-    # Inner CV: pick best column on training data via mean inner-fold incr R^2
-    inner_fold <- sample(rep_len(seq_len(opt$folds), nrow(train)))
-    score_per_col <- numeric(length(all_cols)); names(score_per_col) <- all_cols
-    for (col in all_cols) {
-      x_tr <- scale(train[[col]])[, 1]; if (sd(x_tr, na.rm = TRUE) == 0) next
-      vals <- numeric(opt$folds)
-      for (kk in seq_len(opt$folds)) {
-        tr2 <- train[inner_fold != kk]; va <- train[inner_fold == kk]
-        Xn <- as.matrix(tr2[, covar_terms, with = FALSE])
-        x2 <- scale(tr2[[col]])[, 1]
-        fit_full <- lm(tr2[[pheno_name]] ~ Xn + x2)
-        fit_null <- lm(tr2[[pheno_name]] ~ Xn)
-        Xn_va <- as.matrix(va[, covar_terms, with = FALSE])
-        x_va  <- scale(va[[col]])[, 1]
-        pred_full <- cbind(1, Xn_va, x_va) %*% coef(fit_full)
-        pred_null <- cbind(1, Xn_va)       %*% coef(fit_null)
-        y_va <- va[[pheno_name]]
-        sse_full <- sum((y_va - pred_full)^2); sse_null <- sum((y_va - pred_null)^2)
-        sst <- sum((y_va - mean(y_va))^2)
-        vals[kk] <- (1 - sse_full / sst) - (1 - sse_null / sst)
-      }
-      score_per_col[col] <- mean(vals, na.rm = TRUE)
+# Nested k-fold CV. Returns R from pooled outer-fold predictions and a
+# bootstrap SE on those predictions.
+pick_best_col <- function(train_dt, candidates, inner_fold_vec) {
+  vals <- numeric(length(candidates)); names(vals) <- candidates
+  for (col in candidates) {
+    x <- scale(train_dt[[col]])[, 1]
+    if (sd(x, na.rm = TRUE) == 0) { vals[col] <- -Inf; next }
+    rs <- numeric(opt$folds)
+    for (kk in seq_len(opt$folds)) {
+      tr <- train_dt[inner_fold_vec != kk]; va <- train_dt[inner_fold_vec == kk]
+      Xn_tr <- as.matrix(tr[, covar_terms, with = FALSE]); x_tr <- scale(tr[[col]])[, 1]
+      ff <- lm.fit(cbind(1, Xn_tr, x_tr), tr[[pheno_name]])
+      fn <- lm.fit(cbind(1, Xn_tr),       tr[[pheno_name]])
+      Xn_va <- as.matrix(va[, covar_terms, with = FALSE]); x_va <- scale(va[[col]])[, 1]
+      pred_full <- cbind(1, Xn_va, x_va) %*% ff$coefficients
+      pred_null <- cbind(1, Xn_va)       %*% fn$coefficients
+      y_va <- va[[pheno_name]]; sst <- sum((y_va - mean(y_va))^2)
+      rs[kk] <- (1 - sum((y_va - pred_full)^2) / sst) -
+                (1 - sum((y_va - pred_null)^2) / sst)
     }
-    pick <- names(which.max(score_per_col))
-    outer_pick[k] <- pick
-
-    # Outer evaluation: refit on full train, score on test
-    Xn_tr <- as.matrix(train[, covar_terms, with = FALSE]); x_tr <- scale(train[[pick]])[, 1]
-    fit_full <- lm(train[[pheno_name]] ~ Xn_tr + x_tr)
-    fit_null <- lm(train[[pheno_name]] ~ Xn_tr)
-    Xn_te <- as.matrix(test[, covar_terms, with = FALSE]); x_te <- scale(test[[pick]])[, 1]
-    pred_full <- cbind(1, Xn_te, x_te) %*% coef(fit_full)
-    pred_null <- cbind(1, Xn_te)       %*% coef(fit_null)
-    y_te <- test[[pheno_name]]
-    sse_full <- sum((y_te - pred_full)^2); sse_null <- sum((y_te - pred_null)^2)
-    sst <- sum((y_te - mean(y_te))^2)
-    outer_r2[k] <- (1 - sse_full / sst) - (1 - sse_null / sst)
+    vals[col] <- mean(rs, na.rm = TRUE)
   }
-  cv_out <- data.table(
-    fold = seq_len(opt$folds), picked_column = outer_pick, outer_incr_R2 = outer_r2
-  )
-  fwrite(cv_out, paste0(opt$output, ".cv_per_fold.tsv"), sep = "\t")
-  fwrite(data.table(mean_incr_R2 = mean(outer_r2), sd = sd(outer_r2)),
-         paste0(opt$output, ".cv_summary.tsv"), sep = "\t")
-  message(sprintf("CV mean incremental R^2 = %.4f (sd %.4f)",
-                  mean(outer_r2), sd(outer_r2)))
+  names(which.max(vals))
 }
+
+cv_R <- function(eur_candidates, afr_candidates = NULL) {
+  # Single-source: pass eur_candidates only
+  # Multi-source: pass both
+  fold <- sample(rep_len(seq_len(opt$folds), nrow(dat)))
+  pred_full <- rep(NA_real_, nrow(dat))
+  pred_null <- rep(NA_real_, nrow(dat))
+  picks_eur <- character(opt$folds); picks_afr <- character(opt$folds)
+  for (k in seq_len(opt$folds)) {
+    tr <- dat[fold != k]; te_idx <- which(fold == k); te <- dat[fold == k]
+    inner <- sample(rep_len(seq_len(opt$folds), nrow(tr)))
+    p_e <- pick_best_col(tr, eur_candidates, inner); picks_eur[k] <- p_e
+    p_a <- if (!is.null(afr_candidates)) pick_best_col(tr, afr_candidates, inner) else NA_character_
+    picks_afr[k] <- if (is.na(p_a)) "" else p_a
+
+    Xn_tr <- as.matrix(tr[, covar_terms, with = FALSE])
+    Xp_tr <- matrix(scale(tr[[p_e]])[, 1], ncol = 1)
+    if (!is.na(p_a)) Xp_tr <- cbind(Xp_tr, scale(tr[[p_a]])[, 1])
+    ff <- lm.fit(cbind(1, Xn_tr, Xp_tr), tr[[pheno_name]])
+    fn <- lm.fit(cbind(1, Xn_tr),        tr[[pheno_name]])
+
+    Xn_te <- as.matrix(te[, covar_terms, with = FALSE])
+    Xp_te <- matrix(scale(te[[p_e]])[, 1], ncol = 1)
+    if (!is.na(p_a)) Xp_te <- cbind(Xp_te, scale(te[[p_a]])[, 1])
+    pred_full[te_idx] <- cbind(1, Xn_te, Xp_te) %*% ff$coefficients
+    pred_null[te_idx] <- cbind(1, Xn_te)        %*% fn$coefficients
+  }
+  pgs_part <- pred_full - pred_null
+  y_resid  <- y - pred_null
+  R <- cor(pgs_part, y_resid, use = "complete.obs")
+  bvals <- replicate(opt$boot, {
+    idx <- sample.int(length(pgs_part), length(pgs_part), replace = TRUE)
+    cor(pgs_part[idx], y_resid[idx], use = "complete.obs")
+  })
+  list(R = R, se = sd(bvals, na.rm = TRUE),
+       picks_EUR = paste(unique(picks_eur), collapse = ","),
+       picks_AFR = paste(unique(picks_afr[picks_afr != ""]), collapse = ","))
+}
+
+# ---- Enumerate (method, source, target) configurations ------------------
+# Methods to consider for the SumStat/Indiv frames (excluding raw _multi
+# rows — those provide the EUR+AFR SumStat for their underlying method).
+single_source_methods <- setdiff(unique(cat$method),
+                                 c(grep("_multi$", unique(cat$method), value = TRUE),
+                                   "prscsx", "xwing"))
+
+build_configs <- function(mode = c("sumstat", "indiv")) {
+  mode <- match.arg(mode)
+  configs <- list()
+  for (m in single_source_methods) {
+    # Single-source: EUR and AFR
+    for (src in c("EUR", "AFR")) {
+      if (mode == "sumstat") {
+        cols <- cat[method == m & source_population == src & is_pseudovalidated == TRUE &
+                    column_name %in% pgs_cols, column_name]
+        if (length(cols) >= 1) configs[[length(configs) + 1L]] <-
+          list(method = m, source = src, kind = "sumstat_single", cols = cols)
+      } else {
+        cols <- cat[method == m & source_population == src & column_name %in% pgs_cols, column_name]
+        if (length(cols) >= 1) configs[[length(configs) + 1L]] <-
+          list(method = m, source = src, kind = "indiv_single", eur = cols, afr = NULL)
+      }
+    }
+    # EUR+AFR
+    if (mode == "sumstat") {
+      # LEOPARD-combined column for this target population
+      leo_method <- paste0(m, "_multi")
+      cols <- cat[method == leo_method & target_population == target & column_name %in% pgs_cols,
+                  column_name]
+      if (length(cols) == 1L) configs[[length(configs) + 1L]] <-
+        list(method = m, source = "EUR+AFR", kind = "sumstat_multi", cols = cols)
+    } else {
+      eur <- cat[method == m & source_population == "EUR" & column_name %in% pgs_cols, column_name]
+      afr <- cat[method == m & source_population == "AFR" & column_name %in% pgs_cols, column_name]
+      if (length(eur) >= 1 && length(afr) >= 1) configs[[length(configs) + 1L]] <-
+        list(method = m, source = "EUR+AFR", kind = "indiv_joint", eur = eur, afr = afr)
+    }
+  }
+  # PRS-CSx (EUR+AFR only — its per-source phi_X cols join in IndivTune)
+  if ("prscsx" %in% unique(cat$method)) {
+    if (mode == "sumstat") {
+      meta <- cat[method == "prscsx" & source_population == "META" &
+                  is_pseudovalidated == TRUE & column_name %in% pgs_cols, column_name]
+      if (length(meta) == 1L) configs[[length(configs) + 1L]] <-
+        list(method = "prscsx", source = "EUR+AFR", kind = "sumstat_multi", cols = meta)
+    } else {
+      eur <- cat[method == "prscsx" & source_population == "EUR" & column_name %in% pgs_cols, column_name]
+      afr <- cat[method == "prscsx" & source_population == "AFR" & column_name %in% pgs_cols, column_name]
+      if (length(eur) >= 1 && length(afr) >= 1) configs[[length(configs) + 1L]] <-
+        list(method = "prscsx", source = "EUR+AFR", kind = "indiv_joint", eur = eur, afr = afr)
+    }
+  }
+  configs
+}
+
+# ---- All-columns sensitivity (PRSice style) -----------------------------
+if (opt$all_columns) {
+  cat_rel <- cat[(is.na(target_population) | target_population == target) &
+                 column_name %in% pgs_cols]
+  message(sprintf("All-columns mode: %d columns", nrow(cat_rel)))
+  rows <- list()
+  for (col in cat_rel$column_name) {
+    res <- sumstat_R(col)
+    cat_row <- cat_rel[column_name == col]
+    rows[[length(rows) + 1L]] <- data.table(
+      column_name = col, method = cat_row$method, source_gwas = cat_row$source_gwas,
+      source_population = cat_row$source_population, hyperparameter = cat_row$hyperparameter,
+      target_population = target,
+      R = res$R, R_se = res$se
+    )
+  }
+  out <- rbindlist(rows); setorder(out, -R)
+  fwrite(out, paste0(opt$output, ".all_columns.tsv"), sep = "\t")
+  message("Wrote: ", opt$output, ".all_columns.tsv")
+  quit(save = "no")
+}
+
+# ---- SumStatTune --------------------------------------------------------
+if (!opt$indiv_tune) {
+  configs <- build_configs("sumstat")
+  message(sprintf("SumStatTune: %d configurations", length(configs)))
+  rows <- list()
+  for (cfg in configs) {
+    res <- sumstat_R(cfg$cols)
+    rows[[length(rows) + 1L]] <- data.table(
+      method = cfg$method, source = cfg$source, target = target,
+      tune = "SumStatTune", R = res$R, R_se = res$se,
+      pgs_cols = paste(cfg$cols, collapse = ";")
+    )
+  }
+  out <- rbindlist(rows)
+  fwrite(out, paste0(opt$output, ".sumstat_tune.tsv"), sep = "\t")
+  message("Wrote: ", opt$output, ".sumstat_tune.tsv")
+  quit(save = "no")
+}
+
+# ---- IndivTune ----------------------------------------------------------
+configs <- build_configs("indiv")
+message(sprintf("IndivTune: %d configurations, %d-fold nested CV", length(configs), opt$folds))
+rows <- list()
+for (cfg in configs) {
+  message(sprintf("  %s / %s ...", cfg$method, cfg$source))
+  res <- if (cfg$kind == "indiv_single") cv_R(cfg$eur) else cv_R(cfg$eur, cfg$afr)
+  rows[[length(rows) + 1L]] <- data.table(
+    method = cfg$method, source = cfg$source, target = target,
+    tune = "IndivTune", R = res$R, R_se = res$se,
+    picks_EUR = res$picks_EUR, picks_AFR = res$picks_AFR
+  )
+}
+out <- rbindlist(rows)
+fwrite(out, paste0(opt$output, ".indiv_tune.tsv"), sep = "\t")
+message("Wrote: ", opt$output, ".indiv_tune.tsv")

@@ -22,8 +22,8 @@ SCORES_DIR=../scores                                         # relative to this 
 OUT_DIR=../pgs_out
 SCORE_FILES=(
   "$SCORES_DIR/ptclump_only.score.gz"                        # PRSice-style sensitivity (small)
-  "$SCORES_DIR/pseudovalidated.score.gz"                     # headline analysis (small)
-  # "$SCORES_DIR/full_grid.score.gz"                         # uncomment for --cv mode (large)
+  "$SCORES_DIR/pseudovalidated.score.gz"                     # SumStatTune analysis (small)
+  "$SCORES_DIR/full_grid.score.gz"                           # IndivTune analysis (large; comment out if not needed)
 )
 # ----------------------------
 
