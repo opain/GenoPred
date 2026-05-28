@@ -33,6 +33,8 @@ ul li p, ol li p {
 }
 </style>
 
+# Create configuration
+
 Configuration created using the wizard. Stored here: `~/oliverpainfel/Data/eGFR_collab/config`
 
 ```{}
@@ -58,98 +60,43 @@ egfr_eur /users/k1806347/oliverpainfel/Data/eGFR_collab/sumstats/eur_ukbb_egfrcr
 
 ```
 
+***
+
+# Run pipeline
+
 ```{bash}
 gp
 snakemake \
   --profile slurm \
   --configfile=/users/k1806347/oliverpainfel/Data/eGFR_collab/config/config.yaml \
   --use-conda \
-  output_all -n
-
-
-snakemake \
-  --profile slurm \
-  --configfile=/users/k1806347/oliverpainfel/Data/eGFR_collab/config/config.yaml \
-  --use-conda \
-  prep_pgs_sbayesrc -n
+  output_all
 ```
 
+***
+
+# Package score files
+
+Build the shareable bundle (pseudo-validated scores + full grid + ptclump-only
+PRSice-style sensitivity file + catalogue + README + helper scripts).
+
 ```{bash}
-# --- CONFIG ---
-traits=(HT HB PLT BMI BWT MCHC SBP NEU HDL TC)
-pgs_methods=(sbayesrc ptclump)
+cd ~/oliverpainfel/Software/MyGit/GenoPred/pipeline
+Rscript ../Scripts/eGFR_collab/build_bundle.R \
+  --config /users/k1806347/oliverpainfel/Data/eGFR_collab/config/config.yaml \
+  --target_pops EUR,AFR \
+  --output_dir /users/k1806347/oliverpainfel/Data/eGFR_collab/egfr_pgs_share
+```
 
-base="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/reference/pgs_score_files/"
-out="/users/k1806347/oliverpainfel/Analyses/mind_the_gap/GenoPred/output_sbayesrc_sparse/score_file_wgs_sparse.txt"
-tmpdir="$(mktemp -d)"
-cleanup() { rm -rf "$tmpdir"; }
-trap cleanup EXIT
+Tar the bundle (no gzip — the score files inside are already gzipped).
 
-# --- 1) Grab columns 1–3 (SNP, A1, A2) from the first available file ---
-ref_file=""
-for trait in "${traits[@]}"; do
-  for method in "${pgs_methods[@]}"; do
-    test_file="${base}/${method}/UKB_WGS_${trait}/ref-UKB_WGS_${trait}.score.gz"
-    if [[ -f "$test_file" ]]; then
-      ref_file="$test_file"
-      break 2
-    fi
-  done
-done
+```{bash}
+cd /users/k1806347/oliverpainfel/Data/eGFR_collab
+tar -cf egfr_pgs_share.tar egfr_pgs_share
+```
 
-if [[ -z "$ref_file" ]]; then
-  echo "Error: No reference score file found — cannot build header."
-  exit 1
-fi
+Upload to google drive
 
-echo "Using reference: $ref_file"
-
-gzip -dc "$ref_file" \
-  | awk 'BEGIN{OFS=" "} {print $1,$2,$3}' \
-  > "${tmpdir}/ref_cols.txt"
-
-# --- 2) Extract columns 4..end from each available file ---
-col_files=()
-for trait in "${traits[@]}"; do
-  for method in "${pgs_methods[@]}"; do
-    f="${base}/${method}/UKB_WGS_${trait}/ref-UKB_WGS_${trait}.score.gz"
-    outcols="${tmpdir}/${method}_${trait}.cols.txt"
-
-    # Skip if file missing or empty
-    if [[ ! -s "$f" ]]; then
-      echo "Skipping missing file: $f"
-      continue
-    fi
-
-    echo "Processing $f"
-    gzip -dc "$f" | awk -v m="$method" -v t="$trait" '
-      BEGIN { FS="[ \t]+"; OFS=" " }
-      NR==1 {
-        for (i=4;i<=NF;i++) {
-          gsub(/^SCORE/, m"_"t"_SCORE", $i)
-        }
-        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
-        print out; out=""
-        next
-      }
-      {
-        for (i=4;i<=NF;i++) out = (i==4 ? $i : out OFS $i)
-        print out; out=""
-      }' > "$outcols"
-
-    col_files+=("$outcols")
-  done
-done
-
-if [[ ${#col_files[@]} -eq 0 ]]; then
-  echo "No score columns found to combine."
-fi
-
-# --- 3) Paste reference cols + all available score columns ---
-paste -d' ' "${tmpdir}/ref_cols.txt" "${col_files[@]}" > "$out"
-
-# Compress and upload to project
-gzip -f $out
-dx upload $out.gz --path mind_the_gap/score_files/sparse/
-
+```{bash}
+~/oliverpainfel/Software/gdrive files upload /users/k1806347/oliverpainfel/Data/eGFR_collab/egfr_pgs_share.tar
 ```
