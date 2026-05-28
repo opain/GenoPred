@@ -22,8 +22,12 @@
 #   --target_pop  Target population label, e.g. EUR or AFR
 #                 (filters which PGS columns are relevant)
 #   --output      Output TSV prefix
+# Recommended:
+#   --keep        PLINK keep file (FID IID) restricting to one population.
+#                 PGS evaluation should be ancestry-stratified.
 # Optional:
-#   --pheno_name  Name of phenotype column in --pheno (default: 3rd column)
+#   --pheno_name  Name of phenotype column in --pheno (default: first non-ID column)
+#   --all_columns Test every column in --pgs (not just pseudo-validated picks)
 #   --cv          Run nested CV across all PGS columns
 #   --folds       k for outer/inner folds (default 5)
 #   --boot        Bootstrap replicates for CI (default 1000)
@@ -40,6 +44,8 @@ opt_list <- list(
   make_option("--catalogue",  type = "character"),
   make_option("--target_pop", type = "character"),
   make_option("--output",     type = "character"),
+  make_option("--keep",       type = "character", default = NULL,
+              help = "PLINK-format keep file (FID IID, whitespace-separated, header optional) restricting the analysis to one population. STRONGLY recommended for ancestry-stratified evaluation."),
   make_option("--pheno_name", type = "character", default = NULL),
   make_option("--cv",         action = "store_true", default = FALSE),
   make_option("--all_columns",action = "store_true", default = FALSE,
@@ -81,6 +87,21 @@ dat <- merge(pheno[, c("IID", pheno_name), with = FALSE], covar, by = "IID")
 dat <- merge(dat, pgs, by = "IID")
 dat <- dat[complete.cases(dat[, c(pheno_name, setdiff(names(covar), c("FID", "IID"))), with = FALSE])]
 message(sprintf("N after merge & complete cases: %d", nrow(dat)))
+
+# Restrict to a population-specific keep file (PLINK convention: FID IID)
+if (!is.null(opt$keep)) {
+  keep <- fread(opt$keep, header = "auto")
+  # PLINK keep: first 2 columns are FID, IID — IID is the 2nd column unless
+  # the file is single-column IID-only (not PLINK convention but tolerate).
+  iid <- if (ncol(keep) >= 2) keep[[2]] else keep[[1]]
+  n_before <- nrow(dat)
+  dat <- dat[IID %in% iid]
+  message(sprintf("N after --keep filter: %d (from %d)", nrow(dat), n_before))
+  if (nrow(dat) == 0) stop("No samples remain after --keep filter; check ID format.")
+} else {
+  message("NOTE: --keep not supplied. PGS evaluation should be ancestry-stratified; ",
+          "running on the full merged sample is only appropriate if it is already homogeneous.")
+}
 
 covar_terms <- setdiff(names(covar), c("FID", "IID"))
 covar_rhs   <- paste(covar_terms, collapse = " + ")

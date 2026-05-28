@@ -105,6 +105,10 @@ phenotype in).
   numeric, PCs as you normally use them (10–20 typical).
 * **`--catalogue`** `catalogue.tsv` from this bundle.
 * **`--target_pop`** `EUR` or `AFR` — filters which PGS columns are relevant.
+* **`--keep`** (**strongly recommended**) PLINK keep file (`FID IID`,
+  whitespace-separated, header optional) restricting the analysis to a single
+  target population. PGS evaluation should be ancestry-stratified — without
+  this flag the script runs on the full merged sample and emits a warning.
 
 ### Step 2a — Sensitivity check vs PRSice (recommended first)
 
@@ -121,6 +125,7 @@ Rscript scripts/02_evaluate_pgs.R \
   --covar      covariates.tsv \
   --catalogue  catalogue.tsv \
   --target_pop EUR \
+  --keep       samples_EUR.keep \
   --output     results_EUR_ptclump \
   --all_columns
 ```
@@ -139,8 +144,12 @@ Rscript scripts/02_evaluate_pgs.R \
   --covar      covariates.tsv \
   --catalogue  catalogue.tsv \
   --target_pop EUR \
+  --keep       samples_EUR.keep \
   --output     results_EUR
 ```
+
+Repeat with `--target_pop AFR --keep samples_AFR.keep --output results_AFR`
+for the AFR-stratified analysis.
 
 For each pseudo-validated PGS relevant to the target population, fits
 
