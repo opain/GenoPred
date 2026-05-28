@@ -340,7 +340,7 @@ rule prep_pgs_sbayesr:
 
 rule prep_pgs_lassosum_i:
   resources:
-    mem_mb=10000
+    mem_mb=15000
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -686,7 +686,6 @@ rule prep_pgs_sbayesrc_i:
     Rscript --vanilla ../Scripts/pgs_methods/sbayesrc.R \
       --ref_plink_chr {refdir_intersect}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
-      --gctb {resdir}/software/gctb_2.5.2/gctb_2.5.2_Linux/gctb \
       --sbayesrc_ldref {params.sbayesrc_ldref} \
       --sbayesrc_annot {resdir}/data/sbayesrc_annot/annot_baseline2.2.txt \
       --n_cores {threads} \
