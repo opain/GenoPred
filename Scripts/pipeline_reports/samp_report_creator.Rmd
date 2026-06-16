@@ -474,39 +474,24 @@ cat0("***\n\n")
 ```
 
 ```{r, eval = pgs_incl, include = F}
-# Identify pgs_scaling parameter
-pgs_scaling <- read_param(config = params$config, param = 'pgs_scaling', return_obj = F)
 
-if('continuous' %in% pgs_scaling){
-  ref_pop <- 'TRANS'
-} else {
-  # Read in keep_list to determine populations available
-  keep_list_i <- fread(paste0(outdir,'/',params$name,'/ancestry/keep_list.txt'))
-  
-  # Check whether output for a specific populations was requested in the config
-  target_populations <- read_param(config = params$config, param = 'target_populations', return_obj = F)
-  keep_list_i <- keep_list_i[keep_list_i$POP %in% target_populations,]
-  
-  ref_pop <- keep_list_i$POP[1]
-}
-
-# Read in the reference pgs
-ref_pgs <- read_reference_pgs(config = params$config, population = ref_pop)
+# Read in raw psudoval PGS across all indivduals
+ref_pgs <- read_pgs(config = params$config, ref = T, pop = 'TRANS', pseudo_only = T, correction = 'raw')$reference$TRANS
 
 # Merge all PGS into single data.frame
 for(gwas_i in names(ref_pgs)){
   for(method_i in names(ref_pgs[[gwas_i]])){
-    names(ref_pgs[[gwas_i]][[method_i]])[3] <- paste(gwas_i,method_i, sep=':')
+    names(ref_pgs[[gwas_i]][[method_i]]$raw)[3] <- paste(gwas_i,method_i, sep=':')
   }
 }
 
-ref_pgs <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('FID','IID'), all.x = TRUE), unlist(ref_pgs, recursive=F))
+ref_pgs <- Reduce(function(dtf1, dtf2) merge(dtf1, dtf2, by = c('FID','IID'), all.x = TRUE), unlist(ref_pgs, recursive=F))$raw
 ref_pgs$FID<-NULL
 ref_pgs$IID<-NULL
 
 # Calculate correlations
 cormat<-cor(ref_pgs)
-                
+
 # Melt for plotting
 melted_cormat <- reshape2::melt(cormat, na.rm = TRUE)
 
@@ -537,7 +522,7 @@ dev.off()
 ```{r, results='asis', eval = pgs_incl}
 
 cat0(paste0("![](", plot_file,")\n\n"))
-cat0("**Note.** Plot shows correlation between pseudovalidated PGS in ", ref_pop," population.\n\n")
+cat0("**Note.** Plot shows correlation between pseudovalidated PGS.\n\n")
 cat0("***\n\n")
 
 ```
@@ -682,49 +667,44 @@ pgs_melt <- NULL
 for(gwas in names(pgs[[1]])){
   for(pgs_method in names(pgs[[1]][[gwas]])){
     for(pop in names(pgs)){
-      tmp <- pgs[[pop]][[gwas]][[pgs_method]]
-      names(tmp)<-c('FID','IID','score')
-      tmp$pop = pop
-      tmp$gwas = gwas
-      tmp$pgs_method = pgs_method
-      pgs_melt <- rbind(pgs_melt, tmp)
+      for(correction in names(pgs[[pop]][[gwas]][[pgs_method]])){
+        tmp <- pgs[[pop]][[gwas]][[pgs_method]][[correction]]
+        names(tmp)<-c('FID','IID','score')
+        tmp$pop = pop
+        tmp$gwas = gwas
+        tmp$pgs_method = pgs_method
+        tmp$correction = correction
+        pgs_melt <- rbind(pgs_melt, tmp)
+      }
     }
   }
 }
 pgs<-pgs_melt
 rm(pgs_melt)
 
-ancestry_log <- read_ancestry(config = params$config,  name = params$name)
-for(i in names(ancestry_log$keep_files)){
-  pgs$assigned_pop[paste0(pgs$FID, '.', pgs$IID) %in% paste0(ancestry_log$keep_files[[i]]$V1, '.',  ancestry_log$keep_files[[i]]$V2)] <- i
-}
-pgs$assigned_pop[is.na(pgs$assigned_pop)]<-'Unassigned'
-
 # Plot the distribution of polygenic scores
 plot_width <- 250 + length(unique(pgs$pop)) * 255
 if(plot_width < 1000) plot_width <- 1000
 
-pgs_dist_plots <- list()
 for(pgs_method_i in unique(pgs$pgs_method)){
-  pgs_i <- pgs[pgs$pgs_method %in% pgs_method_i,]
-  pgs_dist_plots[[pgs_method_i]] <- 
-    ggplot(pgs_i, aes(x=score, fill=assigned_pop)) + 
-      geom_density(alpha=0.5) +
-      labs(x='Polygenic Z-Score', y='Density', fill = 'Population') +
-      theme_half_open() +
-      background_grid() +
-      panel_border() +
-      facet_grid(gwas ~ pop) +
-      theme(
-        legend.position = "bottom",        # Move legend below the plot
-        legend.title = element_text(size = 12),  # Adjust legend title size (optional)
-        legend.text = element_text(size = 10)    # Adjust legend text size (optional)
-      ) +
-      guides(fill = guide_legend(nrow = 1)) 
+  for(correction_i in unique(pgs$correction)){
+    pgs_i <- pgs[pgs$pgs_method == pgs_method_i & pgs$correction == correction_i,]
+    tmp_plot <- 
+      ggplot(pgs_i, aes(x=score, fill = pop)) + 
+        geom_density(alpha=0.5) +
+        labs(x='Polygenic Z-Score', y='Density', fill = 'Population') +
+        theme_half_open() +
+        background_grid() +
+        panel_border() +
+        facet_grid(gwas ~ pop) +
+        theme(
+          legend.position = "none",
+        )
 
-  png(paste0(tmp_folder,'/plot_', pgs_method_i,'.png'), height = 150 + (300*length(unique(pgs_i$gwas))), width = plot_width, res = 170)
-    print(pgs_dist_plots[[pgs_method_i]])
-  dev.off()
+    png(paste0(tmp_folder,'/plot_', pgs_method_i,'.', correction_i,'.png'), height = 150 + (300*length(unique(pgs_i$gwas))), width = plot_width, res = 170)
+      print(tmp_plot)
+    dev.off()
+  }
 }
 
 ```
@@ -734,16 +714,20 @@ for(pgs_method_i in unique(pgs$pgs_method)){
 cat0("### PGS Distribution {.tabset .tabset-fade} \n\n")
 cat0("This section shows the distribution of PGS in the target sample. PGS are shown scaled according to each ancestry-match reference population. TRANS includes PGS across all populations after continuous adjustment for ancestry.\n\n")
 
-for(pgs_method_i in unique(pgs$pgs_method)){
-  # Create a new tab for each method
-  cat0("#### ", pgs_method_i, "\n")
-  
-  # Show the plot
-  cat0(paste0("![Density plot of PGS from ", pgs_method_i,"](", tmp_folder,'/plot_',pgs_method_i,".png)"))
-  
-  cat0("**Note.** Plot shows distribution of pseudovalidated PGS.\n\n")
-  cat0("***\n\n")
+for(correction_i in unique(pgs$correction)){
+  # Create a new tab for each correction
+  cat0("#### ", correction_i, "\n")
+  for(pgs_method_i in unique(pgs$pgs_method)){
+    # Create a new tab for each method
+    cat0("##### ", pgs_method_i, "\n")
+    
+    # Show the plot
+    cat0(paste0("![Density plot of PGS from ", pgs_method_i,"](", tmp_folder,'/plot_',pgs_method_i,'.', correction_i,".png)"))
+    
+    cat0("**Note.** Plot shows distribution of pseudovalidated PGS.\n\n")
+    cat0("***\n\n")
   }
+}
 
 ```
 

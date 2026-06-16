@@ -40,7 +40,7 @@ pgs_methods_noneur = ['ptclump','lassosum','megaprs','prscs','dbslmm']
 rule pc_projection_i:
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
-    f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
+    f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.{{population}}.scale"
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/pc_projection-{{population}}.done")
   benchmark:

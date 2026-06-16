@@ -2,7 +2,7 @@ output_all_input = list()
 label_list = pd.Series(dtype=object)
 
 if 'target_list' in config and config["target_list"] != 'NA':
-  output_all_input.append(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done")
+  output_all_input.append(rules.target_pgs.input)
 
 if 'gwas_list' in config and config["gwas_list"] != 'NA':
   output_all_input.append(rules.prep_pgs.input)
@@ -46,13 +46,12 @@ rule sample_report_i:
   shell:
     """
     {{
-      mkdir -p {params.tempdir} ; \
-      cp ../Scripts/pipeline_reports/samp_report_creator.Rmd {params.tempdir}/samp_report_creator.Rmd ; \
-      mkdir -p {outdir}/{wildcards.name}/reports; \
-      Rscript --vanilla -e \"rmarkdown::render(\'{params.tempdir}/samp_report_creator.Rmd\', \
-      output_file = \'{params.report_out}/{wildcards.name}/reports/{wildcards.name}-report.html\', \
-      params = list(name = \'{wildcards.name}\', config = \'{params.config_file}\', cwd = \'{params.cwd}\'))\" ; \
-      rm -r {params.tempdir}
+        set -euo pipefail
+        mkdir -p {params.tempdir}
+        trap 'rm -rf {params.tempdir}' EXIT
+        cp ../Scripts/pipeline_reports/samp_report_creator.Rmd {params.tempdir}/samp_report_creator.Rmd
+        mkdir -p {outdir}/{wildcards.name}/reports
+        Rscript --vanilla -e "rmarkdown::render('{params.tempdir}/samp_report_creator.Rmd', output_file = '{params.report_out}/{wildcards.name}/reports/{wildcards.name}-report.html', params = list(name = '{wildcards.name}', config = '{params.config_file}', cwd = '{params.cwd}'))"
     }} > {log} 2>&1
     """
 
