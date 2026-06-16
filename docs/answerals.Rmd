@@ -1,0 +1,255 @@
+---
+title: Genetic analysis of AnswerALS trial
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+## Process genotype data
+
+Chromosome 15 is not a vcf file. It is a bcf file. Update and create symlinks for the others
+
+```{bash}
+mkdir -p /users/k1806347/oliverpainfel/Data/answerals/original
+
+# Convert chr15 to real vcf file
+module add bcftools/1.12-gcc-13.2.0-python-3.11.6
+
+bcftools view -Oz \
+  -o /users/k1806347/oliverpainfel/Data/answerals/original/ALS.chr15.vcf.gz \
+  /datasets/answerals/genomics/4_JointGenotyping/ALS.chr15.vcf.gz
+
+# Make symlinks for remaining chromosomes
+for chr in $(seq 1 14); do
+  ln -s /datasets/answerals/genomics/4_JointGenotyping/ALS.chr${chr}.vcf.gz /users/k1806347/oliverpainfel/Data/answerals/original/ALS.chr${chr}.vcf.gz
+done
+
+for chr in $(seq 16 22); do
+  ln -s /datasets/answerals/genomics/4_JointGenotyping/ALS.chr${chr}.vcf.gz /users/k1806347/oliverpainfel/Data/answerals/original/ALS.chr${chr}.vcf.gz
+done
+
+```
+
+## Prepare config
+
+```{r}
+library(data.table)
+
+dir.create('/users/k1806347/oliverpainfel/Data/answerals/GenoPred/output', recursive = T)
+dir.create('/users/k1806347/oliverpainfel/Data/answerals/GenoPred/config', recursive = T)
+
+# Create target_list
+target_list <- NULL
+target_list <- rbind(target_list, data.table(
+  name = 'answerals',
+  path = '/users/k1806347/oliverpainfel/Data/answerals/original/ALS',
+  type = 'vcf',
+  indiv_report = F))
+
+write.table(
+  target_list,
+  '/users/k1806347/oliverpainfel/Data/answerals/GenoPred/config/target_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F,
+  sep = ' '
+)
+
+# Use same gwas_list as mirocals, but subset NfL
+gwas_list <- fread('/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/gwas_list.txt')
+gwas_list <- gwas_list[gwas_list$name == 'GCST90444478',]
+gwas_list$label<-paste0('"', gwas_list$label, '"')
+
+write.table(
+  gwas_list,
+  '/users/k1806347/oliverpainfel/Data/answerals/GenoPred/config/gwas_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F,
+  sep = ' '
+)
+
+# Create config file
+conf <- c(
+  'outdir: /users/k1806347/oliverpainfel/Data/answerals/GenoPred/output',
+  'config_file: /users/k1806347/oliverpainfel/Data/answerals/GenoPred/config/config.yaml',
+  'target_list: /users/k1806347/oliverpainfel/Data/answerals/GenoPred/config/target_list.txt',
+  'gwas_list: /users/k1806347/oliverpainfel/Data/answerals/GenoPred/config/gwas_list.txt',
+  "pgs_methods: ['sbayesrc']",
+  "pgs_scaling: ['discrete','continuous']"
+)
+
+write.table(
+  conf,
+  '/users/k1806347/oliverpainfel/Data/answerals/GenoPred/config/config.yaml',
+  col.names = F,
+  row.names = F,
+  quote = F
+)
+
+```
+
+***
+
+## Run pipeline
+
+```{bash}
+cd /users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline
+gp
+  
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/answerals/GenoPred/config/config.yaml \
+  output_all outlier_detection -n 
+```
+
+```{r}
+####
+# PGS interactions
+####
+
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+source('../functions/misc.R')
+source_all('../functions')
+
+config <- '/users/k1806347/oliverpainfel/Data/answerals/GenoPred/config/config.yaml'
+
+# Read in the PGS and within sample PCs
+pgs <- read_pgs(config = config)
+gwas_list <- read_param(config = config, param = 'gwas_list')
+
+# Read in PCs
+pcs <-list()
+pcs[['miracles_batch1']] <- fread('~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_batch1/pcs/within_sample/miracles_batch1.outlier_detection.EUR.PCs.txt')
+pcs[['miracles_batch2']] <- fread('~/oliverpainfel/Data/miraclestrial/GenoPred/output/miracles_batch2/pcs/within_sample/miracles_batch2.outlier_detection.EUR.PCs.txt')
+
+# Combine the data across batches
+pgs_both <- NULL
+for(i in 1:2){
+  a<-pgs[[paste0('miracles_batch', i)]]$TRANS
+  merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE), lapply(a, function(x) x$sbayesrc))
+  names(merged_df) <- gsub('_SBayesRC','', names(merged_df))
+  pgs_both <- rbind(pgs_both, merged_df)
+}
+
+pcs_both <- NULL
+for(i in 1:2){
+  a <- pcs[[paste0('miracles_batch', i)]]
+  a$batch <- paste0('miracles_batch', i)
+  pcs_both <- rbind(pcs_both, a)
+}
+
+genetics <- merge(pgs_both, pcs_both, by = c('FID','IID'))
+trial_data_gen <- merge(data, genetics, by.x = 'ID', by.y = 'IID')
+
+# Rerun unadjusted cox model to see if anything has changed
+cox_model <- coxph(Surv(RECLIFE, STATUS) ~ ARM_C, data = trial_data_gen)
+summary(cox_model)
+# I am loosing 12 individuals due to merge with genetic data. That means there are 12 individuals that were included in the trial that do not have genetic data. There are also 10 people that are not EUR, so don't have PCs.
+
+# Test again with PGS but split by batch and with PCs 
+int_res_no_pgs <- NULL
+for(j in unique(trial_data_gen$batch)){
+  cox_model <- coxph(as.formula(paste0("Surv(RECLIFE, STATUS) ~ ARM_C + ", paste0('PC', 1:10, collapse = ' + '))), 
+                     data = trial_data_gen[trial_data_gen$batch == j,])
+  cox_model_sum <- summary(cox_model)
+  int_res_no_pgs<-rbind(
+    int_res_no_pgs,
+    data.table(
+      Batch = j,
+      Term = row.names(coef(cox_model_sum)),
+      coef = coef(cox_model_sum)[,1],
+      se = coef(cox_model_sum)[,3],
+      p = coef(cox_model_sum)[,5]
+    )
+  )
+}
+
+# Meta analyse across batches
+library(meta)
+
+int_res_no_pgs_meta <- NULL
+for(term in unique(int_res_no_pgs$Term)){
+  m <- metagen(TE = int_res_no_pgs$coef[int_res_no_pgs$Term == term], seTE = int_res_no_pgs$se[int_res_no_pgs$Term == term], sm = "HR",)
+  
+  int_res_no_pgs_meta<-rbind(
+    int_res_no_pgs_meta,
+    data.table(
+      Term = term,
+      coef = m$TE.common,
+      se = m$seTE.common,
+      p = m$pval.common
+    )
+  )
+}
+
+# Test interaction between each PGS and the trial arm
+int_res <- NULL
+for(j in unique(trial_data_gen$batch)){
+  for(i in gwas_list$name){
+    cox_model <- coxph(as.formula(paste0("Surv(RECLIFE, STATUS) ~ ARM_C * ", i, " + ", paste0('PC', 1:10, collapse = ' + '))), 
+                       data = trial_data_gen[trial_data_gen$batch == j,])
+    cox_model_sum <- summary(cox_model)
+    int_res<-rbind(
+      int_res,
+      data.table(
+        Batch = j,
+        PGS = i,
+        Term = row.names(coef(cox_model_sum)),
+        coef = coef(cox_model_sum)[,1],
+        se = coef(cox_model_sum)[,3],
+        p = coef(cox_model_sum)[,5]
+      )
+    )
+  }
+}
+
+# Meta analyse across batches
+library(meta)
+
+int_res_meta <- NULL
+for(i in gwas_list$name){
+  tmp <- int_res[int_res$PGS == i,]
+  for(term in unique(tmp$Term)){
+    m <- metagen(TE = tmp$coef[tmp$Term == term], seTE = tmp$se[tmp$Term == term], sm = "HR",)
+    
+    int_res_meta<-rbind(
+      int_res_meta,
+      data.table(
+        PGS = i,
+        Term = term,
+        coef = m$TE.common,
+        se = m$seTE.common,
+        p = m$pval.common
+      )
+    )
+  }
+}
+
+
+```
