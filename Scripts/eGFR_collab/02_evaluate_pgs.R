@@ -13,8 +13,10 @@
 #                        configurations: inner CV picks best hyperparameter,
 #                        outer fold scores it. EUR+AFR configurations:
 #                        independent inner CV picks best per-source column,
-#                        outer fold joint-fits both. Requires --pgs to be the
-#                        full grid (full_grid.sscore).
+#                        outer fold joint-fits both. For PRS-CSx the outer
+#                        fold additionally includes META_phi_auto (a per-SNP
+#                        IVW that scalar mix cannot reproduce). Requires
+#                        --pgs to be the full grid (full_grid.sscore).
 #                        Output: <output>.indiv_tune.tsv
 #
 #   --all_columns        PRSice-style sensitivity: R for every PGS column in
@@ -144,9 +146,12 @@ pick_best_col <- function(train_dt, candidates, inner_fold_vec) {
   names(which.max(vals))
 }
 
-cv_R <- function(eur_candidates, afr_candidates = NULL) {
+cv_R <- function(eur_candidates, afr_candidates = NULL, fixed_col = NULL) {
   # Single-source: pass eur_candidates only
   # Multi-source: pass both
+  # fixed_col: optional column always included in the joint fit (e.g.
+  #   PRS-CSx META_phi_auto, which is a per-SNP IVW of EUR/AFR betas and
+  #   lives in a richer model space than a scalar EUR+AFR mix).
   fold <- sample(rep_len(seq_len(opt$folds), nrow(dat)))
   pred_full <- rep(NA_real_, nrow(dat))
   pred_null <- rep(NA_real_, nrow(dat))
@@ -160,13 +165,15 @@ cv_R <- function(eur_candidates, afr_candidates = NULL) {
 
     Xn_tr <- as.matrix(tr[, covar_terms, with = FALSE])
     Xp_tr <- matrix(scale(tr[[p_e]])[, 1], ncol = 1)
-    if (!is.na(p_a)) Xp_tr <- cbind(Xp_tr, scale(tr[[p_a]])[, 1])
+    if (!is.na(p_a))         Xp_tr <- cbind(Xp_tr, scale(tr[[p_a]])[, 1])
+    if (!is.null(fixed_col)) Xp_tr <- cbind(Xp_tr, scale(tr[[fixed_col]])[, 1])
     ff <- lm.fit(cbind(1, Xn_tr, Xp_tr), tr[[pheno_name]])
     fn <- lm.fit(cbind(1, Xn_tr),        tr[[pheno_name]])
 
     Xn_te <- as.matrix(te[, covar_terms, with = FALSE])
     Xp_te <- matrix(scale(te[[p_e]])[, 1], ncol = 1)
-    if (!is.na(p_a)) Xp_te <- cbind(Xp_te, scale(te[[p_a]])[, 1])
+    if (!is.na(p_a))         Xp_te <- cbind(Xp_te, scale(te[[p_a]])[, 1])
+    if (!is.null(fixed_col)) Xp_te <- cbind(Xp_te, scale(te[[fixed_col]])[, 1])
     pred_full[te_idx] <- cbind(1, Xn_te, Xp_te) %*% ff$coefficients
     pred_null[te_idx] <- cbind(1, Xn_te)        %*% fn$coefficients
   }
@@ -221,18 +228,23 @@ build_configs <- function(mode = c("sumstat", "indiv")) {
         list(method = m, source = "EUR+AFR", kind = "indiv_joint", eur = eur, afr = afr)
     }
   }
-  # PRS-CSx (EUR+AFR only — its per-source phi_X cols join in IndivTune)
+  # PRS-CSx (EUR+AFR only). META_phi_auto is a per-SNP IVW combination of
+  # EUR/AFR betas; a scalar mix of PGS_EUR and PGS_AFR cannot reproduce it.
+  # In IndivTune we therefore always include META in the joint fit alongside
+  # the inner-CV-picked EUR_phi_* and AFR_phi_* columns, so IndivTune is at
+  # least as expressive as SumStat (which uses META alone).
   if ("prscsx" %in% unique(cat$method)) {
+    meta <- cat[method == "prscsx" & source_population == "META" &
+                is_pseudovalidated == TRUE & column_name %in% pgs_cols, column_name]
     if (mode == "sumstat") {
-      meta <- cat[method == "prscsx" & source_population == "META" &
-                  is_pseudovalidated == TRUE & column_name %in% pgs_cols, column_name]
       if (length(meta) == 1L) configs[[length(configs) + 1L]] <-
         list(method = "prscsx", source = "EUR+AFR", kind = "sumstat_multi", cols = meta)
     } else {
       eur <- cat[method == "prscsx" & source_population == "EUR" & column_name %in% pgs_cols, column_name]
       afr <- cat[method == "prscsx" & source_population == "AFR" & column_name %in% pgs_cols, column_name]
       if (length(eur) >= 1 && length(afr) >= 1) configs[[length(configs) + 1L]] <-
-        list(method = "prscsx", source = "EUR+AFR", kind = "indiv_joint", eur = eur, afr = afr)
+        list(method = "prscsx", source = "EUR+AFR", kind = "indiv_joint",
+             eur = eur, afr = afr, fixed = if (length(meta) == 1L) meta else NULL)
     }
   }
   configs
@@ -285,7 +297,8 @@ message(sprintf("IndivTune: %d configurations, %d-fold nested CV", length(config
 rows <- list()
 for (cfg in configs) {
   message(sprintf("  %s / %s ...", cfg$method, cfg$source))
-  res <- if (cfg$kind == "indiv_single") cv_R(cfg$eur) else cv_R(cfg$eur, cfg$afr)
+  res <- if (cfg$kind == "indiv_single") cv_R(cfg$eur)
+         else cv_R(cfg$eur, cfg$afr, fixed_col = cfg$fixed)
   rows[[length(rows) + 1L]] <- data.table(
     method = cfg$method, source = cfg$source, target = target,
     tune = "IndivTune", R = res$R, R_se = res$se,

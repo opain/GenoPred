@@ -185,7 +185,11 @@ Rscript scripts/02_evaluate_pgs.R \
 Output: `<output>.indiv_tune.tsv` with the same shape, but R is from nested
 k-fold CV (inner CV picks best hyperparameter / per-source column on training,
 outer fold scores on held-out data). Joint EUR+AFR rows fit both sources
-together in the outer fold.
+together in the outer fold. For PRS-CSx the outer-fold model additionally
+includes `META_phi_auto` (a per-SNP inverse-variance combination of the EUR
+and AFR betas, which a scalar mix of `PGS_EUR` and `PGS_AFR` cannot
+reproduce), so IndivTune is at least as expressive as SumStat for this
+method.
 
 ### Step 2d — Plot
 
