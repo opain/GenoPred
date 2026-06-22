@@ -64,15 +64,21 @@ read_pgs <- function(config, name = NULL, pgs_methods = NULL, gwas = NULL, pop =
       if(!is.na(target_populations[1])){
         pops <- pops[pops %in% target_populations]
       }
+      pops <- c(pops, 'TRANS')
     } else {
-      # Identify pops
-      keep_list_i <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))$POP
-
+        
+      if('discrete' %in% pgs_scaling){
+        # Identify pops
+        keep_pops <- fread(paste0(outdir,'/',name_i,'/ancestry/keep_list.txt'))$POP
+      } else {
+        keep_pops <- NULL
+      }
+      
       pops<-NULL
       if(is.na(target_populations[1])){
-        pops <- c(pops, keep_list_i, 'TRANS')
+        pops <- c(pops, keep_pops, 'TRANS')
       } else {
-        pops <- keep_list_i[keep_list_i %in% target_populations]
+        pops <- keep_pops[keep_pops %in% target_populations]
         if('TRANS' %in% target_populations){
           pops <- c(pops, 'TRANS')
         }

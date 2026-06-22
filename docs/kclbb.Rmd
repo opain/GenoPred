@@ -1,0 +1,141 @@
+---
+title: Genetic analysis of KCL Brain Bank
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{css, echo=F}
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+}
+```
+
+***
+
+## Create symlink to genetic data
+
+```{bash}
+mkdir -p /users/k1806347/oliverpainfel/Data/kclbb/original
+
+# Make symlinks for remaining chromosomes
+for chr in $(seq 1 22); do
+for file in $(echo pgen psam pvar); do
+  ln -s /scratch/prj/genetics_in_expression/Project/Multiple_Datasets/ancestry/KCLBB/Data/cleaned/KCLBB_chr${chr}.${file} /users/k1806347/oliverpainfel/Data/kclbb/original/kclbb.chr${chr}.${file}
+done
+done
+
+for chr in $(seq 16 22); do
+  ln -s /datasets/answerals/genomics/4_JointGenotyping/ALS.chr${chr}.vcf.gz /users/k1806347/oliverpainfel/Data/answerals/original/ALS.chr${chr}.vcf.gz
+done
+
+```
+
+## Prepare config
+
+```{r}
+library(data.table)
+
+dir.create('/users/k1806347/oliverpainfel/Data/kclbb/GenoPred/output', recursive = T)
+dir.create('/users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config', recursive = T)
+
+# Create target_list
+target_list <- NULL
+target_list <- rbind(target_list, data.table(
+  name = 'kclbb',
+  path = '/users/k1806347/oliverpainfel/Data/kclbb/original/kclbb',
+  type = 'plink2',
+  indiv_report = F))
+
+write.table(
+  target_list,
+  '/users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config/target_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F,
+  sep = ' '
+)
+
+# Use same gwas_list as mirocals, but subset ALS
+gwas_list <- fread('/users/k1806347/oliverpainfel/Data/miraclestrial/GenoPred/config/gwas_list.txt')
+gwas_list <- gwas_list[gwas_list$name == 'GCST90027164',]
+gwas_list$label<-paste0('"', gwas_list$label, '"')
+
+write.table(
+  gwas_list,
+  '/users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config/gwas_list.txt',
+  col.names = T,
+  row.names = F,
+  quote = F,
+  sep = ' '
+)
+
+# Create config file
+conf <- c(
+  'outdir: /users/k1806347/oliverpainfel/Data/kclbb/GenoPred/output',
+  'config_file: /users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config/config.yaml',
+  'target_list: /users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config/target_list.txt',
+  'gwas_list: /users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config/gwas_list.txt',
+  "pgs_methods: ['sbayesrc','ptclump']",
+  "pgs_scaling: ['discrete']"
+)
+
+write.table(
+  conf,
+  '/users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config/config.yaml',
+  col.names = F,
+  row.names = F,
+  quote = F
+)
+
+# Create config restricting to target variants
+
+```
+
+***
+
+## Run pipeline
+
+```{bash}
+# Set wd and load env
+gp
+  
+snakemake \
+  --profile slurm \
+  --use-conda \
+  --configfile=/users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config/config.yaml \
+  output_all -n 
+```
+
+***
+
+## Extract PGS to send to Yadu
+
+```{r}
+setwd('/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/')
+
+source('../functions/misc.R')
+source_all('../functions')
+
+config <- '/users/k1806347/oliverpainfel/Data/kclbb/GenoPred/config/config.yaml'
+
+# Read in the PGS and within sample PCs
+pgs <- read_pgs(config = config)
+
+```
+

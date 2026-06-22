@@ -155,17 +155,15 @@ for(chr_i in CHROMS){
         data = 0
       )
     }
-    if(opt$continuous){
-      scores_ids[['TRANS']] <- fread(cmd=paste0('cut -f 1 ', opt$ref_plink_chr, CHROMS[1], '.psam'), header = T)
-      names(scores_ids[['TRANS']])<-gsub('\\#', '', names(scores_ids[['TRANS']]))
-      scores_ids[['TRANS']] <- data.table(FID = scores_ids[['TRANS']]$IID, IID = scores_ids[['TRANS']]$IID)
-      
-      scores[['TRANS']] <- matrix(
-        nrow = nrow(scores_ids[['TRANS']]),
-        ncol = length(cols),
-        data = 0
-      )    
-    }
+    scores_ids[['TRANS']] <- fread(cmd=paste0('cut -f 1 ', opt$ref_plink_chr, CHROMS[1], '.psam'), header = T)
+    names(scores_ids[['TRANS']])<-gsub('\\#', '', names(scores_ids[['TRANS']]))
+    scores_ids[['TRANS']] <- data.table(FID = scores_ids[['TRANS']]$IID, IID = scores_ids[['TRANS']]$IID)
+    
+    scores[['TRANS']] <- matrix(
+      nrow = nrow(scores_ids[['TRANS']]),
+      ncol = length(cols),
+      data = 0
+    )
   }
   
   #####
@@ -258,30 +256,28 @@ for(chr_i in CHROMS){
       rm(scores_i)
     }
     
-    if(opt$continuous){
-      scores_i <-
-        plink_score(
-          pfile = opt$ref_plink_chr,
-          chr = chr_i,
-          plink2 = opt$plink2,
-          frq = paste0(refdir, '/freq_files/TRANS/ref.TRANS.chr'),
-          score = paste0(tmp_dir,'/all_score.txt'),
-          threads = opt$n_cores,
-          center = T
-        )
-      
-      # Sum scores across chromosomes
-      # Reorder scores to match matrix
-      match_idx <- match(paste(scores_ids[['TRANS']]$FID, scores_ids[['TRANS']]$IID),
-                         paste(scores_i$FID, scores_i$IID))
-      
-      # In-place addition: for each score column
-      scores_i <- as.matrix(scores_i[,-1:-2])
-      for (j in cols) {
-        scores[['TRANS']][, which(cols == j)] <- scores[['TRANS']][, which(cols == j)] + scores_i[match_idx, which(colnames(scores_i) == j)]
-      }
-      rm(scores_i)
+    scores_i <-
+      plink_score(
+        pfile = opt$ref_plink_chr,
+        chr = chr_i,
+        plink2 = opt$plink2,
+        frq = paste0(refdir, '/freq_files/TRANS/ref.TRANS.chr'),
+        score = paste0(tmp_dir,'/all_score.txt'),
+        threads = opt$n_cores,
+        center = T
+      )
+    
+    # Sum scores across chromosomes
+    # Reorder scores to match matrix
+    match_idx <- match(paste(scores_ids[['TRANS']]$FID, scores_ids[['TRANS']]$IID),
+                       paste(scores_i$FID, scores_i$IID))
+    
+    # In-place addition: for each score column
+    scores_i <- as.matrix(scores_i[,-1:-2])
+    for (j in cols) {
+      scores[['TRANS']][, which(cols == j)] <- scores[['TRANS']][, which(cols == j)] + scores_i[match_idx, which(colnames(scores_i) == j)]
     }
+    rm(scores_i)
     
     system(paste0('rm ', tmp_dir, '/all_score.txt'))
     system(paste0('rm ', tmp_dir, '/row_index.txt'))
