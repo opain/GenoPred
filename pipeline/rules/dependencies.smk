@@ -728,6 +728,10 @@ rule download_prscs_ref_ukb:
       rm -r -f {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}; \
       wget --no-check-certificate -O {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
       tar -zxvf {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/ukbb/; \
+      extracted_dir=$(tar -tzf {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz | head -1 | cut -d/ -f1); \
+      if [ "$extracted_dir" != "ldblk_ukbb_{wildcards.population}" ]; then \
+        mv {resdir}/data/prscs_ref/ukbb/"$extracted_dir" {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}; \
+      fi; \
       rm {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
@@ -761,6 +765,10 @@ rule download_prscs_ref_1kg:
       rm -r -f {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}; \
       wget --no-check-certificate -O {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz {params.url}; \
       tar -zxvf {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/1kg/; \
+      extracted_dir=$(tar -tzf {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz | head -1 | cut -d/ -f1); \
+      if [ "$extracted_dir" != "ldblk_1kg_{wildcards.population}" ]; then \
+        mv {resdir}/data/prscs_ref/1kg/"$extracted_dir" {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}; \
+      fi; \
       rm {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz
     }} > {log} 2>&1
     """
