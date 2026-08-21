@@ -630,7 +630,8 @@ rule prep_pgs_quickprs_i:
     "../envs/analysis.yaml"
   params:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
-    testing=config["testing"]
+    testing=config["testing"],
+    skip_lrt_af_filter=config.get("quickprs_skip_lrt_af_filter", False)
   shell:
     """
     (
@@ -644,6 +645,7 @@ rule prep_pgs_quickprs_i:
     --n_cores {threads} \
     --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
+    --skip_lrt_af_filter {params.skip_lrt_af_filter} \
     --test {params.testing} > {log} 2>&1
     ) || (
       echo QuickPRS failed for {wildcards.gwas}

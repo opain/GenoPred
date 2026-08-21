@@ -31,7 +31,17 @@ option_list = list(
   make_option("--genomic_control", action="store", default=F, type='logical',
               help="Logical indicating whether genomic control was applied to GWAS [optional]"),
   make_option("--test", action="store", default=NA, type='character',
-              help="Specify number of SNPs to include [optional]")
+              help="Specify number of SNPs to include [optional]"),
+  make_option("--skip_lrt_af_filter", action="store", default=FALSE, type='logical',
+              help=paste0("If TRUE, skip the GWAS-vs-reference allele-frequency ",
+                          "likelihood-ratio test filter (P < 1e-6). The LRT's power ",
+                          "scales with reference n0, so it drops MORE variants when the ",
+                          "reference panel is larger/better-composed for a mixture GWAS ",
+                          "(see MELD Round 6 Section 5). The MAF-difference filter in ",
+                          "sumstat_cleaner.R (--maf_diff, default 0.2) already applies a ",
+                          "reference-size-independent AF check upstream, so the LRT here ",
+                          "is redundant when that filter is in effect. Default FALSE ",
+                          "preserves the existing behaviour exactly for all users. [optional]"))
 )
 
 opt = parse_args(OptionParser(option_list=option_list))
@@ -101,9 +111,13 @@ if(!is.null(opt$ref_keep)){
 
 ref_n <- nrow(ref_psam)
 
-gwas$FREQ_LRT_P <- lrt_af_dual(p1 = gwas$FREQ, n1 = gwas$N, p0 = gwas$REF.FREQ, n0 = ref_n)$p
-log_add(log_file = log_file, message = paste0('Removed ', sum(gwas$FREQ_LRT_P < 1e-6), " variants due to significant difference in allele frequency to reference (P < 1e-6)."))
-gwas <- gwas[!(gwas$FREQ_LRT_P < 1e-6),]
+if (isTRUE(opt$skip_lrt_af_filter)) {
+  log_add(log_file = log_file, message = 'Skipping LRT AF filter (--skip_lrt_af_filter TRUE); MAF-diff in sumstat_cleaner already handles this.')
+} else {
+  gwas$FREQ_LRT_P <- lrt_af_dual(p1 = gwas$FREQ, n1 = gwas$N, p0 = gwas$REF.FREQ, n0 = ref_n)$p
+  log_add(log_file = log_file, message = paste0('Removed ', sum(gwas$FREQ_LRT_P < 1e-6), " variants due to significant difference in allele frequency to reference (P < 1e-6)."))
+  gwas <- gwas[!(gwas$FREQ_LRT_P < 1e-6),]
+}
 
 # Format for LDAK
 snplist <- gwas$SNP
