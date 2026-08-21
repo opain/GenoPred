@@ -15,18 +15,69 @@ suppressPackageStartupMessages(library(data.table))
 
 # Which population slot to hijack: 'AMR' (default; uses EUR LD blocks in dbslmm) or
 # 'AFR' (diagnostic; uses AFR LD blocks in dbslmm — coherent with the 42% AFR resample).
-# Overridable via command-line arg to allow both variants.
+#
+# Usage:
+#   Rscript build_meld_refdir.R [<HIJACK_POP> [<w_eur> <n_total>]]
+#
+# Modes:
+#   1. No w_eur      → Round 4 default: 665 EUR + 489 AFR = 1154 (p_eur = 0.576).
+#                      Output dir: meld_test_r4_refdir_{hijack}
+#   2. w_eur given   → Round 6 invariant-4 cross-check: draw n_eur_take = round(w_eur * n_total)
+#                      and n_afr_take = round((1 - w_eur) * n_total), capped at 665 EUR
+#                      and 688 AFR available.
+#                      Output dir: meld_test_r6_refdir_{hijack}_w{XX}   where XX = 100*w_eur.
 args <- commandArgs(trailingOnly = TRUE)
 hijack_pop <- if (length(args) >= 1) args[[1]] else 'AMR'
 stopifnot(hijack_pop %in% c('EUR','EAS','AFR','CSA','AMR','MID'))
 
-shared      <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref'
-private     <- sprintf('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/meld_test_r4_refdir_%s',
-                       tolower(hijack_pop))
-plink2      <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/.snakemake/conda/3f88447533fd10040edfdcea8db853f7_/bin/plink2'
-n_eur_take  <- 665     # all EUR
-n_afr_take  <- 489     # gives 665/1154 = 0.576, 489/1154 = 0.424
-seed        <- 2026L
+if (length(args) >= 3L) {
+  w_eur   <- as.numeric(args[[2]])
+  n_total <- as.integer(args[[3]])
+  stopifnot(is.finite(w_eur), w_eur >= 0, w_eur <= 1, n_total > 0)
+  mode <- 'r6'
+} else {
+  w_eur   <- NA_real_
+  n_total <- NA_integer_
+  mode <- 'r4'
+}
+
+shared <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref'
+if (mode == 'r4') {
+  private <- sprintf('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/meld_test_r4_refdir_%s',
+                     tolower(hijack_pop))
+} else {
+  private <- sprintf('/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred/meld_test_r6_refdir_%s_w%02d',
+                     tolower(hijack_pop), as.integer(round(w_eur * 100)))
+}
+plink2 <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/.snakemake/conda/3f88447533fd10040edfdcea8db853f7_/bin/plink2'
+seed   <- 2026L
+
+# Available counts in the shared reference (avoid hard-coding 665/688 downstream).
+avail_eur <- length(readLines(file.path(shared, 'keep_files', 'EUR.keep')))
+avail_afr <- length(readLines(file.path(shared, 'keep_files', 'AFR.keep')))
+stopifnot(avail_eur == 665L, avail_afr == 688L)
+
+if (mode == 'r4') {
+  n_eur_take <- 665L  # all EUR
+  n_afr_take <- 489L  # gives 665/1154 = 0.576, 489/1154 = 0.424
+} else {
+  # Ideal counts; may exceed availability, in which case we clip and rescale
+  # (the other pop's count picks up the slack in the sense that the resulting
+  # composition still hits n_total exactly, but at a w slightly off nominal).
+  ideal_eur <- round(w_eur       * n_total)
+  ideal_afr <- round((1 - w_eur) * n_total)
+  n_eur_take <- min(ideal_eur, avail_eur)
+  n_afr_take <- min(ideal_afr, avail_afr)
+  achieved_w <- n_eur_take / (n_eur_take + n_afr_take)
+  cat(sprintf('mode=r6, requested w_eur=%.4f (n_total=%d)\n', w_eur, n_total))
+  cat(sprintf('  ideal: n_eur=%d n_afr=%d\n', ideal_eur, ideal_afr))
+  cat(sprintf('  taken: n_eur=%d n_afr=%d (achieved w_eur=%.4f)\n',
+              n_eur_take, n_afr_take, achieved_w))
+  if (ideal_eur > avail_eur || ideal_afr > avail_afr) {
+    warning(sprintf('capped by availability (max EUR=%d, AFR=%d); achieved w_eur=%.4f',
+                    avail_eur, avail_afr, achieved_w))
+  }
+}
 
 cat('=== hijacking population slot:', hijack_pop, '===\n')
 cat('=== private refdir:', private, '===\n')
@@ -69,8 +120,16 @@ eur_ids <- readLines(file.path(shared, 'keep_files', 'EUR.keep'))
 afr_ids <- readLines(file.path(shared, 'keep_files', 'AFR.keep'))
 stopifnot(length(eur_ids) == 665, length(afr_ids) == 688)
 
-eur_pick <- eur_ids                        # all of them
-afr_pick <- sample(afr_ids, n_afr_take)    # 489 of 688
+if (n_eur_take == length(eur_ids)) {
+  eur_pick <- eur_ids
+} else {
+  eur_pick <- sample(eur_ids, n_eur_take)
+}
+if (n_afr_take == length(afr_ids)) {
+  afr_pick <- afr_ids
+} else {
+  afr_pick <- sample(afr_ids, n_afr_take)
+}
 
 meld_keep <- c(eur_pick, afr_pick)
 cat(sprintf('  EUR: %d (of %d), AFR: %d (of %d), total: %d\n',
