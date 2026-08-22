@@ -5,7 +5,7 @@
 #
 # Prerequisites:
 #   - build_ldpred2_ref_from_meld.R has been run for each candidate, producing
-#     /users/.../pipeline/misc/opensnp/ldpred2_ref_meld/<label>/{LD_with_blocks_chr*.rds,map.rds}
+#     /users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/meld/<label>/{LD_with_blocks_chr*.rds,map.rds}
 #
 # Output:
 #   - /users/.../misc/opensnp/private_ldpred2_ldref_<label>/AMR/  → symlink to built ref
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 BASE=/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp
-BUILT=$BASE/ldpred2_ref_meld
+BUILT=/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/meld
 
 LABELS="MELD_lambda0 EUR EAS AFR CSA AMR equal"
 

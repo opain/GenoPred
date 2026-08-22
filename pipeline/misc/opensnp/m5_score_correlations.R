@@ -101,7 +101,7 @@ align_and_extract <- function(d, sc) {
 # For block-bootstrap: group SNPs by LDetect block using the ldpred2 map.
 # Fallback if map isn't available: use a large-block chunking heuristic (chr).
 group_id_by_snp <- NULL
-map_path <- file.path(OUT_DIR, 'ldpred2_ref_meld', LABELS[1L], 'map.rds')
+map_path <- file.path('/users/k1806347/oliverpainfel/Data/hgdp_1kg/ldpred2/meld', LABELS[1L], 'map.rds')
 if (file.exists(map_path)) {
   m <- readRDS(map_path)
   group_id_by_snp <- setNames(m$group_id, m$rsid)
