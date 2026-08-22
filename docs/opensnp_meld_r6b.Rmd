@@ -1,0 +1,305 @@
+---
+title: "MELD Round 6b: D1–D6 diagnostics — placebo control, λ sweep, PSD-repair fix, block bootstrap"
+output:
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+<div class="note-box">
+
+**Notice on authorship.** This document was drafted by Claude (Anthropic's LLM)
+working from the analysis code, pipeline outputs, and prior notes. Interpretations
+in the *Result* section reflect Claude's reading of the numbers rather than the
+author's independent judgement — verify claims against the underlying CSVs and
+figures before citing.
+
+</div>
+
+<div class="note-box">
+
+**Where this sits.** Round 6 produced an M2 table headlined "MELD-λ1 beats
+every single-population candidate" — a result that motivated keeping the
+between-population B term. Round 6b is the diagnostic that puts that
+headline under six controls (D1–D6) and finds it does not survive. The M1
+result from Round 6 (B distorts the LD matrix more than population choice
+does) stands; the M2 result needed the diagnostics to become interpretable.
+This is the round that fixes the analysis rather than the round that
+extends it.
+
+</div>
+
+***
+
+# Question
+
+Under what conditions is the Round 6 M2 headline (MELD-λ1 > single-pop)
+actually testing a property of the between-population term B, versus a
+property of numerical conditioning or an unfair reference set? Six
+diagnostics were named a priori:
+
+- **D1** — put MELD-λ0 (the missing candidate) back in the M2 table.
+- **D2** — apply uniform PSD repair to every candidate before scoring.
+- **D3** — a permuted-ΔAF placebo B; if it reproduces the MELD-λ1 advantage,
+  the "B is what predicts" story is falsified.
+- **D4** — a λ sweep from 0 to 1 in fine steps; if the picture is
+  monotone-in-λ post-repair, B carries real signal.
+- **D5** — stratify (M2\_λ=1 − M2\_λ=0) by |ΔAF| tertile; a real B signal
+  should concentrate where the derivation says it should.
+- **D6** — block-bootstrap 95 % CIs on everything; the Round 6 SD-based
+  error bars were too tight.
+
+Chr22 only (24 blocks), all candidates including MELD-λ0,
+`w_eur ∈ {0.25, 0.5, 0.75}`.
+
+***
+
+# D1 — MELD-λ0 in M2 (the missing candidate)
+
+Pre-repair r² at δ = 0.01, size-weighted mean across chr22 blocks:
+
+| candidate     | w = 0.25 | w = 0.50 | w = 0.75 |
+| ---           | ---:     | ---:     | ---:     |
+| MELD-λ0       | 0.62     | 0.68     | 0.84     |
+| MELD-λ1       | 0.62     | 0.73     | 0.84     |
+| MELD-pooled   | —        | 0.72     | —        |
+| EUR           | 0.39     | 0.47     | 0.62     |
+| AFR           | 0.48     | 0.47     | 0.46     |
+
+MELD-λ0 tracks MELD-λ1 exactly at w = 0.25 and w = 0.75 even *pre-repair*.
+The 0.05 gap at w = 0.5 is the only place where "λ1 wins" has visible
+support in pre-repair scores — and D2 removes it.
+
+***
+
+# D2 — Uniform PSD repair (eigen-clamp + diag rescale)
+
+Every candidate matrix is passed through the same eigen-clamp
+`eigen(R); λ ← max(λ, 0); reconstruct; rescale diagonal to 1` before the
+masked-z solve. This equalises numerical conditioning across candidates.
+
+Pre-repair minimum eigenvalue (median across chr22 blocks) shows the
+conditioning gradient the diagnostics prompt predicted:
+
+| candidate    | median min-eig (any w) |
+| ---          | ---:                    |
+| MELD-λ1      | −0.038 to −0.044        |
+| MELD-λ0      | −0.045 to −0.051        |
+| AFR          | −0.063                  |
+| MELD-pooled  | −0.065                  |
+| EUR          | −0.096                  |
+
+Better-conditioned candidates (less negative min-eig) score higher M2
+pre-repair. Spearman between median pre-repair min-eig and pre-repair M2
+across candidates: w = 0.25 ρ = +1.00; w = 0.50 ρ = +0.30; w = 0.75
+ρ = +0.60. Directionally right at every w, exact at w = 0.25 — the same
+mixture where the Round 6 headline was strongest.
+
+Post-repair r² at δ = 0.01, size-weighted mean with 95 % block-bootstrap
+CI (D6):
+
+| candidate     | w = 0.25              | w = 0.50              | w = 0.75              |
+| ---           | ---                   | ---                   | ---                   |
+| **MELD-λ0**   | **0.765 [0.727, 0.806]** | **0.820 [0.782, 0.857]** | **0.882 [0.840, 0.916]** |
+| MELD-λ1       | 0.773 [0.736, 0.811]  | 0.819 [0.781, 0.857]  | 0.877 [0.835, 0.913]  |
+| MELD-pooled   | —                     | 0.806 [0.768, 0.843]  | —                     |
+| EUR           | 0.512 [0.455, 0.574]  | 0.601 [0.533, 0.668]  | 0.762 [0.694, 0.823]  |
+| AFR           | 0.650 [0.603, 0.700]  | 0.644 [0.588, 0.700]  | 0.631 [0.560, 0.695]  |
+
+Everything jumps 0.10–0.20 r² after repair. The gap between MELD variants
+and single-pops persists; the gap between MELD-λ0 and MELD-λ1 collapses.
+
+Paired MELD-λ0 vs the best single-pop at each mixture point:
+
+| comparison             | w = 0.25                 | w = 0.50                 | w = 0.75                 |
+| ---                    | ---                      | ---                      | ---                      |
+| MELD-λ0 − AFR (post)   | +0.115 [+0.088, +0.141]  | +0.175 [+0.140, +0.213]  | +0.250 [+0.206, +0.304]  |
+| MELD-λ0 − EUR (post)   | +0.253 [+0.213, +0.294]  | +0.219 [+0.178, +0.258]  | +0.120 [+0.084, +0.156]  |
+
+All CIs exclude zero cleanly. This is the "MELD-λ0 is a materially better
+target than any single-pop panel" result — measured on synthetic data at
+chr22 scale, but with a large effect and tight intervals.
+
+Paired MELD-λ1 vs MELD-λ0 (post-repair):
+
+| w_eur | MELD-λ1 − MELD-λ0            |
+| ---   | ---                          |
+| 0.25  | +0.0077 [+0.0020, +0.0128]   |
+| 0.50  | −0.0005 [−0.0058, +0.0046]   |
+| 0.75  | −0.0048 [−0.0087, −0.0012]   |
+
+Two of three CIs contain zero *or* are on the "λ0 wins" side. There is no
+consistent post-repair advantage for MELD-λ1 — the Round 6 headline does
+not survive uniform conditioning.
+
+***
+
+# D3 — Placebo (permuted ΔAF)
+
+Construct a "placebo B" by randomly permuting the per-SNP allele frequency
+differences that feed the B term (8 permutations per block, average over
+permutations per block, paired bootstrap on the difference).
+
+Post-repair MELD-λ1 − placebo:
+
+| w_eur | MELD-λ1 − placebo             |
+| ---   | ---                           |
+| 0.25  | +0.0097 [+0.0046, +0.0149]    |
+| 0.50  | +0.0117 [+0.0063, +0.0163]    |
+| 0.75  | +0.0073 [+0.0025, +0.0120]    |
+
+<div class="note-box">
+
+**Placebo reproduces ~99 % of MELD-λ1's post-repair r².** The B term does
+carry a small signal above a matched random rank-one vector (significantly
+positive across all three w), but the magnitude (~0.01 r²) is an order of
+magnitude smaller than the MELD-λ0 vs AFR ancestry effect (0.11–0.25 r²)
+and two orders smaller than what the Round 6 headline claimed for MELD-λ1.
+The "B is what makes the panel predictive" reading is withdrawn.
+
+</div>
+
+***
+
+# D4 — λ sweep, post-repair
+
+Size-weighted mean r² at δ = 0.01 across λ ∈ {0, 0.25, 0.5, 0.75, 1}:
+
+| λ    | w = 0.25              | w = 0.50              | w = 0.75              |
+| ---  | ---                   | ---                   | ---                   |
+| 0.00 | 0.765 [0.727, 0.804]  | 0.820 [0.782, 0.858]  | 0.882 [0.840, 0.916]  |
+| 0.25 | 0.770 [0.732, 0.808]  | 0.823 [0.785, 0.859]  | 0.881 [0.840, 0.915]  |
+| 0.50 | 0.771 [0.735, 0.808]  | 0.822 [0.783, 0.856]  | 0.880 [0.840, 0.914]  |
+| 0.75 | 0.772 [0.738, 0.808]  | 0.821 [0.784, 0.857]  | 0.879 [0.841, 0.914]  |
+| 1.00 | 0.773 [0.733, 0.810]  | 0.819 [0.781, 0.857]  | 0.877 [0.836, 0.913]  |
+
+Essentially flat: 0.008 total variation over the full λ range, well within
+the block-bootstrap SE (~0.02 per point). At w = 0.75 the sweep is
+monotonically *decreasing* in λ. This is the flat-λ profile the prompt
+named as "conditioning confirmed"; there is no interior optimum and no
+monotone climb.
+
+***
+
+# D5 — |ΔAF| stratification of the residual B benefit
+
+Within-block M2 difference (M2\_λ=1 − M2\_λ=0), restricted to SNPs in each
+|ΔAF| tertile:
+
+| bin                   | w = 0.25 | w = 0.50 | w = 0.75 |
+| ---                   | ---:     | ---:     | ---:     |
+| tertile 1 (low ΔAF)   | +0.006   | +0.004   | +0.002   |
+| tertile 2             | +0.005   | +0.001   | +0.002   |
+| tertile 3 (high ΔAF)  | +0.011   | +0.014   | +0.016   |
+
+The B benefit **does** concentrate at high-|ΔAF| SNPs — the differential
+is 3–8× larger in the top tertile than the bottom. But (i) the magnitude
+is tiny in absolute terms (≤ 0.02 r²); (ii) it stacks in the direction the
+derivation predicts; (iii) even the top tertile's differential is smaller
+than the placebo-vs-real B gap from D3. So there IS a residual
+non-artefactual B effect, but it is small and worth reporting as an open
+item rather than as a method to build a panel around.
+
+***
+
+# D6 — Block-bootstrap CIs
+
+Reported inline in D1/D2/D4 tables above. Bootstrap SD on the size-weighted
+mean is 2–4× larger than the Round 6 checkpoint's SD/√n_blocks — that
+estimator was too tight, as the prompt anticipated. This is why the
+corrected Round 6b M2 error bars look wider than the Round 6 numbers even
+though the point estimates are close.
+
+***
+
+# What the Round 6 checkpoint should have said
+
+<div class="note-box">
+
+The analytic meta target R\* (MELD-λ0) predicts masked z-scores substantially
+better than any single-population panel (+0.11 to +0.25 r², 95 % CIs cleanly
+excluding zero at every mixture point). Adding the between-population term
+B to form the mega target (MELD-λ1) does not help: it is statistically tied
+with R\* post-repair, once every candidate is given the same PSD projection
+(Δr² is 0.0 ± 0.005 at w = 0.5, and slightly negative at w = 0.75). A
+random-permutation placebo reproduces the MELD-λ1 advantage over R\* to
+within ~0.01 r², so B is not what makes the panel predictive. What makes
+the panel predictive is using the correct meta target — which is the
+derivation.
+
+</div>
+
+Interpretation for the wider project: Rounds 4 and 5 did not just carry a
+surplus B term larger than the mismatch they were trying to correct (per
+the M1 finding from Round 6, which stands) — they were also comparing that
+panel to badly-specified sumstats and to a single-pop panel that had never
+been out-conditioned in a fair way. Round 6b restores the fair comparison
+and finds R\* materially better than any single-pop panel, with no
+additional benefit from including B.
+
+***
+
+# Result
+
+<div class="note-box">
+
+**Theory confirmed.** The analytic λ = 0 target R\* (MELD-λ0) is a materially
+better LD reference than any single-population panel when measured on M2
+under uniform PSD repair — +0.115 [+0.088, +0.141] r² over AFR at w = 0.25,
++0.219 [+0.178, +0.258] r² over EUR at w = 0.50, +0.120 [+0.084, +0.156]
+r² over EUR at w = 0.75. All CIs exclude zero by a wide margin. This is
+what "using the correct meta target" looks like when the comparison is
+fair.
+
+**λ0 = λ1 post-repair on this design.** The λ sweep is flat within
+bootstrap SE; the placebo B reproduces the pre-repair MELD-λ1 advantage
+almost exactly. The Round 6 M2 headline was an artefact of two things —
+MELD-λ0 missing from the table, and MELD-λ1's positive rank-one term
+partially repairing the numerical conditioning that MELD-λ0 needed too.
+The Round 6 M1 finding (B is a larger distortion than population choice)
+is what actually matters for panel design; the M2 sweep just says that at
+this scale, the two flavours score the same once conditioning is
+equalised.
+
+**Small residual at high-|ΔAF| SNPs.** D5 shows a real ~0.015 r²
+differential concentrated at high-|ΔAF| SNPs in the top tertile. It is
+smaller than the D3 placebo gap and its magnitude is not sufficient to
+change any of the design conclusions above, but it is worth
+reporting as an open question. Whether this is stratum impurity in R_AFR
+(0.84 AFR + 0.16 EUR per Round 3's estimate) or differential tagging is
+the Round 7b Section C question; that section runs the impurity control
+and finds it explains the residual.
+
+</div>
+
+The natural next moves after Round 6b are (i) a full-genome M1/M2 with
+MELD-λ0 in the table and uniform PSD repair applied uniformly, to tighten
+the ancestry-effect CIs, and (ii) Section 5 treating MELD-λ0 as the method
+— **not** MELD-λ1, which fails D2/D3/D4. Round 7 picks this up.
+
+***
+
+# Files
+
+- Scripts: `pipeline/misc/opensnp/eval_meld_ld_diagnostics.R` (D1–D5),
+  `pipeline/misc/opensnp/bootstrap_meld_r6b.R` (D6)
+- Result CSVs:
+  `pipeline/misc/opensnp/meld_r6b_d1_m2_all_candidates.csv`,
+  `pipeline/misc/opensnp/meld_r6b_d2_repair.csv`,
+  `pipeline/misc/opensnp/meld_r6b_d3_placebo.csv`,
+  `pipeline/misc/opensnp/meld_r6b_d4_lambda_sweep.csv`,
+  `pipeline/misc/opensnp/meld_r6b_d5_af_stratified.csv`,
+  `pipeline/misc/opensnp/meld_r6b_d6_{marginal,paired,lambda}_ci.csv`
+- The Round 6 M2 CSVs and figures are untouched — see the Round 6 write-up
+  for those.

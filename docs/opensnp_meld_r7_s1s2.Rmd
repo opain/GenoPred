@@ -1,0 +1,271 @@
+---
+title: "MELD Round 7 Sections 1–2: AF filter fix and real-sumstats M2 with AF-projection weight validation"
+output:
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    css: styles/styles.css
+    includes:
+      in_header: header.html
+      after_body: footer.html
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+<div class="note-box">
+
+**Notice on authorship.** This document was drafted by Claude (Anthropic's LLM)
+working from the analysis code, pipeline outputs, and prior notes. Interpretations
+in the *Result* section reflect Claude's reading of the numbers rather than the
+author's independent judgement — verify claims against the underlying CSVs and
+figures before citing.
+
+</div>
+
+<div class="note-box">
+
+**Where this sits.** Round 6 built the analytic MELD-λ0 target and showed on
+synthetic 50/50 EUR/AFR that R\* beats every single-population panel by
+0.11–0.25 r² on M2. Round 7 moves from synthetic to real sumstats
+(Yengo-2022 all-ancestry height) and asks whether the composition effect
+survives at 1KG panel scale on a realistic ~78 % EUR meta. Section 1 fixes
+the pre-existing quickprs AF-difference LRT filter that Round 5
+identified as a variant-count confounder, and adds a variant-intersection
+helper that Section 4 will use. Section 2 runs M2 on the real sumstats and
+validates the AF-projection composition estimator against the
+paper-reported per-population sample sizes.
+
+</div>
+
+***
+
+# Section 1 — code fixes
+
+## S1.1 — quickprs.R AF filter option
+
+Added `--skip_lrt_af_filter` boolean CLI option to
+`Scripts/pgs_methods/quickprs.R`. Default `FALSE` preserves the existing
+LRT filter (`P < 1e-6`) exactly. When `TRUE`, the LRT filter is skipped and
+the upstream `sumstat_cleaner.R --maf_diff` (default 0.2) is the only AF
+check.
+
+Threaded through the pipeline:
+
+- `pipeline/config.yaml` — new `quickprs_skip_lrt_af_filter: F` (default
+  preserves behaviour)
+- `pipeline/rules/pgs_methods.smk` — `prep_pgs_quickprs_i` params + shell
+  command pass the flag through
+
+Smoke-tested by direct invocation on chr22 with the Round-5 MELD refdir /
+quickprs LD panel and the Round-5 cleaned sumstats:
+
+- With `--skip_lrt_af_filter TRUE`: log records
+  `Skipping LRT AF filter (--skip_lrt_af_filter TRUE); MAF-diff in sumstat_cleaner already handles this.`
+- Without the flag: log records
+  `Removed 8872 variants due to significant difference in allele frequency to reference (P < 1e-6).`
+  — exact prior behaviour.
+
+Backward compatibility confirmed. **Why this matters:** the LRT filter's
+statistical power scales with the reference sample size $n_0$. On a
+MELD-composed panel (1154 samples) the filter is far more aggressive than
+on a single-population panel (665–737 samples). Round 5 saw
+mismatched-cell removals of 390 k–500 k variants under single-pop LD but
+611 k under MELD LD — the variant-count confounder is real, and any Round
+5 method-comparison that varied $n_0$ between cells was reading noise. The
+new flag lets Section 4 (and any future work) hold the variant set
+constant.
+
+## S1.2 — variant-set intersection helper
+
+New `pipeline/misc/opensnp/intersect_pgs_variants.R`. Takes a TSV of
+`panel_label, score_file_path, effect_col` rows, reads each panel's per-SNP
+weights, intersects on SNP ID, and writes:
+
+- `intersect_snplist.txt` — one SNP per line
+- `intersect_summary.csv` — per-panel counts, intersection size, kept
+  fraction
+- `intersect_weights.rds` — per-panel weights on the intersection, aligned
+
+Prints pairwise weight-vector correlations as a plumbing check. Section 4's
+M5 (target-scored PGS correlation on a shared variant set) uses this
+pattern.
+
+***
+
+# Section 2 — Real-sumstats M2
+
+## Setup
+
+Target: `yengo_2022_height_all.txt` (all-ancestry meta, 1.38 M variants,
+median N ≈ 2.06 M).
+
+Candidates on M2 (chr22, all 5 pops present in the block RDS from the
+Round-6 `extra_pops` append):
+
+- MELD-λ0 (analytic P-population meta target R\*)
+- MELD-λ1 (P-population mega target, run once to close it out)
+- EUR, EAS, AFR, CSA, AMR (single-population empirical R)
+
+Round 6b fixes applied uniformly: eigen-clamp PSD repair on every candidate
+before the masked-z solve; 2000-replicate block-bootstrap 95 % CIs;
+δ = 0.01 ridge; 10 % mask fraction; 1 mask draw per block.
+
+## 2(b) — Weights, two ways
+
+Composition weights computed (i) from per-ancestry median N in the Yengo
+per-pop files and (ii) from `bigsnpr::snp_ancestry_summary` AF-projection
+on the Yengo-all EAF column.
+
+| pop | median N   | w (paper N) | w (AF-projection) | Δ (afproj − paperN) |
+| --- | ---:       | ---:        | ---:              | ---:                |
+| EUR | 1,587,716  | 0.7723      | 0.7800            | +0.0077             |
+| EAS |   264,013  | 0.1284      | 0.1274            | −0.0010             |
+| AFR |   100,692  | 0.0490      | 0.0528            | +0.0038             |
+| CSA |    44,727  | 0.0218      | 0.0193            | −0.0025             |
+| AMR |    58,707  | 0.0286      | 0.0205            | −0.0081             |
+
+<div class="note-box">
+
+**AF-projection recovers the paper-reported composition to within 0.008 in
+every super-population** on a real all-ancestry file. This is the key
+Section 2 validation: most real sumstats do not report per-ancestry N, so
+being able to recover the composition from allele frequencies alone is a
+required capability for MELD in production, and it works. MID was
+recovered at essentially zero weight and folded into EUR (nearest super-pop
+in the candidate set) — the fold-in is a no-op numerically.
+
+</div>
+
+## 2(c) — M2 with PSD repair + block bootstrap
+
+Size-weighted mean r² across chr22 blocks with 95 % block-bootstrap CI,
+post-repair, δ = 0.01:
+
+| candidate    | AF-projection weights    | paper-N weights          |
+| ---          | ---                      | ---                      |
+| **MELD-λ0**  | **0.953 [0.937, 0.968]** | **0.954 [0.938, 0.968]** |
+| MELD-λ1      | 0.953 [0.937, 0.967]     | 0.954 [0.939, 0.967]     |
+| EUR          | 0.926 [0.899, 0.951]     | 0.926 [0.898, 0.950]     |
+| CSA          | 0.888 [0.855, 0.918]     | 0.888 [0.856, 0.918]     |
+| AMR          | 0.865 [0.822, 0.905]     | 0.865 [0.818, 0.905]     |
+| EAS          | 0.781 [0.723, 0.830]     | 0.781 [0.718, 0.831]     |
+| AFR          | 0.648 [0.570, 0.722]     | 0.648 [0.570, 0.721]     |
+
+Weight-source choice does not move any candidate by more than 0.001 r² —
+the two weight-estimation methods are interchangeable at this precision on
+this data. Reporting AF-projection numbers below.
+
+Paired differences with 95 % bootstrap CI (AF-projection weights):
+
+| comparison            | mean [95 % CI]              |
+| ---                   | ---                         |
+| MELD-λ0 − EUR         | +0.0268 [+0.0145, +0.0407]  |
+| MELD-λ0 − CSA         | +0.0650 [+0.0458, +0.0845]  |
+| MELD-λ0 − AMR         | +0.0886 [+0.0624, +0.1195]  |
+| MELD-λ0 − EAS         | +0.1719 [+0.1323, +0.2213]  |
+| MELD-λ0 − AFR         | +0.3057 [+0.2444, +0.3695]  |
+| MELD-λ1 − MELD-λ0     | −0.0001 [−0.0022, +0.0020]  |
+
+***
+
+# Findings
+
+**MELD-λ0 beats every single-population panel on M2 with real Yengo-2022
+sumstats, and the ordering matches the meta composition.** EUR is closest
+(+0.027 r², reflecting that EUR contributes ~78 % of the meta), AFR is
+furthest (+0.306 r²). All CIs cleanly exclude zero.
+
+**MELD-λ0 = MELD-λ1** (Δ = 0.0 ± 0.002). This is not evidence that B is
+harmless in general — see the note below on why λ0 = λ1 at this
+composition specifically.
+
+**AF-projection is a viable estimator for the composition weights when
+per-ancestry N is not reported.** Discrepancies vs paper-N are ≤ 0.008 in
+every super-population, and produce M2 differences < 0.001 r².
+
+## Why λ0 = λ1 here specifically (Round 7b Section B, no compute)
+
+The between-population term B scales with products of the mixture weights:
+on P populations it is
+$B(i,j) = 4 \sum_p w_p (f_{p,i} - \bar f_i)(f_{p,j} - \bar f_j)$ where
+$\bar f = \sum_p w_p f_p$. Because it is quadratic in $w$, B is maximised
+at balanced compositions and shrinks toward zero as one population
+dominates. At Yengo-2022's 78 / 13 / 5 / 2 / 3 EUR / EAS / AFR / CSA / AMR
+split, the effective magnitude of B is small — the largest single Wahlund
+pair (EUR × EAS with $w_{\text{EUR}} \cdot w_{\text{EAS}} \approx 0.10$)
+contributes less than a fifth of what a 50/50 balanced two-population GWAS
+would carry, and the other pairs are smaller still. So at this composition,
+λ has almost no room to move the LD panel one way or the other, and MELD-λ0
+and MELD-λ1 come out numerically tied.
+
+Two consequences:
+
+1. **This does not resolve the synthetic Round 6b D5 residual.** The
+   synthetic Round 6 case was 50 / 50 EUR / AFR — B was proportional to
+   $4 \cdot 0.5 \cdot 0.5 \cdot (f_{\text{EUR}} - f_{\text{AFR}})^2 =
+   (f_{\text{EUR}} - f_{\text{AFR}})^2$, which is the largest B can be for
+   a two-population meta. That is why D5 showed a real ~0.015 r² effect
+   concentrated at high-|ΔAF| SNPs. The real-data Yengo case does not
+   carry a similar-magnitude B. Whether the synthetic residual is stratum
+   impurity or differential tagging is the Round 7b Section C question.
+2. **This is a testable prediction for balanced multi-ancestry GWAS.** For
+   a GWAS with a more balanced composition — GBMI, several MVP phenotypes,
+   forthcoming diverse consortium efforts — B would carry appreciable
+   magnitude and λ would matter considerably. The tie observed here is a
+   property of the *data*, not a property of the method.
+
+***
+
+# Result
+
+<div class="note-box">
+
+**The composition effect survives on real Yengo-2022 sumstats.** MELD-λ0
+beats EUR by +0.027 r² on M2 at 1KG panel scale — an order of magnitude
+smaller than the synthetic MELD-λ0 vs AFR gap (0.11–0.25 r²), but
+statistically clean (CI [+0.014, +0.041] excludes zero cleanly) and
+ordering-consistent with the meta composition. The Round 6b synthetic
+construction was construction validation; the real-data number is 0.03 vs
+EUR alone. Not carrying "0.11–0.25" forward as a real-world expectation.
+
+**AF-projection recovers composition to within 0.008 in every
+super-population.** This is the specific validation that makes MELD
+deployable on sumstats that do not report per-ancestry N — most sumstats.
+The M2 result under AF-projection weights is 0.001 away from the result
+under paper-N weights.
+
+**MELD-λ0 = MELD-λ1 on this composition, and that is expected.** B is
+weight-quadratic and negligible at 78/13/5/2/3; the tie at this composition
+does not imply the tie holds at balanced compositions.
+
+</div>
+
+<div class="note-box">
+
+**Superseded interpretation.** The Round 7 M2 headline attributed the +0.027
+r² gain entirely to correct composition. Round 7b Section A decomposes the
+gain into +0.008 r² correct-composition and +0.022 r²
+shrinkage-toward-reasonable-composition (see the separate Round 7b Section
+A write-up). The raw M2 tables above are still correct; the *attribution*
+is refined by Section A.
+
+</div>
+
+***
+
+# Files
+
+- Scripts: `pipeline/misc/opensnp/intersect_pgs_variants.R`,
+  `pipeline/misc/opensnp/eval_meld_ld_real.R`
+- Result CSVs: `pipeline/misc/opensnp/meld_r7_s2_weights.csv`,
+  `pipeline/misc/opensnp/meld_r7_s2_m2_per_block.csv`,
+  `pipeline/misc/opensnp/meld_r7_s2_m2_ci.csv`,
+  `pipeline/misc/opensnp/meld_r7_s2_m2_paired_ci.csv`
+- Pipeline source (Section 1 fix — modified with explicit authorisation):
+  `Scripts/pgs_methods/quickprs.R` (`--skip_lrt_af_filter` option),
+  `pipeline/config.yaml`, `pipeline/rules/pgs_methods.smk`
