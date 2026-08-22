@@ -8,7 +8,7 @@
 suppressPackageStartupMessages(library(data.table))
 
 BASE   <- '/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred'
-LABELS <- c('MELD_lambda0','EUR','EAS','AFR','CSA','AMR')
+LABELS <- c('MELD_lambda0','EUR','EAS','AFR','CSA','AMR','equal')
 OUT_DIR <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
 PHENO_PATH <- '/users/k1806347/oliverpainfel/Data/OpenSNP/processed/pheno/height.txt'
 B_BOOT <- 2000L
@@ -77,6 +77,14 @@ for (L in setdiff(LABELS, 'MELD_lambda0')) {
   st <- boot_paired_diff_r(d$height, d$MELD_lambda0, d[[L]])
   paired[[length(paired) + 1L]] <- data.table(
     comparison = sprintf('MELD_lambda0 − %s', L),
+    diff_r     = st[['diff']], sd = st[['sd']],
+    lo95 = st[['lo95']], hi95 = st[['hi95']])
+}
+# R7b S4 closing T2: also report equal − EUR to isolate composition from shrinkage.
+if (all(c('equal','EUR') %in% LABELS)) {
+  st <- boot_paired_diff_r(d$height, d$equal, d$EUR)
+  paired[[length(paired) + 1L]] <- data.table(
+    comparison = 'equal − EUR',
     diff_r     = st[['diff']], sd = st[['sd']],
     lo95 = st[['lo95']], hi95 = st[['hi95']])
 }

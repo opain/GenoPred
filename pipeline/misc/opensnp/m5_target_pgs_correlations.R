@@ -12,7 +12,7 @@
 suppressPackageStartupMessages(library(data.table))
 
 BASE  <- '/users/k1806347/oliverpainfel/Data/OpenSNP/GenoPred'
-LABELS <- c('MELD_lambda0','EUR','EAS','AFR','CSA','AMR')
+LABELS <- c('MELD_lambda0','EUR','EAS','AFR','CSA','AMR','equal')
 OUT_DIR <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
 B_BOOT <- 2000L
 set.seed(2026L)
@@ -34,7 +34,7 @@ for (L in LABELS) {
 
 # Align on (FID, IID)
 merged <- Reduce(function(a, b) merge(a, b, by = c('FID','IID')), panels)
-cat(sprintf('\nmerged: %d samples with PGS on all 6 panels\n', nrow(merged)))
+cat(sprintf('\nmerged: %d samples with PGS on all %d panels\n', nrow(merged), length(LABELS)))
 
 M <- as.matrix(merged[, ..LABELS])
 

@@ -16,7 +16,7 @@ set -euo pipefail
 BASE=/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp
 BUILT=$BASE/ldpred2_ref_meld
 
-LABELS="MELD_lambda0 EUR EAS AFR CSA AMR"
+LABELS="MELD_lambda0 EUR EAS AFR CSA AMR equal"
 
 for L in $LABELS; do
   PRIV=$BASE/private_ldpred2_ldref_${L}

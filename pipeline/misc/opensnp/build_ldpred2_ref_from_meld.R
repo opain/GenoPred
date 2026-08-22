@@ -27,18 +27,24 @@ args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 2L) stop('usage: build_ldpred2_ref_from_meld.R <out_dir> <label>')
 OUT_DIR <- args[[1L]]
 LABEL   <- args[[2L]]
-stopifnot(LABEL %in% c('MELD_lambda0','EUR','EAS','AFR','CSA','AMR'))
+stopifnot(LABEL %in% c('MELD_lambda0','EUR','EAS','AFR','CSA','AMR','equal'))
 
 # ---------------------------------------------------------------------------
 meld_ld_dir <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp/meld_ld'
 map_dir     <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ldak_map/genetic_map_b37'
 pops        <- c('EUR','EAS','AFR','CSA','AMR')
-w_afproj    <- c(EUR = 0.7800, EAS = 0.1274, AFR = 0.0528, CSA = 0.0193, AMR = 0.0205)
-w_afproj    <- w_afproj / sum(w_afproj)      # renormalise to ensure sum = 1
+# Composition weights for MELD-flavour labels. MELD_lambda0 uses AF-projection
+# weights from Section 2 (78/13/5/2/2). 'equal' uses 0.2 per population; it is
+# the isolate-shrinkage-from-composition control panel for R7b S4 closing T2.
+w_afproj_meld  <- c(EUR = 0.7800, EAS = 0.1274, AFR = 0.0528, CSA = 0.0193, AMR = 0.0205)
+w_afproj_meld  <- w_afproj_meld / sum(w_afproj_meld)
+w_afproj_equal <- setNames(rep(1/length(pops), length(pops)), pops)
+
+w_afproj <- if (LABEL == 'equal') w_afproj_equal else w_afproj_meld
 
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 cat(sprintf('label=%s\nout_dir=%s\n', LABEL, OUT_DIR))
-if (LABEL == 'MELD_lambda0') { cat('weights:\n'); print(round(w_afproj, 4)) }
+if (LABEL %in% c('MELD_lambda0','equal')) { cat('weights:\n'); print(round(w_afproj, 4)) }
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,12 +58,12 @@ psd_repair <- function(R) {
 }
 
 reconstruct_block <- function(bl, label, w = w_afproj) {
-  if (label != 'MELD_lambda0') {
+  if (!(label %in% c('MELD_lambda0','equal'))) {
     R <- bl[[paste0('R_', label)]]
     R[!is.finite(R)] <- 0
     return(R)
   }
-  # MELD-λ0: P-pop meta target R*
+  # MELD-flavour: P-pop meta target R*
   Sigma_star <- matrix(0, length(bl$SNP), length(bl$SNP))
   V_star     <- rep(0, length(bl$SNP))
   for (p in pops) {
@@ -75,7 +81,7 @@ reconstruct_block <- function(bl, label, w = w_afproj) {
 
 # Per-SNP composition-weighted AF and per-SNP LD score (sum of r² within block)
 build_map_row <- function(bl, R_rep, label, w = w_afproj) {
-  if (label == 'MELD_lambda0') {
+  if (label %in% c('MELD_lambda0','equal')) {
     af <- Reduce('+', lapply(pops, function(p) w[[p]] * bl[[paste0('f_', p)]]))
   } else {
     af <- bl[[paste0('f_', label)]]
@@ -113,9 +119,9 @@ for (chr in 1:22) {
   block_M  <- vector('list', length(block_files))
   for (bi in seq_along(block_files)) {
     bl <- readRDS(block_files[[bi]])
-    if (label_needs_all_pops <- (LABEL == 'MELD_lambda0')) {
+    if (label_needs_all_pops <- (LABEL %in% c('MELD_lambda0','equal'))) {
       if (!all(paste0('R_', pops) %in% names(bl))) {
-        stop(sprintf('block %s missing required pops for MELD_lambda0 label', block_files[[bi]]))
+        stop(sprintf('block %s missing required pops for %s label', block_files[[bi]], LABEL))
       }
     } else {
       if (!(paste0('R_', LABEL) %in% names(bl))) {
