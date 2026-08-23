@@ -11,13 +11,15 @@
 .libPaths(c('/home/claude/Rlibs', .libPaths()))
 suppressPackageStartupMessages(library(data.table))
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r10')
 
-sw <- fread(file.path(MISC, 'gbmi_r10_sweep_points.csv'))
+sw <- fread(file.path(OUT_DIR, 'gbmi_r10_sweep_points.csv'))
 TRAITS <- unique(sw$trait)
 
 rows <- list()
 for (TR in TRAITS) {
-  d <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TR)))
+  d <- readRDS(r8_harmonised(TR))
   sw_tr <- sw[trait == TR]
 
   # Wide weights: sweep_id x pop
@@ -62,8 +64,8 @@ for (TR in TRAITS) {
 }
 
 cs <- rbindlist(rows)
-fwrite(cs, file.path(MISC, 'gbmi_r10_composition.csv'))
+fwrite(cs, file.path(OUT_DIR, 'gbmi_r10_composition.csv'))
 cat(sprintf('wrote %s (%d rows)\n',
-            file.path(MISC, 'gbmi_r10_composition.csv'), nrow(cs)))
+            file.path(OUT_DIR, 'gbmi_r10_composition.csv'), nrow(cs)))
 cat('eff_groups range:\n')
 print(range(cs$eff_groups))

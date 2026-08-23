@@ -17,7 +17,9 @@
 .libPaths(c('/home/claude/Rlibs', .libPaths()))
 suppressPackageStartupMessages(library(data.table))
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-source(file.path(MISC, 'gbmi_r10_synth.R'))
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r10')
+source(file.path(OUT_DIR, 'gbmi_r10_synth.R'))
 
 TRAITS <- c('Asthma','COPD','Gout','HF','IPF','Stroke','VTE')
 ARM_POPS <- list(
@@ -46,7 +48,7 @@ push <- function(trait, kind, id, pops, w) {
 
 for (TR in TRAITS) {
   pops <- ARM_POPS[[TR]]
-  d <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TR)))
+  d <- readRDS(r8_harmonised(TR))
 
   # --- EUR/EAS sweep ---
   for (k in seq_along(W_EUR_GRID)) {
@@ -89,9 +91,9 @@ for (TR in TRAITS) {
 }
 
 sw <- rbindlist(rows)
-fwrite(sw, file.path(MISC, 'gbmi_r10_sweep_points.csv'))
+fwrite(sw, file.path(OUT_DIR, 'gbmi_r10_sweep_points.csv'))
 cat(sprintf('wrote %s (%d rows)\n',
-            file.path(MISC, 'gbmi_r10_sweep_points.csv'), nrow(sw)))
+            file.path(OUT_DIR, 'gbmi_r10_sweep_points.csv'), nrow(sw)))
 # Sanity: sum of w per (trait, sweep_id) should be 1
 chk <- sw[, .(sumw = sum(w)), by = .(trait, sweep_kind, sweep_id)]
 stopifnot(all(abs(chk$sumw - 1) < 1e-9))

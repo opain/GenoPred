@@ -24,9 +24,11 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-MELD_LD_DIR <- file.path(MISC, 'meld_ld')
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r10')
+MELD_LD_DIR <- meld_ld_1kg_hgdp()
 source(file.path(MISC, 'm2_core.R'))
-source(file.path(MISC, 'gbmi_r10_synth.R'))
+source(file.path(OUT_DIR, 'gbmi_r10_synth.R'))
 
 args  <- commandArgs(trailingOnly = TRUE)
 TRAIT <- args[1]
@@ -42,14 +44,14 @@ SEED         <- 10000L
 MIN_BLOCK_M  <- 30L
 
 # Load sweep points, filter to this trait
-sw_all_pts <- fread(file.path(MISC, 'gbmi_r10_sweep_points.csv'))
+sw_all_pts <- fread(file.path(OUT_DIR, 'gbmi_r10_sweep_points.csv'))
 pts <- sw_all_pts[trait == TRAIT]
 if (!nrow(pts)) stop(sprintf('no sweep points for %s', TRAIT))
 sweep_ids <- unique(pts[, .(sweep_kind, sweep_id)])
 cat(sprintf('=== R10 sweep: %s (%d sweep points) ===\n', TRAIT, nrow(sweep_ids)))
 
 # Harmonised trait RDS
-d_all <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TRAIT)))
+d_all <- readRDS(r8_harmonised(TRAIT))
 # Which pops have arms for this trait?
 arm_pops <- intersect(POPS, unique(pts$pop))
 cat('arm pops:', paste(arm_pops, collapse=', '), '\n')
@@ -249,10 +251,10 @@ append_or_start <- function(dt, fp) {
   }
   fwrite(dt, fp)
 }
-append_or_start(m2_block, file.path(MISC, 'gbmi_r10_m2_per_block.csv'))
-append_or_start(ci,       file.path(MISC, 'gbmi_r10_m2_ci.csv'))
-append_or_start(paired,   file.path(MISC, 'gbmi_r10_m2_paired_ci.csv'))
-append_or_start(eig,      file.path(MISC, 'gbmi_r10_m2_eigen.csv'))
+append_or_start(m2_block, file.path(OUT_DIR, 'gbmi_r10_m2_per_block.csv'))
+append_or_start(ci,       file.path(OUT_DIR, 'gbmi_r10_m2_ci.csv'))
+append_or_start(paired,   file.path(OUT_DIR, 'gbmi_r10_m2_paired_ci.csv'))
+append_or_start(eig,      file.path(OUT_DIR, 'gbmi_r10_m2_eigen.csv'))
 
 cat(sprintf('\nwrote per_block (%d) ci (%d) paired (%d) eigen (%d) rows\n',
             nrow(m2_block), nrow(ci), nrow(paired), nrow(eig)))

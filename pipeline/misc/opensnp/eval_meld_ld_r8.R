@@ -28,7 +28,9 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-MELD_LD_DIR <- file.path(MISC, 'meld_ld')
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r8')
+MELD_LD_DIR <- meld_ld_1kg_hgdp()
 source(file.path(MISC, 'm2_core.R'))
 
 args  <- commandArgs(trailingOnly = TRUE)
@@ -45,8 +47,8 @@ B_BOOT       <- 2000L
 SEED         <- 8000L
 
 # ---- Load harmonised trait data + weights ---------------------------------
-d_all <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TRAIT)))
-W_all <- fread(file.path(MISC, 'gbmi_r8_weights.csv'))
+d_all <- readRDS(r8_harmonised(TRAIT))
+W_all <- fread(file.path(OUT_DIR, 'gbmi_r8_weights.csv'))
 W     <- W_all[trait == TRAIT]
 if (!nrow(W)) stop(sprintf('no weights for %s', TRAIT))
 
@@ -194,10 +196,10 @@ for (dl in DELTAS) {
 paired <- rbindlist(paired_rows)
 
 # ---- Emit ------------------------------------------------------------------
-per_block_file <- file.path(MISC, 'gbmi_r8_m2_per_block.csv')
-ci_file        <- file.path(MISC, 'gbmi_r8_m2_ci.csv')
-paired_file    <- file.path(MISC, 'gbmi_r8_m2_paired_ci.csv')
-eig_file       <- file.path(MISC, 'gbmi_r8_m2_eigen.csv')
+per_block_file <- file.path(OUT_DIR, 'gbmi_r8_m2_per_block.csv')
+ci_file        <- file.path(OUT_DIR, 'gbmi_r8_m2_ci.csv')
+paired_file    <- file.path(OUT_DIR, 'gbmi_r8_m2_paired_ci.csv')
+eig_file       <- file.path(OUT_DIR, 'gbmi_r8_m2_eigen.csv')
 
 # Read existing, drop this trait's rows, append fresh.
 append_or_start <- function(dt, fp) {

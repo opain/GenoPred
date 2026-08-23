@@ -22,8 +22,10 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r10')
 IMG  <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP'
-source(file.path(MISC, 'gbmi_r10_synth.R'))
+source(file.path(OUT_DIR, 'gbmi_r10_synth.R'))
 
 TRAITS <- c('Asthma','COPD','Gout','HF','IPF','Stroke','VTE')
 ARM_POPS <- list(
@@ -41,7 +43,7 @@ rows <- list()
 plots <- list()
 
 for (TR in TRAITS) {
-  d <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TR)))
+  d <- readRDS(r8_harmonised(TR))
   pops <- ARM_POPS[[TR]]
   # Real reported per-arm median N (used as N_tilde for the sanity check)
   N_rep <- r10_reported_N(d, pops)
@@ -80,8 +82,8 @@ for (TR in TRAITS) {
 }
 
 res <- rbindlist(rows)
-fwrite(res, file.path(MISC, 'gbmi_r10_sanity.csv'))
-cat(sprintf('\nwrote %s\n', file.path(MISC, 'gbmi_r10_sanity.csv')))
+fwrite(res, file.path(OUT_DIR, 'gbmi_r10_sanity.csv'))
+cat(sprintf('\nwrote %s\n', file.path(OUT_DIR, 'gbmi_r10_sanity.csv')))
 
 # Scatter facets
 pl <- rbindlist(plots)

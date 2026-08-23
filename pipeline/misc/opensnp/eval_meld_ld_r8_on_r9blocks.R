@@ -14,7 +14,9 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-MELD_LD_DIR <- file.path(MISC, 'meld_ld_r8_on_r9blocks')
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r9')
+MELD_LD_DIR <- meld_ld_r8_on_r9blocks()
 source(file.path(MISC, 'm2_core.R'))
 
 args  <- commandArgs(trailingOnly = TRUE)
@@ -30,8 +32,8 @@ B_BOOT       <- 2000L
 SEED         <- 8500L
 MIN_BLOCK_M  <- 30L
 
-d_all <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TRAIT)))
-W_all <- fread(file.path(MISC, 'gbmi_r8_weights.csv'))
+d_all <- readRDS(r8_harmonised(TRAIT))
+W_all <- fread(file.path(r_results('r8'), 'gbmi_r8_weights.csv'))
 W     <- W_all[trait == TRAIT]
 if (!nrow(W)) stop(sprintf('no weights for %s', TRAIT))
 
@@ -151,9 +153,9 @@ append_or_start <- function(dt, fp) {
   }
   fwrite(dt, fp)
 }
-append_or_start(m2_block, file.path(MISC, 'gbmi_r8b_m2_per_block.csv'))
-append_or_start(ci,       file.path(MISC, 'gbmi_r8b_m2_ci.csv'))
-append_or_start(paired,   file.path(MISC, 'gbmi_r8b_m2_paired_ci.csv'))
+append_or_start(m2_block, file.path(OUT_DIR, 'gbmi_r8b_m2_per_block.csv'))
+append_or_start(ci,       file.path(OUT_DIR, 'gbmi_r8b_m2_ci.csv'))
+append_or_start(paired,   file.path(OUT_DIR, 'gbmi_r8b_m2_paired_ci.csv'))
 
 cat(sprintf('DONE %s: per_block=%d, ci=%d, paired=%d\n',
             TRAIT, nrow(m2_block), nrow(ci), nrow(paired)))

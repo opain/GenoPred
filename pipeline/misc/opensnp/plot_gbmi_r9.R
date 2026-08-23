@@ -15,11 +15,13 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r9')
 IMG  <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP'
 
 # --- Load headline paired data -----------------------------------------------
-paired_r9  <- fread(file.path(MISC, 'gbmi_r9_m2_paired_ci.csv'))
-paired_r8b <- fread(file.path(MISC, 'gbmi_r8b_m2_paired_ci.csv'))
+paired_r9  <- fread(file.path(OUT_DIR, 'gbmi_r9_m2_paired_ci.csv'))
+paired_r8b <- fread(file.path(OUT_DIR, 'gbmi_r8b_m2_paired_ci.csv'))
 
 comp_dt <- function(paired_dt, source_lbl) {
   paired_dt[delta == 0.01, .(trait, comparison, mean_diff, lo95, hi95)][
@@ -70,8 +72,8 @@ print(p5)
 dev.off()
 
 # --- Section 6.1: per-pop M2 improvement vs log10(UKB N / 1KG N) --------------
-ci_r9  <- fread(file.path(MISC, 'gbmi_r9_m2_ci.csv'))
-ci_r8b <- fread(file.path(MISC, 'gbmi_r8b_m2_ci.csv'))
+ci_r9  <- fread(file.path(OUT_DIR, 'gbmi_r9_m2_ci.csv'))
+ci_r8b <- fread(file.path(OUT_DIR, 'gbmi_r8b_m2_ci.csv'))
 
 # Panel size table
 ukb_N <- fread(file.path('/users/k1806347/oliverpainfel/Data/ukb/zenodo_14614207',
@@ -120,7 +122,7 @@ paired_diff_EUR_R9 <- paired_r9[delta == 0.01 &
                                 comparison == 'MELD_lambda0_afproj − EUR',
                                 .(trait, adv_R9 = mean_diff, lo95, hi95)]
 # EUR weights (afproj)
-W_r8 <- fread(file.path(MISC, 'gbmi_r8_weights.csv'))
+W_r8 <- fread(file.path(r_results('r8'), 'gbmi_r8_weights.csv'))
 eur_w <- W_r8[pop == 'EUR', .(trait, eur_w = w_afproj)]
 d62 <- merge(paired_diff_EUR_R9, eur_w, by = 'trait')
 

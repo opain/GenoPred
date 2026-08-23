@@ -16,8 +16,10 @@
 suppressPackageStartupMessages(library(data.table))
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-R8_LD_DIR <- file.path(MISC, 'meld_ld', 'chr22')
-R9_LD_DIR <- file.path(MISC, 'meld_ld_ukb', 'chr22')
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r9')
+R8_LD_DIR <- file.path(meld_ld_1kg_hgdp(), 'chr22')
+R9_LD_DIR <- file.path(meld_ld_ukb(), 'chr22')
 OUT       <- file.path(MISC, 'meld_ld_r8_on_r9blocks', 'chr22')
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 

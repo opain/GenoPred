@@ -20,6 +20,8 @@
 suppressPackageStartupMessages(library(data.table))
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r8')
 REF_FREQ_DIR <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/resources/data/ref/freq_files'
 source(file.path(MISC, 'af_projection.R'))
 
@@ -61,7 +63,7 @@ per_pop_af_used  <- list()   # for cross-checks
 
 for (TRAIT in TRAITS) {
   cat(sprintf('\n=== %s ===\n', TRAIT))
-  rds <- file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TRAIT))
+  rds <- r8_harmonised(TRAIT)
   d <- readRDS(rds)
   cat(sprintf('n variants: %d\n', nrow(d)))
 
@@ -150,9 +152,9 @@ for (TRAIT in TRAITS) {
 W  <- rbindlist(weights_all)
 CS <- rbindlist(composition_all)
 
-fwrite(W,  file.path(MISC, 'gbmi_r8_weights.csv'))
-fwrite(CS, file.path(MISC, 'gbmi_r8_composition.csv'))
-saveRDS(per_pop_af_used, file.path(MISC, 'gbmi_r8_per_pop_af.rds'))
+fwrite(W,  file.path(OUT_DIR, 'gbmi_r8_weights.csv'))
+fwrite(CS, file.path(OUT_DIR, 'gbmi_r8_composition.csv'))
+saveRDS(per_pop_af_used, file.path(MELD_DATA, 'gbmi_r8_harmonised', 'gbmi_r8_per_pop_af.rds'))
 
 cat('\n\n=== Weights summary (agreement AF-proj vs reported-N) ===\n')
 # Focus on arm-covered pops per trait (where both routes apply).

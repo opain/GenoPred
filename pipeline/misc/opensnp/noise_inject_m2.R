@@ -30,8 +30,10 @@ suppressPackageStartupMessages({
 })
 
 MISC   <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r10')
 R8_DIR <- file.path(MISC, 'meld_ld',     'chr22')
-UK_DIR <- file.path(MISC, 'meld_ld_ukb', 'chr22')
+UK_DIR <- file.path(meld_ld_ukb(), 'chr22')
 source(file.path(MISC, 'm2_core.R'))
 
 REF_TRAIT   <- 'Asthma'
@@ -44,7 +46,7 @@ DELTAS      <- c(0.001, 0.01, 0.1)
 SEED        <- 12000L
 MIN_M       <- 30L
 
-d_all <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', REF_TRAIT)))
+d_all <- readRDS(r8_harmonised(REF_TRAIT))
 d_all[, z := meta_beta / meta_se]
 z_by_snp <- d_all[, .(SNP = rsid, z)]
 
@@ -143,9 +145,9 @@ all_rows <- rbind(
   process_baseline(R8_DIR, '1KG_HGDP_EUR'),
   process_baseline(UK_DIR, 'UKB_EUR')
 )
-fwrite(all_rows, file.path(MISC, 'gbmi_r10_noise_m2.csv'))
+fwrite(all_rows, file.path(OUT_DIR, 'gbmi_r10_noise_m2.csv'))
 cat(sprintf('\nwrote %s (%d rows)\n',
-            file.path(MISC, 'gbmi_r10_noise_m2.csv'), nrow(all_rows)))
+            file.path(OUT_DIR, 'gbmi_r10_noise_m2.csv'), nrow(all_rows)))
 
 # ---- Summary at delta = 0.01, size-weighted mean across blocks per baseline+n
 cat('\n=== headline: mean M2 vs nominal n (delta=0.01, size-weighted, over draws + mask draws) ===\n')

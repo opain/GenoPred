@@ -18,7 +18,9 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-MELD_LD_DIR <- file.path(MISC, 'meld_ld_ukb')
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r9')
+MELD_LD_DIR <- meld_ld_ukb()
 source(file.path(MISC, 'm2_core.R'))
 
 args  <- commandArgs(trailingOnly = TRUE)
@@ -36,8 +38,8 @@ SEED         <- 9000L
 MIN_BLOCK_M  <- 30L   # matches Round 8 threshold in eval_meld_ld_r8.R
 
 # ---- Load harmonised trait data + Round-8 weights ------------------------
-d_all <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TRAIT)))
-W_all <- fread(file.path(MISC, 'gbmi_r8_weights.csv'))
+d_all <- readRDS(r8_harmonised(TRAIT))
+W_all <- fread(file.path(r_results('r8'), 'gbmi_r8_weights.csv'))
 W     <- W_all[trait == TRAIT]
 if (!nrow(W)) stop(sprintf('no weights for %s', TRAIT))
 
@@ -169,10 +171,10 @@ for (dl in DELTAS) {
 }
 paired <- rbindlist(paired_rows)
 
-per_block_file <- file.path(MISC, 'gbmi_r9_m2_per_block.csv')
-ci_file        <- file.path(MISC, 'gbmi_r9_m2_ci.csv')
-paired_file    <- file.path(MISC, 'gbmi_r9_m2_paired_ci.csv')
-eig_file       <- file.path(MISC, 'gbmi_r9_m2_eigen.csv')
+per_block_file <- file.path(OUT_DIR, 'gbmi_r9_m2_per_block.csv')
+ci_file        <- file.path(OUT_DIR, 'gbmi_r9_m2_ci.csv')
+paired_file    <- file.path(OUT_DIR, 'gbmi_r9_m2_paired_ci.csv')
+eig_file       <- file.path(OUT_DIR, 'gbmi_r9_m2_eigen.csv')
 
 append_or_start <- function(dt, fp) {
   if (file.exists(fp)) {

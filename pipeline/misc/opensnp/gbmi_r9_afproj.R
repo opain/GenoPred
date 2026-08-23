@@ -29,8 +29,10 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-R8_LD_DIR <- file.path(MISC, 'meld_ld', 'chr22')
-R9_LD_DIR <- file.path(MISC, 'meld_ld_ukb', 'chr22')
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r9')
+R8_LD_DIR <- file.path(meld_ld_1kg_hgdp(), 'chr22')
+R9_LD_DIR <- file.path(meld_ld_ukb(), 'chr22')
 
 # Pops in the QP:
 POPS_R8 <- c('EUR','EAS','AFR','CSA','AMR')      # Round 8 blocks have no MID
@@ -76,11 +78,11 @@ cat(sprintf('  R9: %d unique rsids across 6 pops\n', nrow(r9_af)))
 
 # ---------------------------------------------------------------------------
 TRAITS <- c('Asthma','COPD','Gout','HF','IPF','Stroke','VTE')
-r8_stored <- fread(file.path(MISC, 'gbmi_r8_weights.csv'))
+r8_stored <- fread(file.path(r_results('r8'), 'gbmi_r8_weights.csv'))
 
 rows <- list()
 for (TR in TRAITS) {
-  d <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TR)))
+  d <- readRDS(r8_harmonised(TR))
   cat(sprintf('\n=== %s (n=%d) ===\n', TR, nrow(d)))
 
   # QP against R8 reference
@@ -132,6 +134,6 @@ print(mx)
 cat('\n=== MID mass under R9 (was folded into EUR in R8) ===\n')
 print(W[pop == 'MID', .(trait, w_qp_r9)])
 
-out <- file.path(MISC, 'gbmi_r9_weights.csv')
+out <- file.path(OUT_DIR, 'gbmi_r9_weights.csv')
 fwrite(W, out)
 cat(sprintf('\nwrote %s\n', out))

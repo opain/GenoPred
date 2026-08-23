@@ -16,13 +16,15 @@
 suppressPackageStartupMessages(library(data.table))
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r9')
 
-ci_r9  <- fread(file.path(MISC, 'gbmi_r9_m2_ci.csv'))
-ci_r8b <- fread(file.path(MISC, 'gbmi_r8b_m2_ci.csv'))
-ci_r8_original <- fread(file.path(MISC, 'gbmi_r8_m2_ci.csv'))
+ci_r9  <- fread(file.path(OUT_DIR, 'gbmi_r9_m2_ci.csv'))
+ci_r8b <- fread(file.path(OUT_DIR, 'gbmi_r8b_m2_ci.csv'))
+ci_r8_original <- fread(file.path(r_results('r8'), 'gbmi_r8_m2_ci.csv'))
 
-paired_r9  <- fread(file.path(MISC, 'gbmi_r9_m2_paired_ci.csv'))
-paired_r8b <- fread(file.path(MISC, 'gbmi_r8b_m2_paired_ci.csv'))
+paired_r9  <- fread(file.path(OUT_DIR, 'gbmi_r9_m2_paired_ci.csv'))
+paired_r8b <- fread(file.path(OUT_DIR, 'gbmi_r8b_m2_paired_ci.csv'))
 
 # Filter to δ=0.01 headline
 ci_r9   <- ci_r9  [delta == 0.01]
@@ -35,7 +37,7 @@ ci_r8b [, source := 'R8_1KG_on_R9blocks']
 ci_r8_o[, source := 'R8_1KG_original_blocks']
 
 long <- rbind(ci_r9, ci_r8b, ci_r8_o, use.names = TRUE)
-fwrite(long, file.path(MISC, 'gbmi_r9_vs_r8.csv'))
+fwrite(long, file.path(OUT_DIR, 'gbmi_r9_vs_r8.csv'))
 
 # Headline paired diffs per trait: MELD-λ0 − EUR, MELD-λ0 − equal (composition),
 # equal − EUR (blending), MELD-λ1 − MELD-λ0
@@ -81,7 +83,7 @@ wide[, change_R9_minus_R8 := R9_UKB - R8_1KG]
 
 setcolorder(wide, c('trait','quantity','R8_1KG','R9_UKB','change_R9_minus_R8'))
 setorder(wide, trait, quantity)
-fwrite(wide, file.path(MISC, 'gbmi_r9_vs_r8_summary.csv'))
+fwrite(wide, file.path(OUT_DIR, 'gbmi_r9_vs_r8_summary.csv'))
 cat('=== Section 5 summary (Δ = R9_UKB − R8_1KG on same sub-block structure) ===\n')
 print(wide)
 
@@ -94,7 +96,7 @@ setnames(ci_r9_wide, setdiff(names(ci_r9_wide), 'trait'),
 setnames(ci_r8b_wide, setdiff(names(ci_r8b_wide), 'trait'),
          paste0(setdiff(names(ci_r8b_wide), 'trait'), '_R8'))
 both <- merge(ci_r8b_wide, ci_r9_wide, by = 'trait')
-fwrite(both, file.path(MISC, 'gbmi_r9_vs_r8_candidates.csv'))
+fwrite(both, file.path(OUT_DIR, 'gbmi_r9_vs_r8_candidates.csv'))
 cat('\n=== Per-candidate M2 means (R8_1KG vs R9_UKB, on R9 sub-blocks) ===\n')
 # print a subset: EUR, MELD_lambda0_afproj, equal
 sel_cols <- c('trait',

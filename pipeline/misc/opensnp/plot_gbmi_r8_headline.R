@@ -19,12 +19,14 @@ suppressPackageStartupMessages({
 })
 
 MISC   <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r8')
 IMG    <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP'
 DELTA  <- 0.01
 
-ci     <- fread(file.path(MISC, 'gbmi_r8_m2_ci.csv'))
-paired <- fread(file.path(MISC, 'gbmi_r8_m2_paired_ci.csv'))
-comp   <- fread(file.path(MISC, 'gbmi_r8_composition.csv'))
+ci     <- fread(file.path(OUT_DIR, 'gbmi_r8_m2_ci.csv'))
+paired <- fread(file.path(OUT_DIR, 'gbmi_r8_m2_paired_ci.csv'))
+comp   <- fread(file.path(OUT_DIR, 'gbmi_r8_composition.csv'))
 
 # ---- §6.1  M2(MELD-λ0) − M2(best single-pop) vs effective ancestry groups ----
 best_sp <- ci[delta == DELTA & candidate %in% c('EUR','EAS','AFR','CSA','AMR'),
@@ -51,7 +53,7 @@ setnames(diff_best, 'pop', 'best_sp')
 
 d61 <- merge(diff_best, comp[, .(trait, eff_groups, mean_B_diag)], by = 'trait')
 setnames(d61, c('diff','lo95','hi95'), c('adv','adv_lo','adv_hi'))
-fwrite(d61, file.path(MISC, 'gbmi_r8_headline_61.csv'))
+fwrite(d61, file.path(OUT_DIR, 'gbmi_r8_headline_61.csv'))
 
 p61 <- ggplot(d61, aes(x = eff_groups, y = adv)) +
   geom_hline(yintercept = 0, linetype = 'dashed', colour = 'grey40') +
@@ -66,7 +68,7 @@ p61 <- ggplot(d61, aes(x = eff_groups, y = adv)) +
   theme_half_open() + background_grid()
 
 # Optional: add Yengo height anchor (approx 1.6 eff groups, +0.027 advantage)
-yengo_r7 <- file.path(MISC, 'meld_r7_s2_m2_ci.csv')
+yengo_r7 <- file.path(r_results('r7'), 'meld_r7_s2_m2_ci.csv')
 if (file.exists(yengo_r7)) {
   y7 <- fread(yengo_r7)
   # Round 7 file has weight_set 'afproj' and candidate names EUR/EAS/AFR/CSA/AMR/MELD_lambda0
@@ -90,7 +92,7 @@ dev.off()
 paired_lam <- paired[delta == DELTA & comparison == 'MELD_lambda1_afproj − MELD_lambda0_afproj',
                      .(trait, mean_diff, lo95, hi95)]
 d62 <- merge(paired_lam, comp[, .(trait, eff_groups, mean_B_diag)], by = 'trait')
-fwrite(d62, file.path(MISC, 'gbmi_r8_headline_62.csv'))
+fwrite(d62, file.path(OUT_DIR, 'gbmi_r8_headline_62.csv'))
 
 p62 <- ggplot(d62, aes(x = mean_B_diag, y = mean_diff)) +
   geom_hline(yintercept = 0, linetype = 'dashed', colour = 'grey40') +

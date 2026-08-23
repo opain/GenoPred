@@ -26,9 +26,11 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-MELD_LD_DIR <- file.path(MISC, 'meld_ld', 'chr22')
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r10')
+MELD_LD_DIR <- file.path(meld_ld_1kg_hgdp(), 'chr22')
 source(file.path(MISC, 'm2_core.R'))
-source(file.path(MISC, 'gbmi_r10_synth.R'))
+source(file.path(OUT_DIR, 'gbmi_r10_synth.R'))
 
 POPS_ALL <- c('EUR','EAS','AFR','CSA','AMR')
 
@@ -42,7 +44,7 @@ N_ITER <- 500L
 N_BURN <- 200L
 N_CHAIN <- 20L
 
-sw_all <- fread(file.path(MISC, 'gbmi_r10_sweep_points.csv'))
+sw_all <- fread(file.path(OUT_DIR, 'gbmi_r10_sweep_points.csv'))
 
 # Load R8 blocks once
 block_files <- sort(list.files(MELD_LD_DIR, pattern = '^block_.*\\.rds$', full.names = TRUE))
@@ -114,7 +116,7 @@ build_chr_corr <- function(cand_name, w_true, arm_pops, sumstats_rsids) {
 # ---------------------------------------------------------------------------
 rows <- list()
 for (TR in TRAITS_SUB) {
-  d <- readRDS(file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', TR)))
+  d <- readRDS(r8_harmonised(TR))
   arm_pops <- c('EUR','EAS','AFR','CSA','AMR')
   arm_pops <- arm_pops[arm_pops %in% sub('^N_', '', grep('^N_', names(d), value = TRUE))]
 
@@ -221,6 +223,6 @@ for (TR in TRAITS_SUB) {
 }
 
 out <- rbindlist(rows)
-fwrite(out, file.path(MISC, 'gbmi_r10_ldpred2_subset.csv'))
+fwrite(out, file.path(OUT_DIR, 'gbmi_r10_ldpred2_subset.csv'))
 cat(sprintf('\nwrote %s (%d rows)\n',
-            file.path(MISC, 'gbmi_r10_ldpred2_subset.csv'), nrow(out)))
+            file.path(OUT_DIR, 'gbmi_r10_ldpred2_subset.csv'), nrow(out)))

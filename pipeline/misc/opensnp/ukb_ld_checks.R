@@ -22,8 +22,10 @@ suppressPackageStartupMessages({
 })
 
 MISC       <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
-UKB_LD_DIR <- file.path(MISC, 'meld_ld_ukb', 'chr22')
-R8_LD_DIR  <- file.path(MISC, 'meld_ld', 'chr22')
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r9')
+UKB_LD_DIR <- file.path(meld_ld_ukb(), 'chr22')
+R8_LD_DIR  <- file.path(meld_ld_1kg_hgdp(), 'chr22')
 
 POPS_R9 <- c('EUR','EAS','AFR','CSA','AMR','MID')
 POPS_R8 <- c('EUR','EAS','AFR','CSA','AMR')  # R8 has no MID
@@ -154,7 +156,7 @@ cat(sprintf('  UKB total unique rsids across sub-blocks: %d\n', length(ukb_rsids
 traits <- c('Asthma','COPD','Gout','HF','IPF','Stroke','VTE')
 overlap_rows <- list()
 for (tr in traits) {
-  rds <- file.path(MISC, sprintf('gbmi_r8_%s_chr22.rds', tr))
+  rds <- r8_harmonised(tr)
   if (!file.exists(rds)) next
   d <- readRDS(rds)
   ov <- length(intersect(d$rsid, ukb_rsids))
@@ -170,8 +172,8 @@ print(ov)
 # ---------------------------------------------------------------------------
 # Combine all check results into a single CSV
 all_rows <- rbindlist(list(qerr, crossc), fill = TRUE)
-fwrite(all_rows, file.path(MISC, 'ukb_ld_checks.csv'))
-fwrite(ov, file.path(MISC, 'ukb_ld_overlap.csv'))
+fwrite(all_rows, file.path(OUT_DIR, 'ukb_ld_checks.csv'))
+fwrite(ov, file.path(OUT_DIR, 'ukb_ld_overlap.csv'))
 cat('\nwrote ukb_ld_checks.csv and ukb_ld_overlap.csv\n')
 
 # ---------------------------------------------------------------------------

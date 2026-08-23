@@ -18,13 +18,15 @@ suppressPackageStartupMessages({
 })
 
 MISC <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/pipeline/misc/opensnp'
+source(file.path(MISC, 'meld_paths.R'))
+OUT_DIR <- r_results('r10')
 IMG  <- '/users/k1806347/oliverpainfel/Software/MyGit/GenoPred/docs/Images/OpenSNP'
 DELTA <- 0.01
 
-ci     <- fread(file.path(MISC, 'gbmi_r10_m2_ci.csv'))
-paired <- fread(file.path(MISC, 'gbmi_r10_m2_paired_ci.csv'))
-comp   <- fread(file.path(MISC, 'gbmi_r10_composition.csv'))
-sw     <- fread(file.path(MISC, 'gbmi_r10_sweep_points.csv'))
+ci     <- fread(file.path(OUT_DIR, 'gbmi_r10_m2_ci.csv'))
+paired <- fread(file.path(OUT_DIR, 'gbmi_r10_m2_paired_ci.csv'))
+comp   <- fread(file.path(OUT_DIR, 'gbmi_r10_composition.csv'))
+sw     <- fread(file.path(OUT_DIR, 'gbmi_r10_sweep_points.csv'))
 
 # ---------------------------------------------------------------------------
 # §4.1  MELD-λ0-true vs best single-pop
@@ -57,7 +59,7 @@ setnames(best_diff, c('mean_diff','lo95','hi95','comp_to'),
 d41 <- merge(best_diff, comp[, .(trait, sweep_kind, sweep_id,
                                  eff_groups, mean_B_diag)],
              by = c('trait','sweep_kind','sweep_id'))
-fwrite(d41, file.path(MISC, 'gbmi_r10_headline_41.csv'))
+fwrite(d41, file.path(OUT_DIR, 'gbmi_r10_headline_41.csv'))
 
 p41 <- ggplot(d41, aes(x = eff_groups, y = adv, colour = sweep_kind)) +
   geom_hline(yintercept = 0, linetype = 'dashed', colour = 'grey40') +
@@ -85,7 +87,7 @@ lam_diff <- paired_ss[comp_from == 'MELD_lambda1_true' & comp_to == 'MELD_lambda
 d42 <- merge(lam_diff, comp[, .(trait, sweep_kind, sweep_id,
                                 eff_groups, mean_B_diag)],
              by = c('trait','sweep_kind','sweep_id'))
-fwrite(d42, file.path(MISC, 'gbmi_r10_headline_42.csv'))
+fwrite(d42, file.path(OUT_DIR, 'gbmi_r10_headline_42.csv'))
 
 p42 <- ggplot(d42, aes(x = mean_B_diag, y = mean_diff, colour = sweep_kind)) +
   geom_hline(yintercept = 0, linetype = 'dashed', colour = 'grey40') +
@@ -114,7 +116,7 @@ exact_diff <- paired_ss[comp_from == 'MELD_lambda0_true' & comp_to == 'MELD_lamb
 d43 <- merge(exact_diff, comp[, .(trait, sweep_kind, sweep_id,
                                   eff_groups, mean_B_diag)],
              by = c('trait','sweep_kind','sweep_id'))
-fwrite(d43, file.path(MISC, 'gbmi_r10_headline_43.csv'))
+fwrite(d43, file.path(OUT_DIR, 'gbmi_r10_headline_43.csv'))
 
 p43 <- ggplot(d43, aes(x = eff_groups, y = mean_diff, colour = sweep_kind)) +
   geom_hline(yintercept = 0, linetype = 'dashed', colour = 'grey40') +
@@ -141,8 +143,8 @@ cat('  gbmi_r10_43_exact_vs_coarse.png\n')
 
 # ---------------------------------------------------------------------------
 # §5.1  Noise vs M2 — separate figure
-if (file.exists(file.path(MISC, 'gbmi_r10_noise_m2.csv'))) {
-  noise <- fread(file.path(MISC, 'gbmi_r10_noise_m2.csv'))
+if (file.exists(file.path(OUT_DIR, 'gbmi_r10_noise_m2.csv'))) {
+  noise <- fread(file.path(OUT_DIR, 'gbmi_r10_noise_m2.csv'))
   head_dt <- noise[delta == 0.01,
                    .(r2_mean = weighted.mean(r2, m, na.rm = TRUE),
                      min_eig_pre_med = median(min_eig_pre),
