@@ -17,7 +17,7 @@ rule ref_pca_i:
   log:
     f"{outdir}/reference/logs/ref_pca_i-{{population}}.log"
   shell:
-    "Rscript ../Scripts/ref_pca/ref_pca.R \
+    "Rscript {workflow.basedir}/../Scripts/ref_pca/ref_pca.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {params.ref_keep} \
       --pop_data {refdir}/ref.pop.txt \
@@ -94,7 +94,7 @@ rule ldsc_i:
     prevalence= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'prevalence'].iloc[0],
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/ldsc/ldsc.R \
+    "Rscript {workflow.basedir}/../Scripts/ldsc/ldsc.R \
       --ref_plink_chr {refdir}/ref.chr \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
       --munge_sumstats {resdir}/software/ldsc/munge_sumstats.py \
@@ -131,7 +131,7 @@ rule prep_pgs_ptclump_i:
     pts= ",".join(map(str, config["ptclump_pts"])),
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/ptclump.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/ptclump.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -205,7 +205,7 @@ rule prep_pgs_dbslmm_i:
     h2f= ",".join(map(str, config["dbslmm_h2f"])),
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/dbslmm.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/dbslmm.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -256,7 +256,7 @@ rule prep_pgs_prscs_i:
     export NUMEXPR_NUM_THREADS=1; \
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/prscs.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/prscs.R \
     --ref_plink_chr {refdir}/ref.chr \
     --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
     --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -308,7 +308,7 @@ rule prep_pgs_sbayesr_i:
     """
     (
       rm -r -f {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}; \
-      Rscript ../Scripts/pgs_methods/sbayesr.R \
+      Rscript {workflow.basedir}/../Scripts/pgs_methods/sbayesr.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -354,7 +354,7 @@ rule prep_pgs_lassosum_i:
     testing=config["testing"],
     pseudo_only_flag = lambda wildcards: "T" if config.get("lassosum_pseudo_only", False) else "F"
   shell:
-    "Rscript ../Scripts/pgs_methods/lassosum.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/lassosum.R \
      --ref_plink_chr {refdir}/ref.chr \
      --ref_keep {refdir}/keep_files/{params.population}.keep \
      --gwas_pop {params.population} \
@@ -402,7 +402,7 @@ rule prep_pgs_sdpr_i:
     export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/MKL/lib; \
     export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-""}}:{resdir}/software/sdpr/gsl/lib; \
 
-    Rscript ../Scripts/pgs_methods/sdpr.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/sdpr.R \
          --ref_plink_chr {refdir}/ref.chr \
          --ref_keep {refdir}/keep_files/{params.population}.keep \
          --gwas_pop {params.population} \
@@ -454,7 +454,7 @@ rule prep_pgs_ldpred2_i:
     testing=config["testing"]
   shell:
     "export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/ldpred2.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/ldpred2.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -500,7 +500,7 @@ rule prep_pgs_lassosum2_i:
     testing=config["testing"]
   shell:
     "export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/lassosum2.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/lassosum2.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ldpred2_ref_dir {ldpred2_ldref}/{params.population} \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -544,7 +544,7 @@ rule prep_pgs_megaprs_i:
     testing=config["testing"],
     pseudo_only_flag = lambda wildcards: "T" if config.get("megaprs_pseudo_only", False) else "F"
   shell:
-    "Rscript ../Scripts/pgs_methods/megaprs.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -586,7 +586,7 @@ rule prep_pgs_megaprs6_i:
     population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/megaprs.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/megaprs.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_keep {refdir}/keep_files/{params.population}.keep \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -643,7 +643,7 @@ rule prep_pgs_quickprs_i:
     """
     (
     rm -r -f {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}; \
-    Rscript ../Scripts/pgs_methods/quickprs.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/quickprs.R \
     --ref_plink_chr {refdir}/ref.chr \
     --ref_keep {refdir}/keep_files/{params.population}.keep \
     --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -693,7 +693,7 @@ rule prep_pgs_sbayesrc_i:
     testing=config["testing"]
   shell:
     "export OMP_NUM_THREADS={threads}; \
-    Rscript ../Scripts/pgs_methods/sbayesrc.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/sbayesrc.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -763,7 +763,7 @@ rule prep_pgs_external_i:
   conda:
     "../envs/analysis.yaml"
   shell:
-    "Rscript ../Scripts/external_score_processor/external_score_processor.R \
+    "Rscript {workflow.basedir}/../Scripts/external_score_processor/external_score_processor.R \
       --ref_plink_chr {refdir}/ref.chr \
       --score {params.score} \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -788,7 +788,7 @@ checkpoint score_reporter:
   params:
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/pipeline_misc/score_reporter.R {params.config_file} > {log} 2>&1"
+    "Rscript {workflow.basedir}/../Scripts/pipeline_misc/score_reporter.R {params.config_file} > {log} 2>&1"
 
 ###########
 # Multi-ancestry methods
@@ -828,7 +828,7 @@ rule leopard_quickprs_i:
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/leopard_quickprs.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/leopard_quickprs.R \
       --ref_plink_chr {refdir}/ref.chr \
       --pop_data {refdir}/ref.pop.txt \
       --sumstats {params.sumstats} \
@@ -874,7 +874,7 @@ rule prep_pgs_multi_i:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/pgs_methods/apply_leopard_weights.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/apply_leopard_weights.R \
       --config {params.config_file} \
       --gwas_group {wildcards.gwas_group} \
       --method {wildcards.method} \
@@ -908,7 +908,7 @@ rule pgsmeta_i:
     populations= lambda w: ",".join(get_populations(w.gwas_group)),
     testing=config["testing"]
   shell:
-    "Rscript ../Scripts/pgs_methods/pgsmeta.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/pgsmeta.R \
       --ref_plink_chr {refdir}/ref.chr \
       --pop_data {refdir}/ref.pop.txt \
       --sumstats {params.sumstats} \
@@ -961,7 +961,7 @@ rule prep_pgs_prscsx_i:
     export NUMEXPR_NUM_THREADS=1; \
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/prscsx.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/prscsx.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
@@ -1016,7 +1016,7 @@ rule prep_pgs_xwing_i:
     export NUMEXPR_NUM_THREADS=1; \
     export OMP_NUM_THREADS=1; \
     export OPENBLAS_NUM_THREADS=1; \
-    Rscript ../Scripts/pgs_methods/xwing.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/xwing.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_freq_chr {refdir}/freq_files \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -1066,7 +1066,7 @@ rule prep_pgs_tlprs_i:
     config_file = config["config_file"]
   shell:
     """
-    Rscript ../Scripts/pgs_methods/tlprs.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/tlprs.R \
       --config {params.config_file} \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
@@ -1110,7 +1110,7 @@ rule prep_pgs_bridgeprs_i:
     testing=config["testing"]
   shell:
     """
-    Rscript ../Scripts/pgs_methods/bridgeprs.R \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/bridgeprs.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {params.sumstats} \
@@ -1196,7 +1196,7 @@ rule ref_pgs:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/ref_scoring/ref_scoring.R \
+    "Rscript {workflow.basedir}/../Scripts/ref_scoring/ref_scoring.R \
       --config {params.config_file} \
       --continuous {params.continuous} \
       --plink2 plink2 \

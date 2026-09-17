@@ -67,7 +67,7 @@ rule pc_projection_i:
     testing=config["testing"],
     target_keep=lambda wildcards: "NA" if wildcards.population == "TRANS" else f"{outdir}/{wildcards.name}/ancestry/keep_files/model_based/{wildcards.population}.keep"
   shell:
-    "Rscript ../Scripts/target_scoring/target_scoring.R \
+    "Rscript {workflow.basedir}/../Scripts/target_scoring/target_scoring.R \
       --target_plink_chr {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr \
       --target_keep {params.target_keep} \
       --ref_freq_chr {refdir}/freq_files/{wildcards.population}/ref.{wildcards.population}.chr \
@@ -112,7 +112,7 @@ rule target_pgs_i:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/target_scoring/target_scoring_pipeline.R \
+    "Rscript {workflow.basedir}/../Scripts/target_scoring/target_scoring_pipeline.R \
       --config {params.config_file} \
       --name {wildcards.name} \
       --population {wildcards.population} \

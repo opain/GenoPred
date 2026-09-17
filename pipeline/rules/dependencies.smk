@@ -525,8 +525,18 @@ os.makedirs(resdir, exist_ok=True)
 last_version_file = f"{resdir}/last_version.txt"
 
 def get_current_version():
-    cmd = "git describe --tags"
-    tag = subprocess.check_output(cmd, shell=True).decode().strip()
+    # Run git in the pipeline dir (workflow.basedir), NOT snakemake's cwd: with
+    # --directory <job_dir> the cwd is the per-job outdir, which has no .git, so
+    # `git describe` there fails. -c safe.directory=* handles the SMB/cephfs
+    # dubious-ownership check on the HPC. (webserver-branch edit for the webserver.)
+    out = subprocess.run(
+        ["git", "-c", "safe.directory=*", "describe", "--tags"],
+        cwd=workflow.basedir,
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        raise ValueError(f"git describe failed: {out.stderr.strip()}")
+    tag = out.stdout.strip()
     match = re.match(r"v?(\d+)\.(\d+)", tag)
     if match:
         return int(match.group(1)), int(match.group(2))  # Major, Minor
@@ -964,15 +974,15 @@ rule download_sbayesrc_ref_all:
 # Download SBayesRC R package
 rule install_sbayesrc:
   input:
-    "envs/sbayesrc.yaml"
+    f"{workflow.basedir}/envs/sbayesrc.yaml"
   output:
-    touch("resources/software/install_sbayesrc.done")
+    touch(f"{resdir}/software/install_sbayesrc.done")
   conda:
     "../envs/sbayesrc.yaml"
   benchmark:
-    "resources/data/benchmarks/install_sbayesrc.txt"
+    f"{resdir}/data/benchmarks/install_sbayesrc.txt"
   log:
-    "resources/data/logs/install_sbayesrc.log"
+    f"{resdir}/data/logs/install_sbayesrc.log"
   shell:
     """
     {{
@@ -985,13 +995,13 @@ rule install_genoutils_sbayesrc:
   input:
     rules.install_sbayesrc.output
   output:
-    touch("resources/software/install_genoutils_sbayesrc.done")
+    touch(f"{resdir}/software/install_genoutils_sbayesrc.done")
   conda:
     "../envs/sbayesrc.yaml"
   benchmark:
-    "resources/data/benchmarks/install_genoutils_sbayesrc.txt"
+    f"{resdir}/data/benchmarks/install_genoutils_sbayesrc.txt"
   log:
-    "resources/data/logs/install_genoutils_sbayesrc.log"
+    f"{resdir}/data/logs/install_genoutils_sbayesrc.log"
   shell:
     """
       Rscript -e '
@@ -1229,15 +1239,15 @@ rule download_default_ref:
 # install ggchicklet
 rule install_ggchicklet:
   input:
-    "envs/analysis.yaml"
+    f"{workflow.basedir}/envs/analysis.yaml"
   output:
-    touch("resources/software/install_ggchicklet.done")
+    touch(f"{resdir}/software/install_ggchicklet.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "resources/data/benchmarks/install_ggchicklet.txt"
+    f"{resdir}/data/benchmarks/install_ggchicklet.txt"
   log:
-    "resources/data/logs/install_ggchicklet.log"
+    f"{resdir}/data/logs/install_ggchicklet.log"
   shell:
     """
       Rscript -e '
@@ -1249,15 +1259,15 @@ rule install_ggchicklet:
 # install lassosum
 rule install_lassosum:
   input:
-    "envs/analysis.yaml"
+    f"{workflow.basedir}/envs/analysis.yaml"
   output:
-    touch("resources/software/install_lassosum.done")
+    touch(f"{resdir}/software/install_lassosum.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "resources/data/benchmarks/install_lassosum.txt"
+    f"{resdir}/data/benchmarks/install_lassosum.txt"
   log:
-    "resources/data/logs/install_lassosum.log"
+    f"{resdir}/data/logs/install_lassosum.log"
   shell:
     """
     Rscript -e '
@@ -1287,15 +1297,15 @@ rule install_sdpr:
 # Install GenoUtils
 rule install_genoutils:
   input:
-    "envs/analysis.yaml"
+    f"{workflow.basedir}/envs/analysis.yaml"
   output:
-    touch("resources/software/install_genoutils.done")
+    touch(f"{resdir}/software/install_genoutils.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
-    "resources/data/benchmarks/install_genoutils.txt"
+    f"{resdir}/data/benchmarks/install_genoutils.txt"
   log:
-    "resources/data/logs/install_genoutils.log"
+    f"{resdir}/data/logs/install_genoutils.log"
   shell:
     """
       Rscript -e '
@@ -1307,13 +1317,13 @@ rule install_genoutils:
 # Download pgscatalog_utils
 rule download_pgscatalog_utils:
   output:
-    "resources/software/pgscatalog_utils/download_pgscatalog_utils.done"
+    f"{resdir}/software/pgscatalog_utils/download_pgscatalog_utils.done"
   conda:
     "../envs/pgscatalog_utils.yaml"
   benchmark:
-    "resources/data/benchmarks/download_pgscatalog_utils.txt"
+    f"{resdir}/data/benchmarks/download_pgscatalog_utils.txt"
   log:
-    "resources/data/logs/download_pgscatalog_utils.log"
+    f"{resdir}/data/logs/download_pgscatalog_utils.log"
   shell:
     """
     # Create the log file and mark the rule as done.
@@ -1324,15 +1334,15 @@ rule download_pgscatalog_utils:
 # Download XPASS for X-wing dependencies
 rule install_xpass:
   input:
-    "envs/xwing.yaml"
+    f"{workflow.basedir}/envs/xwing.yaml"
   output:
-    touch("resources/software/install_xpass.done")
+    touch(f"{resdir}/software/install_xpass.done")
   conda:
     "../envs/xwing.yaml"
   benchmark:
-    "resources/data/benchmarks/install_xpass.txt"
+    f"{resdir}/data/benchmarks/install_xpass.txt"
   log:
-    "resources/data/logs/install_xpass.log"
+    f"{resdir}/data/logs/install_xpass.log"
   shell:
     """
       Rscript -e '
@@ -1346,13 +1356,13 @@ rule install_genoutils_xwing:
   input:
     rules.install_xpass.output
   output:
-    touch("resources/software/install_genoutils_xwing.done")
+    touch(f"{resdir}/software/install_genoutils_xwing.done")
   conda:
     "../envs/xwing.yaml"
   benchmark:
-    "resources/data/benchmarks/install_genoutils_xwing.txt"
+    f"{resdir}/data/benchmarks/install_genoutils_xwing.txt"
   log:
-    "resources/data/logs/install_genoutils_xwing.log"
+    f"{resdir}/data/logs/install_genoutils_xwing.log"
   shell:
     """
       Rscript -e '
@@ -1480,7 +1490,7 @@ rule install_tlprs:
   input:
     rules.install_lassosum.output
   output:
-    touch("resources/software/install_tlprs.done")
+    touch(f"{resdir}/software/install_tlprs.done")
   conda:
     "../envs/analysis.yaml"
   benchmark:
@@ -1500,7 +1510,7 @@ rule install_tlprs:
 # Install GenoUtils in BridgePRS environment
 rule install_genoutils_bridgeprs:
   output:
-    touch("resources/software/install_genoutils_bridgeprs.done")
+    touch(f"{resdir}/software/install_genoutils_bridgeprs.done")
   conda:
     "../envs/bridgeprs.yaml"
   benchmark:

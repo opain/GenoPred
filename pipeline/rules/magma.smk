@@ -144,7 +144,7 @@ rule magma_set_conditional:
   params:
     config_file= config['config_file']
   shell:
-    "Rscript ../Scripts/magma/magma_set_conditional.R \
+    "Rscript {workflow.basedir}/../Scripts/magma/magma_set_conditional.R \
       --config {params.config_file} \
       --gwas {wildcards.gwas} > {log} 2>&1"
 
@@ -163,7 +163,7 @@ rule create_set_snplists:
   params:
     config_file=config['config_file']
   shell:
-    "Rscript ../Scripts/magma/set_extractor.R \
+    "Rscript {workflow.basedir}/../Scripts/magma/set_extractor.R \
       --config {params.config_file} \
       --gwas {wildcards.gwas} > {log} 2>&1"
   
@@ -188,7 +188,7 @@ checkpoint set_reporter:
   params:
     config_file=config['config_file']
   shell:
-    "Rscript ../Scripts/magma/set_reporter.R \
+    "Rscript {workflow.basedir}/../Scripts/magma/set_reporter.R \
       --config {params.config_file}"
       
 ########
@@ -213,7 +213,7 @@ rule pgs_stratifier:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/pgs_methods/pgs_stratifier.R \
+    "Rscript {workflow.basedir}/../Scripts/pgs_methods/pgs_stratifier.R \
       --config {params.config_file} \
       --plink2 plink2 \
       --test {params.testing} \
@@ -242,7 +242,7 @@ rule target_pgs_partitioned_i:
     testing=config["testing"],
     config_file = config["config_file"]
   shell:
-    "Rscript ../Scripts/target_scoring/target_scoring_partitioned_pipeline.R \
+    "Rscript {workflow.basedir}/../Scripts/target_scoring/target_scoring_partitioned_pipeline.R \
       --config {params.config_file} \
       --name {wildcards.name} \
       --population {wildcards.population} \
