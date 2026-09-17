@@ -39,7 +39,7 @@ rule sample_report_i:
     outdir=config["outdir"],
     labels=' '.join(label_list),
     gwas_dist=gwas_dist,
-    cwd=os.getcwd(),
+    cwd=workflow.basedir,
     tempdir= lambda w: tmpdir + "/" + w.name + "/",
     config_file = config["config_file"],
     report_out= lambda w: outdir if outdir[0] == "/" else os.getcwd() + "/" + outdir
@@ -98,7 +98,7 @@ rule indiv_report_i:
     outdir=config["outdir"],
     labels=' '.join(label_list),
     gwas_dist=gwas_dist,
-    cwd=os.getcwd(),
+    cwd=workflow.basedir,
     tempdir= lambda w: tmpdir + "/" + w.name + "." + w.id + "/",
     config_file = config["config_file"],
     report_out= lambda w: outdir if outdir[0] == "/" else os.getcwd() + "/" + outdir
