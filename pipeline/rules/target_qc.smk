@@ -14,7 +14,7 @@
 if 'target_list' in config:
   rule impute_23andme_i:
     resources:
-      mem_mb=10000*config['cores_impute_23andme'],
+      mem_mb=16000*config['cores_impute_23andme'],
       time_min=800
     threads: config['cores_impute_23andme']
     input:
