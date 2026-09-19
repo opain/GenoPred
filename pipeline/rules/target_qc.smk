@@ -20,6 +20,7 @@ if 'target_list' in config:
     input:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
       rules.download_impute2_data.output,
+      rules.install_genoutils_impute5.output,
       f"{resdir}/last_version.txt"
     output:
       f"{outdir}/{{name}}/geno/imputed/{{name}}.chr{{chr}}.bed"
@@ -28,7 +29,7 @@ if 'target_list' in config:
     log:
       f"{outdir}/reference/logs/impute_23andme_i-{{name}}-{{chr}}.log"
     conda:
-      "../envs/analysis.yaml"
+      "../envs/impute5.yaml"
     params:
       outdir=config["outdir"],
       name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
@@ -41,6 +42,9 @@ if 'target_list' in config:
         --output {outdir}/{params.name}/geno/imputed/{params.name}.chr{wildcards.chr} \
         --chr {wildcards.chr} \
         --ref {resdir}/data/impute2/1000GP_Phase3 \
+        --impute5 /scratch/prj/neurohackpain/GenoPred/software/impute5_v1.2.0/impute5_v1.2.0_static \
+        --ref5 {resdir}/data/impute5/1000GP_Phase3 \
+        --map5 {resdir}/data/impute5/maps \
         --n_core {threads} > {log} 2>&1"
 
   rule impute_23andme_all:

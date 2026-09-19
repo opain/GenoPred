@@ -1371,6 +1371,26 @@ rule install_genoutils_xwing:
       ' > {log} 2>&1
     """
 
+# Install GenoUtils in the impute5 environment (used by 23andMe_imputer.R)
+rule install_genoutils_impute5:
+  input:
+    f"{workflow.basedir}/envs/impute5.yaml"
+  output:
+    touch(f"{resdir}/software/install_genoutils_impute5.done")
+  conda:
+    "../envs/impute5.yaml"
+  benchmark:
+    f"{resdir}/data/benchmarks/install_genoutils_impute5.txt"
+  log:
+    f"{resdir}/data/logs/install_genoutils_impute5.log"
+  shell:
+    """
+      Rscript -e '
+      remotes::install_github(\"opain/GenoUtils@ff3e64d543ecd82af06c2c91ec44ec5f01d83487\", upgrade = "never")
+      if (!requireNamespace("GenoUtils", quietly = TRUE)) stop("Installation failed!")
+      ' > {log} 2>&1
+    """
+
 # Download X-wing repo
 rule download_xwing_software:
   input:

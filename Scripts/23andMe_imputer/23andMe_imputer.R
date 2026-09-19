@@ -24,11 +24,17 @@ make_option("--plink", action="store", default='plink', type='character',
 make_option("--plink2", action="store", default='plink2', type='character',
     help="Path to plink2 [optional]"),
 make_option("--ref", action="store", default=NULL, type='character',
-		help="Path to folder containing IMPUTE2 1KG reference data [required]"),
+		help="Path to folder containing IMPUTE2-format 1KG reference data, used for phasing only [required]"),
 make_option("--shapeit", action="store", default='shapeit', type='character',
 		help="Path to shapeit [optional]"),
-make_option("--impute2", action="store", default='impute2', type='character',
-		help="Path to impute2 [optional]"),
+make_option("--bcftools", action="store", default='bcftools', type='character',
+		help="Path to bcftools [optional]"),
+make_option("--impute5", action="store", default='impute5', type='character',
+		help="Path to impute5 [optional]"),
+make_option("--ref5", action="store", default=NULL, type='character',
+		help="Path to folder containing the IMPUTE5 xcf-format 1KG reference data (1000GP_Phase3_chr<N>_xcf.bcf), used for imputation [required]"),
+make_option("--map5", action="store", default=NULL, type='character',
+		help="Path to folder containing IMPUTE5/SHAPEIT4-format genetic maps (chr<N>.b37.gmap.gz), used for imputation [required]"),
 make_option("--output", action="store", default=NULL, type='character',
 		help="Name of output files [required]"),
 make_option("--n_core", action="store", default=1, type='numeric',
@@ -46,9 +52,6 @@ library(GenoUtils)
 library(data.table)
 source('../functions/misc.R')
 source_all('../functions')
-library(foreach)
-library(doMC)
-registerDoMC(opt$n_core)
 
 # Check required inputs
 if(is.null(opt$geno)){
@@ -56,6 +59,12 @@ if(is.null(opt$geno)){
 }
 if(is.null(opt$ref)){
   stop('--ref must be specified.\n')
+}
+if(is.null(opt$ref5)){
+  stop('--ref5 must be specified.\n')
+}
+if(is.null(opt$map5)){
+  stop('--map5 must be specified.\n')
 }
 if(is.null(opt$output)){
   stop('--output must be specified.\n')
@@ -161,47 +170,55 @@ system(paste0("cut --delimiter=' ' -f 1-7 ",tmp_dir, '/geno_nodup.harmonised_tem
 system(paste0("head -n 3 ",tmp_dir, '/geno_nodup.harmonised_temp.sample > ',tmp_dir, '/geno_nodup.harmonised.sample'))
 
 ###########################################
-# Impute genetic data
+# Impute genetic data using IMPUTE5
 ###########################################
 
-log_add(log_file = log_file, message = 'Imputing data using Impute2.')
+log_add(log_file = log_file, message = 'Imputing data using IMPUTE5.')
 
-# Look up length of chromosome
+# IMPUTE5 needs the phased target as indexed VCF/BCF, not SHAPEIT's native
+# .haps/.sample. bcftools' --hapsample2vcf requires the ID in column 1 or 2 to
+# be "CHR:POS_REF_ALT" (underscore before the alleles - see `man bcftools`);
+# SHAPEIT's own IDs are plain rsIDs, so column 2 is rebuilt from the chr/pos/
+# allele columns already present in the .haps file.
+system(paste0("awk '{$2=$1\":\"$3\"_\"$4\"_\"$5; print}' ", tmp_dir, '/geno_nodup.harmonised.haps > ', tmp_dir, '/geno_nodup.harmonised.haps_id'))
+system(paste0(opt$bcftools, ' convert --hapsample2vcf ', tmp_dir, '/geno_nodup.harmonised.haps_id,', tmp_dir, '/geno_nodup.harmonised.sample -O b -o ', tmp_dir, '/target.bcf'))
+
+# xcftools/impute5 both require an INFO/AC field, which bcftools convert's
+# output doesn't carry - same fix as the one-time reference conversion
+# (hpc/setup/04_build_impute5_reference.sh).
+system(paste0(opt$bcftools, ' +fill-tags ', tmp_dir, '/target.bcf -O b -o ', tmp_dir, '/target_tagged.bcf -- -t AC,AN'))
+system(paste0(opt$bcftools, ' index -f ', tmp_dir, '/target_tagged.bcf'))
+
+# Whole-chromosome region for --r/--buffer-region (IMPUTE5 imputes the full
+# chromosome in one call - no manual chunking needed, unlike IMPUTE2). Both
+# --r and --buffer-region are required by impute5 even when there's no actual
+# buffer beyond the chromosome itself, and need an explicit position range,
+# not just the bare chromosome ID.
 maxPos <- system(paste0('zcat ', opt$ref, '/1000GP_Phase3_chr', opt$chr, ".legend.gz | tail -n 1 | cut -d ' ' -f 2"),intern=T)
+region <- paste0(opt$chr, ':1-', maxPos)
 
-# Create a data.frame containing list all 5Mb chunks for imputation
-starts <- seq(0, as.numeric(maxPos), 5e6)
-ends <- starts + 5e6
+ref5_bcf <- paste0(opt$ref5, '/1000GP_Phase3_chr', opt$chr, '_xcf.bcf')
+map5_file <- paste0(opt$map5, '/chr', opt$chr, '.b37.gmap.gz')
 
-foreach(i=1:length(starts), .combine=c, .options.multicore=list(preschedule=FALSE)) %dopar% {
-	imp_log <- system(paste0(opt$impute2,' -m ', opt$ref, '/genetic_map_chr', opt$chr, '_combined_b37.txt -h ', opt$ref, '/1000GP_Phase3_chr', opt$chr, '.hap.gz -l ', opt$ref, '/1000GP_Phase3_chr', opt$chr, '.legend.gz -known_haps_g ', tmp_dir, '/geno_nodup.harmonised.haps -int ', starts[i], ' ', ends[i], ' -Ne 20000 -o ', tmp_dir, '/geno_nodup.', starts[i], '_', ends[i]))
+imp_log <- system(paste0(opt$impute5,
+  ' --h ', ref5_bcf,
+  ' --g ', tmp_dir, '/target_tagged.bcf',
+  ' --o ', tmp_dir, '/imputed.bcf',
+  ' --r ', region,
+  ' --buffer-region ', region,
+  ' --m ', map5_file,
+  ' --threads ', opt$n_core))
 
-	# test for memory-lack bug (error will be 137 if killed, otherwise 0)
-    if(imp_log == 137){
-		log_add(log_file = log_file, message = paste0("Chunk ", starts[i],'-',ends[i],": There was a memory problem."))
-		stop('There was a memory problem.')
-	}
+if(imp_log != 0){
+	log_add(log_file = log_file, message = paste0("IMPUTE5 exited with code ", imp_log, "."))
+	stop('IMPUTE5 imputation failed.')
 }
 
-# Combine the chunks
-chunk_files <- paste0(tmp_dir, '/geno_nodup.', starts, '_', ends)
-
-# Check which chunk_files exist
-chunk_files_present<-NULL
-for(k in 1:length(chunk_files)){
-	if(file.exists(chunk_files[k])){
-		chunk_files_present<-c(chunk_files_present,chunk_files[k])
-	}
-}
-
-system(paste0('cat ', paste(chunk_files_present, collapse=' '),' > ',tmp_dir, '/geno_nodup_imp.gen'))
-
-# Move log files to a log file folder
-system(paste0('mkdir -p ', opt$output_dir, '/impute2_logs/chr', opt$chr))
-for(k in 1:length(chunk_files)){
-	system(paste0('mv ',chunk_files[k],'_summary ',opt$output_dir, '/impute2_logs/chr', opt$chr,'/'))
-	system(paste0('mv ',chunk_files[k],'_warnings ',opt$output_dir, '/impute2_logs/chr', opt$chr,'/'))
-}
+# Convert the imputed BCF back to the classic .gen format the rest of this
+# script (and the pipeline downstream) expects. --tag GP extracts genotype
+# probabilities, matching IMPUTE2's own .gen semantics.
+system(paste0(opt$bcftools, ' convert --gensample ', tmp_dir, '/geno_nodup_imp --tag GP ', tmp_dir, '/imputed.bcf'))
+system(paste0('gunzip -f ', tmp_dir, '/geno_nodup_imp.gen.gz'))
 
 #####
 # Convert into PLINK format
