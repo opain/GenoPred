@@ -15,7 +15,7 @@ if 'target_list' in config:
   rule impute_23andme_i:
     resources:
       mem_mb=16000*config['cores_impute_23andme'],
-      time_min=800
+      time_min=240
     threads: config['cores_impute_23andme']
     input:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
