@@ -7,6 +7,7 @@ params:
   cwd:
 output:
   html_document:
+    self_contained: true
     toc: true
     theme: cosmo
     toc_depth: 3
@@ -29,6 +30,7 @@ library(ggchicklet)
 library(DT)
 library(kableExtra)
 library(tmvtnorm)
+library(plotly)
 
 knit_hooks$set(optipng = hook_optipng)
 knit_hooks$set(pngquant = hook_pngquant)
@@ -71,6 +73,9 @@ if(!is.null(gwas_list)){
 
 # If testing, change CHROMS to chr value
 testing <- read_param(config = params$config, param = 'testing', return_obj = F)
+job_config <- yaml::read_yaml(params$config)
+enhanced_ancestry_requested <- isTRUE(job_config$enhanced_ancestry) &&
+  (is.na(testing) || testing == 'NA')
 
 # Check ancestry probability threshold
 ancestry_prob_thresh <- as.numeric(read_param(config = params$config, param = 'ancestry_prob_thresh', return_obj = F))
@@ -193,18 +198,58 @@ model_pred <- ancestry$model_pred[
 top_pop <- names(model_pred)[model_pred == max(model_pred)] 
 
 if(nrow(keep_all) == 0){
-  cat0("- The target individual did not match well to any reference population.\n") 
-  cat0("- The indivdual best matches the ", top_pop, " reference population, but did not reach the ", ancestry_prob_thresh*100, "% probability threshold.\n\n")
+  legacy_ancestry_message <- paste0(
+    "- The target individual did not match well to any reference population.\n",
+    "- The individual best matches the ", top_pop,
+    " reference population, but did not reach the ", ancestry_prob_thresh*100,
+    "% probability threshold.\n\n"
+  )
   pgs_incl <- F
 } else {
-  cat0("- The target individual matches the ", top_pop, " reference population with a probability >", ancestry_prob_thresh*100, "%.\n\n")
+  legacy_ancestry_message <- paste0(
+    "- The target individual matches the ", top_pop,
+    " reference population with a probability >", ancestry_prob_thresh*100,
+    "%.\n\n"
+  )
+}
+
+ukbb_result_file <- paste0(outdir, '/', params$name, '/ancestry/', params$name, '.ukbb_proportions.tsv')
+ukbb_metadata_file <- paste0(outdir, '/', params$name, '/ancestry/', params$name, '.ukbb_proportions.meta.tsv')
+enhanced_ancestry_available <- FALSE
+ukbb_proportions <- NULL
+ukbb_metadata <- NULL
+
+if(enhanced_ancestry_requested && file.exists(ukbb_result_file) && file.exists(ukbb_metadata_file)) {
+  ukbb_metadata_all <- fread(ukbb_metadata_file)
+  ukbb_metadata <- ukbb_metadata_all[
+    paste0(FID, '.', IID) == params$id,
+  ]
+  enhanced_ancestry_available <- nrow(ukbb_metadata) == 1 && ukbb_metadata$status == 'ok'
+  if(enhanced_ancestry_available) {
+    ukbb_proportions <- fread(ukbb_result_file)[
+      paste0(FID, '.', IID) == params$id & proportion > 0,
+    ]
+    enhanced_ancestry_available <- nrow(ukbb_proportions) > 0
+  }
+}
+
+if(enhanced_ancestry_requested && enhanced_ancestry_available) {
+  cat0("- Enhanced ancestry proportions were estimated using the published UK Biobank reference of 21 ancestry groups.\n")
+  cat0("- The analysis matched ", ukbb_metadata$n_variants_used, " usable variants across ", ukbb_metadata$n_chromosomes, " chromosomes.\n")
+  cat0("- These are statistical estimates relative to the reference panel, not a measure of identity or ethnicity.\n\n")
+} else if(enhanced_ancestry_requested) {
+  reason <- if(!is.null(ukbb_metadata) && nrow(ukbb_metadata) > 0) ukbb_metadata$reason[1] else 'The enhanced ancestry result was not produced.'
+  cat0("- Enhanced ancestry inference was requested, but no reliable result was available.\n")
+  cat0("- ", reason, "\n\n")
+} else {
+  cat0(legacy_ancestry_message)
 }
 
 ```
 
 ***
 
-```{r, include = F}
+```{r, include = F, eval = !enhanced_ancestry_requested}
 
 dat <- melt(round(model_pred,2))
 dat[dat == 0] <-NA
@@ -227,7 +272,7 @@ dev.off()
 
 ```
 
-```{r, results='asis'}
+```{r, results='asis', eval = !enhanced_ancestry_requested}
 
 # Show the plot
 cat0(paste0("![Ancestry inference: Population probabilities.](", tmp_folder,"/plot_ancestry.png){width=600px}\n\n"))
@@ -236,9 +281,49 @@ cat0("\n\n")
 
 ```
 
+```{r enhanced_ancestry_plot, echo=FALSE, eval = enhanced_ancestry_available}
+
+ukbb_proportions[, percentage := proportion * 100]
+enhanced_colors <- grDevices::hcl(
+  seq(15, 375, length.out = nrow(ukbb_proportions) + 1)[-(nrow(ukbb_proportions) + 1)],
+  c = 65,
+  l = 65
+)
+
+plotly::plot_ly(
+  data = ukbb_proportions,
+  labels = ~population,
+  values = ~proportion,
+  customdata = ~percentage,
+  type = 'pie',
+  hole = 0.45,
+  sort = FALSE,
+  textinfo = 'label+percent',
+  hovertemplate = '<b>%{label}</b><br>%{customdata:.1f}% estimated proportion<extra></extra>',
+  marker = list(
+    colors = enhanced_colors,
+    line = list(color = '#ffffff', width = 1)
+  )
+) %>%
+  plotly::layout(
+    showlegend = TRUE,
+    margin = list(l = 10, r = 10, b = 10, t = 10),
+    legend = list(orientation = 'v')
+  ) %>%
+  plotly::config(displayModeBar = FALSE, responsive = TRUE)
+
+```
+
+```{r results='asis', eval = enhanced_ancestry_available}
+
+cat0("**Enhanced ancestry proportions.** Hover over a segment to see the estimated proportion for that reference group. Closely related groups are merged following the bigsnpr tutorial.\n\n")
+cat0("Reference: [Privé (2022)](https://doi.org/10.1093/bioinformatics/btac348).\n\n")
+
+```
+
 ***
 
-```{r, results='asis', eval = imp_incl}
+```{r, results='asis', eval = all(imp_incl, !enhanced_ancestry_requested)}
 
 cat0("<details><summary>Show principal component plots</summary>\n\n")
 
