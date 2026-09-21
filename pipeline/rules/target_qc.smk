@@ -96,6 +96,9 @@ def target_type(name):
 
 if 'target_list' in config:
   rule format_target_i:
+    resources:
+      mem_mb=4000,
+      time_min=30
     input:
       lambda w: format_target_input(name = w.name),
       lambda w: target_path(name = w.name, chr = w.chr),

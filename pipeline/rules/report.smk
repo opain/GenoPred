@@ -1,5 +1,9 @@
 output_all_input = list()
 label_list = pd.Series(dtype=object)
+enhanced_ancestry_enabled = (
+  bool(config.get("enhanced_ancestry", False))
+  and config.get("testing", "NA") == "NA"
+)
 
 if 'target_list' in config and config["target_list"] != 'NA':
   output_all_input.append(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done")
@@ -33,6 +37,14 @@ rule sample_report_i:
     f"{outdir}/reference/benchmarks/sample_report_i-{{name}}.txt"
   log:
     f"{outdir}/reference/logs/sample_report_i-{{name}}.log"
+  # Report rendering (rmarkdown + ggplot2/plotly/DT/kableExtra) is not a
+  # "lightweight per-target rule" - it needs its own override rather than
+  # inheriting the SLURM profile's default-resources (trimmed to 2GB/30min for
+  # genuinely cheap rules), or a full-genome render risks an OOM-kill/timeout
+  # near the very end of the run.
+  resources:
+    mem_mb=8000,
+    time_min=480
   conda:
     "../envs/analysis.yaml"
   params:
@@ -63,6 +75,43 @@ rule sample_report:
 # Create individual-level reports for each target sample
 #####
 
+# Report-only branch. It waits for the existing ancestry checkpoint because its
+# rule clears the shared ancestry directory before writing legacy outputs. This
+# avoids that cleanup racing with the optional output while still consuming the
+# same formatted, imputed target data.
+rule enhanced_ancestry_i:
+  input:
+    f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
+    f"{resdir}/data/ukbb_ancestry/ref_freqs.csv.gz",
+    f"{resdir}/data/ukbb_ancestry/projection.csv.gz"
+  output:
+    proportions=f"{outdir}/{{name}}/ancestry/{{name}}.ukbb_proportions.tsv",
+    metadata=f"{outdir}/{{name}}/ancestry/{{name}}.ukbb_proportions.meta.tsv"
+  benchmark:
+    f"{outdir}/reference/benchmarks/enhanced_ancestry_i-{{name}}.txt"
+  log:
+    f"{outdir}/reference/logs/enhanced_ancestry_i-{{name}}.log"
+  conda:
+    "../envs/analysis.yaml"
+  # Full-genome UKB ancestry projection over every chromosome - not a cheap
+  # per-target rule, so it needs its own override (see sample_report_i above).
+  resources:
+    mem_mb=8000,
+    time_min=240
+  params:
+    target_plink_chr=lambda w: f"{outdir}/{w.name}/geno/{w.name}.ref.chr",
+    testing=config["testing"],
+    ref_freq=f"{resdir}/data/ukbb_ancestry/ref_freqs.csv.gz",
+    projection=f"{resdir}/data/ukbb_ancestry/projection.csv.gz",
+    output_prefix=lambda w: f"{outdir}/{w.name}/ancestry/{w.name}.ukbb_proportions"
+  shell:
+    "Rscript {workflow.basedir}/../Scripts/Ancestry_identifier/UKBB_ancestry_proportions.R "
+    "--target_plink_chr {params.target_plink_chr} "
+    "--ref_freq {params.ref_freq} "
+    "--projection {params.projection} "
+    "--output {params.output_prefix} "
+    "--test {params.testing} > {log} 2>&1"
+
 def id_munge(name):
   if config['testing'] != 'NA':
     val = config['testing'][-2:]
@@ -85,13 +134,19 @@ rule indiv_report_i:
   input:
     rules.install_ggchicklet.output,
     rules.prep_pgs_lassosum.input,
-    output_all_input
+    output_all_input,
+    (rules.enhanced_ancestry_i.output if enhanced_ancestry_enabled else [])
   output:
     touch(f"{outdir}/reference/target_checks/{{name}}/indiv_report-{{id}}-report.done")
   benchmark:
     f"{outdir}/reference/benchmarks/indiv_report_i-{{name}}-{{id}}.txt"
   log:
     f"{outdir}/reference/logs/indiv_report_i-{{name}}-{{id}}.log"
+  # See sample_report_i above - report rendering needs its own override, not
+  # the trimmed lightweight-rule default.
+  resources:
+    mem_mb=8000,
+    time_min=480
   conda:
     "../envs/analysis.yaml"
   params:
