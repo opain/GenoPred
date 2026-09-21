@@ -1176,9 +1176,12 @@ rule prep_pgs:
 
 # Calculate PGS in reference data
 rule ref_pgs:
+  # 2800 min exceeds interruptible_cpu's 24h MaxTime, which makes sbatch reject
+  # the job outright on the web launcher's partition list. Observed runtime is
+  # ~30s (incremental: only scores without existing reference profiles).
   resources:
     mem_mb=config['mem_target_pgs'],
-    time_min=2800
+    time_min=240
   threads: config['cores_target_pgs']
   input:
     lambda w: f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale" if 'continuous' in config["pgs_scaling"] else [],
