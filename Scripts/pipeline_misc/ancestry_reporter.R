@@ -12,9 +12,17 @@ keep_files<-list.files(path=path)
 # Create file list populations present in target
 info = file.info(paste0(path, '/', keep_files))
 not_empty = rownames(info[info$size != 0, ])
-  
-ancestry_report<-rbind(ancestry_report, data.frame(name=target,
-                                                   population=gsub('.*\\/','',gsub('.keep','',not_empty))))
+
+# An individual whose max predicted ancestry probability never clears
+# prob_thresh (e.g. admixed individuals) has no non-empty keep file. Report
+# them as unassigned to any population rather than erroring - continuous/TRANS
+# scaled PGS scoring downstream does not require a population match.
+if(length(not_empty) == 0){
+  ancestry_report<-data.frame(name=character(0), population=character(0))
+} else {
+  ancestry_report<-rbind(ancestry_report, data.frame(name=target,
+                                                     population=gsub('.*\\/','',gsub('.keep','',not_empty))))
+}
 
 write.table(ancestry_report,paste0(output,'/',target,'/ancestry/ancestry_report.txt'), col.names=T, row.names=F, quote=F)
 
