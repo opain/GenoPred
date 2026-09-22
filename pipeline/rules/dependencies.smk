@@ -1078,6 +1078,9 @@ rule download_ldpred2_ref:
     f"{resdir}/data/benchmarks/download_ldpred2_ref.txt"
   log:
     f"{resdir}/data/logs/download_ldpred2_ref.log"
+  resources:
+    mem_mb=8000,
+    time_min=60
   shell:
     """
     {{
