@@ -35,6 +35,9 @@ rule ref_pca:
 
 if 'gwas_list' in config:
   rule sumstat_prep_i:
+    resources:
+      mem_mb=8000,
+      time_min=480
     input:
       ref_input,
       rules.install_genoutils.output,
@@ -231,7 +234,7 @@ rule prep_pgs_dbslmm:
 rule prep_pgs_prscs_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -292,7 +295,7 @@ rule prep_pgs_sbayesr_i:
     rules.download_gctb_software.output,
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz"
   conda:
     "../envs/analysis.yaml"
   benchmark:
@@ -306,9 +309,8 @@ rule prep_pgs_sbayesr_i:
     testing=config["testing"]
   shell:
     """
-    (
-      rm -r -f {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}; \
-      Rscript {workflow.basedir}/../Scripts/pgs_methods/sbayesr.R \
+    rm -r -f {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}; \
+    Rscript {workflow.basedir}/../Scripts/pgs_methods/sbayesr.R \
       --ref_plink_chr {refdir}/ref.chr \
       --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
       --sumstats {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned.gz \
@@ -321,13 +323,10 @@ rule prep_pgs_sbayesr_i:
       --output {outdir}/reference/pgs_score_files/sbayesr/{wildcards.gwas}/ref-{wildcards.gwas} \
       --pop_data {refdir}/ref.pop.txt \
       --test {params.testing} > {log} 2>&1
-    ) || (
-      echo SBayesR failed for {wildcards.gwas}
-    )
     """
 
 rule prep_pgs_sbayesr:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_sbayesr_i-{{gwas}}.done", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
     
 ##
 # lassosum
@@ -425,7 +424,7 @@ rule prep_pgs_sdpr:
 rule prep_pgs_ldpred2_i:
   resources:
     mem_mb=30000,
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -479,7 +478,7 @@ rule prep_pgs_ldpred2:
 rule prep_pgs_lassosum2_i:
   resources:
     mem_mb=30000,
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -522,7 +521,7 @@ rule prep_pgs_lassosum2:
 rule prep_pgs_megaprs_i:
   resources:
     mem_mb=20000,
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -565,7 +564,7 @@ rule prep_pgs_megaprs:
 rule prep_pgs_megaprs6_i:
   resources:
     mem_mb=20000,
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -618,7 +617,7 @@ def get_quickprs_ldref_path(w, gwas_list_df, resdir):
 rule prep_pgs_quickprs_i:
   resources:
     mem_mb=20000,
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -629,7 +628,7 @@ rule prep_pgs_quickprs_i:
     rules.download_ldak_bld.output,
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
   output:
-    touch(f"{outdir}/reference/target_checks/prep_pgs_quickprs_i-{{gwas}}.done")
+    f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz"
   benchmark:
     f"{outdir}/reference/benchmarks/prep_pgs_quickprs_i-{{gwas}}.txt"
   log:
@@ -641,7 +640,6 @@ rule prep_pgs_quickprs_i:
     testing=config["testing"]
   shell:
     """
-    (
     rm -r -f {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}; \
     Rscript {workflow.basedir}/../Scripts/pgs_methods/quickprs.R \
     --ref_plink_chr {refdir}/ref.chr \
@@ -654,13 +652,10 @@ rule prep_pgs_quickprs_i:
     --output {outdir}/reference/pgs_score_files/quickprs/{wildcards.gwas}/ref-{wildcards.gwas} \
     --pop_data {refdir}/ref.pop.txt \
     --test {params.testing} > {log} 2>&1
-    ) || (
-      echo QuickPRS failed for {wildcards.gwas}
-    )
     """
 
 rule prep_pgs_quickprs:
-  input: expand(f"{outdir}/reference/target_checks/prep_pgs_quickprs_i-{{gwas}}.done", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
 
 ##
 # SBayesRC
@@ -669,7 +664,7 @@ rule prep_pgs_quickprs:
 rule prep_pgs_sbayesrc_i:
   resources:
     mem_mb=20000,
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -934,7 +929,7 @@ rule pgsmeta:
 rule prep_pgs_prscsx_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     rules.download_prscsx_software.output,
@@ -985,7 +980,7 @@ rule prep_pgs_prscsx:
 rule prep_pgs_xwing_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     rules.download_xwing_software.output,
@@ -1043,7 +1038,7 @@ rule prep_pgs_xwing:
 rule prep_pgs_tlprs_i:
   resources:
     mem_mb=10000,
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     rules.install_tlprs.output,
@@ -1090,7 +1085,7 @@ rule prep_pgs_tlprs:
 rule prep_pgs_bridgeprs_i:
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
-    time_min=2800
+    time_min=1440
   threads: config['cores_prep_pgs']
   input:
     rules.download_bridgeprs_software.output,
@@ -1132,6 +1127,7 @@ rule prep_pgs_bridgeprs:
 ##
 
 pgs_methods_input = list()
+pgs_methods_input.extend(prepared_score_inputs)
 
 if 'ptclump' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_ptclump.input)

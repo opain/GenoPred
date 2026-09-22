@@ -52,6 +52,14 @@ pgs_methods_noneur = ['ptclump','lassosum','megaprs','prscs','dbslmm']
 ####
 
 rule pc_projection_i:
+  # Bundled with target_pgs_i into one SLURM submission per (name, population):
+  # for TRANS scaling target_pgs_i directly depends on this rule's output, so
+  # submitting them as two separate cluster jobs just pays SLURM queue
+  # overhead twice for a sequential pair. Scoped by {population} so different
+  # populations (or a multi-population production run) still submit - and can
+  # run - independently; harmless no-op grouping for non-TRANS populations,
+  # where there's no real edge between the two rules.
+  group: "pgs-{name}-{population}"
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
     f"{outdir}/reference/pc_score_files/{{population}}/ref-{{population}}-pcs.EUR.scale"
@@ -96,6 +104,9 @@ rule target_pgs_i:
     mem_mb=config['mem_target_pgs'],
     time_min=180
   threads: config['cores_target_pgs']
+  # See pc_projection_i's group: comment - same (name, population) label
+  # bundles this rule with it into one submission.
+  group: "pgs-{name}-{population}"
   input:
     f"{outdir}/reference/target_checks/{{name}}/ancestry_reporter.done",
     lambda w: f"{outdir}/reference/target_checks/{{name}}/pc_projection-TRANS.done" if w.population == "TRANS" else [],

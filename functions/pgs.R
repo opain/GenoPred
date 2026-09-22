@@ -16,13 +16,13 @@ list_score_files <- function(config, quiet = F){
     pgs_methods_list <- pgs_methods_list[!(pgs_methods_list %in% pgs_group_methods)]
 
     combos <- rbind(combos,
-                    expand.grid(name = gwas_list$name[gwas_list$pop == 'EUR'], method = pgs_methods_list))
+                    expand.grid(name = gwas_list$name[gwas_list$population == 'EUR'], method = pgs_methods_list))
 
     # List PGS methods applied to non-EUR populations
     pgs_methods_noneur <- pgs_methods_noneur[pgs_methods_noneur %in% pgs_methods_list]
 
     combos <- rbind(combos,
-                    expand.grid(name = gwas_list$name[gwas_list$pop != 'EUR'], method = pgs_methods_noneur))
+                    expand.grid(name = gwas_list$name[gwas_list$population != 'EUR'], method = pgs_methods_noneur))
   }
 
   # Read in score_list
@@ -35,6 +35,15 @@ list_score_files <- function(config, quiet = F){
                     data.frame(
                       name = score_list$name,
                       method = 'external'))
+  }
+
+  # Include already prepared GenoPred artifacts without requesting their methods.
+  prepared_score_list <- read_param(config = config, param = 'prepared_score_list', quiet = quiet)
+  if(!is.null(prepared_score_list)){
+    combos <- rbind(combos,
+                    data.frame(
+                      name = prepared_score_list$name,
+                      method = prepared_score_list$method))
   }
 
   # Read in gwas_groups
@@ -816,4 +825,3 @@ z2cor<-function(z, n){
           lower.tail = FALSE, log.p = TRUE) * sign(z)
   return(t/sqrt(n - 2 + t^2))
 }
-

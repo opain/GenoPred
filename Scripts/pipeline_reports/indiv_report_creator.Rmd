@@ -64,11 +64,32 @@ gwas_groups <- read_param(config = params$config, param = 'gwas_groups')
 # Read in score_list
 score_list <- read_param(config = params$config, param = 'score_list')
 
+# Read in already prepared score artifacts
+prepared_score_list <- read_param(config = params$config, param = 'prepared_score_list')
+
+score_metadata <- NULL
+if(!is.null(score_list)){
+  score_metadata <- rbind(score_metadata, score_list[, c('name', 'label')])
+}
+if(!is.null(prepared_score_list)){
+  score_metadata <- rbind(score_metadata, prepared_score_list[, c('name', 'label')])
+}
+if(!is.null(score_metadata)) score_metadata <- unique(score_metadata)
+
+is_prepared_score <- function(name, method){
+  !is.null(prepared_score_list) && any(
+    prepared_score_list$name == name & prepared_score_list$method == method
+  )
+}
+
 # Identify PGS methods to be included
 if(!is.null(gwas_list)){
   pgs_methods_list <- read_param(config = params$config, param = 'pgs_methods', return_obj = F)
 } else {
   pgs_methods_list <- NULL
+}
+if(!is.null(prepared_score_list)){
+  pgs_methods_list <- unique(c(pgs_methods_list, prepared_score_list$method))
 }
 
 # If testing, change CHROMS to chr value
@@ -97,7 +118,7 @@ if(!is.na(testing)){
 imp_incl <- ifelse(target_list$type[target_list$name == params$name] == '23andMe', T, F)
 
 # Check whether polygenic scoring was carried out
-pgs_incl <- !all(c(is.null(gwas_list), is.null(score_list)))
+pgs_incl <- !all(c(is.null(gwas_list), is.null(score_list), is.null(prepared_score_list)))
 
 ```
 
@@ -186,8 +207,14 @@ cat0("Of the ", as.character(nvar_in_ref), " variants in the reference, ", as.ch
 ancestry <- read_ancestry(config = params$config, name = params$name)
 
 # Kind which keep file the individual is in
+# (keep_all is NULL, not a 0-row data.frame, when no individual in the whole
+# batch cleared the ancestry probability threshold for any population - e.g.
+# a single-target job whose sole individual didn't match. nrow(NULL) is NULL,
+# not 0, so the nrow(keep_all) == 0 check below must tolerate that.)
 keep_all <- do.call(rbind, Map(cbind, ancestry$keep_files, pop = names(ancestry$keep_files)))
-keep_all <- keep_all[paste0(keep_all$V1, '.', keep_all$V2) == params$id,]
+if(!is.null(keep_all)){
+  keep_all <- keep_all[paste0(keep_all$V1, '.', keep_all$V2) == params$id,]
+}
 
 # Find the population probabilities for this individual
 model_pred <- ancestry$model_pred[
@@ -197,7 +224,7 @@ model_pred <- ancestry$model_pred[
 
 top_pop <- names(model_pred)[model_pred == max(model_pred)] 
 
-if(nrow(keep_all) == 0){
+if(is.null(keep_all) || nrow(keep_all) == 0){
   legacy_ancestry_message <- paste0(
     "- The target individual did not match well to any reference population.\n",
     "- The individual best matches the ", top_pop,
@@ -360,6 +387,10 @@ if(is.null(score_list)){
   cat0("- ", ifelse(is.null(score_list), 0, nrow(score_list)), " external score files were provided for polygenic scoring.\n\n")
 }
 
+if(!is.null(prepared_score_list)){
+  cat0("- ", nrow(prepared_score_list), " prepared score artifacts were provided for polygenic scoring.\n\n")
+}
+
 cat0("***\n\n")
 
 ```
@@ -454,6 +485,22 @@ cat0("***\n\n")
 
 ```
 
+```{r, results='asis', eval = all(pgs_incl, !is.null(prepared_score_list))}
+
+cat0("## Prepared score artifacts \n\n")
+
+prepared_score_summary <- prepared_score_list[, c('name', 'label', 'method')]
+names(prepared_score_summary) <- c('Name', 'Label', 'Method')
+datatable(prepared_score_summary,
+          rownames = FALSE,
+          options = list(dom = 't', ordering = FALSE),
+          width = '100%',
+          selection = 'none')
+
+cat0("***\n\n")
+
+```
+
 ```{r, results='asis', eval = all(pgs_incl, !is.null(score_list))}
 
 cat0("## Score files \n\n")
@@ -507,8 +554,12 @@ cat0("This section shows the correlation between PGS in the reference sample. Th
 
 ```{r, eval = pgs_incl, include = F}
 
-# Read in the reference pgs
+# Read in the reference pgs. Read twice rather than copy-then-rename: the
+# per-score data.tables below have their 3rd column renamed in place for the
+# correlation matrix, and data.table's `names<-` mutates by reference, so a
+# plain list copy would silently rename columns in both copies.
 ref_pgs <- read_reference_pgs(config = params$config)
+ref_pgs_raw <- read_reference_pgs(config = params$config)
 
 # Merge all PGS into single data.frame
 for(gwas_i in names(ref_pgs)){
@@ -602,8 +653,12 @@ pgs_dat <- pgs_dat[complete.cases(pgs_dat),]
 # Read in lassosum pseudoval results and convert to other metrics
 # Do not include 'external' score
 pseudoval<-NULL
-for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
-  pseudo_r2 <- read_pseudo_r(config = params$config, gwas = gwas_i)^2
+generated_pgs <- pgs_dat[
+  pgs_dat$pgs_method != 'external' &
+  !mapply(is_prepared_score, pgs_dat$gwas, pgs_dat$pgs_method),]
+for(gwas_i in unique(generated_pgs$gwas)){
+  lassosum_log <- paste0(outdir, '/reference/pgs_score_files/lassosum/', gwas_i, '/ref-', gwas_i, '.log')
+  pseudo_r2 <- if(file.exists(lassosum_log)) read_pseudo_r(config = params$config, gwas = gwas_i)^2 else NA_real_
 
   if(is.na(gwas_list$sampling[gwas_list$name == gwas_i])){
     pseudoval <- rbind(
@@ -650,38 +705,71 @@ if(!is.null(score_list)){
   )
 }
 
+if(!is.null(prepared_score_list)){
+  pseudoval <- rbind(
+    pseudoval,
+    data.frame(
+      gwas = prepared_score_list$name,
+      pseudoval_r2obs = NA,
+      pseudoval_d = NA,
+      pseudoval_auc = NA
+    )
+  )
+}
+
 # Calculate absolute risk
 abs_res <- NULL
 n_quant <- 1000
-for(gwas_i in unique(pgs_dat$gwas[pgs_dat$pgs_method != 'external'])){
-  for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
+for(gwas_i in unique(generated_pgs$gwas)){
+  for(pgs_method_i in unique(generated_pgs$pgs_method[generated_pgs$gwas == gwas_i])){
     
     pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
     
     if (is.na(gwas_list$prevalence[gwas_list$name == gwas_i])) {
-      quant <-
-        which_quant(PRS_z_score = pgs_dat_i$value, n_quantile = n_quant)
-      
-      indiv_result <-
-        mean_sd_quant.f(
-          PRS_R2 = pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],
-          Outcome_mean = 0,
-          Outcome_sd = 1,
-          n_quantile = n_quant,
-          quant = quant
+      pgs_r2_i <- pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i]
+
+      if (is.na(pgs_r2_i)) {
+        # No pseudo-validated R^2 for this score (pseudoval_r2obs only comes
+        # from a lassosum pseudovalidation log, so it's NA whenever lassosum
+        # wasn't one of the selected methods). mean_sd_quant.f() would pass
+        # sqrt(NA) into mtmvnorm()'s sigma and crash the whole report via
+        # tmvtnorm::checkTmvArgs(), so record NA instead of computing it.
+        abs_res <- rbind(
+          abs_res,
+          data.frame(
+            pgs_method = pgs_method_i,
+            gwas = gwas_i,
+            prev = NA,
+            abs_prob = NA,
+            mean = NA,
+            sd = NA
+          )
         )
-      
-      abs_res <- rbind(
-        abs_res,
-        data.frame(
-          pgs_method = pgs_method_i,
-          gwas = gwas_i,
-          prev = NA,
-          abs_prob = NA,
-          mean = indiv_result$x_mean,
-          sd = indiv_result$x_sd
+      } else {
+        quant <-
+          which_quant(PRS_z_score = pgs_dat_i$value, n_quantile = n_quant)
+
+        indiv_result <-
+          mean_sd_quant.f(
+            PRS_R2 = pgs_r2_i,
+            Outcome_mean = 0,
+            Outcome_sd = 1,
+            n_quantile = n_quant,
+            quant = quant
+          )
+
+        abs_res <- rbind(
+          abs_res,
+          data.frame(
+            pgs_method = pgs_method_i,
+            gwas = gwas_i,
+            prev = NA,
+            abs_prob = NA,
+            mean = indiv_result$x_mean,
+            sd = indiv_result$x_sd
+          )
         )
-      )
+      }
     } else {
       risk_quantiles <-
         ccprobs.f(
@@ -725,32 +813,106 @@ if(!is.null(score_list)){
   )
 }
 
+if(!is.null(prepared_score_list)){
+  abs_res <- rbind(abs_res,
+    data.frame(
+      pgs_method = prepared_score_list$method,
+      gwas = prepared_score_list$name,
+      prev = NA,
+      abs_prob = NA,
+      mean = NA,
+      sd = NA
+    )
+  )
+}
+
 # Create plots
+pctl_res <- NULL
 for(gwas_i in unique(pgs_dat$gwas)){
   for(pgs_method_i in unique(pgs_dat$pgs_method[pgs_dat$gwas == gwas_i])){
-  
+
     pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
     abs_res_i <- abs_res[abs_res$pgs_method == pgs_method_i & abs_res$gwas == gwas_i,]
-    
+
     PRS_z_score <- pgs_dat_i$value
-    
-    # Create relative plot
-    rel_plot<-ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
-      stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) +
-      stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
-                    geom = "area", fill = "#CC66FF", alpha = .4) +
-      stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
-                    geom = "area", fill = "#FF6633", alpha = .4) +
-      geom_vline(xintercept=PRS_z_score, linetype='dashed') +
-      geom_text(label=paste0(round(pnorm(PRS_z_score)*100,1),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#CC66FF', hjust='right', vjust=0.8, size=5) +
-      geom_text(label=paste0(round(100-(pnorm(PRS_z_score)*100),1),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#FF6633', hjust='left', vjust=0.8, size=5) +
-      scale_y_continuous(breaks = NULL) +
-      theme_half_open() +
-      xlim(-5,5) +
-      labs(y='Number of people', x='Polygenic Score', title='Polygenic Score Distribution') +
-      theme(plot.title = element_text(hjust = 0.5))
-    
-    if(pgs_method_i != 'external'){
+
+    # Human-readable trait name for the plot title, in preference to the
+    # raw score/GWAS identifier - checks the novel-GWAS list first, then
+    # the precomputed/prepared score metadata.
+    trait_label_i <- gwas_i
+    if(!is.null(gwas_list) && gwas_i %in% gwas_list$name){
+      trait_label_i <- as.character(gwas_list$label[gwas_list$name == gwas_i][1])
+    } else if(!is.null(score_metadata) && gwas_i %in% score_metadata$name){
+      trait_label_i <- as.character(score_metadata$label[score_metadata$name == gwas_i][1])
+    }
+
+    # Empirical reference-panel distribution for this score/method, when the
+    # shared reference was built with it. read_reference_pgs() reads the
+    # ancestry-adjusted 'TRANS' reference profile, the same standardised
+    # scale PRS_z_score is already on (reference scores have mean ~0, sd ~1
+    # by construction), so it can be plotted and compared directly.
+    ref_scores_i <- NULL
+    if(!is.null(ref_pgs_raw[[gwas_i]]) && !is.null(ref_pgs_raw[[gwas_i]][[pgs_method_i]])){
+      ref_scores_i <- as.numeric(ref_pgs_raw[[gwas_i]][[pgs_method_i]][[3]])
+      ref_scores_i <- ref_scores_i[is.finite(ref_scores_i)]
+    }
+
+    if(!is.null(ref_scores_i) && length(ref_scores_i) > 1){
+      percentile_i <- 100 * mean(ref_scores_i <= PRS_z_score)
+      pctl_int <- round(percentile_i)
+      ordinal_suffix <- if(pctl_int %% 100 %in% 11:13){
+        'th'
+      } else {
+        switch(as.character(pctl_int %% 10), '1' = 'st', '2' = 'nd', '3' = 'rd', 'th')
+      }
+      pctl_res <- rbind(pctl_res, data.frame(
+        gwas = gwas_i, pgs_method = pgs_method_i,
+        percentile = percentile_i, n_ref = length(ref_scores_i)
+      ))
+
+      # Create relative plot: the reference panel's actual empirical
+      # distribution, not a theoretical curve, so real skew/multimodality
+      # in the reference shows rather than being smoothed away.
+      rel_plot <- ggplot(data.frame(x = ref_scores_i), aes(x = x)) +
+        geom_histogram(aes(y = after_stat(density)), bins = 40, fill = '#B39DDB', colour = NA) +
+        geom_vline(xintercept = PRS_z_score, linetype = 'dashed', colour = '#1A1A2E', linewidth = 0.9) +
+        annotate('point', x = PRS_z_score, y = 0, shape = 17, size = 4, colour = '#1A1A2E') +
+        annotate('text', x = PRS_z_score, y = 0, label = 'you',
+                 vjust = 2.2, fontface = 'bold', size = 4.5, colour = '#1A1A2E') +
+        scale_y_continuous(breaks = NULL) +
+        coord_cartesian(clip = 'off') +
+        theme_half_open() +
+        labs(
+          x = 'Polygenic score (SD from reference mean)', y = NULL,
+          title = trait_label_i,
+          subtitle = paste0(sprintf('%+.2f SD', PRS_z_score), '   ·   ', pctl_int, ordinal_suffix, ' percentile')
+        ) +
+        theme(
+          plot.title = element_text(face = 'bold', size = 17, hjust = 0),
+          plot.subtitle = element_text(size = 14, colour = '#5E35B1', hjust = 0, margin = margin(b = 8)),
+          plot.margin = margin(t = 10, r = 15, b = 30, l = 15)
+        )
+    } else {
+      # No reference profile was built for this score/method (e.g. a score
+      # added outside the shared reference build) - fall back to the
+      # theoretical normal curve rather than dropping the plot.
+      rel_plot<-ggplot(data = data.frame(x = c(-4, 4)), aes(x=x)) +
+        stat_function(fun = dnorm, n = 101, args = list(mean = 0, sd = 1)) +
+        stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, -4),
+                      geom = "area", fill = "#CC66FF", alpha = .4) +
+        stat_function(fun = dnorm, args = list(mean = 0, sd = 1), xlim = c(PRS_z_score, 4),
+                      geom = "area", fill = "#FF6633", alpha = .4) +
+        geom_vline(xintercept=PRS_z_score, linetype='dashed') +
+        geom_text(label=paste0(round(pnorm(PRS_z_score)*100,1),"% have lower \npolygenic scores"), mapping=aes(x=PRS_z_score-0.1, y=0.5), colour='#CC66FF', hjust='right', vjust=0.8, size=5) +
+        geom_text(label=paste0(round(100-(pnorm(PRS_z_score)*100),1),"% have higher \npolygenic scores"), mapping=aes(x=PRS_z_score+0.1, y=0.5), colour='#FF6633', hjust='left', vjust=0.8, size=5) +
+        scale_y_continuous(breaks = NULL) +
+        theme_half_open() +
+        xlim(-5,5) +
+        labs(y='Number of people', x='Polygenic Score', title=trait_label_i) +
+        theme(plot.title = element_text(hjust = 0.5))
+    }
+
+    if(pgs_method_i != 'external' && !is_prepared_score(gwas_i, pgs_method_i)){
       # Create absolute plot
       if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
         # Define parameters
@@ -759,44 +921,67 @@ for(gwas_i in unique(pgs_dat$gwas)){
         Outcome_sd=gwas_list$sd[gwas_list$name == gwas_i]
         conf_int=95/100
         n_quant<-1000
-        
-        # Run analysis
-        quant<-which_quant(PRS_z_score = PRS_z_score, n_quantile = n_quant)
-        
-        risk_quantiles<-mean_sd_quant.f(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n_quantile=n_quant, quant=quant)
-        indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
-        
-        ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-        ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
-                             y=ref,
-                             Group='General public')
-        
-        indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
-        indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
-                               y=indiv,
-                               Group='People like you')
-        
-        plot_dat<-rbind(ref_plot, indiv_plot)
-        plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
-        
-        # Calculate 95CI for target individual
-        lowCI<-qnorm((1-conf_int)/2,indiv_result_all$x_mean,indiv_result_all$x_sd)
-        highCI<-qnorm(1-((1-conf_int)/2),indiv_result_all$x_mean,indiv_result_all$x_sd)
-        
-        abs_plot<-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
-          geom_area(alpha=0.4, colour='black') +
-          scale_fill_manual(values=c("#84CA72","#0066CC")) +
-          labs(y='Number of people', x='Trait', title='Absolute Risk', fill=NULL) +
-          geom_segment(aes(x = indiv_result_all$x_mean , y = 0, xend = indiv_result_all$x_mean, yend = 0.4), color="black") +
-          geom_segment(aes(x = lowCI , y = 0, xend = lowCI, yend = 0.38), color="#0066CC", linetype="dashed") +
-          geom_segment(aes(x = highCI , y = 0, xend = highCI, yend = 0.38), color="#0066CC", linetype="dashed") +
-          geom_text(label=paste0('Estimate = ',round(indiv_result_all$x_mean,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='black', hjust='left', vjust=0.8, size=5, check_overlap = TRUE) +
-          geom_text(label=paste0(conf_int*100,'% CI = ',round(lowCI,2),' – ',round(highCI,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='#0066CC', hjust='left', vjust=2.5, size=5, check_overlap = TRUE) +
-          scale_y_continuous(breaks = NULL) +
-          theme_half_open() +
-          theme(plot.title = element_text(hjust = 0.5)) +
-          theme(legend.position=c(0.01,0.95), legend.box = "horizontal")
-        
+
+        if(is.na(PRS_R2) || is.na(Outcome_mean) || is.na(Outcome_sd)){
+          # Absolute-scale conversion needs a pseudo-validated R^2 (only
+          # produced when lassosum was one of the selected methods) and a
+          # population mean/SD for the phenotype. Neither is guaranteed for a
+          # novel-GWAS job (both are optional in the web submission form), so
+          # fall back to the same placeholder used for external/prepared
+          # scores instead of crashing the whole report.
+          lowCI <- NA_real_
+          highCI <- NA_real_
+          abs_plot <- ggplot() +
+            annotate(
+              "text",
+              x = 0.5,
+              y = 0.5,
+              label = "Automatic conversion to absolute scale is unavailable for this score.\nIt needs a pseudo-validated R-squared (from the lassosum method) and\nthe phenotype's population mean and SD, neither of which was available.",
+              size = 4,
+              hjust = 0.5,
+              vjust = 0.5
+            ) +
+            theme_void() +
+            theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+        } else {
+          # Run analysis
+          quant<-which_quant(PRS_z_score = PRS_z_score, n_quantile = n_quant)
+
+          risk_quantiles<-mean_sd_quant.f(PRS_R2=PRS_R2, Outcome_mean=Outcome_mean, Outcome_sd=Outcome_sd, n_quantile=n_quant, quant=quant)
+          indiv_result_all<-risk_quantiles[PRS_z_score > risk_quantiles$q_min & PRS_z_score <= risk_quantiles$q_max,]
+
+          ref<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
+          ref_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*Outcome_sd)+Outcome_mean,
+                               y=ref,
+                               Group='General public')
+
+          indiv<-dnorm(seq(-4.5,4.5,0.01), 0, 1)
+          indiv_plot<-data.frame(x=(seq(-4.5,4.5,0.01)*indiv_result_all$x_sd)+indiv_result_all$x_mean,
+                                 y=indiv,
+                                 Group='People like you')
+
+          plot_dat<-rbind(ref_plot, indiv_plot)
+          plot_dat$Group<-factor(plot_dat$Group, levels=c('General public','People like you'))
+
+          # Calculate 95CI for target individual
+          lowCI<-qnorm((1-conf_int)/2,indiv_result_all$x_mean,indiv_result_all$x_sd)
+          highCI<-qnorm(1-((1-conf_int)/2),indiv_result_all$x_mean,indiv_result_all$x_sd)
+
+          abs_plot<-ggplot(plot_dat, aes(x=x, y=y, fill=Group)) +
+            geom_area(alpha=0.4, colour='black') +
+            scale_fill_manual(values=c("#84CA72","#0066CC")) +
+            labs(y='Number of people', x='Trait', title='Absolute Risk', fill=NULL) +
+            geom_segment(aes(x = indiv_result_all$x_mean , y = 0, xend = indiv_result_all$x_mean, yend = 0.4), color="black") +
+            geom_segment(aes(x = lowCI , y = 0, xend = lowCI, yend = 0.38), color="#0066CC", linetype="dashed") +
+            geom_segment(aes(x = highCI , y = 0, xend = highCI, yend = 0.38), color="#0066CC", linetype="dashed") +
+            geom_text(label=paste0('Estimate = ',round(indiv_result_all$x_mean,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='black', hjust='left', vjust=0.8, size=5, check_overlap = TRUE) +
+            geom_text(label=paste0(conf_int*100,'% CI = ',round(lowCI,2),' – ',round(highCI,2)), mapping=aes(x=Outcome_mean+Outcome_sd, y=0.5), colour='#0066CC', hjust='left', vjust=2.5, size=5, check_overlap = TRUE) +
+            scale_y_continuous(breaks = NULL) +
+            theme_half_open() +
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(legend.position=c(0.01,0.95), legend.box = "horizontal")
+        }
+
       } else {
         d <- pseudoval$pseudoval_d[pseudoval$gwas == gwas_i]
         prev <- gwas_list$prevalence[gwas_list$name == gwas_i] * 100
@@ -879,7 +1064,7 @@ for(gwas_i in unique(pgs_dat$gwas)){
           "text",
           x = 0.5,
           y = 0.5,
-          label = "Automatic conversion to absolute scale is unavailable\nfor externally derived polygenic scores.\nSee below for more information.",
+          label = "Automatic conversion to absolute scale is unavailable\nfor externally derived or prepared polygenic scores.\nSee below for more information.",
           size = 4,
           hjust = 0.5,
           vjust = 0.5
@@ -898,8 +1083,8 @@ for(gwas_i in unique(pgs_dat$gwas)){
 ```{r, results='asis', eval = pgs_incl}
 score_info<-NULL
 
-if(!is.null(score_list)){
-  score_list_brief<-score_list[,c('name','label')]
+if(!is.null(score_metadata)){
+  score_list_brief<-score_metadata[,c('name','label')]
   score_list_brief$mean <- NA
   score_list_brief$sd <- NA
   names(score_list_brief)<-c('gwas','label','pop_mean','pop_sd')
@@ -928,7 +1113,9 @@ for(pgs_method_i in unique(all_dat$pgs_method)){
   all_dat_i[,-1]<-round(all_dat_i[,-1],3)
   names(all_dat_i)<-c('Outcome','PGS R-squared','PGS AUC','Prevelance','Mean','SD','PGS Z-score','Prevalence','Mean','SD')
 
-  cat0('### Method: ',pgs_method_labels$label[pgs_method_labels$method == pgs_method_i],' {.tabset .tabset-fade} \n')
+  method_label <- pgs_method_labels$label[pgs_method_labels$method == pgs_method_i]
+  if(length(method_label) == 0) method_label <- pgs_method_i
+  cat0('### Method: ',method_label,' {.tabset .tabset-fade} \n')
 
   print(kable(all_dat_i, align = "c", row.names = FALSE) %>%
     add_header_above(c(" " = 1, "PGS Descriptives" = 2, "Distribution in General\nPopulation"=3, "Distribution in People\nLike You" = 4)) %>%
@@ -953,15 +1140,25 @@ for(pgs_method_i in unique(all_dat$pgs_method)){
 
     pgs_dat_i <- pgs_dat[pgs_dat$gwas == gwas_i & pgs_dat$pgs_method == pgs_method_i,]
     abs_res_i <- abs_res[abs_res$pgs_method == pgs_method_i & abs_res$gwas == gwas_i,]
+    pctl_res_i <- pctl_res[pctl_res$gwas == gwas_i & pctl_res$pgs_method == pgs_method_i,]
 
-    cat0('- Your PGS Z-score for ', all_dat$label[all_dat$gwas == gwas_i], ' is ', pgs_dat_i$value,' which is higher than ', paste0(round(100*pnorm(pgs_dat_i$value),1),'%'),' of other ', top_pop,' individuals.\n\n')
+    if(nrow(pctl_res_i) == 1){
+      cat0("*Reference: pipeline reference panel ([Privé 2022](https://doi.org/10.1093/bioinformatics/btac348)), ancestry-adjusted, n = ", format(pctl_res_i$n_ref, big.mark = ','), " · empirical distribution.*\n\n")
+      cat0('- Your PGS Z-score for ', all_dat$label[all_dat$gwas == gwas_i], ' is ', round(pgs_dat_i$value, 3),' which is higher than ', paste0(round(pctl_res_i$percentile,1),'%'),' of individuals in the reference panel.\n\n')
+    } else {
+      cat0('- Your PGS Z-score for ', all_dat$label[all_dat$gwas == gwas_i], ' is ', pgs_dat_i$value,' which is higher than ', paste0(round(100*pnorm(pgs_dat_i$value),1),'%'),' of other ', top_pop,' individuals.\n\n')
+    }
     
-    if(pgs_method_i != 'external'){
+    if(pgs_method_i != 'external' && !is_prepared_score(gwas_i, pgs_method_i)){
       if(is.na(gwas_list$prevalence[gwas_list$name == gwas_i])){
-        
-        cat0('- Assuming the PGS explains ', round(100*pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],1),'% of the variance in ', gwas_list$label[gwas_list$name == gwas_i],',\n and the mean and SD of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$mean[gwas_list$name == gwas_i],' and ',gwas_list$sd[gwas_list$name == gwas_i],' respectively,\n on average people with your PGS have a ', gwas_list$label[gwas_list$name == gwas_i],' of ', round(abs_res_i$mean,2), " (95% CI = ",round(lowCI,2),' - ',round(highCI,2),").\n\n")
-        cat0('- **Note.** These predictions are estimated using a range of assumptions and should be interpreted with caution. This report is merely a demonstration of how polygenic scores can be interpreted.\n\n')
-  
+
+        if(is.na(abs_res_i$mean)){
+          cat0('- Absolute-scale interpretation is unavailable for this score: it needs a pseudo-validated R-squared (from the lassosum method) and the population mean/SD of ', gwas_list$label[gwas_list$name == gwas_i], ', neither of which was available here.\n\n')
+        } else {
+          cat0('- Assuming the PGS explains ', round(100*pseudoval$pseudoval_r2obs[pseudoval$gwas == gwas_i],1),'% of the variance in ', gwas_list$label[gwas_list$name == gwas_i],',\n and the mean and SD of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$mean[gwas_list$name == gwas_i],' and ',gwas_list$sd[gwas_list$name == gwas_i],' respectively,\n on average people with your PGS have a ', gwas_list$label[gwas_list$name == gwas_i],' of ', round(abs_res_i$mean,2), " (95% CI = ",round(lowCI,2),' - ',round(highCI,2),").\n\n")
+          cat0('- **Note.** These predictions are estimated using a range of assumptions and should be interpreted with caution. This report is merely a demonstration of how polygenic scores can be interpreted.\n\n')
+        }
+
       } else {
           
         cat0('- Assuming the PGS has an AUC of ', round(pseudoval$pseudoval_auc[pseudoval$gwas == gwas_i],3),', and the prevelance of ', gwas_list$label[gwas_list$name == gwas_i],' in the general population is ',gwas_list$prevalence[gwas_list$name == gwas_i],',\n on average ',round(100*abs_res_i$abs_prob,1),'% of people with your PGS have ', gwas_list$label[gwas_list$name == gwas_i],'.\n\n')

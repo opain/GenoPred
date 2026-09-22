@@ -176,13 +176,12 @@ error<-foreach(i = GWAS_CHROMS, .combine = rbind, .options.multicore = list(pres
 }
 
 # Report an error if SBayesR didn't converge for all chromosomes
-if(sum(grepl('Error', error$Log) == T) > 1){
+if(sum(grepl('Error', error$Log) == T) > 0){
   log_add(log_file = log_file, message = paste0('An error occurred for ', sum(grepl('Error', error$Log) == T), ' chromosomes. Retry requesting more memory or run interactively to debug.'))
   sink(file = log_file, append = T)
     print(error)
   sink()
-  q()
-  n
+  quit(status = 1, save = 'no')
 }
 
 # Combine per chromosome snpRes files
@@ -253,4 +252,3 @@ sink(file = log_file, append = T)
 cat('Analysis finished at', as.character(end.time),'\n')
 cat('Analysis duration was', as.character(round(time.taken,2)), attr(time.taken, 'units'), '\n')
 sink()
-

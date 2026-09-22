@@ -93,7 +93,7 @@ def check_target_type(df, column='type'):
 def check_config_parameters(config):
     required_params = [
         'outdir', 'resdir', 'refdir', 'config_file', 'gwas_list', 'target_list',
-        'score_list', 'pgs_methods', 'ptclump_pts', 'dbslmm_h2f', 'prscs_phi',
+        'score_list', 'prepared_score_list', 'pgs_methods', 'ptclump_pts', 'dbslmm_h2f', 'prscs_phi',
         'prscs_ldref', 'ldpred2_model', 'ldpred2_inference', 'ancestry_prob_thresh',
         'testing'
     ]
@@ -126,6 +126,11 @@ def check_for_duplicates(df, name_col, list_name):
     duplicate_names = df[df[name_col].duplicated(keep=False)]
     if not duplicate_names.empty:
         raise ValueError(f"Duplicate values found in '{name_col}' column of {list_name}: {', '.join(duplicate_names[name_col].unique())}")
+
+def check_required_columns(df, required_columns, list_name):
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing required columns in {list_name}: {', '.join(missing_columns)}")
 
 
 ###
@@ -202,6 +207,55 @@ check_for_duplicates(score_list_df, 'name', 'score_list')
 check_list_paths(score_list_df, list_name = 'score_list')
 
 ###
+# prepared_score_list
+###
+
+prepared_score_columns = ["name", "method", "path", "label"]
+if 'prepared_score_list' in config and config["prepared_score_list"] != 'NA':
+  prepared_score_list_df = pd.read_table(config["prepared_score_list"], sep=r'\s+')
+  check_required_columns(prepared_score_list_df, prepared_score_columns, 'prepared_score_list')
+
+  for column in prepared_score_columns:
+    if prepared_score_list_df[column].isna().any():
+      raise ValueError(f"Missing values found in '{column}' column of prepared_score_list")
+
+  valid_name = re.compile(r'^[A-Za-z0-9_.]+$')
+  for index, row in prepared_score_list_df.iterrows():
+    name = str(row['name'])
+    method = str(row['method'])
+    if not valid_name.fullmatch(name):
+      raise ValueError(f"Invalid prepared score name '{name}'. Names may contain only letters, numbers, underscores, and periods.")
+    if not valid_name.fullmatch(method):
+      raise ValueError(f"Invalid prepared score method '{method}'. Methods may contain only letters, numbers, underscores, and periods.")
+
+    artifact_dir = os.path.abspath(str(row['path']))
+    expected_dir = os.path.abspath(f"{outdir}/reference/pgs_score_files/{method}/{name}")
+    if artifact_dir != expected_dir:
+      raise ValueError(f"Prepared score path for {name}/{method} must be the expected artifact directory: {expected_dir}")
+    if not os.path.isdir(artifact_dir):
+      raise FileNotFoundError(f"Check prepared_score_list: Artifact directory not found: {artifact_dir}")
+
+    score_file = os.path.join(artifact_dir, f"ref-{name}.score.gz")
+    if not os.path.isfile(score_file):
+      raise FileNotFoundError(f"Check prepared_score_list: Prepared score artifact not found: {score_file}")
+
+  duplicate_pairs = prepared_score_list_df[
+    prepared_score_list_df.duplicated(subset=['name', 'method'], keep=False)
+  ]
+  if not duplicate_pairs.empty:
+    pairs = duplicate_pairs.apply(lambda row: f"{row['name']}/{row['method']}", axis=1).unique()
+    raise ValueError(f"Duplicate name/method pairs found in prepared_score_list: {', '.join(pairs)}")
+else:
+  prepared_score_list_df = pd.DataFrame(columns = prepared_score_columns)
+
+# The score file is the canonical prepared artifact and makes each manifest row
+# an explicit dependency without creating a method-generation rule.
+prepared_score_inputs = [
+  os.path.join(str(row['path']), f"ref-{row['name']}.score.gz")
+  for index, row in prepared_score_list_df.iterrows()
+]
+
+###
 # gwas_groups
 ###
 
@@ -239,7 +293,7 @@ if missing_gwas:
 gwas_groups_df_two = gwas_groups_df[gwas_groups_df['gwas'].str.count(',') == 1]
 
 ###
-# Check there are no duplicate values in name columns of gwas_list, score_list, gwas_groups
+# Check there are no duplicate values in name columns of input lists
 ###
 
 def check_for_duplicates_across_lists(df_list, name_col, list_names):
@@ -860,7 +914,11 @@ rule download_prscs_snp_data_1kg:
 # Download gctb reference
 rule download_gctb_ref:
   output:
-    directory(f"{resdir}/data/gctb_ref/EUR")
+    expand(
+      f"{resdir}/data/gctb_ref/EUR/EUR.chr{{chr}}.ldm.sparse.{{ext}}",
+      chr=range(1, 23), ext=["bin", "info"]
+    ),
+    expand(f"{resdir}/data/gctb_ref/EUR/EUR.chr{{chr}}.log", chr=range(1, 23))
   benchmark:
     f"{resdir}/data/benchmarks/download_gctb_ref.txt"
   log:
@@ -1691,4 +1749,3 @@ rule get_all_resources:
     rules.get_quickprs_resources.output
   output:
     touch(f"{resdir}/software/get_all_resources.done")
-

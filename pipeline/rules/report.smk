@@ -17,6 +17,10 @@ if 'score_list' in config and config["score_list"] != 'NA':
   output_all_input.append(rules.score_reporter.output)
   label_list = pd.concat([label_list, score_list_df['label']])
 
+if 'prepared_score_list' in config and config["prepared_score_list"] != 'NA':
+  output_all_input.extend(prepared_score_inputs)
+  label_list = pd.concat([label_list, prepared_score_list_df['label']])
+
 # Identify temp directory
 tmpdir = f"{resdir}/tmp"
 
@@ -133,7 +137,7 @@ def id_munge(name):
 rule indiv_report_i:
   input:
     rules.install_ggchicklet.output,
-    rules.prep_pgs_lassosum.input,
+    (rules.prep_pgs_lassosum.input if 'lassosum' in config.get('pgs_methods', []) else []),
     output_all_input,
     (rules.enhanced_ancestry_i.output if enhanced_ancestry_enabled else [])
   output:

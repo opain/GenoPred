@@ -17,6 +17,12 @@ if 'target_list' in config:
       mem_mb=16000*config['cores_impute_23andme'],
       time_min=240
     threads: config['cores_impute_23andme']
+    # NOT grouped with format_target_i: format_target_i depends on this
+    # rule's output BOTH directly AND transitively via impute_23andme_all
+    # (the per-name all-chromosomes barrier). Grouping the two would make
+    # the group depend on impute_23andme_all, which itself depends on a
+    # member of the same group - a real deadlock ("BUG: Out of jobs ready to
+    # be started"), confirmed by an actual failed run, not just a risk.
     input:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
       rules.download_impute2_data.output,
@@ -99,6 +105,7 @@ if 'target_list' in config:
     resources:
       mem_mb=4000,
       time_min=30
+    # See impute_23andme_i's comment - not grouped with it (would deadlock).
     input:
       lambda w: format_target_input(name = w.name),
       lambda w: target_path(name = w.name, chr = w.chr),
