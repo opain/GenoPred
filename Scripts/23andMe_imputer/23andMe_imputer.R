@@ -31,6 +31,8 @@ make_option("--bcftools", action="store", default='bcftools', type='character',
 		help="Path to bcftools [optional]"),
 make_option("--impute5", action="store", default='impute5', type='character',
 		help="Path to impute5 [optional]"),
+make_option("--ref_name", action="store", default='1000GP_Phase3', type='character',
+		help="File stem of the reference panel in --ref and --ref5 (<stem>_chr<N>.hap.gz/.legend.gz, <stem>.sample, <stem>_chr<N>_xcf.bcf) [optional]"),
 make_option("--ref5", action="store", default=NULL, type='character',
 		help="Path to folder containing the IMPUTE5 xcf-format 1KG reference data (1000GP_Phase3_chr<N>_xcf.bcf), used for imputation [required]"),
 make_option("--map5", action="store", default=NULL, type='character',
@@ -117,7 +119,7 @@ log_add(log_file = log_file, message = 'Harmonsing and phasing genetic data usin
 
 # Check for strand flips
 # We a introduce a dummy indvidual who is a heterozygote to make shapeit knows A2.
-system(paste0(opt$shapeit, ' -check --input-ped ', tmp_dir, '/geno_nodup.ped ', tmp_dir, '/geno_nodup.map -M ', opt$ref, '/genetic_map_chr', opt$chr, '_combined_b37.txt --input-ref ',opt$ref,'/1000GP_Phase3_chr', opt$chr, '.hap.gz ', opt$ref,'/1000GP_Phase3_chr', opt$chr, '.legend.gz ', opt$ref, '/1000GP_Phase3.sample --output-log ', tmp_dir, '/geno_nodup.shapeit_log'))
+system(paste0(opt$shapeit, ' -check --input-ped ', tmp_dir, '/geno_nodup.ped ', tmp_dir, '/geno_nodup.map -M ', opt$ref, '/genetic_map_chr', opt$chr, '_combined_b37.txt --input-ref ',opt$ref,'/', opt$ref_name, '_chr', opt$chr, '.hap.gz ', opt$ref,'/', opt$ref_name, '_chr', opt$chr, '.legend.gz ', opt$ref, '/', opt$ref_name, '.sample --output-log ', tmp_dir, '/geno_nodup.shapeit_log'))
 
 # Read in the shapeit log file
 logFile <- data.frame(fread(paste0(tmp_dir, '/geno_nodup.shapeit_log.snp.strand'), col.names = c("type1", "type2", "pos", "main_id", "main_A", "main_B", "main_flippable", "ref_id", "ref_A", "ref_B", "ref_flippable")))
@@ -163,7 +165,7 @@ omitRemaining <- logStrand[!logStrand[, 4] %in% forceHomozygoteTable[, 4], 3]
 write.table(c(omitNonIdentical, omitBlank, omitMissing, omitRemaining), file = paste0(tmp_dir, '/exclusions.txt'), sep = '\t', row.names = F, col.names = F, quote = F)
 
 # Run shapeit command
-system(paste0(opt$shapeit, ' --input-ped ', tmp_dir, '/geno_nodup.ped ', tmp_dir, '/geno_nodup.map -M ', opt$ref,'/genetic_map_chr', opt$chr ,'_combined_b37.txt --input-ref ', opt$ref, '/1000GP_Phase3_chr', opt$chr, '.hap.gz ', opt$ref, '/1000GP_Phase3_chr', opt$chr, '.legend.gz ', opt$ref, '/1000GP_Phase3.sample --output-log ',tmp_dir, '/geno_nodup.shapeit_log --exclude-snp ',tmp_dir, '/exclusions.txt -O ',tmp_dir, '/geno_nodup.harmonised_temp'))
+system(paste0(opt$shapeit, ' --input-ped ', tmp_dir, '/geno_nodup.ped ', tmp_dir, '/geno_nodup.map -M ', opt$ref,'/genetic_map_chr', opt$chr ,'_combined_b37.txt --input-ref ', opt$ref, '/', opt$ref_name, '_chr', opt$chr, '.hap.gz ', opt$ref, '/', opt$ref_name, '_chr', opt$chr, '.legend.gz ', opt$ref, '/', opt$ref_name, '.sample --output-log ',tmp_dir, '/geno_nodup.shapeit_log --exclude-snp ',tmp_dir, '/exclusions.txt -O ',tmp_dir, '/geno_nodup.harmonised_temp'))
 
 # Remove dummy individual
 system(paste0("cut --delimiter=' ' -f 1-7 ",tmp_dir, '/geno_nodup.harmonised_temp.haps > ',tmp_dir, '/geno_nodup.harmonised.haps'))
@@ -194,10 +196,10 @@ system(paste0(opt$bcftools, ' index -f ', tmp_dir, '/target_tagged.bcf'))
 # --r and --buffer-region are required by impute5 even when there's no actual
 # buffer beyond the chromosome itself, and need an explicit position range,
 # not just the bare chromosome ID.
-maxPos <- system(paste0('zcat ', opt$ref, '/1000GP_Phase3_chr', opt$chr, ".legend.gz | tail -n 1 | cut -d ' ' -f 2"),intern=T)
+maxPos <- system(paste0('zcat ', opt$ref, '/', opt$ref_name, '_chr', opt$chr, ".legend.gz | tail -n 1 | cut -d ' ' -f 2"),intern=T)
 region <- paste0(opt$chr, ':1-', maxPos)
 
-ref5_bcf <- paste0(opt$ref5, '/1000GP_Phase3_chr', opt$chr, '_xcf.bcf')
+ref5_bcf <- paste0(opt$ref5, '/', opt$ref_name, '_chr', opt$chr, '_xcf.bcf')
 map5_file <- paste0(opt$map5, '/chr', opt$chr, '.b37.gmap.gz')
 
 imp_log <- system(paste0(opt$impute5,

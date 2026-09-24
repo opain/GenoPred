@@ -145,7 +145,7 @@ rule prep_pgs_ptclump_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ptclump:
-  input: expand(f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/ptclump/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('ptclump'))
 
 ##
 # DBSLMM
@@ -224,7 +224,7 @@ rule prep_pgs_dbslmm_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_dbslmm:
-  input: expand(f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/dbslmm/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('dbslmm'))
 
 ##
 # PRScs
@@ -273,7 +273,7 @@ rule prep_pgs_prscs_i:
     """
 
 rule prep_pgs_prscs:
-  input: expand(f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/prscs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('prscs'))
 
 ##
 # SBayesR
@@ -326,7 +326,7 @@ rule prep_pgs_sbayesr_i:
     """
 
 rule prep_pgs_sbayesr:
-  input: expand(f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/sbayesr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('sbayesr'))
     
 ##
 # lassosum
@@ -366,7 +366,7 @@ rule prep_pgs_lassosum_i:
      --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_lassosum:
-  input: expand(f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/lassosum/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('lassosum'))
 
 ##
 # SDPR
@@ -415,7 +415,7 @@ rule prep_pgs_sdpr_i:
     """
 
 rule prep_pgs_sdpr:
-  input: expand(f"{outdir}/reference/pgs_score_files/sdpr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/sdpr/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('sdpr'))
 
 ##
 # LDpred2
@@ -469,7 +469,7 @@ rule prep_pgs_ldpred2_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_ldpred2:
-  input: expand(f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/ldpred2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('ldpred2'))
 
 ##
 # lassosum2
@@ -512,7 +512,7 @@ rule prep_pgs_lassosum2_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_lassosum2:
-  input: expand(f"{outdir}/reference/pgs_score_files/lassosum2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/lassosum2/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('lassosum2'))
 
 ##
 # LDAK MegaPRS
@@ -559,7 +559,7 @@ rule prep_pgs_megaprs_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_megaprs:
-  input: expand(f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('megaprs'))
 
 rule prep_pgs_megaprs6_i:
   resources:
@@ -601,7 +601,7 @@ rule prep_pgs_megaprs6_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_megaprs6:
-  input: expand(f"{outdir}/reference/pgs_score_files/megaprs6/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/megaprs6/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('megaprs6'))
 
 ##
 # LDAK QuickPRS
@@ -655,7 +655,7 @@ rule prep_pgs_quickprs_i:
     """
 
 rule prep_pgs_quickprs:
-  input: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/quickprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('quickprs'))
 
 ##
 # SBayesRC
@@ -701,7 +701,7 @@ rule prep_pgs_sbayesrc_i:
       --test {params.testing} > {log} 2>&1"
 
 rule prep_pgs_sbayesrc:
-  input: expand(f"{outdir}/reference/pgs_score_files/sbayesrc/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_list_df['name'])
+  input: expand(f"{outdir}/reference/pgs_score_files/sbayesrc/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('sbayesrc'))
 
 ##
 # Process externally created score files
@@ -1163,6 +1163,11 @@ if 'bridgeprs' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_bridgeprs.input)
 if 'sdpr' in pgs_methods_all:
   pgs_methods_input.append(rules.prep_pgs_sdpr.input)
+if 'pumas_en' in pgs_methods_all:
+  pgs_methods_input.extend(expand(
+    f"{outdir}/reference/pgs_score_files/pumas_en/{{gwas}}/ref-{{gwas}}.score.gz",
+    gwas=gwas_list_df_base['name']
+  ))
 
 rule prep_pgs:
   input:

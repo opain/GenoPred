@@ -404,6 +404,11 @@ find_pseudo <- function(config, gwas, pgs_method, target_pop = NULL, quiet = F){
     pseudo_val <- 'external'
   }
 
+  # PUMAS-EN has one canonical ensemble model.
+  if(pgs_method == 'pumas_en'){
+    pseudo_val <- 'EN'
+  }
+
   # Multi-population methods
   if(pgs_method == 'prscsx'){
     pseudo_val <- 'META_phi_auto'

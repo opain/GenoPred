@@ -27,7 +27,10 @@ if 'target_list' in config:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
       rules.download_impute2_data.output,
       rules.install_genoutils_impute5.output,
-      f"{resdir}/last_version.txt"
+      f"{resdir}/last_version.txt",
+      # The panel itself: a rebuilt/switched panel is newer than any genotypes
+      # imputed from the old one, so --rerun-triggers mtime re-imputes them.
+      f"{resdir}/data/impute5/{config['impute_ref_panel']}/{config['impute_ref_panel']}_chr{{chr}}_xcf.bcf"
     output:
       f"{outdir}/{{name}}/geno/imputed/{{name}}.chr{{chr}}.bed"
     benchmark:
@@ -47,9 +50,10 @@ if 'target_list' in config:
         --geno {params.path} \
         --output {outdir}/{params.name}/geno/imputed/{params.name}.chr{wildcards.chr} \
         --chr {wildcards.chr} \
-        --ref {resdir}/data/impute2/1000GP_Phase3 \
+        --ref {resdir}/data/impute2/{config[impute_ref_panel]} \
+        --ref_name {config[impute_ref_panel]} \
         --impute5 /scratch/prj/neurohackpain/GenoPred/software/impute5_v1.2.0/impute5_v1.2.0_static \
-        --ref5 {resdir}/data/impute5/1000GP_Phase3 \
+        --ref5 {resdir}/data/impute5/{config[impute_ref_panel]} \
         --map5 {resdir}/data/impute5/maps \
         --n_core {threads} > {log} 2>&1"
 

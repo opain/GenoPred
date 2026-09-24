@@ -11,7 +11,7 @@ if 'target_list' in config and config["target_list"] != 'NA':
 if 'gwas_list' in config and config["gwas_list"] != 'NA':
   output_all_input.append(rules.prep_pgs.input)
   output_all_input.append(rules.sumstat_prep.input)
-  label_list = pd.concat([label_list, gwas_list_df['label']])
+  label_list = pd.concat([label_list, gwas_list_df_base['label']])
 
 if 'score_list' in config and config["score_list"] != 'NA':
   output_all_input.append(rules.score_reporter.output)
@@ -25,7 +25,7 @@ if 'prepared_score_list' in config and config["prepared_score_list"] != 'NA':
 tmpdir = f"{resdir}/tmp"
 
 # Make a list of all values in sampling prevalence mean sd columns in gwas_list
-gwas_dist = [gwas_list_df['sampling'], gwas_list_df['prevalence'], gwas_list_df['mean'], gwas_list_df['sd']]
+gwas_dist = [gwas_list_df_base['sampling'], gwas_list_df_base['prevalence'], gwas_list_df_base['mean'], gwas_list_df_base['sd']]
 gwas_dist = [item for sublist in gwas_dist for item in sublist]
 
 #####

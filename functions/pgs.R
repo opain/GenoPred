@@ -23,6 +23,19 @@ list_score_files <- function(config, quiet = F){
 
     combos <- rbind(combos,
                     expand.grid(name = gwas_list$name[gwas_list$population != 'EUR'], method = pgs_methods_noneur))
+
+    # Web launcher: an optional 'methods' column (comma-separated) limits the
+    # methods run on each GWAS - keep only those pairs (blank/NA keeps all), so
+    # a stale score file from an earlier run in the same directory is ignored.
+    if('methods' %in% names(gwas_list)){
+      allowed <- setNames(lapply(as.character(gwas_list$methods), function(x){
+        if(is.na(x) || x %in% c('', 'NA')) NULL else trimws(strsplit(x, ',')[[1]])
+      }), gwas_list$name)
+      combos <- combos[mapply(function(name, method){
+        methods <- allowed[[as.character(name)]]
+        is.null(methods) || as.character(method) %in% methods
+      }, combos$name, combos$method), , drop = FALSE]
+    }
   }
 
   # Read in score_list

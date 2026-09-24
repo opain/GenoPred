@@ -6,6 +6,7 @@ import pandas as pd
 from pathlib import Path
 import multiprocessing
 import hashlib
+import math
 import sys
 import tempfile
 import os
@@ -179,8 +180,35 @@ check_for_duplicates(gwas_list_df, 'name', 'gwas_list')
 # Check whether gwas_list paths exist
 check_list_paths(gwas_list_df, list_name = 'gwas_list')
 
+# Preserve submitted rows separately from the method-facing frame, which may
+# include generated PUMAS-EN training folds below.
+gwas_list_df_base = gwas_list_df.copy()
+
 # Identify gwas_list with population == 'EUR'
 gwas_list_df_eur = gwas_list_df.loc[gwas_list_df['population'] == 'EUR']
+
+# Web launcher: an optional gwas_list 'methods' column (comma-separated) limits
+# which pgs_methods run on each GWAS; blank/NA keeps the upstream behaviour of
+# running every pgs_method on every GWAS. Rules expand over gwas_for_method(m)
+# instead of every GWAS name. Called at rule-definition time, so it also sees
+# the PUMAS-EN fold rows added below (which inherit their base GWAS's methods).
+def _gwas_methods(value):
+  if pd.isna(value) or str(value).strip() in ('', 'NA'):
+    return None
+  return [method.strip() for method in str(value).split(',') if method.strip()]
+
+def gwas_for_method(method):
+  if 'methods' not in gwas_list_df.columns:
+    return list(gwas_list_df['name'])
+  return [row['name'] for _, row in gwas_list_df.iterrows()
+          if _gwas_methods(row['methods']) is None or method in _gwas_methods(row['methods'])]
+
+if 'methods' in gwas_list_df.columns:
+  _configured = set(config.get('pgs_methods') or [])
+  for _, _row in gwas_list_df.iterrows():
+    _unknown = set(_gwas_methods(_row['methods']) or []) - _configured
+    if _unknown:
+      raise ValueError(f"gwas_list methods for {_row['name']} are not in pgs_methods: {', '.join(sorted(_unknown))}")
 
 ###
 # score_list
@@ -212,7 +240,7 @@ check_list_paths(score_list_df, list_name = 'score_list')
 
 prepared_score_columns = ["name", "method", "path", "label"]
 if 'prepared_score_list' in config and config["prepared_score_list"] != 'NA':
-  prepared_score_list_df = pd.read_table(config["prepared_score_list"], sep=r'\s+')
+  prepared_score_list_df = pd.read_table(config["prepared_score_list"], sep='\t')
   check_required_columns(prepared_score_list_df, prepared_score_columns, 'prepared_score_list')
 
   for column in prepared_score_columns:
@@ -324,6 +352,94 @@ if config['resdir'] == 'NA':
   resdir='resources'
 else:
   resdir=config['resdir']
+
+# PUMAS-EN is an automatic EUR-only ensemble. Its synthetic fold GWAS rows
+# reuse the existing sumstat and single-method rules, while remaining absent
+# from the submitted GWAS list and user-facing report labels.
+pumas_en_methods = list(config.get('pumas_en_methods') or [])
+pumas_en_enabled = bool(pumas_en_methods)
+pumas_en_folds = int(config.get('pumas_en_folds', 4))
+pumas_en_partitions = [float(x) for x in config.get('pumas_en_partitions', [0.6, 0.2, 0.1, 0.1])]
+pumas_en_code = config.get('pumas_en_code', 'NA')
+pumas_en_ld_blocks = config.get('pumas_en_ld_blocks', 'NA')
+pumas_en_ref_prefix = config.get('pumas_en_ref_prefix', 'NA')
+pumas_en_manifest = config.get('pumas_en_manifest', 'NA')
+pumas_en_commit = config.get('pumas_en_commit', '3eaa70ca28962c0f2ec66be56573131d173fffcd')
+if pumas_en_code == 'NA':
+  pumas_en_code = f"{resdir}/software/PUMAS/code"
+if pumas_en_ld_blocks == 'NA':
+  pumas_en_ld_blocks = f"{resdir}/data/PUMAS/1kg.RData"
+if pumas_en_ref_prefix == 'NA':
+  pumas_en_ref_prefix = f"{resdir}/data/PUMAS/1kg_hm3_QCed_noM"
+if pumas_en_manifest == 'NA':
+  pumas_en_manifest = f"{resdir}/data/PUMAS/SHA256SUMS"
+
+if pumas_en_enabled:
+  configured_methods = config.get('pgs_methods') or []
+  if isinstance(configured_methods, str):
+    configured_methods = [] if configured_methods == 'NA' else [configured_methods]
+  eligible_methods = {
+    'ptclump', 'dbslmm', 'prscs', 'sbayesr', 'sbayesrc', 'lassosum',
+    'lassosum2', 'ldpred2', 'megaprs', 'quickprs', 'sdpr'
+  }
+  if len(set(pumas_en_methods)) < 2 or len(set(pumas_en_methods)) != len(pumas_en_methods):
+    raise ValueError("pumas_en_methods must contain at least two distinct methods")
+  if any(method not in eligible_methods for method in pumas_en_methods):
+    raise ValueError("pumas_en_methods contains a method unsupported by PUMAS-EN")
+  if any(method not in configured_methods for method in pumas_en_methods):
+    raise ValueError("Every pumas_en_methods entry must also appear in pgs_methods")
+  if 'pumas_en' not in configured_methods:
+    raise ValueError("pgs_methods must include 'pumas_en' when pumas_en_methods is enabled")
+  if len(gwas_list_df_base) != 1 or str(gwas_list_df_base.iloc[0]['population']).upper() != 'EUR':
+    raise ValueError("PUMAS-EN requires exactly one EUR GWAS in gwas_list")
+  if (pumas_en_folds != 4 or len(pumas_en_partitions) != 4 or
+      any(not math.isfinite(x) or x <= 0 for x in pumas_en_partitions) or
+      abs(sum(pumas_en_partitions) - 1.0) > 1e-8):
+    raise ValueError("PUMAS-EN currently requires 4 positive partitions summing to 1")
+
+  missing_ld = [pumas_en_ld_blocks] if not os.path.isfile(pumas_en_ld_blocks) else []
+  missing_ref = [f"{pumas_en_ref_prefix}.{ext}" for ext in ('bed', 'bim', 'fam')
+                 if not os.path.isfile(f"{pumas_en_ref_prefix}.{ext}")]
+  pumas_sources = [
+    'PUMA-ensemble.subsampling.R', 'PUMAS-ensemble.evaluation.R',
+    'subsampling/helpers.R', 'evaluation/PUMAS-ensemble.R',
+    'evaluation/helpers.R', 'evaluation/CoordDescent.cpp'
+  ]
+  missing_code = [os.path.join(pumas_en_code, item) for item in pumas_sources
+                  if not os.path.isfile(os.path.join(pumas_en_code, item))]
+  pumas_commit_file = os.path.join(os.path.dirname(pumas_en_code), 'COMMIT')
+  missing_metadata = [path for path in (pumas_commit_file, pumas_en_manifest) if not os.path.isfile(path)]
+  if missing_ld or missing_ref or missing_code or missing_metadata:
+    missing = missing_ld + missing_ref + missing_code + missing_metadata
+    raise FileNotFoundError("PUMAS-EN resources are not prepared: " + ', '.join(missing))
+  with open(pumas_commit_file, encoding='utf-8') as handle:
+    installed_commit = handle.read().strip()
+  if installed_commit != pumas_en_commit:
+    raise ValueError(f"Installed PUMAS commit {installed_commit} does not match requested {pumas_en_commit}")
+
+  base_gwas = gwas_list_df_base.iloc[0]
+  pumas_fold_names = []
+  fold_rows = []
+  for fold in range(1, pumas_en_folds + 1):
+    fold_name = f"{base_gwas['name']}__pumas_en_f{fold:02d}"
+    pumas_fold_names.append(fold_name)
+    fold_rows.append({
+      **base_gwas.to_dict(),
+      'name': fold_name,
+      'path': f"{outdir}/reference/pumas_en/{base_gwas['name']}/upstream/{base_gwas['name']}.gwas.omnibus.ite{fold}.txt",
+      'label': base_gwas.get('label', base_gwas['name']),
+    })
+  collisions = set(pumas_fold_names) & set(gwas_list_df_base['name'].astype(str))
+  if collisions:
+    raise ValueError("Synthetic PUMAS fold name collides with submitted GWAS: " + ', '.join(sorted(collisions)))
+  gwas_list_df = pd.concat([gwas_list_df_base, pd.DataFrame(fold_rows)], ignore_index=True)
+else:
+  pumas_fold_names = []
+  configured_methods = config.get('pgs_methods') or []
+  if isinstance(configured_methods, str):
+    configured_methods = [] if configured_methods == 'NA' else [configured_methods]
+  if 'pumas_en' in configured_methods:
+    raise ValueError("pumas_en is derived; specify its components with pumas_en_methods")
 
 # Set ldpred2 reference path
 if config['ldpred2_ldref'] == 'NA':
@@ -523,7 +639,7 @@ def check_pgs_methods(x):
         return
 
     valid_pgs_methods = {
-        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr", "xwing", "prscsx", "bridgeprs"
+        "ptclump", "dbslmm", "prscs", "sbayesr","sbayesrc", "lassosum", "ldpred2", "lassosum2", "megaprs", "quickprs", "sdpr", "xwing", "prscsx", "bridgeprs", "pumas_en"
     }
 
     invalid_methods = [method for method in x if method not in valid_pgs_methods]
