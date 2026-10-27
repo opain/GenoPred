@@ -232,6 +232,13 @@ log_add(log_file = log_file, message = 'Calculating PCs in the target sample.')
 targ_pcs<-plink_score(pfile = opt$target_plink_chr_subset, chr = CHROMS, plink2 = opt$plink2, score = paste0(tmp_dir,'/ref.eigenvec.var'))
 targ_pcs_scaled<-score_scale(score = targ_pcs, ref_scale = ref_pcs_centre_scale)
 
+# For the web report: the target's scaled PCs and each reference population's centroid
+# in the same space (signs can flip between runs, so both come from this run). The
+# web app turns the distance from the EUR centroid into a relative PGS accuracy.
+fwrite(targ_pcs_scaled, paste0(opt$output,'.pcs'), sep='\t')
+pc_cols <- names(ref_pcs_scaled_pop)[grepl('^PC', names(ref_pcs_scaled_pop))]
+fwrite(ref_pcs_scaled_pop[, lapply(.SD, mean), by=POP, .SDcols=pc_cols], paste0(opt$output,'.pop_centroids'), sep='\t')
+
 ###
 # Create plot PC scores of target sample compared to the reference
 ###
