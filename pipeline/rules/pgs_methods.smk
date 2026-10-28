@@ -35,8 +35,10 @@ rule ref_pca:
 
 if 'gwas_list' in config:
   rule sumstat_prep_i:
+    wildcard_constraints:
+      gwas=gwas_wildcard()
     resources:
-      mem_mb=8000,
+      mem_mb=32000,
       time_min=480
     input:
       ref_input,
@@ -78,6 +80,8 @@ rule sumstat_prep:
 ##
 
 rule ldsc_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard()
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     rules.download_ldscores_panukb.output,
@@ -118,6 +122,8 @@ rule ldsc:
 ##
 
 rule prep_pgs_ptclump_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('ptclump')
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
     f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale"
@@ -181,6 +187,8 @@ def set_ld_blocks_pop(population):
     return population
 
 rule prep_pgs_dbslmm_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('dbslmm')
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -232,6 +240,8 @@ rule prep_pgs_dbslmm:
 # Note. Threads are set to 1, and phi and chr are run in parallel. Increasing number of threads shows no improvement in speed.
 
 rule prep_pgs_prscs_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('prscs')
   resources:
     mem_mb=2000*config['cores_prep_pgs'],
     time_min=1440
@@ -280,6 +290,8 @@ rule prep_pgs_prscs:
 ##
 
 rule prep_pgs_sbayesr_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('sbayesr')
   resources:
     mem_mb=4000*config['cores_prep_pgs']
   threads: config['cores_prep_pgs']
@@ -333,8 +345,10 @@ rule prep_pgs_sbayesr:
 ##
 
 rule prep_pgs_lassosum_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('lassosum')
   resources:
-    mem_mb=10000
+    mem_mb=30000
   threads: config['cores_prep_pgs']
   input:
     f"{outdir}/reference/gwas_sumstat/{{gwas}}/{{gwas}}-cleaned.gz",
@@ -373,6 +387,8 @@ rule prep_pgs_lassosum:
 ##
 
 rule prep_pgs_sdpr_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('sdpr')
   resources:
     mem_mb=10000
   threads: config['cores_prep_pgs']
@@ -422,6 +438,8 @@ rule prep_pgs_sdpr:
 ##
 
 rule prep_pgs_ldpred2_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('ldpred2')
   resources:
     mem_mb=30000,
     time_min=1440
@@ -476,6 +494,8 @@ rule prep_pgs_ldpred2:
 ##
 
 rule prep_pgs_lassosum2_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('lassosum2')
   resources:
     mem_mb=30000,
     time_min=1440
@@ -519,6 +539,8 @@ rule prep_pgs_lassosum2:
 ##
 
 rule prep_pgs_megaprs_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('megaprs')
   resources:
     mem_mb=20000,
     time_min=1440
@@ -562,6 +584,8 @@ rule prep_pgs_megaprs:
   input: expand(f"{outdir}/reference/pgs_score_files/megaprs/{{gwas}}/ref-{{gwas}}.score.gz", gwas=gwas_for_method('megaprs'))
 
 rule prep_pgs_megaprs6_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('megaprs6')
   resources:
     mem_mb=20000,
     time_min=1440
@@ -615,6 +639,8 @@ def get_quickprs_ldref_path(w, gwas_list_df, resdir):
   return f"{quickprs_ldref}/{population}/{population}.cors.bin"
   
 rule prep_pgs_quickprs_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('quickprs')
   resources:
     mem_mb=20000,
     time_min=1440
@@ -662,6 +688,8 @@ rule prep_pgs_quickprs:
 ##
 
 rule prep_pgs_sbayesrc_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard('sbayesrc')
   resources:
     mem_mb=20000,
     time_min=1440

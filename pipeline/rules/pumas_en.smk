@@ -28,6 +28,8 @@ pumas_en_xty_outputs = [
 ]
 
 rule pumas_en_subsample_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard()
   resources:
     mem_mb=32000,
     time_min=1440
@@ -87,6 +89,8 @@ def pumas_en_fold_score_paths(wildcards):
 
 
 rule prep_pgs_pumas_en_i:
+  wildcard_constraints:
+    gwas=gwas_wildcard()
   resources:
     mem_mb=64000,
     time_min=1440

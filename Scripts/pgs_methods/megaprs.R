@@ -168,7 +168,7 @@ system(paste0(opt$ldak, ' --cut-weights ', tmp_dir,'/sections --bfile ', tmp_dir
 system(paste0(opt$ldak, ' --calc-weights-all ', tmp_dir,'/sections --bfile ', tmp_dir, '/ref_merge --max-threads ', opt$n_cores))
 system(paste0('mkdir ', tmp_dir, '/bld'))
 for(i in list.files(opt$ldak_tag)){
-  system(paste0('ln -s ', getwd(), '/', opt$ldak_tag, '/', i, ' ', tmp_dir, '/bld/', i))
+  system(paste0('ln -s ', normalizePath(file.path(opt$ldak_tag, i)), ' ', tmp_dir, '/bld/', i))
 }
 system(paste0('ln -s ', tmp_dir, '/sections/weights.short ', tmp_dir,'/bld/bld65'))
 

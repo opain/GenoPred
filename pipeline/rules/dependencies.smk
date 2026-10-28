@@ -203,6 +203,17 @@ def gwas_for_method(method):
   return [row['name'] for _, row in gwas_list_df.iterrows()
           if _gwas_methods(row['methods']) is None or method in _gwas_methods(row['methods'])]
 
+def gwas_wildcard(method=None):
+  """Regex for a per-GWAS rule's {gwas} wildcard: only this job's gwas_list
+  names (running `method`, when given). Prepared artifacts are staged at the
+  same reference/pgs_score_files/<method>/<name>/ paths these rules write, so
+  without it Snakemake treats a prepared score as this rule's output and
+  evaluates its gwas_list lookups for a GWAS that isn't in the job (IndexError),
+  or re-runs the method when the same GWAS is also a novel GWAS for another
+  method. A regex matching nothing when the list is empty."""
+  names = gwas_for_method(method) if method else list(gwas_list_df['name'])
+  return '|'.join(re.escape(str(n)) for n in names) if names else '(?!x)x'
+
 if 'methods' in gwas_list_df.columns:
   _configured = set(config.get('pgs_methods') or [])
   for _, _row in gwas_list_df.iterrows():
@@ -908,7 +919,7 @@ rule download_prscs_ref_ukb:
       rm -r -f {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}; \
       wget --no-check-certificate -O {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz {params.url}; \
       tar -zxvf {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/ukbb/; \
-      extracted_dir=$(tar -tzf {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz | head -1 | cut -d/ -f1); \
+      extracted_dir=$(set +o pipefail; tar -tzf {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}.tar.gz | head -1 | cut -d/ -f1); \
       if [ "$extracted_dir" != "ldblk_ukbb_{wildcards.population}" ]; then \
         mv {resdir}/data/prscs_ref/ukbb/"$extracted_dir" {resdir}/data/prscs_ref/ukbb/ldblk_ukbb_{wildcards.population}; \
       fi; \
@@ -945,7 +956,7 @@ rule download_prscs_ref_1kg:
       rm -r -f {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}; \
       wget --no-check-certificate -O {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz {params.url}; \
       tar -zxvf {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz -C {resdir}/data/prscs_ref/1kg/; \
-      extracted_dir=$(tar -tzf {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz | head -1 | cut -d/ -f1); \
+      extracted_dir=$(set +o pipefail; tar -tzf {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}.tar.gz | head -1 | cut -d/ -f1); \
       if [ "$extracted_dir" != "ldblk_1kg_{wildcards.population}" ]; then \
         mv {resdir}/data/prscs_ref/1kg/"$extracted_dir" {resdir}/data/prscs_ref/1kg/ldblk_1kg_{wildcards.population}; \
       fi; \
@@ -1035,6 +1046,8 @@ rule download_gctb_ref:
       chr=range(1, 23), ext=["bin", "info"]
     ),
     expand(f"{resdir}/data/gctb_ref/EUR/EUR.chr{{chr}}.log", chr=range(1, 23))
+  resources:
+    time_min=1440
   benchmark:
     f"{resdir}/data/benchmarks/download_gctb_ref.txt"
   log:

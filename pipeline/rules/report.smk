@@ -99,8 +99,9 @@ rule enhanced_ancestry_i:
     "../envs/analysis.yaml"
   # Full-genome UKB ancestry projection over every chromosome - not a cheap
   # per-target rule, so it needs its own override (see sample_report_i above).
+  # 8000 -> 12000: peaked at 7.6-7.8 GB of 8 GB on every web run (Oct 2026).
   resources:
-    mem_mb=8000,
+    mem_mb=12000,
     time_min=240
   params:
     target_plink_chr=lambda w: f"{outdir}/{w.name}/geno/{w.name}.ref.chr",

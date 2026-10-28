@@ -25,7 +25,13 @@ if 'target_list' in config:
     # be started"), confirmed by an actual failed run, not just a risk.
     input:
       lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
-      rules.download_impute2_data.output,
+      # The panel's IMPUTE2 files (SHAPEIT2 check/pre-phasing) and its genetic
+      # map. Only 1000GP_Phase3 comes from the download rule; other panels are
+      # built by the web launcher's setup scripts, and 1000GP_Phase3 needn't
+      # exist on disk then.
+      rules.download_impute2_data.output if config['impute_ref_panel'] == '1000GP_Phase3' else
+        f"{resdir}/data/impute2/{config['impute_ref_panel']}/{config['impute_ref_panel']}_chr{{chr}}.legend.gz",
+      f"{resdir}/data/impute2/{config['impute_ref_panel']}/genetic_map_chr{{chr}}_combined_b37.txt",
       rules.install_genoutils_impute5.output,
       f"{resdir}/last_version.txt",
       # The panel itself: a rebuilt/switched panel is newer than any genotypes
