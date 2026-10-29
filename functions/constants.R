@@ -37,8 +37,8 @@ ref_pop <- data.frame(
 
 # Make a data.frame giving labels to the 1KG reference populations
 pgs_method_labels <- data.frame(
-  method = c('ptclump','dbslmm','ldpred2','sbayesr','sbayesrc','lassosum','lassosum2','prscs','megaprs','quickprs','sdpr','external','prscsx','xwing','ptclump_multi','dbslmm_multi','ldpred2_multi','sbayesr_multi','sbayesrc_multi','lassosum_multi','prscs_multi','megaprs_multi','quickprs_multi','tlprs_dbslmm','tlprs_sbayesrc','tlprs_quickprs','tlprs_ldpred2','tlprs_sdpr','pumas_en'),
-  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','SBayesRC','lassosum','lassosum2','PRS-CS','MegaPRS','QuickPRS','SDPR','External','PRS-CSx','X-Wing','pT+clump-multi','DBSLMM-multi','LDpred2-multi','SBayesR-multi','SBayesRC-multi','lassosum-multi','PRS-CS-multi','MegaPRS-multi','QuickPRS-multi','TL-DBSLMM','TL-SBayesRC','TL-QuickPRS','TL-LDpred2','TL-SDPR','PUMAS-EN')
+  method = c('ptclump','dbslmm','ldpred2','sbayesr','sbayesrc','lassosum','lassosum2','prscs','megaprs','quickprs','sdpr','external','prscsx','xwing','bridgeprs','ptclump_multi','dbslmm_multi','ldpred2_multi','sbayesr_multi','sbayesrc_multi','lassosum_multi','prscs_multi','megaprs_multi','quickprs_multi','tlprs_dbslmm','tlprs_sbayesrc','tlprs_quickprs','tlprs_ldpred2','tlprs_sdpr','pumas_en'),
+  label = c('pT+clump','DBSLMM','LDpred2','SBayesR','SBayesRC','lassosum','lassosum2','PRS-CS','MegaPRS','QuickPRS','SDPR','External','PRS-CSx','X-Wing','BridgePRS','pT+clump-multi','DBSLMM-multi','LDpred2-multi','SBayesR-multi','SBayesRC-multi','lassosum-multi','PRS-CS-multi','MegaPRS-multi','QuickPRS-multi','TL-DBSLMM','TL-SBayesRC','TL-QuickPRS','TL-LDpred2','TL-SDPR','PUMAS-EN')
 )
 pgs_method_labels<-pgs_method_labels[order(pgs_method_labels$method),]
 
@@ -46,5 +46,4 @@ pgs_method_labels<-pgs_method_labels[order(pgs_method_labels$method),]
 pgs_methods_noneur <- c('ptclump','lassosum','lassosum2','megaprs','prscs','dbslmm','ldpred2','quickprs','sbayesrc','sdpr')
 
 # Make vector indicating pgs_methods that are to be applied to gwas_groups
-pgs_group_methods <- c('prscsx','xwing')
-
+pgs_group_methods <- c('prscsx','xwing','bridgeprs')

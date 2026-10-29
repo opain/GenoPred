@@ -40,13 +40,16 @@ if(is.null(opt$score)){
 
 # Create output directory
 opt$output_dir <- paste0(dirname(opt$output), '/')
-system(paste0('mkdir -p ', opt$output_dir))
+dir.create(opt$output_dir, recursive = TRUE, showWarnings = FALSE)
+# Invalidate any previous result before reading or harmonising the new input.
+unlink(c(paste0(opt$output, '.score'), paste0(opt$output, '.score.gz'), paste0(opt$output, '.score.gz.reference.md5')))
 
 # Create temp directory
 tmp_dir <- tempdir()
 
 # Initiate log file
 log_file <- paste0(opt$output,'.log')
+unlink(log_file)  # seeded logs can be hardlinks to the shared reference
 log_header(log_file = log_file, opt = opt, script = 'external_score_processor.R', start.time = start.time)
 
 # If testing, change CHROMS to chr value
@@ -253,11 +256,7 @@ if(nrow(targ_matched) < 0.75*n_snp_orig){
 
 	fwrite(score_new, paste0(opt$output,'.score'), col.names=T, sep=' ', quote=F)
 
-	if(file.exists(paste0(opt$output,'.score.gz'))){
-		system(paste0('rm ',opt$output,'.score.gz'))
-	}
-
-	system(paste0('gzip ',opt$output,'.score'))
+	if(system2('gzip', shQuote(paste0(opt$output,'.score'))) != 0) stop('Could not compress score file.')
 }
 
 end.time <- Sys.time()

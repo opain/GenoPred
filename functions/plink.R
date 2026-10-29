@@ -426,55 +426,51 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
   n_scores<-ncol(score_small)-3
 
   # Assemble command and files for keep and extract
-  plink_opt<-paste0(plink2, ' ')
+  plink_opt <- character()
   if(!is.null(bfile)){
-    plink_opt<-paste0(plink_opt, paste0('--bfile ',bfile,'CHROMOSOME_NUMBER '))
+    plink_opt <- c(plink_opt, '--bfile', paste0(bfile, 'CHROMOSOME_NUMBER'))
   } else {
-    plink_opt<-paste0(plink_opt, paste0('--pfile ',pfile,'CHROMOSOME_NUMBER '))
+    plink_opt <- c(plink_opt, '--pfile', paste0(pfile, 'CHROMOSOME_NUMBER'))
   }
   if(!is.null(keep)){
     keep <- obj_or_file(keep)
-    plink_opt<-paste0(plink_opt, '--keep ', keep, ' ')
+    plink_opt <- c(plink_opt, '--keep', keep)
   }
   if(!is.null(extract)){
     extract <- obj_or_file(extract)
-    plink_opt<-paste0(plink_opt, '--extract ', extract, ' ')
+    plink_opt <- c(plink_opt, '--extract', extract)
   }
   if(!is.null(frq)){
-    plink_opt<-paste0(plink_opt, '--read-freq ', frq,'CHROMOSOME_NUMBER.afreq --score ', score,' header-read cols=+scoresums,-scoreavgs ')
+    plink_opt <- c(plink_opt, '--read-freq', paste0(frq, 'CHROMOSOME_NUMBER.afreq'), '--score', score, 'header-read', 'cols=+scoresums,-scoreavgs')
   } else {
-    plink_opt<-paste0(plink_opt, '--score ', score,' header-read no-mean-imputation cols=+scoresums,-scoreavgs ')
+    plink_opt <- c(plink_opt, '--score', score, 'header-read', 'no-mean-imputation', 'cols=+scoresums,-scoreavgs')
   }
   if(n_scores > 1){
-    plink_opt<-paste0(plink_opt, '--score-col-nums 4-',3+n_scores, ' ')
+    plink_opt <- c(plink_opt, '--score-col-nums', paste0('4-', 3+n_scores))
   } else {
-    plink_opt<-paste0(plink_opt, '--score-col-nums 4 ')
+    plink_opt <- c(plink_opt, '--score-col-nums', '4')
   }
   # Calculate score in the target sample
   scores <- NULL
   for(chr_i in chr){
-    cmd<-paste0(plink_opt,'--chr ',chr_i,' --out ',tmp_folder,'/profiles.chr',chr_i,' --threads ',threads)
-    cmd <- gsub('CHROMOSOME_NUMBER', chr_i, cmd)
-    exit_status <- system(cmd, intern=FALSE)
+    args <- c(gsub('CHROMOSOME_NUMBER', chr_i, plink_opt, fixed = TRUE), '--chr', chr_i,
+              '--out', paste0(tmp_folder, '/profiles.chr', chr_i), '--threads', threads)
+    exit_status <- system2(plink2, shQuote(as.character(args)))
     if (exit_status != 0 & exit_status != 13) {
       stop()
     }
 
     # Add up the scores across chromosomes as they are produced
     if (file.exists(paste0(tmp_folder, '/profiles.chr', chr_i, '.sscore'))) {
+      ids_i <- fread(cmd = paste('cut -f 1-2', shQuote(paste0(tmp_folder, '/profiles.chr', chr_i, '.sscore'))))
+      names(ids_i) <- gsub('\\#', '', names(ids_i))
+      if(!'IID' %in% names(ids_i)) stop('PLINK score output has no IID column.')
+      if(!'FID' %in% names(ids_i)) ids_i[, FID := IID]
+      ids_i <- ids_i[, .(FID, IID)]
+      validate_sample_ids(ids_i, 'PLINK chromosome')
       if(is.null(scores)){
         # Read sample IDs once to define rows
-        scores_ids <- fread(cmd = paste0('cut -f 1-2 ', tmp_folder,'/profiles.chr', chr_i, '.sscore'))
-        names(scores_ids)<-gsub('\\#', '', names(scores_ids))
-        scores_ids <- scores_ids[, names(scores_ids) %in% c('FID', 'IID'), with = F]
-        
-        if (ncol(scores_ids) == 1) {
-          scores_ids <- data.table(FID = scores_ids$IID,
-                                   IID = scores_ids$IID)
-        } else {
-          scores_ids <- data.table(FID = scores_ids$FID,
-                                   IID = scores_ids$IID)
-        }
+        scores_ids <- ids_i
         
         n_samples <- nrow(scores_ids)
         
@@ -501,7 +497,7 @@ plink_score<-function(bfile=NULL, pfile=NULL, score, keep=NULL, extract=NULL, ch
             data = 0
           )
         }
-      }
+      } else check_sample_order(scores_ids, ids_i)
       
       if(fbm){
         # Read in sscore file

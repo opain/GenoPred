@@ -29,7 +29,7 @@ source_all('../functions')
 
 # Create output directory
 opt$out_dir<-paste0(dirname(opt$output),'/')
-system(paste0('mkdir -p ',opt$out_dir))
+dir.create(opt$out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Create temp directory
 tmp_dir<-tempdir()
@@ -112,17 +112,22 @@ write.table(ref_target$SNP.x, paste0(tmp_dir,'/extract_list_1.txt'), col.names =
 write.table(ref_target$SNP.y, paste0(tmp_dir,'/extract_list_2.txt'), col.names = F, row.names = F, quote=F)
 
 # First extract variants based on original ID
+run_plink <- function(binary, args) {
+  status <- system2(binary, shQuote(args))
+  if(status != 0) stop('PLINK failed with status ', status)
+}
+common <- c('--extract', paste0(tmp_dir, '/extract_list_1.txt'), '--make-pgen', 'pvar-cols=', '--threads', '1', '--out', paste0(tmp_dir, '/subset'))
 if(opt$format == 'plink1'){
-  system(paste0(opt$plink2," --bfile ",opt$target, " --extract ", tmp_dir,"/extract_list_1.txt --make-pgen 'pvar-cols=' --threads 1 --out ", tmp_dir,"/subset"))
+  run_plink(opt$plink2, c('--bfile', opt$target, common))
 }
 if(opt$format == 'plink2'){
-  system(paste0(opt$plink2," --pfile ",opt$target, " --extract ", tmp_dir,"/extract_list_1.txt --make-pgen 'pvar-cols=' --threads 1 --out ", tmp_dir,"/subset"))
+  run_plink(opt$plink2, c('--pfile', opt$target, common))
 }
 if(opt$format == 'bgen'){
-  system(paste0(opt$plink2," --bgen ",opt$target,".bgen ref-last --sample ",gsub(".chr.*","",opt$target),".sample --extract ", tmp_dir,"/extract_list_1.txt --make-pgen 'pvar-cols=' --threads 1 --out ", tmp_dir,"/subset"))
+  run_plink(opt$plink2, c('--bgen', paste0(opt$target, '.bgen'), 'ref-last', '--sample', paste0(sub('\\.chr[0-9]+$', '', opt$target), '.sample'), common))
 }
 if(opt$format == 'vcf'){
-  system(paste0(opt$plink2," --vcf ",opt$target,".vcf.gz --extract ", tmp_dir,"/extract_list_1.txt --make-pgen 'pvar-cols=' --threads 1 --out ", tmp_dir,"/subset"))
+  run_plink(opt$plink2, c('--vcf', paste0(opt$target, '.vcf.gz'), common))
 }
 
 # Ensure both FID and IID are present in the .psam file
@@ -164,7 +169,7 @@ names(targ_pvar)<-c('#CHROM','POS','ID','REF','ALT')
 fwrite(targ_pvar, paste0(tmp_dir,'/subset.pvar'), col.names=T, row.names=F, quote=F, na='NA', sep=' ')
 
 # Extract variants based on new reference RSIDs
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --extract ', tmp_dir,'/extract_list_2.txt --make-pgen --threads 1 --out ', tmp_dir,'/subset'))
+run_plink(opt$plink2, c('--pfile', paste0(tmp_dir, '/subset'), '--extract', paste0(tmp_dir, '/extract_list_2.txt'), '--make-pgen', '--threads', '1', '--out', paste0(tmp_dir, '/subset')))
 
 ##################
 # Insert missing SNPs into the reference data
@@ -182,17 +187,17 @@ if(ncol(ref_psam) == 1){
   ref_ID_update<-data.frame(ref_psam$`FID`, ref_psam$`IID`, paste0(ref_psam$`FID`,'_REF'), paste0(ref_psam$`IID`,'_REF'))
 }
 fwrite(ref_ID_update, paste0(tmp_dir,'/ref_ID_update.txt'), sep=' ', col.names=F)
-system(paste0(opt$plink2,' --pfile ',opt$ref,' --make-pgen --update-ids ',tmp_dir,'/ref_ID_update.txt --out ',tmp_dir,'/REF --threads 1'))
+run_plink(opt$plink2, c('--pfile', opt$ref, '--make-pgen', '--update-ids', paste0(tmp_dir, '/ref_ID_update.txt'), '--out', paste0(tmp_dir, '/REF'), '--threads', '1'))
 
 # Merge target and reference plink files to insert missing SNPs
 # plink2's pmerge only handles concatenation for the time being
 # In the meantime, convert the ref and target into plink1 binaries, merge, and then convert back to plink2 binaries
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/subset --make-bed --threads 1 --out ',tmp_dir,'/subset'))
-system(paste0(opt$plink2,' --pfile ',tmp_dir,'/REF --make-bed --out ',tmp_dir,'/REF --threads 1'))
-system(paste0(opt$plink,' --bfile ',tmp_dir,'/subset --bmerge ',tmp_dir,'/REF --make-bed --allow-no-sex --out ',tmp_dir,'/ref_targ'))
+run_plink(opt$plink2, c('--pfile', paste0(tmp_dir, '/subset'), '--make-bed', '--threads', '1', '--out', paste0(tmp_dir, '/subset')))
+run_plink(opt$plink2, c('--pfile', paste0(tmp_dir, '/REF'), '--make-bed', '--out', paste0(tmp_dir, '/REF'), '--threads', '1'))
+run_plink(opt$plink, c('--bfile', paste0(tmp_dir, '/subset'), '--bmerge', paste0(tmp_dir, '/REF'), '--make-bed', '--allow-no-sex', '--out', paste0(tmp_dir, '/ref_targ')))
 
 # Extract only target individuals
-system(paste0(opt$plink2,' --bfile ',tmp_dir,'/ref_targ --remove ',tmp_dir,'/REF.psam --make-pgen --threads 1 --out ',opt$output))
+run_plink(opt$plink2, c('--bfile', paste0(tmp_dir, '/ref_targ'), '--remove', paste0(tmp_dir, '/REF.psam'), '--make-pgen', '--threads', '1', '--out', opt$output))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time

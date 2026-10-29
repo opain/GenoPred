@@ -77,10 +77,16 @@ if(is.null(opt$chr)){
 
 # Create output directory
 opt$output_dir <- paste0(dirname(opt$output), '/')
-system(paste0('mkdir -p ', opt$output_dir))
+dir.create(opt$output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Create temp directory
 tmp_dir <- tempdir()
+
+run_tool <- function(command, args, stdout = '') {
+  status <- system2(command, shQuote(as.character(args)), stdout = stdout)
+  if(status != 0) stop(command, ' failed with exit status ', status)
+}
+tmp <- function(name) file.path(tmp_dir, name)
 
 # Initiate log file
 log_file <- paste0(opt$output,'.log')
@@ -92,13 +98,16 @@ log_header(log_file = log_file, opt = opt, script = '23andMe_imputer.R', start.t
 
 # If compressed, decompress
 if(substr(opt$geno, (nchar(opt$geno) + 1) - 4, nchar(opt$geno)) == '.zip'){
-	log <- system(paste0("unzip -d ", tmp_dir, " ", opt$geno), intern = T)
-	opt$geno <- gsub(' ', '', gsub('.*inflating: ', '', log[grepl('inflating', log)]))
+	entries <- utils::unzip(opt$geno, list = TRUE)$Name
+	entries <- entries[!grepl('/$', entries)]
+	if(length(entries) != 1 || grepl('^/|(^|/)\\.\\.(/|$)', entries[1])) stop('Genotype zip must contain one safe file path.')
+	utils::unzip(opt$geno, files = entries, exdir = tmp_dir)
+	opt$geno <- file.path(tmp_dir, entries[1])
 	log_add(log_file = log_file, message = 'Decompressed 23andMe genotype data.')
 }
 
 # Convert to PLINK format using plink
-system(paste0(opt$plink,' --23file ',opt$geno,' ', opt$FID,' ',opt$IID,' ',opt$Sex,' ',opt$Pheno,' ',opt$PID,' ',opt$MID,' --out ',tmp_dir,'/geno --recode --chr ', opt$chr,' --memory 2000'))
+run_tool(opt$plink, c('--23file', opt$geno, opt$FID, opt$IID, opt$Sex, opt$Pheno, opt$PID, opt$MID, '--out', tmp('geno'), '--recode', '--chr', opt$chr, '--memory', 2000))
 
 # Read in map file
 map <- fread(paste0(tmp_dir,'/geno.map'))
@@ -109,7 +118,7 @@ exclude <- map[duplicated(map[, 4]), 2]
 log_add(log_file = log_file, message = paste0('Removing ',length(exclude),' SNPs that are duplicated.'))
 
 write.table(exclude, file=paste0(tmp_dir,'/duplicates.snplist'), sep='\t', row.names=F, col.names=F, quote=F)
-system(paste0(opt$plink,' --file ', tmp_dir, '/geno --recode --out ', tmp_dir, '/geno_nodup --exclude ', tmp_dir, '/duplicates.snplist'))
+run_tool(opt$plink, c('--file', tmp('geno'), '--recode', '--out', tmp('geno_nodup'), '--exclude', tmp('duplicates.snplist')))
 
 ####
 # Prepare for imputation using shapeit
@@ -119,7 +128,8 @@ log_add(log_file = log_file, message = 'Harmonsing and phasing genetic data usin
 
 # Check for strand flips
 # We a introduce a dummy indvidual who is a heterozygote to make shapeit knows A2.
-system(paste0(opt$shapeit, ' -check --input-ped ', tmp_dir, '/geno_nodup.ped ', tmp_dir, '/geno_nodup.map -M ', opt$ref, '/genetic_map_chr', opt$chr, '_combined_b37.txt --input-ref ',opt$ref,'/', opt$ref_name, '_chr', opt$chr, '.hap.gz ', opt$ref,'/', opt$ref_name, '_chr', opt$chr, '.legend.gz ', opt$ref, '/', opt$ref_name, '.sample --output-log ', tmp_dir, '/geno_nodup.shapeit_log'))
+shapeit_input <- c('--input-ped', tmp('geno_nodup.ped'), tmp('geno_nodup.map'), '-M', file.path(opt$ref, paste0('genetic_map_chr', opt$chr, '_combined_b37.txt')), '--input-ref', file.path(opt$ref, paste0(opt$ref_name, '_chr', opt$chr, '.hap.gz')), file.path(opt$ref, paste0(opt$ref_name, '_chr', opt$chr, '.legend.gz')), file.path(opt$ref, paste0(opt$ref_name, '.sample')), '--output-log', tmp('geno_nodup.shapeit_log'))
+run_tool(opt$shapeit, c('-check', shapeit_input))
 
 # Read in the shapeit log file
 logFile <- data.frame(fread(paste0(tmp_dir, '/geno_nodup.shapeit_log.snp.strand'), col.names = c("type1", "type2", "pos", "main_id", "main_A", "main_B", "main_flippable", "ref_id", "ref_A", "ref_B", "ref_flippable")))
@@ -165,11 +175,11 @@ omitRemaining <- logStrand[!logStrand[, 4] %in% forceHomozygoteTable[, 4], 3]
 write.table(c(omitNonIdentical, omitBlank, omitMissing, omitRemaining), file = paste0(tmp_dir, '/exclusions.txt'), sep = '\t', row.names = F, col.names = F, quote = F)
 
 # Run shapeit command
-system(paste0(opt$shapeit, ' --input-ped ', tmp_dir, '/geno_nodup.ped ', tmp_dir, '/geno_nodup.map -M ', opt$ref,'/genetic_map_chr', opt$chr ,'_combined_b37.txt --input-ref ', opt$ref, '/', opt$ref_name, '_chr', opt$chr, '.hap.gz ', opt$ref, '/', opt$ref_name, '_chr', opt$chr, '.legend.gz ', opt$ref, '/', opt$ref_name, '.sample --output-log ',tmp_dir, '/geno_nodup.shapeit_log --exclude-snp ',tmp_dir, '/exclusions.txt -O ',tmp_dir, '/geno_nodup.harmonised_temp'))
+run_tool(opt$shapeit, c(shapeit_input, '--exclude-snp', tmp('exclusions.txt'), '-O', tmp('geno_nodup.harmonised_temp')))
 
 # Remove dummy individual
-system(paste0("cut --delimiter=' ' -f 1-7 ",tmp_dir, '/geno_nodup.harmonised_temp.haps > ',tmp_dir, '/geno_nodup.harmonised.haps'))
-system(paste0("head -n 3 ",tmp_dir, '/geno_nodup.harmonised_temp.sample > ',tmp_dir, '/geno_nodup.harmonised.sample'))
+run_tool('cut', c('-d', ' ', '-f', '1-7', tmp('geno_nodup.harmonised_temp.haps')), tmp('geno_nodup.harmonised.haps'))
+writeLines(readLines(tmp('geno_nodup.harmonised_temp.sample'), n=3), tmp('geno_nodup.harmonised.sample'))
 
 ###########################################
 # Impute genetic data using IMPUTE5
@@ -182,45 +192,38 @@ log_add(log_file = log_file, message = 'Imputing data using IMPUTE5.')
 # be "CHR:POS_REF_ALT" (underscore before the alleles - see `man bcftools`);
 # SHAPEIT's own IDs are plain rsIDs, so column 2 is rebuilt from the chr/pos/
 # allele columns already present in the .haps file.
-system(paste0("awk '{$2=$1\":\"$3\"_\"$4\"_\"$5; print}' ", tmp_dir, '/geno_nodup.harmonised.haps > ', tmp_dir, '/geno_nodup.harmonised.haps_id'))
-system(paste0(opt$bcftools, ' convert --hapsample2vcf ', tmp_dir, '/geno_nodup.harmonised.haps_id,', tmp_dir, '/geno_nodup.harmonised.sample -O b -o ', tmp_dir, '/target.bcf'))
+run_tool('awk', c('{$2=$1":"$3"_"$4"_"$5; print}', tmp('geno_nodup.harmonised.haps')), tmp('geno_nodup.harmonised.haps_id'))
+run_tool(opt$bcftools, c('convert', '--hapsample2vcf', paste0(tmp('geno_nodup.harmonised.haps_id'), ',', tmp('geno_nodup.harmonised.sample')), '-O', 'b', '-o', tmp('target.bcf')))
 
 # xcftools/impute5 both require an INFO/AC field, which bcftools convert's
 # output doesn't carry - same fix as the one-time reference conversion
 # (hpc/setup/04_build_impute5_reference.sh).
-system(paste0(opt$bcftools, ' +fill-tags ', tmp_dir, '/target.bcf -O b -o ', tmp_dir, '/target_tagged.bcf -- -t AC,AN'))
-system(paste0(opt$bcftools, ' index -f ', tmp_dir, '/target_tagged.bcf'))
+run_tool(opt$bcftools, c('+fill-tags', tmp('target.bcf'), '-O', 'b', '-o', tmp('target_tagged.bcf'), '--', '-t', 'AC,AN'))
+run_tool(opt$bcftools, c('index', '-f', tmp('target_tagged.bcf')))
 
 # Whole-chromosome region for --r/--buffer-region (IMPUTE5 imputes the full
 # chromosome in one call - no manual chunking needed, unlike IMPUTE2). Both
 # --r and --buffer-region are required by impute5 even when there's no actual
 # buffer beyond the chromosome itself, and need an explicit position range,
 # not just the bare chromosome ID.
-maxPos <- system(paste0('zcat ', opt$ref, '/', opt$ref_name, '_chr', opt$chr, ".legend.gz | tail -n 1 | cut -d ' ' -f 2"),intern=T)
+legend <- gzfile(file.path(opt$ref, paste0(opt$ref_name, '_chr', opt$chr, '.legend.gz')), 'rt')
+last_line <- ''
+repeat { lines <- readLines(legend, n = 100000); if(!length(lines)) break; last_line <- lines[length(lines)] }
+close(legend)
+maxPos <- strsplit(trimws(last_line), '[[:space:]]+')[[1]][2]
+if(is.na(suppressWarnings(as.numeric(maxPos)))) stop('Invalid reference legend position.')
 region <- paste0(opt$chr, ':1-', maxPos)
 
 ref5_bcf <- paste0(opt$ref5, '/', opt$ref_name, '_chr', opt$chr, '_xcf.bcf')
 map5_file <- paste0(opt$map5, '/chr', opt$chr, '.b37.gmap.gz')
 
-imp_log <- system(paste0(opt$impute5,
-  ' --h ', ref5_bcf,
-  ' --g ', tmp_dir, '/target_tagged.bcf',
-  ' --o ', tmp_dir, '/imputed.bcf',
-  ' --r ', region,
-  ' --buffer-region ', region,
-  ' --m ', map5_file,
-  ' --threads ', opt$n_core))
-
-if(imp_log != 0){
-	log_add(log_file = log_file, message = paste0("IMPUTE5 exited with code ", imp_log, "."))
-	stop('IMPUTE5 imputation failed.')
-}
+run_tool(opt$impute5, c('--h', ref5_bcf, '--g', tmp('target_tagged.bcf'), '--o', tmp('imputed.bcf'), '--r', region, '--buffer-region', region, '--m', map5_file, '--threads', opt$n_core))
 
 # Convert the imputed BCF back to the classic .gen format the rest of this
 # script (and the pipeline downstream) expects. --tag GP extracts genotype
 # probabilities, matching IMPUTE2's own .gen semantics.
-system(paste0(opt$bcftools, ' convert --gensample ', tmp_dir, '/geno_nodup_imp --tag GP ', tmp_dir, '/imputed.bcf'))
-system(paste0('gunzip -f ', tmp_dir, '/geno_nodup_imp.gen.gz'))
+run_tool(opt$bcftools, c('convert', '--gensample', tmp('geno_nodup_imp'), '--tag', 'GP', tmp('imputed.bcf')))
+run_tool('gunzip', c('-f', tmp('geno_nodup_imp.gen.gz')))
 
 #####
 # Convert into PLINK format
@@ -254,10 +257,10 @@ write.table(
 )
 
 # Save as a plink file
-system(paste0(opt$plink2, ' --gen ', tmp_dir, '/geno_nodup_imp.gen ref-last --sample  ',tmp_dir, '/geno_nodup_imp.sample --hard-call-threshold 0.1 --make-bed --memory 5000 --threads 1 --out ', tmp_dir, '/geno_nodup_imp'))
+run_tool(opt$plink2, c('--gen', tmp('geno_nodup_imp.gen'), 'ref-last', '--sample', tmp('geno_nodup_imp.sample'), '--hard-call-threshold', 0.1, '--make-bed', '--memory', 5000, '--threads', 1, '--out', tmp('geno_nodup_imp')))
 
 # Remove missing SNPs in the plink files
-system(paste0(opt$plink, ' --bfile ', tmp_dir, '/geno_nodup_imp --geno 0.1 --make-bed --out ', tmp_dir, '/geno_nodup_imp_geno --memory 2000'))
+run_tool(opt$plink, c('--bfile', tmp('geno_nodup_imp'), '--geno', 0.1, '--make-bed', '--out', tmp('geno_nodup_imp_geno'), '--memory', 2000))
 
 # Insert the chromosome number to the bim file
 bim<-fread(paste0(tmp_dir, '/geno_nodup_imp_geno.bim'))
@@ -265,25 +268,29 @@ bim$V1 <- opt$chr
 fwrite(bim, paste0(tmp_dir, '/geno_nodup_imp_geno.bim'), col.names=F, row.names=F, quote=F, sep='\t')
 
 # Rename the imputed genotype data to output
-system(paste0('mv ',tmp_dir, '/geno_nodup_imp_geno.bed ',opt$output,'.bed'))
-system(paste0('mv ',tmp_dir, '/geno_nodup_imp_geno.bim ',opt$output,'.bim'))
-
-# Rename the gen file
-system(paste0('mv ',tmp_dir, '/geno_nodup_imp.gen ',opt$output,'.gen'))
+for(ext in c('bed', 'bim', 'gen')) {
+  source <- tmp(paste0(if(ext == 'gen') 'geno_nodup_imp' else 'geno_nodup_imp_geno', '.', ext))
+  destination <- paste0(opt$output, '.', ext)
+  unlink(destination)
+  if(!file.copy(source, destination)) stop('Could not copy output: ', destination)
+  unlink(source)
+}
 
 # Update fam file with IDs and inferred sex
-system(paste0("cut -f 1-6 -d ' ' ",tmp_dir, '/geno.ped > ', opt$output,'.fam'))
+unlink(paste0(opt$output, '.fam'))
+run_tool('cut', c('-f', '1-6', '-d', ' ', tmp('geno.ped')), paste0(opt$output, '.fam'))
 
 # Create a sample file for the bgen files
 sample_file<-data.frame(
   ID=c(0,paste0(opt$FID,'_',opt$IID)),
 	sex=c('D', NA))
 
+unlink(paste0(opt$output, '.sample'))
 write.table(sample_file, paste0(opt$output,'.sample'), col.names=T, row.names=F, quote=F)
 
 # Count the number of variants after imputation in gen files and plink files
-final_n_gen<-gsub(' .*', '', system(paste0('wc -l ',opt$output,'.gen'), intern=T))
-final_n_plink<-gsub(' .*','', system(paste0('wc -l ',opt$output,'.bim'), intern=T))
+final_n_gen <- strsplit(trimws(system2('wc', c('-l', shQuote(paste0(opt$output, '.gen'))), stdout=TRUE)), '[[:space:]]+')[[1]][1]
+final_n_plink <- nrow(bim)
 
 log_add(log_file = log_file, message = paste0('.gen files contain ',final_n_gen,' SNPs.'))
 log_add(log_file = log_file, message = paste0('.plink files contain ',final_n_plink,' SNPs.'))

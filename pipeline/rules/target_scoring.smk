@@ -99,6 +99,16 @@ rule pc_projection:
 # Polygenic scoring
 ####
 
+# Generated/prepared scores are guaranteed to be available; external scores
+# can be skipped at harmonisation and remain checkpoint-dependent side effects.
+target_score_outputs = []
+for prefix in sorted(reference_output_prefixes):
+  score_name = os.path.basename(os.path.dirname(prefix))
+  method_name = os.path.basename(os.path.dirname(os.path.dirname(prefix)))
+  target_score_outputs.append(
+    f"{outdir}/{{name}}/pgs/{{population}}/{method_name}/{score_name}/{{name}}-{score_name}-{{population}}.profiles"
+  )
+
 rule target_pgs_i:
   resources:
     mem_mb=config['mem_target_pgs'],
@@ -112,7 +122,8 @@ rule target_pgs_i:
     lambda w: f"{outdir}/reference/target_checks/{{name}}/pc_projection-TRANS.done" if w.population == "TRANS" else [],
     rules.ref_pgs.output
   output:
-    touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{population}}.done")
+    touch(f"{outdir}/reference/target_checks/{{name}}/target_pgs-{{population}}.done"),
+    target_score_outputs
   benchmark:
     f"{outdir}/reference/benchmarks/target_pgs_i-{{name}}-{{population}}.txt"
   log:
@@ -140,4 +151,3 @@ rule target_pgs_all:
 rule target_pgs:
   input:
     expand(f"{outdir}/reference/target_checks/{{name}}/target_pgs.done", name=target_list_df['name'])
-

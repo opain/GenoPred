@@ -71,7 +71,7 @@ list_score_files <- function(config, quiet = F){
     pgs_methods_list <- read_param(config = config, param = 'pgs_methods', return_obj = F, quiet = quiet)
 
     # Retain methods that are applied to groups with only 2 gwas
-    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% c('prscsx', 'xwing'))]
+    pgs_methods_list <- pgs_methods_list[(pgs_methods_list %in% c('prscsx', 'xwing', 'bridgeprs'))]
     
     # Provide combos for methods applied to groups of gwas
     combos <- rbind(combos, expand.grid(name = gwas_groups_2$name, method = pgs_methods_list))
@@ -110,14 +110,22 @@ list_score_files <- function(config, quiet = F){
     }
   }
   
+  if(is.null(combos) || nrow(combos) == 0) return(NULL)
   combos <- data.table(combos)
   combos <- combos[, lapply(.SD, as.character)]
+  combos <- unique(combos)
   
   # Remove score files where .score.gz does not exist
   combos_keep <- NULL
   for(i in 1:nrow(combos)){
     score_i <- paste0(outdir, '/reference/pgs_score_files/', combos$method[i],'/', combos$name[i],'/ref-',combos$name[i], '.score.gz')
-    if(file.exists(score_i)){
+    log_i <- sub('\\.score\\.gz$', '.log', score_i)
+    external_success <- TRUE
+    if(combos$method[i] == 'external') {
+      log <- if(file.exists(log_i)) readLines(log_i, warn = FALSE) else character()
+      external_success <- any(grepl('^Analysis finished at', log)) && !any(grepl('^Skipping', log))
+    }
+    if(file.exists(score_i) && external_success){
       combos_keep <- rbind(combos_keep, combos[i,])
     } else {
       if(quiet == F){
@@ -156,13 +164,23 @@ map_score<-function(ref, score){
     stop('NA values detected in SNP column of ref or score.')
   }
   
+  if(anyDuplicated(ref$SNP) || anyDuplicated(score$SNP)) stop('Duplicate SNP IDs in ref or score.')
   ref <- ref[, c('SNP','A1','A2'), with = F]
-  tmp <- merge(ref, score, by = 'SNP', all.x=T, sort = F)
-  flip <- which(tmp$A1.x != tmp$A1.y)
-  tmp <- as.matrix(tmp[, -1:-5, drop = FALSE])
-  tmp[flip, ] <- -tmp[flip, ,drop=F]
-  new_score<-cbind(ref, tmp)
-  new_score[is.na(new_score)]<-0
+  idx <- match(ref$SNP, score$SNP)
+  present <- which(!is.na(idx))
+  a1 <- score$A1[idx[present]]; a2 <- score$A2[idx[present]]
+  same <- a1 == ref$A1[present] & a2 == ref$A2[present]
+  swapped <- a1 == ref$A2[present] & a2 == ref$A1[present]
+  complement <- c(A = 'T', T = 'A', C = 'G', G = 'C')
+  strand_same <- unname(complement[a1]) == ref$A1[present] & unname(complement[a2]) == ref$A2[present]
+  strand_swapped <- unname(complement[a1]) == ref$A2[present] & unname(complement[a2]) == ref$A1[present]
+  swapped <- swapped | (!(same | swapped) & strand_swapped)
+  same <- same | (!(same | swapped) & strand_same)
+  if(any(!(same | swapped))) stop('Incompatible alleles for SNP: ', ref$SNP[present[which(!(same | swapped))[1]]])
+  weights <- as.matrix(score[idx, setdiff(names(score), c('SNP','A1','A2')), with = FALSE])
+  weights[present[swapped], ] <- -weights[present[swapped], , drop = FALSE]
+  weights[is.na(weights)] <- 0
+  new_score <- cbind(ref, weights)
 
   return(new_score)
 }
@@ -170,7 +188,9 @@ map_score<-function(ref, score){
 # Calculate mean and sd of scores in file with plink .sscore format
 score_mean_sd<-function(scores, keep=NULL){
     if(!is.null(keep)){
-        scores<-scores[paste0(scores$FID, '_', scores$IID) %in% paste0(keep$FID, '_', keep$IID),]
+        validate_sample_ids(scores, 'scores')
+        validate_sample_ids(keep, 'keep list')
+        scores <- scores[keep[, .(FID, IID)], on = .(FID, IID), nomatch = 0]
     }
 
     scale<-data.table(  Param=names(scores)[-1:-2],
@@ -219,7 +239,7 @@ read_geno <- function(target, format) {
   }
 
   if (format == 'vcf') {
-    target_snp <- fread(cmd = paste0("zcat ", target, ".vcf.gz | cut -f 1-5"), skip='#CHROM')
+    target_snp <- fread(cmd = paste0("gzip -cd -- ", shQuote(paste0(target, ".vcf.gz")), " | cut -f 1-5"), skip='#CHROM')
     names(target_snp) <- c('CHR', 'BP', 'SNP', 'A1', 'A2')
     target_snp$CHR <- as.numeric(gsub('chr', '', target_snp$CHR))
   }
@@ -393,8 +413,17 @@ ldsc <- function(sumstats, ldsc, hm3_snplist, munge_sumstats, ld_scores, log_fil
 
 # Match A1 and A2 match a reference
 allele_match<-function(sumstats, ref_bim, chr = 1:22){
+  if(anyDuplicated(sumstats$SNP) || anyDuplicated(ref_bim$SNP)) stop('Duplicate SNP IDs in sumstats or reference.')
   sumstats_ref<-merge(sumstats, ref_bim[, c('SNP','A1','A2'), with=F], by = 'SNP')
+  same_index <- sumstats_ref$A1.x == sumstats_ref$A1.y & sumstats_ref$A2.x == sumstats_ref$A2.y
   swap_index <- sumstats_ref$A1.x == sumstats_ref$A2.y & sumstats_ref$A2.x == sumstats_ref$A1.y
+  complement <- c(A = 'T', T = 'A', C = 'G', G = 'C')
+  c1 <- unname(complement[sumstats_ref$A1.x]); c2 <- unname(complement[sumstats_ref$A2.x])
+  strand_same <- c1 == sumstats_ref$A1.y & c2 == sumstats_ref$A2.y
+  strand_swap <- c1 == sumstats_ref$A2.y & c2 == sumstats_ref$A1.y
+  swap_index <- swap_index | (!(same_index | swap_index) & strand_swap)
+  same_index <- same_index | (!(same_index | swap_index) & strand_same)
+  if(any(is.na(same_index | swap_index) | !(same_index | swap_index))) stop('Incompatible or missing alleles in sumstats and reference.')
   sumstats_ref$BETA[swap_index] <- -sumstats_ref$BETA[swap_index]
   sumstats_ref$FREQ[swap_index] <- 1-sumstats_ref$FREQ[swap_index]
 
@@ -591,6 +620,8 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
   if(any(is.null(c(scores, pcs, output)))){
     stop('Error: All parameters must be specified.')
   }
+  # Reference trees can be hardlink-seeded; never overwrite a shared inode.
+  unlink(paste0(output, c('-TRANS.scale', '-TRANS.model.rds', '-TRANS.profiles')))
   
   if(is.character(pcs)){
     # Read in the reference PCs, extract PC columns, and update headers
@@ -600,6 +631,11 @@ model_trans_pgs<-function(scores=NULL, pcs=NULL, output=NULL){
   } else {
     pcs_dat<-pcs
   }
+
+  validate_sample_ids(scores, 'reference scores')
+  validate_sample_ids(pcs_dat, 'reference PCs')
+  if(anyNA(pcs_dat[scores[, .(FID, IID)], on = .(FID, IID), which = TRUE]))
+    stop('Missing reference PCs for one or more score sample IDs.')
   
   # Merge PGS and PCs
   scores_pcs<-merge(scores, pcs_dat, by=c('FID','IID'))
@@ -668,9 +704,9 @@ compact_lm <- function(cm) {
 # Adjust PGS for ancestry using reference PC models with parallel processing
 score_adjust <- function(score, pcs, ref_model, chunk_size = 10) {
   original_order <- names(score)
-  
-  # Ensure 'pcs' keyed for fast lookup
-  setkey(pcs, FID, IID)
+
+  validate_sample_ids(score, 'score')
+  validate_sample_ids(pcs, 'PCs')
   
   # List of score columns
   score_cols <- setdiff(names(score), c("FID", "IID"))
@@ -679,7 +715,8 @@ score_adjust <- function(score, pcs, ref_model, chunk_size = 10) {
   score_chunks <- split(score_cols, ceiling(seq_along(score_cols) / chunk_size))
   
   # Match PC rows by FID/IID directly (minimal memory usage)
-  matched_idx <- pcs[score[, .(FID, IID)], which = TRUE, nomatch = 0]
+  matched_idx <- pcs[score[, .(FID, IID)], on = .(FID, IID), which = TRUE]
+  if(anyNA(matched_idx)) stop('Missing PCs for one or more score sample IDs.')
   
   # Process each chunk sequentially to manage RAM
   for (chunk in score_chunks) {
@@ -697,8 +734,8 @@ score_adjust <- function(score, pcs, ref_model, chunk_size = 10) {
       
       # Predict mean and variance using matched PCs
       if (length(matched_idx) > 0) {
-        adjusted_score[matched_idx] <- round(
-          (score[[col_name]][matched_idx] - predict(mean_model, newdata = pcs[matched_idx])) / 
+        adjusted_score[] <- round(
+          (score[[col_name]] - predict(mean_model, newdata = pcs[matched_idx])) /
             sqrt(exp(predict(var_model, newdata = pcs[matched_idx]))),
           3
         )
@@ -706,6 +743,8 @@ score_adjust <- function(score, pcs, ref_model, chunk_size = 10) {
       
       adjusted_score
     }, mc.cores = min(getDoParWorkers(), 10))
+    failed <- vapply(chunk_results, inherits, logical(1), what = 'try-error')
+    if(any(failed)) stop('Ancestry adjustment failed for ', paste(chunk[failed], collapse = ', '), ': ', chunk_results[[which(failed)[1]]])
     
     # Write results directly back to 'score' object by reference
     for (idx in seq_along(chunk)) {
@@ -721,6 +760,78 @@ score_adjust <- function(score, pcs, ref_model, chunk_size = 10) {
   setcolorder(score, original_order)
   
   return(score)
+}
+
+# Reject ambiguous sample identities before matching or summing scores.
+validate_sample_ids <- function(x, label = 'samples') {
+  if(!all(c('FID', 'IID') %in% names(x))) stop(label, ': missing FID/IID columns.')
+  ids <- as.data.frame(x[, c('FID', 'IID'), with = FALSE])
+  if(anyNA(ids) || any(ids$FID == '') || any(ids$IID == '') || anyDuplicated(ids))
+    stop(label, ': missing or duplicate FID/IID.')
+  invisible(TRUE)
+}
+
+check_sample_order <- function(expected, actual) {
+  validate_sample_ids(expected, 'first chromosome')
+  validate_sample_ids(actual, 'chromosome')
+  if(!identical(as.data.frame(expected[, c('FID','IID'), with = FALSE]),
+                as.data.frame(actual[, c('FID','IID'), with = FALSE])))
+    stop('Chromosome sample IDs or order differ.')
+}
+
+# Positional scoring is safe only when every artifact has exactly the active
+# reference's SNP and allele columns, in the same order.
+reference_variant_fingerprint <- function(ref) {
+  file <- tempfile()
+  on.exit(unlink(file))
+  data.table::fwrite(ref[, c('SNP', 'A1', 'A2'), with = FALSE], file,
+                     sep = '\t', quote = FALSE, na = 'NA', eol = '\n')
+  unname(tools::md5sum(file))
+}
+
+validate_score_reference <- function(path, ref, fingerprint = reference_variant_fingerprint(ref), record = TRUE) {
+  expected <- as.data.frame(ref[, c('SNP', 'A1', 'A2'), with = FALSE])
+  if(anyDuplicated(expected$SNP) || anyNA(expected)) stop('Invalid or duplicate reference variants.')
+  observed <- data.table::fread(cmd = paste('gzip -cd --', shQuote(path)), select = 1:3, showProgress = FALSE)
+  if(!identical(names(observed), c('SNP', 'A1', 'A2')) ||
+     anyNA(observed) || anyDuplicated(observed$SNP) ||
+     !identical(as.data.frame(observed), expected))
+    stop('Score SNPs, alleles, count or order do not match the active reference: ', path)
+  sidecar <- paste0(path, '.reference.md5')
+  if(file.exists(sidecar) && !identical(trimws(readLines(sidecar, warn = FALSE)), fingerprint))
+    stop('Score reference fingerprint does not match the active reference: ', path)
+  if(record && !file.exists(sidecar)) {
+    # A temporary file and rename never modify a hardlinked shared artifact.
+    tmp <- tempfile(pattern = '.reference-', tmpdir = dirname(sidecar))
+    on.exit(unlink(tmp), add = TRUE)
+    writeLines(fingerprint, tmp)
+    if(!file.rename(tmp, sidecar)) stop('Could not record score reference fingerprint: ', sidecar)
+  }
+  invisible(TRUE)
+}
+
+reference_score_needs_update <- function(score_file, prefix, continuous = FALSE, pc_files = character()) {
+  inputs <- c(score_file, if(continuous) pc_files)
+  if(any(!file.exists(inputs))) stop('Missing reference scoring input: ', paste(inputs[!file.exists(inputs)], collapse = ', '))
+  outputs <- paste0(prefix, c('-EUR.profiles', '-EUR.scale', if(continuous) c('-TRANS.model.rds', '-TRANS.scale', '-TRANS.profiles')))
+  any(!file.exists(outputs)) || any(file.info(outputs)$mtime < max(file.info(inputs)$mtime))
+}
+
+# Create temporary chromosome shards in one streaming decompression. These are
+# job-local scratch files, never shared reference artifacts.
+prepare_score_shards <- function(score_path, ref_map, prefix, number, awk_script = '../functions/score_shards.awk') {
+  cmd <- paste('gzip -cd --', shQuote(score_path), '| awk -v',
+               shQuote(paste0('map=', ref_map)), '-v', shQuote(paste0('prefix=', prefix)),
+               '-v', shQuote(paste0('number=', number)), '-f', shQuote(awk_script))
+  status <- system2('bash', c('-o', 'pipefail', '-c', shQuote(cmd)))
+  if(status != 0) stop('Could not validate and split score file: ', score_path)
+  invisible(TRUE)
+}
+
+join_score_files <- function(paths, output) {
+  status <- system2('paste', shQuote(c('-d', ' ', paths)), stdout = output)
+  if(status != 0) stop('Could not combine score files into ', output)
+  invisible(TRUE)
 }
 
 # Helper function to calculate relative weights for a single file from LEOPARD

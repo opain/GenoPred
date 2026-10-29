@@ -59,17 +59,19 @@ if 'gwas_list' in config:
       testing = config['testing'],
       population= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'population'].iloc[0],
       n= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'n'].iloc[0],
-      path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0]
+      path= lambda w: gwas_list_df.loc[gwas_list_df['name'] == "{}".format(w.gwas), 'path'].iloc[0],
+      ref_prefix=f"{refdir}/ref.chr",
+      output=lambda w: f"{outdir}/reference/gwas_sumstat/{w.gwas}/{w.gwas}-cleaned"
     shell:
       """
       sumstat_cleaner_script=$(Rscript -e 'cat(system.file("scripts", "sumstat_cleaner.R", package = "GenoUtils"))' 2>&1 | grep -Eo "/.*sumstat_cleaner.R")
-      Rscript $sumstat_cleaner_script \
-        --sumstats {params.path} \
-        --n {params.n} \
-        --ref_chr {refdir}/ref.chr \
-        --population {params.population} \
-        --output {outdir}/reference/gwas_sumstat/{wildcards.gwas}/{wildcards.gwas}-cleaned \
-        --test {params.testing} > {log} 2>&1
+      Rscript "$sumstat_cleaner_script" \
+        --sumstats {params.path:q} \
+        --n {params.n:q} \
+        --ref_chr {params.ref_prefix:q} \
+        --population {params.population:q} \
+        --output {params.output:q} \
+        --test {params.testing:q} > {log:q} 2>&1
       """
 
 rule sumstat_prep:
@@ -778,6 +780,9 @@ rule prep_pgs_external_i:
     outdir=config["outdir"],
     refdir=config["refdir"],
     score= lambda w: score_path(w),
+    ref_prefix=f"{refdir}/ref.chr",
+    pcs=f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles",
+    output=lambda w: f"{outdir}/reference/pgs_score_files/external/{w.score}/ref-{w.score}",
     testing=config["testing"]
   benchmark:
     f"{outdir}/reference/benchmarks/prep_pgs_external_i-{{score}}.txt"
@@ -786,12 +791,12 @@ rule prep_pgs_external_i:
   conda:
     "../envs/analysis.yaml"
   shell:
-    "Rscript {workflow.basedir}/../Scripts/external_score_processor/external_score_processor.R \
-      --ref_plink_chr {refdir}/ref.chr \
-      --score {params.score} \
-      --ref_pcs {outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.profiles \
-      --output {outdir}/reference/pgs_score_files/external/{wildcards.score}/ref-{wildcards.score} \
-      --test {params.testing} > {log} 2>&1"
+    "Rscript {workflow.basedir:q}/../Scripts/external_score_processor/external_score_processor.R \
+      --ref_plink_chr {params.ref_prefix:q} \
+      --score {params.score:q} \
+      --ref_pcs {params.pcs:q} \
+      --output {params.output:q} \
+      --test {params.testing:q} > {log:q} 2>&1"
 
 rule prep_pgs_external:
   input: expand(f"{outdir}/reference/pgs_score_files/external/{{score}}/ref-{{score}}.log", score=score_list_df['name'])
@@ -1204,6 +1209,44 @@ rule prep_pgs:
 ##########################
 
 # Calculate PGS in reference data
+# Generated and prepared artifacts are guaranteed to exist, unlike external
+# scores, whose harmonisation can legitimately skip them. Only request outputs
+# for score/method combinations that list_score_files() actually selects.
+reference_output_prefixes = set()
+for _, row in prepared_score_list_df.iterrows():
+  reference_output_prefixes.add(os.path.join(str(row['path']), f"ref-{row['name']}"))
+
+def _flatten_pgs_inputs(items):
+  for item in items:
+    if isinstance(item, str):
+      yield item
+    else:
+      yield from _flatten_pgs_inputs(item)
+
+_noneur_methods = {'ptclump', 'lassosum', 'lassosum2', 'megaprs', 'prscs',
+                   'dbslmm', 'ldpred2', 'quickprs', 'sbayesrc', 'sdpr'}
+_groups = set(gwas_groups_df['name'].astype(str))
+_gwas_pop = dict(zip(gwas_list_df_base['name'].astype(str), gwas_list_df_base['population'].astype(str)))
+for _path in _flatten_pgs_inputs(pgs_methods_input):
+  if not _path.endswith('.score.gz'):
+    continue
+  _name = os.path.basename(os.path.dirname(_path))
+  _method = os.path.basename(os.path.dirname(os.path.dirname(_path)))
+  if _method == 'external' or os.path.basename(_path) != f'ref-{_name}.score.gz':
+    continue
+  _group_method = _method in ('prscsx', 'xwing', 'bridgeprs') or _method.startswith('tlprs_') or _method.endswith('_multi')
+  if ((_group_method and _name in _groups) or
+      (not _group_method and _name in _gwas_pop and
+       (_gwas_pop[_name] == 'EUR' or _method in _noneur_methods))):
+    reference_output_prefixes.add(_path[:-len('.score.gz')])
+
+reference_score_outputs = []
+for prefix in sorted(reference_output_prefixes):
+  reference_score_outputs.extend(prefix + suffix for suffix in ('-EUR.profiles', '-EUR.scale'))
+  if 'continuous' in config['pgs_scaling']:
+    reference_score_outputs.extend(prefix + suffix for suffix in
+      ('-TRANS.model.rds', '-TRANS.scale', '-TRANS.profiles'))
+
 rule ref_pgs:
   # 2800 min exceeds interruptible_cpu's 24h MaxTime, which makes sbatch reject
   # the job outright on the web launcher's partition list. Observed runtime is
@@ -1216,7 +1259,8 @@ rule ref_pgs:
     lambda w: f"{outdir}/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale" if 'continuous' in config["pgs_scaling"] else [],
     rules.prep_pgs.input
   output:
-    touch(f"{outdir}/reference/pgs_score_files/ref_pgs.done")
+    touch(f"{outdir}/reference/pgs_score_files/ref_pgs.done"),
+    reference_score_outputs
   benchmark:
     f"{outdir}/reference/benchmarks/ref_pgs.txt"
   log:

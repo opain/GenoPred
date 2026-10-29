@@ -19,7 +19,8 @@ if(!is.null(score_list)){
       score_check <- NULL
       for(name_i in score_list$name){
           log <- readLines(paste0(outdir,'/reference/pgs_score_files/external/', name_i,'/ref-',name_i,'.log'))
-          if(!any(grepl('^Skipping', log))){
+          score_file <- paste0(outdir,'/reference/pgs_score_files/external/', name_i,'/ref-',name_i,'.score.gz')
+          if(file.exists(score_file) && any(grepl('^Analysis finished at', log)) && !any(grepl('^Skipping', log))){
               score_check <- rbind(score_check, data.frame(name=name_i, pass=T))
           } else {
               score_check <- rbind(score_check, data.frame(name=name_i, pass=F))

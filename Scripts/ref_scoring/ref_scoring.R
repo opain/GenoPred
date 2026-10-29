@@ -58,28 +58,26 @@ if(!is.na(opt$test)){
 
 # Identify score files to be combined
 score_files<-list_score_files(opt$config)
+refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
+ref <- read_pvar(paste0(refdir, '/ref.chr'), chr = CHROMS)[, c('CHR','SNP','A1','A2'), with=F]
+reference_fingerprint <- reference_variant_fingerprint(ref)
+if(!is.null(score_files)) for(i in seq_len(nrow(score_files))) {
+  validate_score_reference(paste0(outdir, '/reference/pgs_score_files/', score_files$method[i], '/', score_files$name[i], '/ref-', score_files$name[i], '.score.gz'), ref, reference_fingerprint)
+}
 
 # Check whether score files or target genetic data are newer than target pgs
 if(!is.null(score_files)){
-  ref_pcs_file_time <- NULL
+  ref_pcs_files <- character()
   if(opt$continuous){
-    ref_pcs_file<-paste0(outdir, '/reference/pc_score_files/TRANS/ref-TRANS-pcs.EUR.scale')
-    ref_pcs_file_time <- file.info(ref_pcs_file)$mtime
+    ref_pcs_files <- paste0(outdir, '/reference/pc_score_files/TRANS/ref-TRANS-pcs', c('.EUR.scale', '.profiles'))
   }
   
   score_files_to_do <- data.table()
   for(i in 1:nrow(score_files)){
     pgs_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '-EUR.profiles')
     score_i <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i], '.score.gz')
-    if(!file.exists(pgs_i)){
+    if(reference_score_needs_update(score_i, sub('-EUR.profiles$', '', pgs_i), opt$continuous, ref_pcs_files)){
       score_files_to_do <- rbind(score_files_to_do, score_files[i,])
-    } else {
-      score_i_time <- file.info(score_i)$mtime
-      pgs_i_time <- file.info(pgs_i)$mtime
-      if (score_i_time > pgs_i_time | (!is.null(ref_pcs_file_time) && ref_pcs_file_time > pgs_i_time)) {
-        score_files_to_do <- rbind(score_files_to_do, score_files[i,])
-        system(paste0('rm ', pgs_i))
-      }
     }
   }
   log_add(log_file = log_file, message = paste0('After checking timestamps, ', nrow(score_files_to_do), '/', nrow(score_files), ' score files will be used for reference scoring.'))
@@ -102,7 +100,14 @@ refdir <- read_param(config = opt$config, param = 'refdir', return_obj = F)
 opt$ref_plink_chr <- paste0(refdir, '/ref.chr')
 
 # Read in reference SNP data
-ref <- read_pvar(opt$ref_plink_chr, chr = CHROMS)[, c('CHR','SNP','A1','A2'), with=F]
+# Reference SNP data was loaded above to validate even already-scored artifacts.
+
+ref_map <- paste0(tmp_dir, '/score_reference.tsv')
+fwrite(ref[, c('CHR','SNP','A1','A2'), with=FALSE], ref_map, sep='\t', col.names=FALSE, quote=FALSE)
+for(i in seq_len(nrow(score_files))) {
+  score_path <- paste0(outdir, '/reference/pgs_score_files/', score_files$method[i], '/', score_files$name[i], '/ref-', score_files$name[i], '.score.gz')
+  prepare_score_shards(score_path, ref_map, paste0(tmp_dir, '/score_shard.', i), i)
+}
 
 # We will process score files and perform target scoring for one chromosome for efficiency
 for(chr_i in CHROMS){
@@ -112,41 +117,26 @@ for(chr_i in CHROMS){
   #####
   # Combine score files
   #####
-  # Create row number index to subset score files by chromosome
-  row_index <- format(which(ref$CHR == chr_i) + 1, scientific = FALSE)
-  write.table(row_index, paste0(tmp_dir,'/row_index.txt'), row.names=F, quote=F, col.names = F)
-
   # Create file containing SNP, A1, and A2 information for each chromosome
   fwrite(ref[ref$CHR == chr_i, c('SNP','A1','A2'), with=F], paste0(tmp_dir,'/map.txt'), row.names=F, quote=F, sep=' ')
-
-  # Extract process score files for each name (gwas/score) in parallel
-  foreach(i = 1:nrow(score_files), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-    system(paste0(
-      'zcat ', outdir, '/reference/pgs_score_files/', score_files$method[i],'/', score_files$name[i],'/ref-',score_files$name[i],".score.gz | ",
-      'awk \'NR==FNR {rows[$1]; next} FNR==1 || FNR in rows\' ', paste0(tmp_dir,'/row_index.txt'), ' - | ',  # Corrected to retain the header and process indexed rows
-      "cut -d' ' --complement -f1-3 | ",  # Keep relevant columns, remove first 3
-      "sed '1 s/SCORE_/", paste0('score_file_', i,'.'), "/g' > ",  # Replace SCORE in the header
-      tmp_dir, '/tmp_score.', paste0(score_files$method[i], '.', score_files$name[i]), '.txt'
-    ))
-  }
 
   # Paste files together in batches
   # Set number of batches according to the number of score files to combine
   num_batches <- max(c(1, min(c(opt$n_cores, floor(nrow(score_files) / 2)))))
-  tmp_score_files <- paste0(tmp_dir,'/tmp_score.',score_files$method,'.',score_files$name,'.txt')
+  tmp_score_files <- paste0(tmp_dir, '/score_shard.', seq_len(nrow(score_files)), '.', chr_i, '.txt')
   set.seed(1)
   batches <- split(sample(tmp_score_files), rep(1:num_batches, length.out = length(tmp_score_files)))
   log_add(log_file = log_file, message = paste0('Aggregating score files in ', num_batches,' batches.'))
   foreach(i = 1:length(batches), .combine = c, .options.multicore = list(preschedule = FALSE)) %dopar% {
-    system(paste0("paste -d ' ' ", paste(batches[[i]], collapse = " "),' > ',tmp_dir,'/tmp_batch_',i))
-    system(paste0('rm ', paste(batches[[i]], collapse = " ")))
+    join_score_files(batches[[i]], paste0(tmp_dir,'/tmp_batch_',i))
+    unlink(batches[[i]])
   }
 
   # Paste batches together
   log_add(log_file = log_file, message = paste0('Aggregating batched score files.'))
   tmp_batch_files <- paste0(tmp_dir,'/tmp_batch_',1:length(batches))
-  system(paste0("paste -d ' ' ", tmp_dir,'/map.txt ', paste(tmp_batch_files, collapse = " "), ' > ', tmp_dir, '/all_score.txt'))
-  system(paste0('rm ', paste(tmp_batch_files, collapse = " ")))
+  join_score_files(c(paste0(tmp_dir,'/map.txt'), tmp_batch_files), paste0(tmp_dir, '/all_score.txt'))
+  unlink(tmp_batch_files)
 
   # Perform polygenic risk scoring
   scores_i <-
@@ -164,13 +154,13 @@ for(chr_i in CHROMS){
     current_scores <- as.matrix(scores_i[, -1:-2, with = FALSE])
     scores <- current_scores
   } else {
+    check_sample_order(scores_ids, scores_i)
+    if(!identical(colnames(scores), names(scores_i)[-c(1, 2)])) stop('Chromosome score columns differ.')
     current_scores <- as.matrix(scores_i[, -1:-2, with = FALSE])
     scores <- scores + current_scores
   }
 
-  system(paste0('rm ', tmp_dir, '/all_score.txt'))
-  system(paste0('rm ', tmp_dir, '/row_index.txt'))
-  system(paste0('rm ', tmp_dir, '/map.txt'))
+  unlink(paste0(tmp_dir, c('/all_score.txt', '/map.txt')))
   rm(scores_i)
   rm(current_scores)
   gc()
@@ -187,6 +177,7 @@ scores<-data.table(scores_ids,
 log_add(log_file = log_file, message = paste0('Adjusting PGS for ancestry.'))
 
 pop_data <- read_pop_data(paste0(refdir, '/ref.pop.txt'))
+validate_sample_ids(pop_data, 'reference population data')
 
 for(i in 1:nrow(score_files)){
   scores_i <- scores[, c('FID','IID', names(scores)[grepl(paste0('^score_file_', i, '\\.'), names(scores))]), with=F]
@@ -201,9 +192,10 @@ for(i in 1:nrow(score_files)){
   
   # Calculate scale within each reference population
   for(pop_i in unique(pop_data$POP)){
+    unlink(paste0(output_i, '-', pop_i, c('.scale', '.profiles')))
     ref_pgs_scale_i <- score_mean_sd(scores = scores_i, keep = pop_data[pop_data$POP == pop_i, c('FID','IID'), with=F])
     fwrite(ref_pgs_scale_i, paste0(output_i, '-', pop_i, '.scale'), row.names = F, quote=F, sep=' ', na='NA')
-    scores_i_pop<-scores_i[paste0(scores_i$FID, '_', scores_i$IID) %in% paste0(pop_data$FID[pop_data$POP == pop_i], '_', pop_data$IID[pop_data$POP == pop_i]),]
+    scores_i_pop <- scores_i[pop_data[POP == pop_i, .(FID, IID)], on = .(FID, IID), nomatch = 0]
     scores_i_pop<-score_scale(score=scores_i_pop, ref_scale=ref_pgs_scale_i)
     fwrite(scores_i_pop, paste0(output_i, '-', pop_i, '.profiles'), sep=' ', na='NA', quote=F)
   }

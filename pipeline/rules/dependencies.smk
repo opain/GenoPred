@@ -39,28 +39,33 @@ def check_list_paths(df, list_name = 'list'):
 # Create function to return the range of chromosomes requested
 def get_chr_range(testing):
   if testing != 'NA':
-    val = int(testing[-2:])
+    match = re.fullmatch(r'chr(0?[1-9]|1[0-9]|2[0-2])', str(testing))
+    if not match:
+      raise ValueError(f"Invalid testing chromosome: {testing!r}")
+    val = int(match.group(1))
     return range(val, val + 1)
   else:
     return range(1, 23)
 
 # Create function to check whether path of gwas or score exist
 def check_target_paths(df, chr):
+  chromosomes = [chr] if isinstance(chr, (str, int)) else list(chr)
   for index, row in df.iterrows():
-    if row['type'] == '23andMe':
-      file_path = row['path']
-    if row['type'] == 'plink1':
-      file_path =  row['path'] + ".chr" + chr + ".bed"
-    if row['type'] == 'plink2':
-      file_path =  row['path'] + ".chr" + chr + ".pgen"
+    if row['type'] not in ('23andMe', 'plink1', 'plink2', 'bgen', 'vcf'):
+      raise ValueError(f"Invalid target format: {row['type']}")
+    paths = [row['path']] if row['type'] == '23andMe' else []
     if row['type'] == 'bgen':
-      file_path =  row['path'] + ".chr" + chr + ".bgen"
-    if row['type'] == 'vcf':
-      file_path =  row['path'] + ".chr" + chr + ".vcf.gz"
-    if not os.path.exists(file_path):
+      paths.append(row['path'] + '.sample')
+    for chromosome in chromosomes if row['type'] != '23andMe' else []:
+      prefix = row['path'] + '.chr' + str(chromosome)
+      extensions = {'plink1': ('.bed', '.bim', '.fam'),
+                    'plink2': ('.pgen', '.pvar', '.psam'),
+                    'bgen': ('.bgen', '.bgen.bgi'), 'vcf': ('.vcf.gz',)}
+      paths.extend(prefix + ext for ext in extensions[row['type']])
+    for file_path in paths:
+      if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
-    else :
-      return []
+  return []
 
 # Create function that checks the type column given in the target_list
 def check_target_type(df, column='type'):
@@ -133,6 +138,14 @@ def check_required_columns(df, required_columns, list_name):
     if missing_columns:
         raise ValueError(f"Missing required columns in {list_name}: {', '.join(missing_columns)}")
 
+def check_identifiers(df, column, list_name):
+    if column not in df.columns:
+        raise ValueError(f"Missing {column} in {list_name}")
+    valid = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_.]*$')
+    for value in df[column]:
+        if pd.isna(value) or not valid.fullmatch(str(value)):
+            raise ValueError(f"Invalid {column} in {list_name}: {value!r}")
+
 
 ###
 # target_list
@@ -154,12 +167,13 @@ else:
 
 # Check for duplicate values in the 'name' column
 check_for_duplicates(target_list_df, 'name', 'target_list')
+check_identifiers(target_list_df, 'name', 'target_list')
 
 # Check specific target paths exist
 check_target_type(df = target_list_df)
 
 # Check specific target paths exist
-check_target_paths(df = target_list_df, chr = str(get_chr_range(config['testing'])[0]))
+check_target_paths(df = target_list_df, chr = get_chr_range(config['testing']))
 
 ###
 # gwas_list
@@ -176,6 +190,8 @@ gwas_list_df['n'] = gwas_list_df['n'].replace({',': ''}, regex=True)
 
 # Check for duplicate values in the 'name' column
 check_for_duplicates(gwas_list_df, 'name', 'gwas_list')
+check_identifiers(gwas_list_df, 'name', 'gwas_list')
+check_identifiers(gwas_list_df, 'population', 'gwas_list')
 
 # Check whether gwas_list paths exist
 check_list_paths(gwas_list_df, list_name = 'gwas_list')
@@ -241,6 +257,7 @@ else:
 
 # Check for duplicate values in the 'name' column
 check_for_duplicates(score_list_df, 'name', 'score_list')
+check_identifiers(score_list_df, 'name', 'score_list')
 
 # Check whether score_list paths exist
 check_list_paths(score_list_df, list_name = 'score_list')
@@ -258,7 +275,7 @@ if 'prepared_score_list' in config and config["prepared_score_list"] != 'NA':
     if prepared_score_list_df[column].isna().any():
       raise ValueError(f"Missing values found in '{column}' column of prepared_score_list")
 
-  valid_name = re.compile(r'^[A-Za-z0-9_.]+$')
+  valid_name = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_.]*$')
   for index, row in prepared_score_list_df.iterrows():
     name = str(row['name'])
     method = str(row['method'])
@@ -306,6 +323,13 @@ else:
 
 # Check for duplicate values in the 'name' column
 check_for_duplicates(gwas_groups_df, 'name', 'gwas_groups')
+check_identifiers(gwas_groups_df, 'name', 'gwas_groups')
+for _group in gwas_groups_df['gwas']:
+  for _member in str(_group).split(','):
+    if not _member.strip():
+      continue
+    if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.]*', _member.strip()):
+      raise ValueError(f"Invalid GWAS group member: {_member!r}")
 
 # Function to get the list of GWAS names for a given group
 def get_gwas_names(gwas_group):

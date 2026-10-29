@@ -36,7 +36,8 @@ if 'target_list' in config:
       f"{resdir}/last_version.txt",
       # The panel itself: a rebuilt/switched panel is newer than any genotypes
       # imputed from the old one, so --rerun-triggers mtime re-imputes them.
-      f"{resdir}/data/impute5/{config['impute_ref_panel']}/{config['impute_ref_panel']}_chr{{chr}}_xcf.bcf"
+      f"{resdir}/data/impute5/{config['impute_ref_panel']}/{config['impute_ref_panel']}_chr{{chr}}_xcf.bcf",
+      impute5=config.get('impute5_executable', os.path.abspath(os.path.join(resdir, '..', 'software', 'impute5_v1.2.0', 'impute5_v1.2.0_static')))
     output:
       f"{outdir}/{{name}}/geno/imputed/{{name}}.chr{{chr}}.bed"
     benchmark:
@@ -48,20 +49,24 @@ if 'target_list' in config:
     params:
       outdir=config["outdir"],
       name= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'name'].iloc[0],
-      path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0]
+      path= lambda w: target_list_df.loc[target_list_df['name'] == "{}".format(w.name), 'path'].iloc[0],
+      output=lambda w: f"{outdir}/{w.name}/geno/imputed/{w.name}.chr{w.chr}",
+      ref=f"{resdir}/data/impute2/{config['impute_ref_panel']}",
+      ref5=f"{resdir}/data/impute5/{config['impute_ref_panel']}",
+      map5=f"{resdir}/data/impute5/maps"
     shell:
-      "Rscript {workflow.basedir}/../Scripts/23andMe_imputer/23andMe_imputer.R \
-        --FID {params.name} \
-        --IID {params.name} \
-        --geno {params.path} \
-        --output {outdir}/{params.name}/geno/imputed/{params.name}.chr{wildcards.chr} \
+      "Rscript {workflow.basedir:q}/../Scripts/23andMe_imputer/23andMe_imputer.R \
+        --FID {params.name:q} \
+        --IID {params.name:q} \
+        --geno {params.path:q} \
+        --output {params.output:q} \
         --chr {wildcards.chr} \
-        --ref {resdir}/data/impute2/{config[impute_ref_panel]} \
-        --ref_name {config[impute_ref_panel]} \
-        --impute5 /scratch/prj/neurohackpain/GenoPred/software/impute5_v1.2.0/impute5_v1.2.0_static \
-        --ref5 {resdir}/data/impute5/{config[impute_ref_panel]} \
-        --map5 {resdir}/data/impute5/maps \
-        --n_core {threads} > {log} 2>&1"
+        --ref {params.ref:q} \
+        --ref_name {config[impute_ref_panel]:q} \
+        --impute5 {input.impute5:q} \
+        --ref5 {params.ref5:q} \
+        --map5 {params.map5:q} \
+        --n_core {threads} > {log:q} 2>&1"
 
   rule impute_23andme_all:
     input:
@@ -134,14 +139,16 @@ if 'target_list' in config:
       outdir=config["outdir"],
       refdir=config["refdir"],
       testing=config["testing"],
-      prefix= lambda w: target_prefix(name = w.name),
+      target= lambda w: f"{target_prefix(name=w.name)}.chr{w.chr}",
+      ref= lambda w: f"{refdir}/ref.chr{w.chr}",
+      output= lambda w: f"{outdir}/{w.name}/geno/{w.name}.ref.chr{w.chr}",
       type= lambda w: target_type(name = w.name)
     shell:
       "Rscript {workflow.basedir}/../Scripts/format_target/format_target.R \
-        --target {params.prefix}.chr{wildcards.chr} \
-        --format {params.type} \
-        --ref {refdir}/ref.chr{wildcards.chr} \
-        --output {outdir}/{wildcards.name}/geno/{wildcards.name}.ref.chr{wildcards.chr} > {log} 2>&1"
+        --target {params.target:q} \
+        --format {params.type:q} \
+        --ref {params.ref:q} \
+        --output {params.output:q} > {log:q} 2>&1"
 
 rule format_target_all:
   input:
